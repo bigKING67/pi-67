@@ -64,7 +64,7 @@ if [ -f "$PI_AGENT_DIR/settings.json" ]; then
     done
 
     # 备份目录
-    for d in skills extensions docs prompts scripts templates themes; do
+    for d in skills extensions docs prompts rules scripts templates themes; do
       if [ -d "$PI_AGENT_DIR/$d" ]; then
         cp -r "$PI_AGENT_DIR/$d" "$BACKUP_DIR/$d" 2>/dev/null || true
         echo "  已备份: $d/"
@@ -121,6 +121,7 @@ link "extensions" "extensions"
 link "skills" "skills"
 link "docs" "docs"
 link "prompts" "prompts"
+link "rules" "rules"
 link "scripts" "scripts"
 link "templates" "templates"
 link "themes" "themes"
