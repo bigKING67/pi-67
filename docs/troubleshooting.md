@@ -47,6 +47,22 @@ Doctor may report placeholders in:
 
 This is expected after a fresh install. Replace `YOUR_...` placeholders with local keys before using the related provider or feature.
 
+Recommended helper:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-configure.sh --prompt-secrets
+```
+
+For automation, pass secrets through environment variables instead of CLI flags:
+
+```bash
+PI67_XTALPI_API_KEY="..." \
+PI67_CODEX_API_KEY="..." \
+PI67_DEEPSEEK_API_KEY="..." \
+PI67_IMAGE_GEN_API_KEY="..." \
+bash ~/.pi/agent/scripts/pi67-configure.sh --no-prompt
+```
+
 ## `defaultProvider` or `defaultModel` fails
 
 Check:
@@ -92,6 +108,21 @@ local Codex proxy if using the codex provider
 ```
 
 Do not delete the MCP entries just because doctor warns. pi-67 intentionally installs the full best-practice configuration; doctor tells you which capabilities still need local setup.
+
+Use the configure helper to set the common local paths:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-configure.sh \
+  --no-prompt \
+  --tmwd-repo "$HOME/Documents/sixseven/codeproject/tmwd-browser-mcp" \
+  --agent-memory-bin "$HOME/.local/bin/agent-memory-mcp"
+```
+
+Preview first if you are unsure:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-configure.sh --dry-run --no-prompt
+```
 
 ## `pi skill list` fails
 

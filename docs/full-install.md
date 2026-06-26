@@ -78,6 +78,49 @@ image-gen.example.json
 
 Fill API keys and local paths after installation. Existing local config files are preserved.
 
+## Configure local readiness
+
+Use `pi67-configure.sh` after installation to safely turn copied templates into usable local config:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-configure.sh --prompt-secrets
+```
+
+The helper:
+
+1. Creates missing local config files from repo examples.
+2. Writes API keys through hidden prompts or env vars.
+3. Updates `tmwd_browser`, `js-reverse`, and `agent_memory` MCP paths.
+4. Optionally switches `settings.defaultProvider` / `settings.defaultModel`.
+5. Runs doctor after writing unless `--no-doctor` is passed.
+
+Non-interactive example:
+
+```bash
+PI67_XTALPI_API_KEY="..." \
+PI67_CODEX_API_KEY="..." \
+PI67_DEEPSEEK_API_KEY="..." \
+PI67_IMAGE_GEN_API_KEY="..." \
+bash ~/.pi/agent/scripts/pi67-configure.sh \
+  --no-prompt \
+  --tmwd-repo "$HOME/Documents/sixseven/codeproject/tmwd-browser-mcp" \
+  --agent-memory-bin "$HOME/.local/bin/agent-memory-mcp"
+```
+
+Preview without writing:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-configure.sh --dry-run --no-prompt
+```
+
+To switch provider/model:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-configure.sh --provider codex --model gpt-5.4 --prompt-secrets
+```
+
+`settings.json` is symlinked by default so updates from pi-67 continue to apply. If you request a provider/model change that differs from the repository default, the configure helper detaches `settings.json` into a local file before writing, so personal defaults do not dirty the repo.
+
 ## Readiness levels
 
 pi-67 distinguishes between installed and ready:

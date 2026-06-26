@@ -121,6 +121,7 @@ placeholder_check() {
 check_asset() {
   local rel="$1"
   local required="${2:-required}"
+  local local_mode="${3:-symlink-preferred}"
   local source="$REPO_ROOT/$rel"
   local target="$PI_AGENT_DIR/$rel"
 
@@ -140,6 +141,8 @@ check_asset() {
 
   if [ -L "$target" ]; then
     pass "installed link: $rel -> $(readlink "$target")"
+  elif [ "$local_mode" = "local-ok" ]; then
+    pass "installed local file: $rel"
   else
     warn "installed but not a symlink: $target"
   fi
@@ -369,7 +372,7 @@ else
 fi
 
 section "Installed full assets"
-check_asset "settings.json"
+check_asset "settings.json" "required" "local-ok"
 check_asset "AGENTS.md"
 check_asset "extensions"
 check_asset "skills"

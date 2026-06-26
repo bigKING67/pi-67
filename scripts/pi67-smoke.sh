@@ -77,6 +77,9 @@ cleanup() {
     /tmp/pi67-smoke-secrets.log \
     /tmp/pi67-smoke-install.log \
     /tmp/pi67-smoke-doctor.log \
+    /tmp/pi67-smoke-configure-dry.log \
+    /tmp/pi67-smoke-configure.log \
+    /tmp/pi67-smoke-doctor-configured.log \
     /tmp/pi67-smoke-ops-install.log \
     /tmp/pi67-smoke-restore-dry.log \
     /tmp/pi67-smoke-restore.log \
@@ -129,6 +132,7 @@ pass "node found: $(node -v 2>/dev/null || echo unknown)"
 
 section "Shell syntax"
 bash -n "$REPO_ROOT/install.sh"
+bash -n "$REPO_ROOT/scripts/pi67-configure.sh"
 bash -n "$REPO_ROOT/scripts/pi67-doctor.sh"
 bash -n "$REPO_ROOT/scripts/pi67-smoke.sh"
 if [ -f "$REPO_ROOT/scripts/pi67-restore.sh" ]; then
@@ -219,6 +223,67 @@ if ! grep -q 'Result: READY WITH WARNINGS\|Result: READY' /tmp/pi67-smoke-doctor
   fail "doctor did not report a ready result"
 fi
 pass "doctor readiness result accepted"
+
+section "Configure helper"
+mkdir -p "$TMP_ROOT/tmwd-browser-mcp/src"
+printf 'console.log("smoke tmwd server")\n' > "$TMP_ROOT/tmwd-browser-mcp/src/server.mjs"
+printf 'console.log("smoke js reverse server")\n' > "$TMP_ROOT/tmwd-browser-mcp/src/js-reverse-server.mjs"
+cat > "$FAKE_BIN/agent-memory-mcp" <<'SH'
+#!/usr/bin/env bash
+echo "smoke agent memory"
+SH
+chmod +x "$FAKE_BIN/agent-memory-mcp"
+
+PATH="$FAKE_BIN:$PATH" \
+PI67_XTALPI_API_KEY="smoke_xtalpi_api_key" \
+PI67_CODEX_API_KEY="smoke_codex_api_key" \
+PI67_DEEPSEEK_API_KEY="smoke_deepseek_api_key" \
+PI67_IMAGE_GEN_API_KEY="smoke_image_gen_api_key" \
+"$REPO_ROOT/scripts/pi67-configure.sh" \
+  --repo-root "$REPO_ROOT" \
+  --agent-dir "$AGENT_DIR" \
+  --provider xtalpi-tools \
+  --model deepseek-v4-pro \
+  --codex-base-url "http://127.0.0.1:8317/v1" \
+  --tmwd-repo "$TMP_ROOT/tmwd-browser-mcp" \
+  --agent-memory-bin "$FAKE_BIN/agent-memory-mcp" \
+  --image-gen-model "gpt-image-2" \
+  --no-prompt \
+  --no-doctor \
+  --dry-run >/tmp/pi67-smoke-configure-dry.log
+pass "configure dry-run completed"
+
+PATH="$FAKE_BIN:$PATH" \
+PI67_XTALPI_API_KEY="smoke_xtalpi_api_key" \
+PI67_CODEX_API_KEY="smoke_codex_api_key" \
+PI67_DEEPSEEK_API_KEY="smoke_deepseek_api_key" \
+PI67_IMAGE_GEN_API_KEY="smoke_image_gen_api_key" \
+"$REPO_ROOT/scripts/pi67-configure.sh" \
+  --repo-root "$REPO_ROOT" \
+  --agent-dir "$AGENT_DIR" \
+  --provider xtalpi-tools \
+  --model deepseek-v4-pro \
+  --codex-base-url "http://127.0.0.1:8317/v1" \
+  --tmwd-repo "$TMP_ROOT/tmwd-browser-mcp" \
+  --agent-memory-bin "$FAKE_BIN/agent-memory-mcp" \
+  --image-gen-model "gpt-image-2" \
+  --no-prompt \
+  --no-doctor >/tmp/pi67-smoke-configure.log
+pass "configure applied to temp install"
+
+PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
+  --repo-root "$REPO_ROOT" \
+  --agent-dir "$AGENT_DIR" >/tmp/pi67-smoke-doctor-configured.log
+
+if grep -q 'Result: READY WITH WARNINGS' /tmp/pi67-smoke-doctor-configured.log; then
+  cat /tmp/pi67-smoke-doctor-configured.log >&2
+  fail "doctor still reported warnings after configure"
+fi
+if ! grep -q 'Result: READY' /tmp/pi67-smoke-doctor-configured.log; then
+  cat /tmp/pi67-smoke-doctor-configured.log >&2
+  fail "doctor did not report READY after configure"
+fi
+pass "doctor reports READY after configure"
 
 section "Restore/uninstall operations"
 OPS_AGENT="$TMP_ROOT/ops-agent"

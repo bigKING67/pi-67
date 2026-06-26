@@ -1,5 +1,7 @@
 # pi-67 — Pi Coding Agent 配置一站通
 
+[![ci](https://github.com/bigKING67/pi-67/actions/workflows/ci.yml/badge.svg)](https://github.com/bigKING67/pi-67/actions/workflows/ci.yml)
+
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
 ## 这是什么
@@ -28,7 +30,7 @@
 | **Skills** | `skills/` (31 个) | lark 飞书全系列 + 前端设计/输出/重设计技能 |
 | **文档** | `docs/` (6 篇) | 全量安装、排障、MCP 优化、爬虫指南、工具速查、xtalpi 配置 |
 | **Prompts** | `prompts/` (5 个) | debug、deliver、frontend-kickoff、review、scoped-commit |
-| **脚本** | `scripts/` | doctor、smoke、restore、uninstall、xtalpi 工具冒烟测试 |
+| **脚本** | `scripts/` | configure、doctor、smoke、restore、uninstall、xtalpi 工具冒烟测试 |
 | **模板** | `templates/scrapers/` | 采集/合并/轮询相关脚本模板 |
 
 ## 快速开始
@@ -74,6 +76,7 @@ chmod +x install.sh
 安装后运行：
 
 ```bash
+bash ~/.pi/agent/scripts/pi67-configure.sh --prompt-secrets
 bash ~/.pi/agent/scripts/pi67-doctor.sh
 ```
 
@@ -93,9 +96,42 @@ FAIL = 阻断性问题
 bash scripts/pi67-smoke.sh
 ```
 
-### 手动配置
+### 本地配置向导
 
-安装完成后，需要按 doctor 提示填写以下本地配置文件。它们不会提交到仓库：
+推荐先用配置向导把本地 key / MCP 路径写入 `~/.pi/agent` 的本地配置文件：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-configure.sh --prompt-secrets
+```
+
+自动化或无交互环境用 env，不要把 API key 放进 CLI 参数：
+
+```bash
+PI67_XTALPI_API_KEY="..." \
+PI67_CODEX_API_KEY="..." \
+PI67_DEEPSEEK_API_KEY="..." \
+PI67_IMAGE_GEN_API_KEY="..." \
+bash ~/.pi/agent/scripts/pi67-configure.sh \
+  --no-prompt \
+  --tmwd-repo "$HOME/Documents/sixseven/codeproject/tmwd-browser-mcp" \
+  --agent-memory-bin "$HOME/.local/bin/agent-memory-mcp"
+```
+
+预览但不写入：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-configure.sh --dry-run --no-prompt
+```
+
+配置向导只修改本地运行态文件；它不会把密钥写入仓库。如果需要切换默认 provider/model：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-configure.sh --provider codex --model gpt-5.4 --prompt-secrets
+```
+
+注意：`settings.json` 默认是仓库 symlink；只有当你实际切换默认 provider/model 时，配置向导才会把它安全地拆成本地文件，避免把个人默认模型写回仓库。
+
+也可以手动按 doctor 提示填写以下本地配置文件。它们不会提交到仓库：
 
 ```text
 ~/.pi/agent/models.json    <- 从 models.example.json 复制，填写 API key
@@ -174,6 +210,7 @@ pi-67/
 │   ├── review.md
 │   └── scoped-commit.md
 ├── scripts/
+│   ├── pi67-configure.sh
 │   ├── pi67-doctor.sh
 │   ├── pi67-restore.sh
 │   ├── pi67-smoke.sh
