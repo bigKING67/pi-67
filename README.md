@@ -28,7 +28,7 @@
 | **Skills** | `skills/` (31 个) | lark 飞书全系列 + 前端设计/输出/重设计技能 |
 | **文档** | `docs/` (6 篇) | 全量安装、排障、MCP 优化、爬虫指南、工具速查、xtalpi 配置 |
 | **Prompts** | `prompts/` (5 个) | debug、deliver、frontend-kickoff、review、scoped-commit |
-| **脚本** | `scripts/` | `pi67-doctor.sh` + xtalpi 工具冒烟测试 |
+| **脚本** | `scripts/` | doctor、smoke、restore、uninstall、xtalpi 工具冒烟测试 |
 | **模板** | `templates/scrapers/` | 采集/合并/轮询相关脚本模板 |
 
 ## 快速开始
@@ -86,6 +86,12 @@ FAIL = 阻断性问题
 ```
 
 完整说明见 `docs/full-install.md`；常见问题见 `docs/troubleshooting.md`。
+
+本地/CI 维护检查：
+
+```bash
+bash scripts/pi67-smoke.sh
+```
 
 ### 手动配置
 
@@ -169,6 +175,9 @@ pi-67/
 │   └── scoped-commit.md
 ├── scripts/
 │   ├── pi67-doctor.sh
+│   ├── pi67-restore.sh
+│   ├── pi67-smoke.sh
+│   ├── pi67-uninstall.sh
 │   └── xtalpi-tool-smoke.sh
 └── templates/
     └── scrapers/
@@ -178,7 +187,7 @@ pi-67/
 
 xtalpi 是晶泰科技内部 API。`models.example.json` 中包含 xtalpi / xtalpi-tools 两个 provider 配置，`extensions/xtalpi-compat/` 是对应兼容层。
 
-**xtalpi 外部用户**：安装脚本会询问是否跳过 xtalpi 相关配置，你可以安全忽略并改用其他 provider。
+**xtalpi 外部用户**：完整配置仍会安装 xtalpi provider 模板；如果没有 xtalpi key，可以在 `~/.pi/agent/settings.json` / `models.json` 改用其他 provider。doctor 会把缺 key 或 provider 不匹配报告为 warning/fail。
 
 ## 更新
 
@@ -193,11 +202,33 @@ cd ~/.pi/agent/npm && npm install
 bash ~/.pi/agent/scripts/pi67-doctor.sh
 ```
 
+## 恢复与卸载
+
+安装器会把被覆盖的非 symlink 文件/目录备份到：
+
+```text
+~/.pi/agent/backup-YYYYmmdd-HHMMSS
+```
+
+从备份恢复：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-restore.sh --backup-dir ~/.pi/agent/backup-YYYYmmdd-HHMMSS --dry-run
+bash ~/.pi/agent/scripts/pi67-restore.sh --backup-dir ~/.pi/agent/backup-YYYYmmdd-HHMMSS --yes
+```
+
+只移除 pi-67 拥有的 symlink，保留本地密钥、MCP、npm、sessions、缓存：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-uninstall.sh --dry-run
+bash ~/.pi/agent/scripts/pi67-uninstall.sh --yes
+```
+
 ## 维护原则
 
 - 不提交真实密钥、token、cookie、运行会话、缓存或本地私有状态。
 - 修改全局行为时优先更新 `AGENTS.md`；长规则优先落到 `rules/`。
-- 修改安装链路后运行 `bash -n install.sh`、`bash -n scripts/pi67-doctor.sh` 和 dry-run。
+- 修改安装链路后运行 `bash scripts/pi67-smoke.sh`；至少覆盖 `bash -n`、JSON、dry-run、临时 agent-dir 安装和 doctor。
 - 提交前检查 prompt 模板是否使用 Pi 支持的 `$1` / `$ARGUMENTS` / `${...}`，避免遗留双花括号占位符。
 
 ## 贡献

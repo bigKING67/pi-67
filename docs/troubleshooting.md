@@ -172,3 +172,31 @@ To verify what will happen without writing:
 ```
 
 Use this before installing on a machine with important existing Pi configuration.
+
+## Repository smoke test
+
+Before committing installer, doctor, docs, prompts, or rules changes:
+
+```bash
+bash scripts/pi67-smoke.sh
+```
+
+Smoke creates a temporary Pi agent directory and validates the full install flow without touching your real `~/.pi/agent`.
+
+## Safe uninstall
+
+Uninstall removes only symlinks that point back to the pi-67 repository. It does not remove local config files, sessions, npm packages, caches, or unrelated files.
+
+Preview:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-uninstall.sh --dry-run
+```
+
+Apply:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-uninstall.sh --yes
+```
+
+If a target is not a pi-67-owned symlink, uninstall preserves it and prints a warning.

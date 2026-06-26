@@ -125,21 +125,46 @@ Then rerun:
 bash ~/.pi/agent/scripts/pi67-doctor.sh
 ```
 
+## Smoke test
+
+For repository maintenance and CI:
+
+```bash
+bash scripts/pi67-smoke.sh
+```
+
+The smoke test does not touch the real `~/.pi/agent`. It creates a temporary agent directory, installs the full asset set there with a fake `pi` binary, and runs doctor against that temp install.
+
 ## Recovery
 
 Every overwritten non-symlink target is moved into the backup directory printed by the installer.
 
-To manually restore a file:
+Preview a restore:
 
 ```bash
-cp ~/.pi/agent/backup-YYYYmmdd-HHMMSS/models.json ~/.pi/agent/models.json
+bash ~/.pi/agent/scripts/pi67-restore.sh --backup-dir ~/.pi/agent/backup-YYYYmmdd-HHMMSS --dry-run
 ```
 
-To restore a directory, remove the current symlink and move the backup back:
+Restore from backup:
 
 ```bash
-rm ~/.pi/agent/skills
-mv ~/.pi/agent/backup-YYYYmmdd-HHMMSS/skills ~/.pi/agent/skills
+bash ~/.pi/agent/scripts/pi67-restore.sh --backup-dir ~/.pi/agent/backup-YYYYmmdd-HHMMSS --yes
 ```
 
 Do not delete backup directories until doctor passes and Pi works as expected.
+
+## Uninstall
+
+Uninstall only removes symlinks owned by pi-67. It preserves local runtime configuration, keys, sessions, npm packages, and unrelated files.
+
+Preview:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-uninstall.sh --dry-run
+```
+
+Remove pi-67 symlinks:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-uninstall.sh --yes
+```
