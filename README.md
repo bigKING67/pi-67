@@ -1,10 +1,10 @@
 # pi-67 — Pi Coding Agent 配置一站通
 
-> 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) 全套可公开配置，面向长期使用、质量治理、真实工具链和规则化协作。
+> 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
 ## 这是什么
 
-这个仓库把 `~/.pi/agent/` 中可复用、可公开的 Pi 配置整理成可安装版本：
+这个仓库把 `~/.pi/agent/` 中可复用、可公开的 Pi 配置整理成可安装版本。它不是 minimal starter，而是完整 Pi 工作流发行包：
 
 - 常驻内核：`AGENTS.md` 只保留硬规则、工具分流、rules 读取契约和交付闭环。
 - 长规则外置：`rules/` 存放质量、架构、目录、性能、前端、浏览器、上下文和数据规则，按任务最小读取。
@@ -12,6 +12,8 @@
 - 生产力资产：Skills、Prompts、Docs、Templates 和脚本保持仓库化，便于审计、同步和回滚。
 
 仓库不会提交真实 `auth.json`、`models.json`、`mcp.json`、`image-gen.json`、会话、缓存或运行历史；只提供 `.example` 模板。
+
+默认安装是 **full install**：所有最佳配置都会部署。缺 API key、本地 MCP repo 或外部二进制时，不裁剪配置，而是由 `scripts/pi67-doctor.sh` 报告 readiness warning。
 
 ## 包含内容
 
@@ -24,9 +26,9 @@
 | **Rules** | `rules/` (8 篇) | 质量、架构、结构、性能、前端、浏览器、上下文、数据质量规则 |
 | **自定义扩展** | `extensions/` (2 个) | `xtalpi-compat` + `pi-rules-loader` |
 | **Skills** | `skills/` (31 个) | lark 飞书全系列 + 前端设计/输出/重设计技能 |
-| **文档** | `docs/` (4 篇) | MCP 优化、爬虫指南、工具速查、xtalpi 配置 |
+| **文档** | `docs/` (6 篇) | 全量安装、排障、MCP 优化、爬虫指南、工具速查、xtalpi 配置 |
 | **Prompts** | `prompts/` (5 个) | debug、deliver、frontend-kickoff、review、scoped-commit |
-| **脚本** | `scripts/xtalpi-tool-smoke.sh` | xtalpi 工具冒烟测试 |
+| **脚本** | `scripts/` | `pi67-doctor.sh` + xtalpi 工具冒烟测试 |
 | **模板** | `templates/scrapers/` | 采集/合并/轮询相关脚本模板 |
 
 ## 快速开始
@@ -52,16 +54,42 @@ chmod +x install.sh
 
 安装脚本会：
 
-1. 备份已有配置（如果存在）
-2. 创建符号链接，将仓库文件和目录映射到 `~/.pi/agent/`
-3. 链接 `AGENTS.md`、`extensions/`、`skills/`、`docs/`、`prompts/`、`rules/`、`scripts/`、`templates/`
-4. 提示配置 API key（从 `.example` 文件复制）
-5. 安装 npm 扩展包
-6. 刷新 Skills
+1. 检查 `pi`
+2. 自动备份会被覆盖的非 symlink 配置
+3. 创建符号链接，将仓库文件和目录映射到 `~/.pi/agent/`
+4. 链接 `AGENTS.md`、`extensions/`、`skills/`、`docs/`、`prompts/`、`rules/`、`scripts/`、`templates/`
+5. 复制缺失的本地配置文件（从 `.example` 文件复制）
+6. 安装 npm 扩展包
+7. 运行 `scripts/pi67-doctor.sh`
+
+常用选项：
+
+```bash
+./install.sh --yes                         # 自动化场景
+./install.sh --dry-run --no-npm --no-doctor # 只预览，不写入
+./install.sh --no-npm                      # 跳过 npm install
+./install.sh --agent-dir /path/to/.pi/agent # 安装到自定义 Pi agent 目录
+```
+
+安装后运行：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-doctor.sh
+```
+
+doctor 会区分：
+
+```text
+PASS = 已安装且可用
+WARN = 已安装但需要本机 key / 路径 / 依赖
+FAIL = 阻断性问题
+```
+
+完整说明见 `docs/full-install.md`；常见问题见 `docs/troubleshooting.md`。
 
 ### 手动配置
 
-安装完成后，需要手动填写以下文件：
+安装完成后，需要按 doctor 提示填写以下本地配置文件。它们不会提交到仓库：
 
 ```text
 ~/.pi/agent/models.json    <- 从 models.example.json 复制，填写 API key
@@ -127,8 +155,10 @@ pi-67/
 │   ├── redesign-existing-projects/
 │   └── stitch-design-taste/
 ├── docs/                           # 文档
+│   ├── full-install.md
 │   ├── mcp-optimization-spec.md
 │   ├── scraping-guide.md
+│   ├── troubleshooting.md
 │   ├── tool-cheatsheet.md
 │   └── xtalpi-tools.md
 ├── prompts/                        # Pi Prompt 模板
@@ -138,10 +168,10 @@ pi-67/
 │   ├── review.md
 │   └── scoped-commit.md
 ├── scripts/
+│   ├── pi67-doctor.sh
 │   └── xtalpi-tool-smoke.sh
-├── templates/
-│   └── scrapers/
-└── themes/                         # 可选主题目录；不存在时安装脚本会跳过
+└── templates/
+    └── scrapers/
 ```
 
 ## 关于 xtalpi
@@ -158,13 +188,16 @@ git pull
 # 符号链接自动生效，无需重新安装
 # 如果 package 依赖有更新，运行：
 cd ~/.pi/agent/npm && npm install
+
+# 复核 readiness
+bash ~/.pi/agent/scripts/pi67-doctor.sh
 ```
 
 ## 维护原则
 
 - 不提交真实密钥、token、cookie、运行会话、缓存或本地私有状态。
 - 修改全局行为时优先更新 `AGENTS.md`；长规则优先落到 `rules/`。
-- 修改安装链路后运行 `bash -n install.sh`。
+- 修改安装链路后运行 `bash -n install.sh`、`bash -n scripts/pi67-doctor.sh` 和 dry-run。
 - 提交前检查 prompt 模板是否使用 Pi 支持的 `$1` / `$ARGUMENTS` / `${...}`，避免遗留双花括号占位符。
 
 ## 贡献

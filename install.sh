@@ -1,216 +1,346 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ──────────────────────────────────────────────────
-# pi-67 install.sh — 一键安装 pi 配置
-# 通过符号链接将仓库文件映射到 ~/.pi/agent/
-# ──────────────────────────────────────────────────
+# pi-67 full installer
+# Default behavior installs the complete Pi workspace distribution.
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
-PI_AGENT_DIR="$HOME/.pi/agent"
+PI_AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
 PI_NPM_DIR="$PI_AGENT_DIR/npm"
-BACKUP_DIR="$PI_AGENT_DIR/backup-$(date +%Y%m%d-%H%M%S)"
+if [ -n "${BACKUP_DIR:-}" ]; then
+  BACKUP_DIR_USER_SET=true
+else
+  BACKUP_DIR_USER_SET=false
+  BACKUP_DIR="$PI_AGENT_DIR/backup-$(date +%Y%m%d-%H%M%S)"
+fi
 
-echo ""
-echo -e "${CYAN}╔══════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║       pi-67 配置安装脚本                  ║${NC}"
-echo -e "${CYAN}╚══════════════════════════════════════════╝${NC}"
-echo ""
-echo -e "仓库路径: ${GREEN}$REPO_ROOT${NC}"
-echo -e "目标路径: ${GREEN}$PI_AGENT_DIR${NC}"
-echo ""
+YES=false
+DRY_RUN=false
+RUN_NPM=true
+RUN_DOCTOR=true
+BACKUP_CREATED=false
 
-# ─── 检查前置条件 ────────────────────────────────
+usage() {
+  cat <<'USAGE'
+pi-67 full installer
 
-if ! command -v pi &>/dev/null; then
-  echo -e "${RED}错误: 未找到 pi 命令。请先安装: npm install -g @earendil-works/pi-coding-agent${NC}"
+Usage:
+  ./install.sh [options]
+
+Options:
+  -y, --yes            Non-interactive mode. Kept for automation; full install is default.
+      --dry-run        Print actions without writing files.
+      --agent-dir DIR  Install into DIR instead of ~/.pi/agent.
+      --backup-dir DIR Write overwritten files into DIR.
+      --no-npm         Skip npm package installation.
+      --no-doctor      Skip scripts/pi67-doctor.sh after installation.
+  -h, --help           Show this help.
+
+Design:
+  pi-67 installs the full best-practice configuration by default. Missing API keys,
+  local MCP repos, or optional binaries are not removed; doctor reports them as
+  readiness warnings after installation.
+USAGE
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -y|--yes)
+      YES=true
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
+    --agent-dir)
+      PI_AGENT_DIR="${2:?--agent-dir requires a path}"
+      PI_NPM_DIR="$PI_AGENT_DIR/npm"
+      if [ "$BACKUP_DIR_USER_SET" = false ]; then
+        BACKUP_DIR="$PI_AGENT_DIR/backup-$(date +%Y%m%d-%H%M%S)"
+      fi
+      shift 2
+      ;;
+    --backup-dir)
+      BACKUP_DIR="${2:?--backup-dir requires a path}"
+      BACKUP_DIR_USER_SET=true
+      shift 2
+      ;;
+    --no-npm)
+      RUN_NPM=false
+      shift
+      ;;
+    --no-doctor)
+      RUN_DOCTOR=false
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo -e "${RED}Unknown option:${NC} $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+say() {
+  echo -e "$*"
+}
+
+pass() {
+  say "  ${GREEN}PASS${NC} $*"
+}
+
+warn() {
+  say "  ${YELLOW}WARN${NC} $*"
+}
+
+run_cmd() {
+  if [ "$DRY_RUN" = true ]; then
+    say "  ${CYAN}DRY-RUN${NC} $*"
+  else
+    "$@"
+  fi
+}
+
+ensure_dir() {
+  local dir="$1"
+  if [ "$DRY_RUN" = true ]; then
+    say "  ${CYAN}DRY-RUN${NC} mkdir -p $dir"
+  else
+    mkdir -p "$dir"
+  fi
+}
+
+ensure_backup_dir() {
+  if [ "$BACKUP_CREATED" = true ]; then
+    return
+  fi
+  ensure_dir "$BACKUP_DIR"
+  BACKUP_CREATED=true
+  pass "backup directory ready: $BACKUP_DIR"
+}
+
+unique_backup_path() {
+  local rel="$1"
+  local candidate="$BACKUP_DIR/$rel"
+  local index=1
+  while [ -e "$candidate" ] || [ -L "$candidate" ]; do
+    candidate="$BACKUP_DIR/$rel.$index"
+    index=$((index + 1))
+  done
+  printf '%s\n' "$candidate"
+}
+
+backup_existing() {
+  local dest="$1"
+  local rel="$2"
+  local backup_path
+
+  ensure_backup_dir
+  backup_path="$(unique_backup_path "$rel")"
+  ensure_dir "$(dirname "$backup_path")"
+
+  if [ "$DRY_RUN" = true ]; then
+    say "  ${CYAN}DRY-RUN${NC} move $dest -> $backup_path"
+  else
+    mv "$dest" "$backup_path"
+  fi
+  pass "backed up existing $rel -> $backup_path"
+}
+
+replace_with_symlink() {
+  local src_rel="$1"
+  local dest_rel="$2"
+  local required="${3:-required}"
+  local src="$REPO_ROOT/$src_rel"
+  local dest="$PI_AGENT_DIR/$dest_rel"
+
+  if [ ! -e "$src" ]; then
+    if [ "$required" = "optional" ]; then
+      warn "optional source missing, skipped: $src_rel"
+      return
+    fi
+    say "  ${RED}FAIL${NC} required source missing: $src_rel" >&2
+    exit 1
+  fi
+
+  ensure_dir "$(dirname "$dest")"
+
+  if [ -L "$dest" ]; then
+    run_cmd rm -f "$dest"
+  elif [ -e "$dest" ]; then
+    backup_existing "$dest" "$dest_rel"
+  fi
+
+  run_cmd ln -sfn "$src" "$dest"
+  pass "$dest_rel -> $src"
+}
+
+copy_example_if_missing() {
+  local example_rel="$1"
+  local target_rel="$2"
+  local example="$REPO_ROOT/$example_rel"
+  local target="$PI_AGENT_DIR/$target_rel"
+
+  if [ ! -f "$example" ]; then
+    say "  ${RED}FAIL${NC} example file missing: $example_rel" >&2
+    exit 1
+  fi
+
+  if [ -e "$target" ] || [ -L "$target" ]; then
+    pass "$target_rel already exists; kept existing local config"
+    return
+  fi
+
+  ensure_dir "$(dirname "$target")"
+  if [ "$DRY_RUN" = true ]; then
+    say "  ${CYAN}DRY-RUN${NC} copy $example -> $target"
+  else
+    cp "$example" "$target"
+    chmod 600 "$target" 2>/dev/null || true
+  fi
+  warn "created $target_rel from $example_rel; fill placeholders before using gated capabilities"
+}
+
+install_npm_packages() {
+  if [ "$RUN_NPM" != true ]; then
+    warn "npm package installation skipped by --no-npm"
+    return
+  fi
+
+  if ! command -v npm >/dev/null 2>&1; then
+    say "  ${RED}FAIL${NC} npm not found; rerun with --no-npm or install Node/npm" >&2
+    exit 1
+  fi
+
+  if [ ! -f "$REPO_ROOT/package.json" ]; then
+    warn "package.json missing; skipped npm package installation"
+    return
+  fi
+
+  ensure_dir "$PI_NPM_DIR"
+  if [ "$DRY_RUN" = true ]; then
+    say "  ${CYAN}DRY-RUN${NC} copy package.json and run npm install --ignore-scripts in $PI_NPM_DIR"
+    return
+  fi
+
+  cp "$REPO_ROOT/package.json" "$PI_NPM_DIR/package.json"
+  (
+    cd "$PI_NPM_DIR"
+    npm install --ignore-scripts
+  )
+  pass "npm packages installed in $PI_NPM_DIR"
+}
+
+run_doctor() {
+  if [ "$RUN_DOCTOR" != true ]; then
+    warn "doctor skipped by --no-doctor"
+    return
+  fi
+
+  local doctor="$REPO_ROOT/scripts/pi67-doctor.sh"
+  if [ ! -f "$doctor" ]; then
+    warn "doctor script missing: $doctor"
+    return
+  fi
+
+  say ""
+  say "${CYAN}--- pi-67 doctor ---${NC}"
+  if [ "$DRY_RUN" = true ]; then
+    say "  ${CYAN}DRY-RUN${NC} $doctor --repo-root $REPO_ROOT --agent-dir $PI_AGENT_DIR"
+    return
+  fi
+
+  if bash "$doctor" --repo-root "$REPO_ROOT" --agent-dir "$PI_AGENT_DIR"; then
+    pass "doctor completed"
+  else
+    warn "doctor found blocking failures; fix the reported items and rerun scripts/pi67-doctor.sh"
+  fi
+}
+
+say ""
+say "${CYAN}╔══════════════════════════════════════════╗${NC}"
+say "${CYAN}║        pi-67 full installer             ║${NC}"
+say "${CYAN}╚══════════════════════════════════════════╝${NC}"
+say ""
+say "Repository : ${GREEN}$REPO_ROOT${NC}"
+say "Agent dir  : ${GREEN}$PI_AGENT_DIR${NC}"
+say "Backup dir : ${GREEN}$BACKUP_DIR${NC}"
+say "Mode       : ${GREEN}full install by default${NC}"
+if [ "$YES" = true ]; then
+  say "Noninteractive: ${GREEN}yes${NC}"
+fi
+if [ "$DRY_RUN" = true ]; then
+  say "Dry run    : ${YELLOW}yes${NC}"
+fi
+say ""
+
+if ! command -v pi >/dev/null 2>&1; then
+  say "${RED}pi command not found.${NC}"
+  say "Install Pi first:"
+  say "  npm install -g @earendil-works/pi-coding-agent"
   exit 1
 fi
 
-echo -e "${GREEN}✓${NC} pi 已安装: $(pi --version 2>/dev/null || echo 'unknown')"
+pass "pi found: $(pi --version 2>/dev/null || echo unknown)"
+ensure_dir "$PI_AGENT_DIR"
 
-# ─── 确保 ~/.pi/agent/ 存在 ───────────────────────
+say ""
+say "${CYAN}--- linking full pi-67 assets ---${NC}"
 
-if [ ! -d "$PI_AGENT_DIR" ]; then
-  echo -e "${YELLOW}~/.pi/agent/ 不存在，正在创建...${NC}"
-  mkdir -p "$PI_AGENT_DIR"
-  # 运行一次 pi 让它初始化目录
-  pi --version >/dev/null 2>&1 || true
-fi
+replace_with_symlink "settings.json" "settings.json"
+replace_with_symlink "AGENTS.md" "AGENTS.md"
+replace_with_symlink "extensions" "extensions"
+replace_with_symlink "skills" "skills"
+replace_with_symlink "docs" "docs"
+replace_with_symlink "prompts" "prompts"
+replace_with_symlink "rules" "rules"
+replace_with_symlink "scripts" "scripts"
+replace_with_symlink "templates" "templates"
 
-# ─── 询问是否备份已有配置 ──────────────────────────
+say ""
+say "${CYAN}--- local config templates ---${NC}"
 
-if [ -f "$PI_AGENT_DIR/settings.json" ]; then
-  echo ""
-  echo -e "${YELLOW}检测到已有 ~/.pi/agent/settings.json${NC}"
-  read -r -p "是否备份当前配置到 $BACKUP_DIR？[Y/n] " answer
-  answer="${answer:-Y}"
-  if [[ "$answer" =~ ^[Yy]$ ]]; then
-    mkdir -p "$BACKUP_DIR"
-    echo -e "${GREEN}备份到 $BACKUP_DIR${NC}"
+copy_example_if_missing "models.example.json" "models.json"
+copy_example_if_missing "mcp.example.json" "mcp.json"
+copy_example_if_missing "auth.example.json" "auth.json"
+copy_example_if_missing "image-gen.example.json" "image-gen.json"
 
-    # 备份会被覆盖的文件
-    for f in settings.json models.json mcp.json auth.json image-gen.json AGENTS.md; do
-      if [ -f "$PI_AGENT_DIR/$f" ]; then
-        cp "$PI_AGENT_DIR/$f" "$BACKUP_DIR/$f"
-        echo "  已备份: $f"
-      fi
-    done
+say ""
+say "${CYAN}--- npm packages ---${NC}"
+install_npm_packages
 
-    # 备份目录
-    for d in skills extensions docs prompts rules scripts templates themes; do
-      if [ -d "$PI_AGENT_DIR/$d" ]; then
-        cp -r "$PI_AGENT_DIR/$d" "$BACKUP_DIR/$d" 2>/dev/null || true
-        echo "  已备份: $d/"
-      fi
-    done
+run_doctor
+
+say ""
+say "${GREEN}╔══════════════════════════════════════════╗${NC}"
+say "${GREEN}║        pi-67 install finished           ║${NC}"
+say "${GREEN}╚══════════════════════════════════════════╝${NC}"
+say ""
+say "Next:"
+say "  1. Fill placeholders in ~/.pi/agent/models.json, auth.json, image-gen.json as needed."
+say "  2. Adjust ~/.pi/agent/mcp.json paths for local MCP repos/binaries if doctor warns."
+say "  3. Run: ${CYAN}bash ~/.pi/agent/scripts/pi67-doctor.sh${NC}"
+say "  4. Start Pi: ${CYAN}pi${NC}"
+if [ "$BACKUP_CREATED" = true ]; then
+  say ""
+  if [ "$DRY_RUN" = true ]; then
+    say "Backup would be saved at: ${CYAN}$BACKUP_DIR${NC}"
   else
-    echo -e "${YELLOW}跳过备份${NC}"
+    say "Backup saved at: ${CYAN}$BACKUP_DIR${NC}"
   fi
 fi
-
-# ─── 询问 xtalpi 配置 ─────────────────────────────
-
-echo ""
-read -r -p "你是否使用 xtalpi 公司内部 API？[y/N] " xtalpi_answer
-xtalpi_answer="${xtalpi_answer:-N}"
-if [[ "$xtalpi_answer" =~ ^[Yy]$ ]]; then
-  XTALPI_ENABLED=true
-  echo -e "${GREEN}✓ 将包含 xtalpi 配置${NC}"
-else
-  XTALPI_ENABLED=false
-  echo -e "${YELLOW}将跳过 xtalpi 相关配置${NC}"
-fi
-
-# ─── 创建符号链接 ─────────────────────────────────
-
-echo ""
-echo -e "${CYAN}--- 创建符号链接 ---${NC}"
-
-link() {
-  local src="$REPO_ROOT/$1"
-  local dest="$PI_AGENT_DIR/$2"
-
-  if [ ! -e "$src" ]; then
-    echo -e "  ${RED}✗${NC} 源文件不存在: $src"
-    return
-  fi
-
-  # 如果目标已存在且不是符号链接，先备份
-  if [ -e "$dest" ] && [ ! -L "$dest" ]; then
-    cp "$dest" "$BACKUP_DIR/$2" 2>/dev/null || true
-  fi
-
-  rm -f "$dest"
-  ln -sf "$src" "$dest"
-  echo -e "  ${GREEN}✓${NC} $2 -> $src"
-}
-
-# 直接链接的文件
-link "settings.json" "settings.json"
-link "AGENTS.md" "AGENTS.md"
-
-# 目录链接
-link "extensions" "extensions"
-link "skills" "skills"
-link "docs" "docs"
-link "prompts" "prompts"
-link "rules" "rules"
-link "scripts" "scripts"
-link "templates" "templates"
-link "themes" "themes"
-
-# ─── 处理 .example 文件 ────────────────────────────
-
-echo ""
-echo -e "${CYAN}--- 配置文件 ---${NC}"
-
-setup_example() {
-  local example="$REPO_ROOT/$1"
-  local target="$PI_AGENT_DIR/$2"
-
-  if [ -f "$target" ]; then
-    echo -e "  ${GREEN}✓${NC} $2 已存在，跳过"
-    return
-  fi
-
-  if [ -f "$example" ]; then
-    cp "$example" "$target"
-    echo -e "  ${YELLOW}⚠${NC} 已创建 $2（从 $1 复制），请编辑填写你的配置"
-  fi
-}
-
-setup_example "models.example.json" "models.json"
-setup_example "mcp.example.json" "mcp.json"
-setup_example "auth.example.json" "auth.json"
-setup_example "image-gen.example.json" "image-gen.json"
-
-# ─── 安装 npm 扩展包 ──────────────────────────────
-
-echo ""
-echo -e "${CYAN}--- 安装 npm 扩展包 ---${NC}"
-
-if [ -f "$REPO_ROOT/package.json" ]; then
-  mkdir -p "$PI_NPM_DIR"
-
-  # 复制 package.json 到 npm 目录
-  cp "$REPO_ROOT/package.json" "$PI_NPM_DIR/package.json"
-
-  cd "$PI_NPM_DIR"
-  npm install --ignore-scripts 2>&1 | tail -5
-  echo -e "  ${GREEN}✓${NC} npm 扩展包安装完成"
-  cd "$REPO_ROOT"
-else
-  echo -e "  ${YELLOW}⚠${NC} 未找到 package.json，跳过 npm 安装"
-fi
-
-# ─── 刷新 Skills ──────────────────────────────────
-
-echo ""
-echo -e "${CYAN}--- 刷新 Skills ---${NC}"
-
-if pi skill list &>/dev/null; then
-  echo -e "  ${GREEN}✓${NC} Skills 已就绪"
-else
-  echo -e "  ${YELLOW}⚠${NC} 请手动运行 'pi skill list' 验证 Skills"
-fi
-
-# ─── 完成 ─────────────────────────────────────────
-
-echo ""
-echo -e "${GREEN}╔══════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║       安装完成！                          ║${NC}"
-echo -e "${GREEN}╚══════════════════════════════════════════╝${NC}"
-echo ""
-echo -e "${YELLOW}接下来请手动完成以下步骤：${NC}"
-echo ""
-echo -e "1. 编辑配置文件，填写你的 API key："
-echo -e "   ${CYAN}vi ~/.pi/agent/models.json${NC}      # 替换 YOUR_XTALPI_API_KEY"
-echo -e "   ${CYAN}vi ~/.pi/agent/mcp.json${NC}         # 修改本地路径 ($HOME 占位符)"
-echo -e "   ${CYAN}vi ~/.pi/agent/auth.json${NC}         # 替换 YOUR_DEEPSEEK_API_KEY"
-echo -e "   ${CYAN}vi ~/.pi/agent/image-gen.json${NC}    # 替换 YOUR_LOCAL_CODEX_API_KEY"
-echo ""
-
-if [ "$XTALPI_ENABLED" = false ]; then
-  echo -e "2. 你跳过了 xtalpi 配置，请手动修改 settings.json："
-  echo -e "   ${CYAN}将 defaultProvider 改为非 xtalpi 的 provider${NC}"
-  echo -e "   ${CYAN}将 defaultModel 改为对应模型${NC}"
-  echo ""
-fi
-
-echo -e "3. 启动 pi 验证："
-echo -e "   ${CYAN}pi${NC}"
-echo ""
-
-if [ -d "$BACKUP_DIR" ]; then
-  echo -e "备份文件保存在: ${CYAN}$BACKUP_DIR${NC}"
-fi
-
-echo -e "更新配置只需: ${CYAN}cd $REPO_ROOT && git pull${NC}"
-echo ""
+say ""
+say "Update later:"
+say "  cd $REPO_ROOT && git pull"
+say ""
