@@ -1,0 +1,42 @@
+{
+  "mcpServers": {
+    "tmwd_browser": {
+      "command": "node",
+      "args": [
+        "$HOME/Documents/sixseven/codeproject/tmwd-browser-mcp/src/server.mjs"
+      ],
+      "env": {
+        "BROWSER_STRUCTURED_TMWD_MODE": "tmwd",
+        "BROWSER_STRUCTURED_TMWD_TRANSPORT": "auto"
+      },
+      "lifecycle": "lazy",
+      "idleTimeout": 10
+    },
+    "js-reverse": {
+      "command": "node",
+      "args": [
+        "$HOME/Documents/sixseven/codeproject/tmwd-browser-mcp/src/js-reverse-server.mjs"
+      ],
+      "env": {
+        "BROWSER_STRUCTURED_TMWD_MODE": "tmwd",
+        "BROWSER_STRUCTURED_TMWD_TRANSPORT": "auto",
+        "BROWSER_STRUCTURED_TMWD_WS_ENDPOINT": "ws://127.0.0.1:18765",
+        "BROWSER_STRUCTURED_TMWD_LINK_ENDPOINT": "http://127.0.0.1:18766/link"
+      },
+      "lifecycle": "lazy",
+      "idleTimeout": 10,
+      "directTools": true
+    },
+    "agent_memory": {
+      "command": "$HOME/.local/bin/agent-memory-mcp",
+      "args": [],
+      "env": {},
+      "lifecycle": "lazy",
+      "idleTimeout": 10,
+      "directTools": true
+    }
+  },
+  "settings": {
+    "toolPrefix": "short"
+  }
+}
