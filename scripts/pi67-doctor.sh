@@ -330,17 +330,35 @@ NODE
 }
 
 check_repo_secret_scan() {
-  if ! command_exists rg; then
-    warn "rg not found; skipped repo secret pattern scan"
+  local pattern='BEGIN [A-Z ]*PRIVATE KEY|sk-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]+'
+  local paths=(
+    "$REPO_ROOT/AGENTS.md"
+    "$REPO_ROOT/README.md"
+    "$REPO_ROOT/docs"
+    "$REPO_ROOT/extensions"
+    "$REPO_ROOT/prompts"
+    "$REPO_ROOT/rules"
+    "$REPO_ROOT/scripts"
+    "$REPO_ROOT/install.sh"
+    "$REPO_ROOT/.github"
+    "$REPO_ROOT/settings.json"
+    "$REPO_ROOT/models.example.json"
+    "$REPO_ROOT/mcp.example.json"
+    "$REPO_ROOT/auth.example.json"
+    "$REPO_ROOT/image-gen.example.json"
+    "$REPO_ROOT/package.json"
+  )
+
+  if command_exists rg; then
+    if rg -n "$pattern" "${paths[@]}" >/dev/null 2>&1; then
+      fail "possible real secret pattern found in tracked repo files"
+    else
+      pass "repo secret pattern scan found no obvious private keys/API tokens"
+    fi
     return
   fi
 
-  if rg -n 'BEGIN [A-Z ]*PRIVATE KEY|sk-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]+' \
-    "$REPO_ROOT" \
-    --glob '!*.example.json' \
-    --glob '!README.md' \
-    --glob '!docs/**' \
-    --glob '!scripts/pi67-doctor.sh' >/dev/null 2>&1; then
+  if grep -R -n -E "$pattern" "${paths[@]}" >/dev/null 2>&1; then
     fail "possible real secret pattern found in tracked repo files"
   else
     pass "repo secret pattern scan found no obvious private keys/API tokens"
