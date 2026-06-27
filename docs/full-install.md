@@ -146,6 +146,15 @@ bash ~/.pi/agent/scripts/pi67-doctor.sh
 
 Doctor warnings are normal on a new machine. They show what needs local setup.
 
+Automation-friendly doctor modes:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-doctor.sh --quiet
+bash ~/.pi/agent/scripts/pi67-doctor.sh --json
+```
+
+`--quiet` prints only the summary and final result. `--json` emits a stable machine-readable object with `result`, `counts`, and per-check `checks[]` entries.
+
 ## Updating
 
 If your installed pi-67 already includes the updater:

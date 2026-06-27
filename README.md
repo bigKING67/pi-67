@@ -4,7 +4,7 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
-当前发行版版本：`0.3.0`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.4.0`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 这是什么
 
@@ -88,6 +88,13 @@ doctor 会区分：
 PASS = 已安装且可用
 WARN = 已安装但需要本机 key / 路径 / 依赖
 FAIL = 阻断性问题
+```
+
+自动化/CI 可用：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-doctor.sh --quiet # 只看 summary/result
+bash ~/.pi/agent/scripts/pi67-doctor.sh --json  # 机器可读 readiness JSON
 ```
 
 完整说明见 `docs/full-install.md`；常见问题见 `docs/troubleshooting.md`。

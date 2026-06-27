@@ -6,6 +6,13 @@ Use `scripts/pi67-doctor.sh` first. It separates blocking failures from normal r
 bash ~/.pi/agent/scripts/pi67-doctor.sh
 ```
 
+For shorter output or automation:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-doctor.sh --quiet
+bash ~/.pi/agent/scripts/pi67-doctor.sh --json
+```
+
 ## `pi` command not found
 
 Install Pi:

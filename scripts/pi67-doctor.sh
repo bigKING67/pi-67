@@ -15,6 +15,15 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PI_AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
 RUN_SKILL_LIST=true
+OUTPUT_FORMAT="text"
+QUIET=false
+
+CHECKS_FILE="$(mktemp "${TMPDIR:-/tmp}/pi67-doctor-checks.XXXXXX")"
+
+cleanup() {
+  rm -f "$CHECKS_FILE"
+}
+trap cleanup EXIT
 
 PASS_COUNT=0
 WARN_COUNT=0
@@ -31,6 +40,8 @@ Options:
       --repo-root DIR      Repository root. Defaults to parent of this script.
       --agent-dir DIR      Pi agent dir. Defaults to ~/.pi/agent.
       --no-skill-list      Skip `pi skill list`.
+      --quiet              Print only the text summary and final result.
+      --json               Print machine-readable JSON only.
   -h, --help               Show this help.
 USAGE
 }
@@ -49,6 +60,14 @@ while [ "$#" -gt 0 ]; do
       RUN_SKILL_LIST=false
       shift
       ;;
+    --quiet)
+      QUIET=true
+      shift
+      ;;
+    --json)
+      OUTPUT_FORMAT="json"
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -61,24 +80,78 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+detailed_text_enabled() {
+  [ "$OUTPUT_FORMAT" = "text" ] && [ "$QUIET" != true ]
+}
+
+record_check() {
+  local level="$1"
+  shift
+  printf '%s\t%s\n' "$level" "$*" >> "$CHECKS_FILE"
+}
+
 pass() {
   PASS_COUNT=$((PASS_COUNT + 1))
-  echo -e "  ${GREEN}PASS${NC} $*"
+  record_check "PASS" "$*"
+  if detailed_text_enabled; then
+    echo -e "  ${GREEN}PASS${NC} $*"
+  fi
 }
 
 warn() {
   WARN_COUNT=$((WARN_COUNT + 1))
-  echo -e "  ${YELLOW}WARN${NC} $*"
+  record_check "WARN" "$*"
+  if detailed_text_enabled; then
+    echo -e "  ${YELLOW}WARN${NC} $*"
+  fi
 }
 
 fail() {
   FAIL_COUNT=$((FAIL_COUNT + 1))
-  echo -e "  ${RED}FAIL${NC} $*"
+  record_check "FAIL" "$*"
+  if detailed_text_enabled; then
+    echo -e "  ${RED}FAIL${NC} $*"
+  fi
 }
 
 section() {
-  echo ""
-  echo -e "${CYAN}--- $* ---${NC}"
+  if detailed_text_enabled; then
+    echo ""
+    echo -e "${CYAN}--- $* ---${NC}"
+  fi
+}
+
+json_escape() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g'
+}
+
+emit_json() {
+  local result="$1"
+  local first=true
+
+  printf '{\n'
+  printf '  "schemaVersion": 1,\n'
+  printf '  "repository": "%s",\n' "$(json_escape "$REPO_ROOT")"
+  printf '  "agentDir": "%s",\n' "$(json_escape "$PI_AGENT_DIR")"
+  printf '  "result": "%s",\n' "$(json_escape "$result")"
+  printf '  "counts": {\n'
+  printf '    "pass": %s,\n' "$PASS_COUNT"
+  printf '    "warn": %s,\n' "$WARN_COUNT"
+  printf '    "fail": %s\n' "$FAIL_COUNT"
+  printf '  },\n'
+  printf '  "checks": [\n'
+  while IFS=$'\t' read -r level message; do
+    [ -n "$level" ] || continue
+    if [ "$first" = true ]; then
+      first=false
+    else
+      printf ',\n'
+    fi
+    printf '    {"level": "%s", "message": "%s"}' "$(json_escape "$level")" "$(json_escape "$message")"
+  done < "$CHECKS_FILE"
+  printf '\n'
+  printf '  ]\n'
+  printf '}\n'
 }
 
 command_exists() {
@@ -365,10 +438,12 @@ check_repo_secret_scan() {
   fi
 }
 
-echo ""
-echo -e "${CYAN}pi-67 doctor${NC}"
-echo "Repository : $REPO_ROOT"
-echo "Agent dir  : $PI_AGENT_DIR"
+if detailed_text_enabled; then
+  echo ""
+  echo -e "${CYAN}pi-67 doctor${NC}"
+  echo "Repository : $REPO_ROOT"
+  echo "Agent dir  : $PI_AGENT_DIR"
+fi
 
 section "Core tools"
 if command_exists pi; then
@@ -468,20 +543,34 @@ json_valid "$REPO_ROOT/auth.example.json"
 json_valid "$REPO_ROOT/image-gen.example.json"
 check_repo_secret_scan
 
-echo ""
-echo -e "${CYAN}Summary${NC}"
-echo "  PASS: $PASS_COUNT"
-echo "  WARN: $WARN_COUNT"
-echo "  FAIL: $FAIL_COUNT"
-
 if [ "$FAIL_COUNT" -gt 0 ]; then
-  echo -e "${RED}Result: FAIL${NC}"
-  exit 1
+  RESULT="FAIL"
+  EXIT_CODE=1
+elif [ "$WARN_COUNT" -gt 0 ]; then
+  RESULT="READY WITH WARNINGS"
+  EXIT_CODE=0
+else
+  RESULT="READY"
+  EXIT_CODE=0
 fi
 
-if [ "$WARN_COUNT" -gt 0 ]; then
-  echo -e "${YELLOW}Result: READY WITH WARNINGS${NC}"
-  echo "Warnings usually mean API keys, local MCP paths, or optional dependencies still need setup."
+if [ "$OUTPUT_FORMAT" = "json" ]; then
+  emit_json "$RESULT"
 else
-  echo -e "${GREEN}Result: READY${NC}"
+  echo ""
+  echo -e "${CYAN}Summary${NC}"
+  echo "  PASS: $PASS_COUNT"
+  echo "  WARN: $WARN_COUNT"
+  echo "  FAIL: $FAIL_COUNT"
+
+  if [ "$RESULT" = "FAIL" ]; then
+    echo -e "${RED}Result: FAIL${NC}"
+  elif [ "$RESULT" = "READY WITH WARNINGS" ]; then
+    echo -e "${YELLOW}Result: READY WITH WARNINGS${NC}"
+    echo "Warnings usually mean API keys, local MCP paths, or optional dependencies still need setup."
+  else
+    echo -e "${GREEN}Result: READY${NC}"
+  fi
 fi
+
+exit "$EXIT_CODE"

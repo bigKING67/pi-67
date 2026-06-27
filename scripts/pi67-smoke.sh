@@ -78,6 +78,8 @@ cleanup() {
     /tmp/pi67-smoke-secrets.log \
     /tmp/pi67-smoke-install.log \
     /tmp/pi67-smoke-doctor.log \
+    /tmp/pi67-smoke-doctor-quiet.log \
+    /tmp/pi67-smoke-doctor-json.log \
     /tmp/pi67-smoke-configure-dry.log \
     /tmp/pi67-smoke-configure.log \
     /tmp/pi67-smoke-doctor-configured.log \
@@ -233,6 +235,39 @@ if ! grep -q 'Result: READY WITH WARNINGS\|Result: READY' /tmp/pi67-smoke-doctor
   fail "doctor did not report a ready result"
 fi
 pass "doctor readiness result accepted"
+
+PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
+  --repo-root "$REPO_ROOT" \
+  --agent-dir "$AGENT_DIR" \
+  --quiet >/tmp/pi67-smoke-doctor-quiet.log
+if grep -q -- '--- Core tools ---' /tmp/pi67-smoke-doctor-quiet.log; then
+  cat /tmp/pi67-smoke-doctor-quiet.log >&2
+  fail "doctor --quiet printed detailed sections"
+fi
+if ! grep -q 'Result: READY WITH WARNINGS\|Result: READY' /tmp/pi67-smoke-doctor-quiet.log; then
+  cat /tmp/pi67-smoke-doctor-quiet.log >&2
+  fail "doctor --quiet did not report a ready result"
+fi
+pass "doctor quiet output completed"
+
+PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
+  --repo-root "$REPO_ROOT" \
+  --agent-dir "$AGENT_DIR" \
+  --json >/tmp/pi67-smoke-doctor-json.log
+node -e '
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (!["READY", "READY WITH WARNINGS"].includes(data.result)) {
+  throw new Error(`unexpected result: ${data.result}`);
+}
+if (!data.counts || data.counts.fail !== 0) {
+  throw new Error("doctor JSON reported failures");
+}
+if (!Array.isArray(data.checks) || data.checks.length === 0) {
+  throw new Error("doctor JSON missing checks");
+}
+' /tmp/pi67-smoke-doctor-json.log
+pass "doctor JSON output parsed"
 
 section "Configure helper"
 mkdir -p "$TMP_ROOT/tmwd-browser-mcp/src"

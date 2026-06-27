@@ -4,6 +4,14 @@ All notable changes to pi-67 are documented here.
 
 The format is based on Keep a Changelog, and this project uses semantic versioning for the pi-67 distribution itself. Pi package dependency versions are managed separately in `package.json`.
 
+## [0.4.0] - 2026-06-28
+
+### Added
+
+- `scripts/pi67-doctor.sh --json` for machine-readable readiness output with counts, final result, and individual checks.
+- `scripts/pi67-doctor.sh --quiet` for summary-only human output.
+- Smoke coverage for doctor quiet and JSON output modes.
+
 ## [0.3.0] - 2026-06-27
 
 ### Added
