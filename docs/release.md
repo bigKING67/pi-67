@@ -36,6 +36,7 @@ Expected result:
    - `README.md`
    - `docs/full-install.md`
    - `docs/troubleshooting.md`
+   - update workflow docs if `scripts/pi67-update.sh` changed
 5. Run:
 
 ```bash

@@ -342,5 +342,5 @@ if [ "$BACKUP_CREATED" = true ]; then
 fi
 say ""
 say "Update later:"
-say "  cd $REPO_ROOT && git pull"
+say "  ${CYAN}bash ~/.pi/agent/scripts/pi67-update.sh${NC}"
 say ""

@@ -148,24 +148,38 @@ Doctor warnings are normal on a new machine. They show what needs local setup.
 
 ## Updating
 
-Because most assets are symlinked:
+If your installed pi-67 already includes the updater:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-update.sh
+```
+
+The updater:
+
+1. Runs `git pull --ff-only` in the pi-67 checkout.
+2. Keeps local runtime config files.
+3. Creates newly introduced local config files from `.example` templates only when missing.
+4. Syncs npm dependencies when `package.json` differs from `~/.pi/agent/npm/package.json`.
+5. Runs doctor after the update.
+
+For an older install that does not have `pi67-update.sh` yet:
 
 ```bash
 cd /path/to/pi-67
-git pull
+git pull --ff-only
+bash scripts/pi67-update.sh
 ```
 
-If `package.json` changed:
+Preview without changing files:
 
 ```bash
-cd ~/.pi/agent/npm
-npm install --ignore-scripts
+bash ~/.pi/agent/scripts/pi67-update.sh --dry-run
 ```
 
-Then rerun:
+If the checkout has local edits, the updater stops by default. Commit or stash them first. If you intentionally want to proceed:
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-doctor.sh
+bash ~/.pi/agent/scripts/pi67-update.sh --allow-dirty
 ```
 
 ## Smoke test

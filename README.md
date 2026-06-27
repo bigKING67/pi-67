@@ -4,7 +4,7 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
-当前发行版版本：`0.2.0`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.3.0`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 这是什么
 
@@ -32,7 +32,7 @@
 | **Skills** | `skills/` (31 个) | lark 飞书全系列 + 前端设计/输出/重设计技能 |
 | **文档** | `docs/` (7 篇) | 全量安装、排障、发布流程、MCP 优化、爬虫指南、工具速查、xtalpi 配置 |
 | **Prompts** | `prompts/` (5 个) | debug、deliver、frontend-kickoff、review、scoped-commit |
-| **脚本** | `scripts/` | configure、doctor、release-check、smoke、restore、uninstall、xtalpi 工具冒烟测试 |
+| **脚本** | `scripts/` | configure、doctor、release-check、smoke、update、restore、uninstall、xtalpi 工具冒烟测试 |
 | **模板** | `templates/scrapers/` | 采集/合并/轮询相关脚本模板 |
 
 ## 快速开始
@@ -220,6 +220,7 @@ pi-67/
 │   ├── pi67-release-check.sh
 │   ├── pi67-restore.sh
 │   ├── pi67-smoke.sh
+│   ├── pi67-update.sh
 │   ├── pi67-uninstall.sh
 │   └── xtalpi-tool-smoke.sh
 └── templates/
@@ -234,15 +235,38 @@ xtalpi 是晶泰科技内部 API。`models.example.json` 中包含 xtalpi / xtal
 
 ## 更新
 
+如果已经安装过较新的 pi-67，直接运行：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-update.sh
+```
+
+它会：
+
+1. 在 pi-67 仓库中执行 `git pull --ff-only`
+2. 保留本地 `models.json` / `mcp.json` / `auth.json` / `image-gen.json`
+3. 如果新增本地配置模板，只复制缺失文件，不覆盖已有配置
+4. 如果 `package.json` 和 `~/.pi/agent/npm/package.json` 不一致，自动同步 npm 依赖
+5. 运行 doctor 复核 readiness
+
+如果你安装的是旧版，还没有 `pi67-update.sh`，第一次这样更新：
+
 ```bash
 cd pi-67
-git pull
-# 符号链接自动生效，无需重新安装
-# 如果 package 依赖有更新，运行：
-cd ~/.pi/agent/npm && npm install
+git pull --ff-only
+bash scripts/pi67-update.sh
+```
 
-# 复核 readiness
-bash ~/.pi/agent/scripts/pi67-doctor.sh
+预览更新动作但不写入：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-update.sh --dry-run
+```
+
+如果本地改过 pi-67 仓库文件，更新脚本会默认停止，避免覆盖你的改动。先 commit/stash，或确认可接受后使用：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-update.sh --allow-dirty
 ```
 
 ## 发布维护

@@ -204,6 +204,36 @@ To verify what will happen without writing:
 
 Use this before installing on a machine with important existing Pi configuration.
 
+## Update stops because the checkout is dirty
+
+`pi67-update.sh` defaults to safe fast-forward updates. If the pi-67 checkout has local edits, it stops before pulling:
+
+```text
+repo has local changes
+```
+
+Recommended fix:
+
+```bash
+cd /path/to/pi-67
+git status --short
+git diff --stat
+```
+
+Then either commit or stash your local edits. If you intentionally want to proceed with a dirty checkout:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-update.sh --allow-dirty
+```
+
+For a machine that has not received the updater yet:
+
+```bash
+cd /path/to/pi-67
+git pull --ff-only
+bash scripts/pi67-update.sh
+```
+
 ## Repository smoke test
 
 Before committing installer, doctor, docs, prompts, or rules changes:

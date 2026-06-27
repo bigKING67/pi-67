@@ -85,6 +85,9 @@ cleanup() {
     /tmp/pi67-smoke-restore-dry.log \
     /tmp/pi67-smoke-restore.log \
     /tmp/pi67-smoke-ops-install-2.log \
+    /tmp/pi67-smoke-update-clone.log \
+    /tmp/pi67-smoke-update-dry.log \
+    /tmp/pi67-smoke-update.log \
     /tmp/pi67-smoke-uninstall-dry.log \
     /tmp/pi67-smoke-uninstall.log
   if [ "$KEEP_TMP" = true ]; then
@@ -137,6 +140,7 @@ bash -n "$REPO_ROOT/scripts/pi67-configure.sh"
 bash -n "$REPO_ROOT/scripts/pi67-doctor.sh"
 bash -n "$REPO_ROOT/scripts/pi67-release-check.sh"
 bash -n "$REPO_ROOT/scripts/pi67-smoke.sh"
+bash -n "$REPO_ROOT/scripts/pi67-update.sh"
 if [ -f "$REPO_ROOT/scripts/pi67-restore.sh" ]; then
   bash -n "$REPO_ROOT/scripts/pi67-restore.sh"
 fi
@@ -290,6 +294,30 @@ if ! grep -q 'Result: READY' /tmp/pi67-smoke-doctor-configured.log; then
   fail "doctor did not report READY after configure"
 fi
 pass "doctor reports READY after configure"
+
+section "Update helper"
+UPDATE_REPO="$TMP_ROOT/update-repo"
+git clone "$REPO_ROOT" "$UPDATE_REPO" >/tmp/pi67-smoke-update-clone.log 2>&1
+
+"$REPO_ROOT/scripts/pi67-update.sh" \
+  --repo-root "$UPDATE_REPO" \
+  --agent-dir "$AGENT_DIR" \
+  --no-npm \
+  --no-doctor \
+  --dry-run >/tmp/pi67-smoke-update-dry.log 2>&1
+pass "update dry-run completed"
+
+"$REPO_ROOT/scripts/pi67-update.sh" \
+  --repo-root "$UPDATE_REPO" \
+  --agent-dir "$AGENT_DIR" \
+  --no-npm \
+  --no-doctor >/tmp/pi67-smoke-update.log 2>&1
+
+if ! grep -q 'already up to date\|update finished' /tmp/pi67-smoke-update.log; then
+  cat /tmp/pi67-smoke-update.log >&2
+  fail "update helper did not complete cleanly"
+fi
+pass "update helper completed on temp checkout"
 
 section "Restore/uninstall operations"
 OPS_AGENT="$TMP_ROOT/ops-agent"

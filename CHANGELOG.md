@@ -4,6 +4,18 @@ All notable changes to pi-67 are documented here.
 
 The format is based on Keep a Changelog, and this project uses semantic versioning for the pi-67 distribution itself. Pi package dependency versions are managed separately in `package.json`.
 
+## [0.3.0] - 2026-06-27
+
+### Added
+
+- `scripts/pi67-update.sh` for safe existing-install updates: fast-forward pull, local config template sync, npm dependency sync, and doctor verification.
+- Documented first update path for older installs and the one-command update path once the updater is installed.
+- Smoke coverage for updater dry-run and no-op update flows.
+
+### Changed
+
+- Release metadata and package version now identify pi-67 distribution version `0.3.0`.
+
 ## [0.2.0] - 2026-06-27
 
 ### Added
