@@ -74,6 +74,7 @@ section() {
 cleanup() {
   rm -f \
     /tmp/pi67-smoke-placeholder.log \
+    /tmp/pi67-smoke-release-check.log \
     /tmp/pi67-smoke-secrets.log \
     /tmp/pi67-smoke-install.log \
     /tmp/pi67-smoke-doctor.log \
@@ -134,6 +135,7 @@ section "Shell syntax"
 bash -n "$REPO_ROOT/install.sh"
 bash -n "$REPO_ROOT/scripts/pi67-configure.sh"
 bash -n "$REPO_ROOT/scripts/pi67-doctor.sh"
+bash -n "$REPO_ROOT/scripts/pi67-release-check.sh"
 bash -n "$REPO_ROOT/scripts/pi67-smoke.sh"
 if [ -f "$REPO_ROOT/scripts/pi67-restore.sh" ]; then
   bash -n "$REPO_ROOT/scripts/pi67-restore.sh"
@@ -149,6 +151,10 @@ for file in settings.json auth.example.json image-gen.example.json models.exampl
   json_valid "$REPO_ROOT/$file"
   pass "valid JSON: $file"
 done
+
+section "Release metadata"
+"$REPO_ROOT/scripts/pi67-release-check.sh" >/tmp/pi67-smoke-release-check.log
+pass "release metadata check completed"
 
 section "Prompt/template hygiene"
 if grep_any '\{\{[^}]+\}\}' \

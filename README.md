@@ -4,6 +4,8 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
+当前发行版版本：`0.2.0`（见 `VERSION` 和 `CHANGELOG.md`）。
+
 ## 这是什么
 
 这个仓库把 `~/.pi/agent/` 中可复用、可公开的 Pi 配置整理成可安装版本。它不是 minimal starter，而是完整 Pi 工作流发行包：
@@ -28,9 +30,9 @@
 | **Rules** | `rules/` (8 篇) | 质量、架构、结构、性能、前端、浏览器、上下文、数据质量规则 |
 | **自定义扩展** | `extensions/` (2 个) | `xtalpi-compat` + `pi-rules-loader` |
 | **Skills** | `skills/` (31 个) | lark 飞书全系列 + 前端设计/输出/重设计技能 |
-| **文档** | `docs/` (6 篇) | 全量安装、排障、MCP 优化、爬虫指南、工具速查、xtalpi 配置 |
+| **文档** | `docs/` (7 篇) | 全量安装、排障、发布流程、MCP 优化、爬虫指南、工具速查、xtalpi 配置 |
 | **Prompts** | `prompts/` (5 个) | debug、deliver、frontend-kickoff、review、scoped-commit |
-| **脚本** | `scripts/` | configure、doctor、smoke、restore、uninstall、xtalpi 工具冒烟测试 |
+| **脚本** | `scripts/` | configure、doctor、release-check、smoke、restore、uninstall、xtalpi 工具冒烟测试 |
 | **模板** | `templates/scrapers/` | 采集/合并/轮询相关脚本模板 |
 
 ## 快速开始
@@ -165,6 +167,8 @@ Pi 的长期规则分两层：
 ```text
 pi-67/
 ├── README.md
+├── VERSION
+├── CHANGELOG.md
 ├── install.sh                      # 一键符号链接安装脚本
 ├── .gitignore
 ├── AGENTS.md                       # Pi v1.4-pi 常驻内核
@@ -199,6 +203,7 @@ pi-67/
 ├── docs/                           # 文档
 │   ├── full-install.md
 │   ├── mcp-optimization-spec.md
+│   ├── release.md
 │   ├── scraping-guide.md
 │   ├── troubleshooting.md
 │   ├── tool-cheatsheet.md
@@ -212,6 +217,7 @@ pi-67/
 ├── scripts/
 │   ├── pi67-configure.sh
 │   ├── pi67-doctor.sh
+│   ├── pi67-release-check.sh
 │   ├── pi67-restore.sh
 │   ├── pi67-smoke.sh
 │   ├── pi67-uninstall.sh
@@ -237,6 +243,17 @@ cd ~/.pi/agent/npm && npm install
 
 # 复核 readiness
 bash ~/.pi/agent/scripts/pi67-doctor.sh
+```
+
+## 发布维护
+
+pi-67 自身版本以 `VERSION` 为准，`package.json.version` 与它保持一致。用户可见变更记录在 `CHANGELOG.md`，发布流程见 `docs/release.md`。
+
+发布或修改安装链路前运行：
+
+```bash
+bash scripts/pi67-release-check.sh
+bash scripts/pi67-smoke.sh --ci
 ```
 
 ## 恢复与卸载
@@ -266,6 +283,7 @@ bash ~/.pi/agent/scripts/pi67-uninstall.sh --yes
 - 不提交真实密钥、token、cookie、运行会话、缓存或本地私有状态。
 - 修改全局行为时优先更新 `AGENTS.md`；长规则优先落到 `rules/`。
 - 修改安装链路后运行 `bash scripts/pi67-smoke.sh`；至少覆盖 `bash -n`、JSON、dry-run、临时 agent-dir 安装和 doctor。
+- 修改版本、安装器、doctor、configure、restore/uninstall 或 CI 时，同步更新 `VERSION` / `CHANGELOG.md` / `docs/release.md`，并运行 `bash scripts/pi67-release-check.sh`。
 - 提交前检查 prompt 模板是否使用 Pi 支持的 `$1` / `$ARGUMENTS` / `${...}`，避免遗留双花括号占位符。
 
 ## 贡献
