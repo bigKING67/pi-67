@@ -13,6 +13,13 @@ bash ~/.pi/agent/scripts/pi67-doctor.sh --quiet
 bash ~/.pi/agent/scripts/pi67-doctor.sh --json
 ```
 
+For MCP startup/tool-list validation:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp
+bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp --mcp-timeout-ms 5000
+```
+
 ## `pi` command not found
 
 Install Pi:
@@ -130,6 +137,42 @@ Preview first if you are unsure:
 ```bash
 bash ~/.pi/agent/scripts/pi67-configure.sh --dry-run --no-prompt
 ```
+
+## Deep MCP probe warnings
+
+`--deep-mcp` starts each stdio MCP server briefly and checks whether it responds to JSON-RPC `initialize` and `tools/list`.
+
+Common warning causes:
+
+```text
+deep probe skipped: command unavailable
+deep probe skipped: missing path
+deep initialize did not complete
+deep tools/list did not complete
+deep tools/list returned no tools
+```
+
+Fix order:
+
+1. Run the normal MCP path checks first:
+
+   ```bash
+   bash ~/.pi/agent/scripts/pi67-doctor.sh
+   ```
+
+2. Fix missing local paths in:
+
+   ```text
+   ~/.pi/agent/mcp.json
+   ```
+
+3. If the server starts slowly, increase the timeout:
+
+   ```bash
+   bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp --mcp-timeout-ms 5000
+   ```
+
+4. If only the deep probe warns but normal doctor is otherwise ready, run the MCP server command manually from `mcp.json` for local logs. Doctor intentionally does not print MCP stderr because those logs may include local private details.
 
 ## `pi skill list` fails
 

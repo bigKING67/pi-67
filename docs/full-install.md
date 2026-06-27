@@ -155,6 +155,15 @@ bash ~/.pi/agent/scripts/pi67-doctor.sh --json
 
 `--quiet` prints only the summary and final result. `--json` emits a stable machine-readable object with `result`, `counts`, and per-check `checks[]` entries.
 
+Optional deep MCP probe:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp
+bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp --mcp-timeout-ms 5000
+```
+
+The normal doctor only checks MCP commands and local paths. `--deep-mcp` briefly starts each stdio MCP server from `mcp.json`, sends JSON-RPC `initialize`, then calls `tools/list`. This is intentionally opt-in because it can start local MCP processes and may require machine-specific dependencies.
+
 ## Updating
 
 If your installed pi-67 already includes the updater:

@@ -17,6 +17,8 @@ PI_AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
 RUN_SKILL_LIST=true
 OUTPUT_FORMAT="text"
 QUIET=false
+DEEP_MCP=false
+MCP_TIMEOUT_MS=2500
 
 CHECKS_FILE="$(mktemp "${TMPDIR:-/tmp}/pi67-doctor-checks.XXXXXX")"
 
@@ -40,6 +42,8 @@ Options:
       --repo-root DIR      Repository root. Defaults to parent of this script.
       --agent-dir DIR      Pi agent dir. Defaults to ~/.pi/agent.
       --no-skill-list      Skip `pi skill list`.
+      --deep-mcp           Start configured MCP servers briefly and probe initialize + tools/list.
+      --mcp-timeout-ms MS  Timeout per MCP deep probe. Defaults to 2500.
       --quiet              Print only the text summary and final result.
       --json               Print machine-readable JSON only.
   -h, --help               Show this help.
@@ -60,6 +64,14 @@ while [ "$#" -gt 0 ]; do
       RUN_SKILL_LIST=false
       shift
       ;;
+    --deep-mcp)
+      DEEP_MCP=true
+      shift
+      ;;
+    --mcp-timeout-ms)
+      MCP_TIMEOUT_MS="${2:?--mcp-timeout-ms requires a number}"
+      shift 2
+      ;;
     --quiet)
       QUIET=true
       shift
@@ -79,6 +91,11 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+if ! [[ "$MCP_TIMEOUT_MS" =~ ^[0-9]+$ ]] || [ "$MCP_TIMEOUT_MS" -lt 250 ]; then
+  echo "--mcp-timeout-ms must be an integer >= 250" >&2
+  exit 2
+fi
 
 detailed_text_enabled() {
   [ "$OUTPUT_FORMAT" = "text" ] && [ "$QUIET" != true ]
@@ -402,6 +419,329 @@ NODE
   rm -f "$tmp"
 }
 
+check_mcp_deep() {
+  local tmp
+  local out
+  tmp="$(mktemp)"
+  out="$(mktemp)"
+  cat > "$tmp" <<'NODE'
+const fs = require("fs");
+const path = require("path");
+const { spawn } = require("child_process");
+
+const [, , repoRoot, agentDir, timeoutArg] = process.argv;
+const timeoutMs = Number(timeoutArg) || 2500;
+
+function emit(level, message) {
+  console.log(`${level}|${message}`);
+}
+
+function expand(value) {
+  return String(value || "")
+    .replace(/\$\{([^}]+)\}/g, (_, name) => process.env[name] || "")
+    .replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (_, name) => process.env[name] || "");
+}
+
+function commandExists(command) {
+  if (!command) return false;
+  const expanded = expand(command);
+  if (expanded.includes("/")) {
+    return fs.existsSync(expanded);
+  }
+  const pathEnv = process.env.PATH || "";
+  return pathEnv.split(path.delimiter).some((dir) => fs.existsSync(path.join(dir, expanded)));
+}
+
+function looksLikePath(value) {
+  return typeof value === "string" && (value.includes("/") || value.startsWith("$HOME") || value.startsWith("${HOME}"));
+}
+
+function isUrl(value) {
+  return /^https?:\/\//.test(value) || /^wss?:\/\//.test(value);
+}
+
+function pathArgsMissing(server) {
+  return (server.args || [])
+    .filter((arg) => looksLikePath(arg))
+    .map((arg) => expand(arg))
+    .filter((arg) => !isUrl(arg) && !fs.existsSync(arg));
+}
+
+function encodeMessage(message) {
+  const body = JSON.stringify(message);
+  return `Content-Length: ${Buffer.byteLength(body, "utf8")}\r\n\r\n${body}`;
+}
+
+function readDistributionVersion() {
+  try {
+    return fs.readFileSync(path.join(repoRoot, "VERSION"), "utf8").trim() || "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+function createParser(onMessage) {
+  let buffer = Buffer.alloc(0);
+  const separator = Buffer.from("\r\n\r\n");
+
+  return (chunk) => {
+    buffer = Buffer.concat([buffer, chunk]);
+
+    while (buffer.length > 0) {
+      const headerEnd = buffer.indexOf(separator);
+      if (headerEnd >= 0) {
+        const header = buffer.subarray(0, headerEnd).toString("utf8");
+        const match = header.match(/Content-Length:\s*(\d+)/i);
+        if (!match) {
+          buffer = buffer.subarray(headerEnd + separator.length);
+          continue;
+        }
+
+        const length = Number(match[1]);
+        const bodyStart = headerEnd + separator.length;
+        const total = bodyStart + length;
+        if (buffer.length < total) break;
+
+        const body = buffer.subarray(bodyStart, total).toString("utf8");
+        buffer = buffer.subarray(total);
+        try {
+          onMessage(JSON.parse(body));
+        } catch {
+          // Protocol-invalid stdout is ignored; the timeout/exit path reports the probe failure.
+        }
+        continue;
+      }
+
+      const newline = buffer.indexOf(10);
+      if (newline >= 0) {
+        const line = buffer.subarray(0, newline + 1).toString("utf8").trim();
+        buffer = buffer.subarray(newline + 1);
+        if (line.startsWith("{")) {
+          try {
+            onMessage(JSON.parse(line));
+          } catch {
+            // Ignore non-protocol log lines on stdout.
+          }
+        }
+        continue;
+      }
+
+      break;
+    }
+  };
+}
+
+function waitForResponse(child, waiters, id, timeout) {
+  return new Promise((resolve) => {
+    let done = false;
+    const timer = setTimeout(() => finish({ type: "timeout" }), timeout);
+    const onExit = (code, signal) => finish({ type: "exit", code, signal });
+    const onError = (error) => finish({ type: "error", error });
+
+    function finish(result) {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      child.off("exit", onExit);
+      child.off("error", onError);
+      waiters.delete(id);
+      resolve(result);
+    }
+
+    waiters.set(id, (message) => finish({ type: "message", message }));
+    child.once("exit", onExit);
+    child.once("error", onError);
+  });
+}
+
+function stopChild(child) {
+  if (child.exitCode !== null) return;
+  child.kill("SIGTERM");
+  setTimeout(() => {
+    if (child.exitCode === null) {
+      child.kill("SIGKILL");
+    }
+  }, 150).unref();
+}
+
+async function probeServer(name, server) {
+  if (server.url) {
+    emit("WARN", `MCP ${name} deep probe skipped: non-stdio URL transports are not supported yet`);
+    return;
+  }
+
+  if (!commandExists(server.command)) {
+    emit("WARN", `MCP ${name} deep probe skipped: command unavailable`);
+    return;
+  }
+
+  const missing = pathArgsMissing(server);
+  if (missing.length > 0) {
+    emit("WARN", `MCP ${name} deep probe skipped: missing path ${missing[0]}`);
+    return;
+  }
+
+  const command = expand(server.command);
+  const args = (server.args || []).map((arg) => expand(arg));
+  const env = { ...process.env };
+  for (const [key, value] of Object.entries(server.env || {})) {
+    env[key] = expand(value);
+  }
+
+  const waiters = new Map();
+  let stderrBytes = 0;
+  let child;
+
+  try {
+    child = spawn(command, args, {
+      cwd: agentDir,
+      env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+  } catch (error) {
+    emit("WARN", `MCP ${name} deep probe failed to start: ${error.message}`);
+    return;
+  }
+
+  child.stdin.on("error", () => {});
+  child.stdout.on("error", () => {});
+  child.stderr.on("error", () => {});
+
+  child.stderr.on("data", (chunk) => {
+    stderrBytes += chunk.length;
+  });
+
+  child.stdout.on("data", createParser((message) => {
+    if (message && Object.prototype.hasOwnProperty.call(message, "id")) {
+      const waiter = waiters.get(message.id);
+      if (waiter) waiter(message);
+    }
+  }));
+
+  const initialize = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: {
+      protocolVersion: "2024-11-05",
+      capabilities: {},
+      clientInfo: {
+        name: "pi67-doctor",
+        version: readDistributionVersion(),
+      },
+    },
+  };
+
+  const initializeWait = waitForResponse(child, waiters, 1, timeoutMs);
+  child.stdin.write(encodeMessage(initialize));
+  const initializeResult = await initializeWait;
+
+  if (initializeResult.type !== "message") {
+    const detail = initializeResult.type === "exit"
+      ? `process exited code=${initializeResult.code ?? "null"} signal=${initializeResult.signal ?? "null"}`
+      : initializeResult.type;
+    const stderrNote = stderrBytes > 0 ? "; stderr was produced" : "";
+    emit("WARN", `MCP ${name} deep initialize did not complete: ${detail}${stderrNote}`);
+    stopChild(child);
+    return;
+  }
+
+  const initMessage = initializeResult.message;
+  if (initMessage.error) {
+    emit("WARN", `MCP ${name} deep initialize returned JSON-RPC error`);
+    stopChild(child);
+    return;
+  }
+
+  emit("PASS", `MCP ${name} deep initialize succeeded`);
+
+  child.stdin.write(encodeMessage({
+    jsonrpc: "2.0",
+    method: "notifications/initialized",
+    params: {},
+  }));
+
+  const toolsList = {
+    jsonrpc: "2.0",
+    id: 2,
+    method: "tools/list",
+    params: {},
+  };
+
+  const toolsWait = waitForResponse(child, waiters, 2, timeoutMs);
+  child.stdin.write(encodeMessage(toolsList));
+  const toolsResult = await toolsWait;
+
+  if (toolsResult.type !== "message") {
+    const detail = toolsResult.type === "exit"
+      ? `process exited code=${toolsResult.code ?? "null"} signal=${toolsResult.signal ?? "null"}`
+      : toolsResult.type;
+    emit("WARN", `MCP ${name} deep tools/list did not complete: ${detail}`);
+    stopChild(child);
+    return;
+  }
+
+  const toolsMessage = toolsResult.message;
+  if (toolsMessage.error) {
+    emit("WARN", `MCP ${name} deep tools/list returned JSON-RPC error`);
+    stopChild(child);
+    return;
+  }
+
+  const tools = Array.isArray(toolsMessage.result?.tools) ? toolsMessage.result.tools : [];
+  if (tools.length > 0) {
+    emit("PASS", `MCP ${name} deep tools/list succeeded: ${tools.length} tools`);
+  } else {
+    emit("WARN", `MCP ${name} deep tools/list returned no tools`);
+  }
+
+  stopChild(child);
+}
+
+async function main() {
+  const file = path.join(agentDir, "mcp.json");
+  let config;
+  try {
+    config = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (error) {
+    emit("FAIL", `cannot read mcp.json for deep probe: ${error.message}`);
+    return;
+  }
+
+  const servers = config.mcpServers || {};
+  const names = Object.keys(servers);
+  if (names.length === 0) {
+    emit("WARN", "deep MCP probe skipped: mcp.json has no mcpServers");
+    return;
+  }
+
+  for (const name of names) {
+    await probeServer(name, servers[name] || {});
+  }
+}
+
+main().catch((error) => {
+  emit("WARN", `deep MCP probe runner failed: ${error.message}`);
+});
+NODE
+
+  if ! node "$tmp" "$REPO_ROOT" "$PI_AGENT_DIR" "$MCP_TIMEOUT_MS" > "$out" 2>/dev/null; then
+    warn "deep MCP probe runner failed"
+  fi
+
+  while IFS='|' read -r level message; do
+    case "$level" in
+      PASS) pass "$message" ;;
+      WARN) warn "$message" ;;
+      FAIL) fail "$message" ;;
+      "") ;;
+      *) warn "$level|$message" ;;
+    esac
+  done < "$out"
+
+  rm -f "$tmp" "$out"
+}
+
 check_repo_secret_scan() {
   local pattern='BEGIN [A-Z ]*PRIVATE KEY|sk-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]+'
   local paths=(
@@ -519,6 +859,10 @@ check_provider_model
 
 section "MCP readiness"
 check_mcp
+if [ "$DEEP_MCP" = true ]; then
+  section "Deep MCP readiness"
+  check_mcp_deep
+fi
 
 section "Pi runtime"
 if [ "$RUN_SKILL_LIST" = true ]; then

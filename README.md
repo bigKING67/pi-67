@@ -4,7 +4,7 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
-当前发行版版本：`0.4.0`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.5.0`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 这是什么
 
@@ -95,6 +95,13 @@ FAIL = 阻断性问题
 ```bash
 bash ~/.pi/agent/scripts/pi67-doctor.sh --quiet # 只看 summary/result
 bash ~/.pi/agent/scripts/pi67-doctor.sh --json  # 机器可读 readiness JSON
+```
+
+需要确认 MCP server 能真实启动并暴露工具时，显式开启深度探测：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp
+bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp --mcp-timeout-ms 5000
 ```
 
 完整说明见 `docs/full-install.md`；常见问题见 `docs/troubleshooting.md`。

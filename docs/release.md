@@ -26,6 +26,7 @@ Expected result:
 - smoke test passes locally
 - worktree is clean except the intentional release commit before committing
 - GitHub Actions passes after push
+- optional user-machine MCP check passes when MCP behavior changed: `bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp`
 
 ## Updating a release
 
@@ -91,7 +92,8 @@ Update existing install:
 
 ```bash
 cd /path/to/pi-67
-git pull
+git pull --ff-only
+bash scripts/pi67-update.sh
 bash ~/.pi/agent/scripts/pi67-doctor.sh
 ```
 

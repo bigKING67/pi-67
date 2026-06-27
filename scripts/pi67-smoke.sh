@@ -80,6 +80,7 @@ cleanup() {
     /tmp/pi67-smoke-doctor.log \
     /tmp/pi67-smoke-doctor-quiet.log \
     /tmp/pi67-smoke-doctor-json.log \
+    /tmp/pi67-smoke-doctor-deep-mcp.log \
     /tmp/pi67-smoke-configure-dry.log \
     /tmp/pi67-smoke-configure.log \
     /tmp/pi67-smoke-doctor-configured.log \
@@ -329,6 +330,105 @@ if ! grep -q 'Result: READY' /tmp/pi67-smoke-doctor-configured.log; then
   fail "doctor did not report READY after configure"
 fi
 pass "doctor reports READY after configure"
+
+section "Deep MCP doctor probe"
+cat > "$FAKE_BIN/fake-mcp-server" <<'SH'
+#!/usr/bin/env node
+let buffer = Buffer.alloc(0);
+const separator = Buffer.from("\r\n\r\n");
+
+function send(message) {
+  const body = JSON.stringify(message);
+  process.stdout.write(`Content-Length: ${Buffer.byteLength(body, "utf8")}\r\n\r\n${body}`);
+}
+
+function handle(message) {
+  if (message.method === "initialize") {
+    send({
+      jsonrpc: "2.0",
+      id: message.id,
+      result: {
+        protocolVersion: message.params?.protocolVersion || "2024-11-05",
+        capabilities: { tools: { listChanged: false } },
+        serverInfo: { name: "fake-mcp-server", version: "0.0.0-smoke" }
+      }
+    });
+    return;
+  }
+
+  if (message.method === "tools/list") {
+    send({
+      jsonrpc: "2.0",
+      id: message.id,
+      result: {
+        tools: [
+          {
+            name: "smoke_echo",
+            description: "Smoke-test tool",
+            inputSchema: { type: "object", properties: {} }
+          }
+        ]
+      }
+    });
+    setTimeout(() => process.exit(0), 25);
+  }
+}
+
+process.stdin.on("data", (chunk) => {
+  buffer = Buffer.concat([buffer, chunk]);
+  while (buffer.length > 0) {
+    const headerEnd = buffer.indexOf(separator);
+    if (headerEnd < 0) break;
+    const header = buffer.subarray(0, headerEnd).toString("utf8");
+    const match = header.match(/Content-Length:\s*(\d+)/i);
+    if (!match) break;
+    const length = Number(match[1]);
+    const bodyStart = headerEnd + separator.length;
+    const total = bodyStart + length;
+    if (buffer.length < total) break;
+    const body = buffer.subarray(bodyStart, total).toString("utf8");
+    buffer = buffer.subarray(total);
+    handle(JSON.parse(body));
+  }
+});
+SH
+chmod +x "$FAKE_BIN/fake-mcp-server"
+
+cp "$AGENT_DIR/mcp.json" "$TMP_ROOT/mcp-configured.json"
+cat > "$AGENT_DIR/mcp.json" <<JSON
+{
+  "mcpServers": {
+    "fake_mcp": {
+      "command": "$FAKE_BIN/fake-mcp-server",
+      "args": [],
+      "env": {}
+    }
+  }
+}
+JSON
+
+PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
+  --repo-root "$REPO_ROOT" \
+  --agent-dir "$AGENT_DIR" \
+  --deep-mcp \
+  --mcp-timeout-ms 2000 \
+  --json >/tmp/pi67-smoke-doctor-deep-mcp.log
+node -e '
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (data.result !== "READY") {
+  throw new Error(`unexpected deep MCP result: ${data.result}`);
+}
+const messages = data.checks.map((item) => item.message).join("\n");
+if (!messages.includes("MCP fake_mcp deep initialize succeeded")) {
+  throw new Error("missing deep initialize success");
+}
+if (!messages.includes("MCP fake_mcp deep tools/list succeeded: 1 tools")) {
+  throw new Error("missing deep tools/list success");
+}
+' /tmp/pi67-smoke-doctor-deep-mcp.log
+mv "$TMP_ROOT/mcp-configured.json" "$AGENT_DIR/mcp.json"
+pass "doctor deep MCP probe completed"
 
 section "Update helper"
 UPDATE_REPO="$TMP_ROOT/update-repo"

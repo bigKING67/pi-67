@@ -4,6 +4,14 @@ All notable changes to pi-67 are documented here.
 
 The format is based on Keep a Changelog, and this project uses semantic versioning for the pi-67 distribution itself. Pi package dependency versions are managed separately in `package.json`.
 
+## [0.5.0] - 2026-06-28
+
+### Added
+
+- `scripts/pi67-doctor.sh --deep-mcp` for optional MCP server startup probing via JSON-RPC `initialize` and `tools/list`.
+- `scripts/pi67-doctor.sh --mcp-timeout-ms` to tune per-server deep probe timeouts.
+- Smoke coverage for a fake stdio MCP server deep probe.
+
 ## [0.4.0] - 2026-06-28
 
 ### Added
