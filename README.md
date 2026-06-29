@@ -4,7 +4,7 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
-当前发行版版本：`0.7.0`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.8.0`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 这是什么
 
@@ -30,9 +30,9 @@
 | **Rules** | `rules/` (8 篇) | 质量、架构、结构、性能、前端、浏览器、上下文、数据质量规则 |
 | **自定义扩展** | `extensions/` (2 个) | `xtalpi-compat` + `pi-rules-loader` |
 | **Skills** | `skills/` (31 个) | lark 飞书全系列 + 前端设计/输出/重设计技能 |
-| **文档** | `docs/` (8 篇) | 全量安装、报告 schema、排障、发布流程、MCP 优化、爬虫指南、工具速查、xtalpi 配置 |
+| **文档** | `docs/` (10 篇) | 全量安装、doctor/report/status schema、排障、发布流程、MCP 优化、爬虫指南、工具速查、xtalpi 配置 |
 | **Prompts** | `prompts/` (5 个) | debug、deliver、frontend-kickoff、review、scoped-commit |
-| **脚本** | `scripts/` | configure、doctor、report、release、release-check、smoke、update、restore、uninstall、xtalpi 工具冒烟测试 |
+| **脚本** | `scripts/` | configure、doctor、report、status、release、release-check、smoke、update、restore、uninstall、xtalpi 工具冒烟测试 |
 | **模板** | `templates/scrapers/` | 采集/合并/轮询相关脚本模板 |
 
 ## 快速开始
@@ -99,6 +99,13 @@ bash ~/.pi/agent/scripts/pi67-doctor.sh --quiet # 只看 summary/result
 bash ~/.pi/agent/scripts/pi67-doctor.sh --json  # 机器可读 readiness JSON
 ```
 
+只想快速看当前安装是否需要更新、报告是否过期、doctor 上次结果如何：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-status.sh
+bash ~/.pi/agent/scripts/pi67-status.sh --json
+```
+
 需要确认 MCP server 能真实启动并暴露工具时，显式开启深度探测：
 
 ```bash
@@ -116,7 +123,7 @@ bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp --mcp-timeout-ms 5000
 
 这是单文件覆盖写，不会无限追加历史文件；里面记录 pi-67 版本、Git commit、agent 文件状态、runtime 版本和 doctor JSON 结果。
 
-机器可读字段契约见 `docs/report-schema.md`。当前 schema 为 `pi67-report/v2`。
+机器可读字段契约见 `docs/report-schema.md`。当前 schema 为 `pi67-report/v2`；doctor JSON 契约见 `docs/doctor-schema.md`。
 
 本地/CI 维护检查：
 
@@ -227,11 +234,13 @@ pi-67/
 │   ├── redesign-existing-projects/
 │   └── stitch-design-taste/
 ├── docs/                           # 文档
+│   ├── doctor-schema.md
 │   ├── full-install.md
 │   ├── mcp-optimization-spec.md
 │   ├── report-schema.md
 │   ├── release.md
 │   ├── scraping-guide.md
+│   ├── status.md
 │   ├── troubleshooting.md
 │   ├── tool-cheatsheet.md
 │   └── xtalpi-tools.md
@@ -249,6 +258,7 @@ pi-67/
 │   ├── pi67-report.sh
 │   ├── pi67-restore.sh
 │   ├── pi67-smoke.sh
+│   ├── pi67-status.sh
 │   ├── pi67-update.sh
 │   ├── pi67-uninstall.sh
 │   └── xtalpi-tool-smoke.sh
@@ -268,6 +278,12 @@ xtalpi 是晶泰科技内部 API。`models.example.json` 中包含 xtalpi / xtal
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-update.sh
+```
+
+更新前或日常巡检想先看当前状态：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-status.sh
 ```
 
 它会：

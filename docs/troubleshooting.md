@@ -21,6 +21,18 @@ The latest install/update report is:
 
 This file is overwritten on each install/update. It is not a history log and should not grow without bound.
 
+For a quick read-only summary before deciding what to run next:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-status.sh
+```
+
+If status says the report is stale, regenerate it:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-report.sh --operation manual
+```
+
 For MCP startup/tool-list validation:
 
 ```bash

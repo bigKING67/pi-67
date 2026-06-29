@@ -40,6 +40,8 @@ Expected result:
    - `docs/full-install.md`
    - `docs/troubleshooting.md`
    - `docs/report-schema.md` if `pi67-report.json` fields changed
+   - `docs/doctor-schema.md` if doctor JSON fields changed
+   - `docs/status.md` if `scripts/pi67-status.sh` behavior changed
    - update workflow docs if `scripts/pi67-update.sh` changed
 5. Run:
 
@@ -135,6 +137,7 @@ cd /path/to/pi-67
 git pull --ff-only
 bash scripts/pi67-update.sh
 bash ~/.pi/agent/scripts/pi67-doctor.sh
+bash ~/.pi/agent/scripts/pi67-status.sh
 ```
 
 Configure local readiness:

@@ -4,6 +4,19 @@ All notable changes to pi-67 are documented here.
 
 The format is based on Keep a Changelog, and this project uses semantic versioning for the pi-67 distribution itself. Pi package dependency versions are managed separately in `package.json`.
 
+## [0.8.0] - 2026-06-29
+
+### Added
+
+- `scripts/pi67-status.sh` for a read-only installed-state summary covering version, Git state, remote head, report freshness, latest doctor result, and next-command recommendations.
+- `docs/doctor-schema.md` documents the stable doctor JSON schema contract.
+- `docs/status.md` documents status output, result meanings, JSON schema, and status vs update check-only usage.
+
+### Changed
+
+- `scripts/pi67-doctor.sh --json` now emits schema v2 metadata (`pi67-doctor/v2`) with `generatedAt`, `generatedBy`, distribution version, and diagnostic mode fields while preserving legacy `result` / `counts` / `checks`.
+- Smoke and release checks now validate doctor schema v2 and the status workflow documentation.
+
 ## [0.7.0] - 2026-06-29
 
 ### Added

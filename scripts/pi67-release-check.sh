@@ -44,6 +44,8 @@ CHANGELOG="$REPO_ROOT/CHANGELOG.md"
 PACKAGE_JSON="$REPO_ROOT/package.json"
 RELEASE_DOC="$REPO_ROOT/docs/release.md"
 REPORT_SCHEMA_DOC="$REPO_ROOT/docs/report-schema.md"
+DOCTOR_SCHEMA_DOC="$REPO_ROOT/docs/doctor-schema.md"
+STATUS_DOC="$REPO_ROOT/docs/status.md"
 
 if [ -f "$VERSION_FILE" ]; then
   VERSION="$(tr -d '[:space:]' < "$VERSION_FILE")"
@@ -111,6 +113,18 @@ else
   fail "report schema v2 is not documented"
 fi
 
+if [ -f "$DOCTOR_SCHEMA_DOC" ] && grep -q "pi67-doctor/v2" "$DOCTOR_SCHEMA_DOC"; then
+  pass "doctor schema v2 is documented"
+else
+  fail "doctor schema v2 is not documented"
+fi
+
+if [ -f "$STATUS_DOC" ] && grep -q "pi67-status.sh" "$STATUS_DOC" && grep -q "pi67-status.sh" "$REPO_ROOT/README.md" && grep -q "pi67-status.sh" "$REPO_ROOT/docs/full-install.md"; then
+  pass "status workflow is documented"
+else
+  fail "status workflow is not documented"
+fi
+
 if grep -q "pi67-release.sh" "$REPO_ROOT/README.md" && grep -q "pi67-release.sh" "$REPO_ROOT/docs/release.md"; then
   pass "release automation is documented"
 else
@@ -124,7 +138,7 @@ if command_exists git && git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/d
     fail "git diff --check failed"
   fi
 
-  if git -C "$REPO_ROOT" ls-files --error-unmatch VERSION CHANGELOG.md docs/release.md docs/report-schema.md scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-update.sh >/dev/null 2>&1; then
+  if git -C "$REPO_ROOT" ls-files --error-unmatch VERSION CHANGELOG.md docs/release.md docs/report-schema.md docs/doctor-schema.md docs/status.md scripts/pi67-doctor.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-status.sh scripts/pi67-update.sh >/dev/null 2>&1; then
     pass "release metadata files are tracked or staged"
   else
     warn "release metadata files are not all tracked yet; expected before final commit"

@@ -145,9 +145,25 @@ json_escape() {
 emit_json() {
   local result="$1"
   local first=true
+  local generated_at
+  local pi67_version
+
+  generated_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date)"
+  pi67_version="$(tr -d '[:space:]' < "$REPO_ROOT/VERSION" 2>/dev/null || printf 'unknown')"
 
   printf '{\n'
-  printf '  "schemaVersion": 1,\n'
+  printf '  "schemaVersion": 2,\n'
+  printf '  "schemaId": "pi67-doctor/v2",\n'
+  printf '  "generatedAt": "%s",\n' "$(json_escape "$generated_at")"
+  printf '  "generatedBy": "scripts/pi67-doctor.sh",\n'
+  printf '  "pi67": {\n'
+  printf '    "version": "%s"\n' "$(json_escape "$pi67_version")"
+  printf '  },\n'
+  printf '  "diagnostics": {\n'
+  printf '    "deepMcp": %s,\n' "$DEEP_MCP"
+  printf '    "mcpTimeoutMs": %s,\n' "$MCP_TIMEOUT_MS"
+  printf '    "skillList": %s\n' "$RUN_SKILL_LIST"
+  printf '  },\n'
   printf '  "repository": "%s",\n' "$(json_escape "$REPO_ROOT")"
   printf '  "agentDir": "%s",\n' "$(json_escape "$PI_AGENT_DIR")"
   printf '  "result": "%s",\n' "$(json_escape "$result")"

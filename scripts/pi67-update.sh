@@ -226,6 +226,9 @@ line("INFO", `schemaVersion: ${report.schemaVersion ?? "missing"}`);
 line("INFO", `pi67Version: ${report.pi67Version || "unknown"}`);
 line("INFO", `commit: ${report.repository?.shortCommit || "unknown"}`);
 line("INFO", `doctor: ${report.doctor?.result || (report.doctor?.skipped ? "SKIPPED" : "unknown")}`);
+if (report.doctor && report.doctor.skipped !== true) {
+  line("INFO", `doctorSchema: ${report.doctor.schemaVersion ?? "missing"}`);
+}
 
 const staleReasons = [];
 if (Number(report.schemaVersion || 0) < 2) {
@@ -239,6 +242,9 @@ if (String(report.repository?.shortCommit || "") !== currentShort) {
 }
 if (Boolean(report.repository?.dirty) !== currentDirty) {
   staleReasons.push(`dirty ${Boolean(report.repository?.dirty)} != ${currentDirty}`);
+}
+if (report.doctor && report.doctor.skipped !== true && Number(report.doctor.schemaVersion || 0) < 2) {
+  staleReasons.push(`doctor schemaVersion ${report.doctor.schemaVersion ?? "missing"} < 2`);
 }
 
 if (staleReasons.length > 0) {

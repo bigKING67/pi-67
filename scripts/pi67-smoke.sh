@@ -82,6 +82,8 @@ cleanup() {
     /tmp/pi67-smoke-doctor-quiet.log \
     /tmp/pi67-smoke-doctor-json.log \
     /tmp/pi67-smoke-doctor-deep-mcp.log \
+    /tmp/pi67-smoke-status.log \
+    /tmp/pi67-smoke-status-json.log \
     /tmp/pi67-smoke-configure-dry.log \
     /tmp/pi67-smoke-configure.log \
     /tmp/pi67-smoke-doctor-configured.log \
@@ -147,6 +149,7 @@ bash -n "$REPO_ROOT/scripts/pi67-release.sh"
 bash -n "$REPO_ROOT/scripts/pi67-release-check.sh"
 bash -n "$REPO_ROOT/scripts/pi67-report.sh"
 bash -n "$REPO_ROOT/scripts/pi67-smoke.sh"
+bash -n "$REPO_ROOT/scripts/pi67-status.sh"
 bash -n "$REPO_ROOT/scripts/pi67-update.sh"
 if [ -f "$REPO_ROOT/scripts/pi67-restore.sh" ]; then
   bash -n "$REPO_ROOT/scripts/pi67-restore.sh"
@@ -288,6 +291,10 @@ PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
 node -e '
 const fs = require("fs");
 const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (data.schemaVersion !== 2) throw new Error(`unexpected doctor schemaVersion: ${data.schemaVersion}`);
+if (data.schemaId !== "pi67-doctor/v2") throw new Error(`unexpected doctor schemaId: ${data.schemaId}`);
+if (data.generatedBy !== "scripts/pi67-doctor.sh") throw new Error("doctor generatedBy missing");
+if (data.diagnostics?.deepMcp !== false) throw new Error("doctor diagnostics.deepMcp should be false");
 if (!["READY", "READY WITH WARNINGS"].includes(data.result)) {
   throw new Error(`unexpected result: ${data.result}`);
 }
@@ -299,6 +306,35 @@ if (!Array.isArray(data.checks) || data.checks.length === 0) {
 }
 ' /tmp/pi67-smoke-doctor-json.log
 pass "doctor JSON output parsed"
+
+section "Status summary"
+PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-status.sh" \
+  --repo-root "$REPO_ROOT" \
+  --agent-dir "$AGENT_DIR" \
+  --no-remote >/tmp/pi67-smoke-status.log
+if ! grep -q 'Result: READY WITH WARNINGS\|Result: READY' /tmp/pi67-smoke-status.log; then
+  cat /tmp/pi67-smoke-status.log >&2
+  fail "status text output did not complete"
+fi
+pass "status text output completed"
+
+PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-status.sh" \
+  --repo-root "$REPO_ROOT" \
+  --agent-dir "$AGENT_DIR" \
+  --no-remote \
+  --json >/tmp/pi67-smoke-status-json.log
+node -e '
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (data.schemaVersion !== 1) throw new Error(`unexpected status schemaVersion: ${data.schemaVersion}`);
+if (data.schemaId !== "pi67-status/v1") throw new Error(`unexpected status schemaId: ${data.schemaId}`);
+if (data.report?.schemaId !== "pi67-report/v2") throw new Error("status did not read report schema v2");
+if (data.report?.stale !== false) throw new Error(`status reported stale report: ${(data.report?.staleReasons || []).join("; ")}`);
+if (!Array.isArray(data.recommendations) || data.recommendations.length === 0) {
+  throw new Error("status recommendations missing");
+}
+' /tmp/pi67-smoke-status-json.log
+pass "status JSON output parsed"
 
 section "Configure helper"
 mkdir -p "$TMP_ROOT/tmwd-browser-mcp/src"
@@ -446,6 +482,9 @@ PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
 node -e '
 const fs = require("fs");
 const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (data.schemaVersion !== 2) throw new Error(`unexpected doctor schemaVersion: ${data.schemaVersion}`);
+if (data.schemaId !== "pi67-doctor/v2") throw new Error(`unexpected doctor schemaId: ${data.schemaId}`);
+if (data.diagnostics?.deepMcp !== true) throw new Error("doctor diagnostics.deepMcp should be true");
 if (data.result !== "READY") {
   throw new Error(`unexpected deep MCP result: ${data.result}`);
 }

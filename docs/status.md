@@ -1,0 +1,123 @@
+# pi-67 Status
+
+`scripts/pi67-status.sh` is the read-only "what state am I in?" command for pi-67 installs.
+
+It summarizes:
+
+- installed pi-67 version and package version
+- local Git branch, commit, dirty state, upstream ahead/behind
+- optional remote branch head status
+- `~/.pi/agent/pi67-report.json` freshness
+- doctor summary from the latest report
+- recommended next command
+
+It does **not** run `git pull`, `npm install`, `pi67-doctor.sh`, or `pi67-report.sh`, and it does not write files.
+
+## Usage
+
+```bash
+bash ~/.pi/agent/scripts/pi67-status.sh
+```
+
+From a checkout:
+
+```bash
+bash scripts/pi67-status.sh
+```
+
+Machine-readable output:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-status.sh --json
+```
+
+Skip the remote `git ls-remote` check:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-status.sh --no-remote
+```
+
+Inspect a specific branch or remote:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-status.sh --remote origin --branch main
+```
+
+## Status results
+
+The JSON `result` field is one of:
+
+| Result | Meaning |
+| --- | --- |
+| `READY` | Checkout, report, and latest doctor summary are current with no doctor warnings. |
+| `READY_WITH_WARNINGS` | No blocking failure, but local readiness warnings, stale/missing report, dirty checkout, or unknown remote state need attention. |
+| `UPDATE_AVAILABLE` | Remote has a different/newer head and `pi67-update.sh` should be run. |
+| `ACTION_REQUIRED` | Blocking state, such as invalid report JSON, doctor failures, or diverged Git history. |
+
+Human text prints the same value with spaces:
+
+```text
+Result: READY WITH WARNINGS
+```
+
+## Schema
+
+Current JSON schema:
+
+```json
+{
+  "schemaVersion": 1,
+  "schemaId": "pi67-status/v1"
+}
+```
+
+Stable top-level fields:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `schemaVersion` | number | Status schema version. Current value: `1`. |
+| `schemaId` | string | Schema identifier. Current value: `pi67-status/v1`. |
+| `generatedAt` | string | ISO timestamp for status generation. |
+| `generatedBy` | string | Script that generated the result. |
+| `pi67` | object | Version metadata from `VERSION` and `package.json`. |
+| `repository` | object | Local checkout state. |
+| `remote` | object | Optional remote head state. |
+| `agent` | object | Pi agent directory path. |
+| `report` | object | Existing `pi67-report.json` parse/freshness state. |
+| `result` | string | Overall status result. |
+| `blockers` | array | Blocking issues. |
+| `warnings` | array | Non-blocking issues. |
+| `recommendations` | array | Concrete next commands/actions. |
+
+## Report freshness
+
+Status marks the report stale when:
+
+- `pi67-report.json` is missing or invalid
+- report schema is older than `pi67-report/v2`
+- report version does not match current `VERSION`
+- report commit does not match current checkout commit
+- report dirty state does not match current checkout dirty state
+- embedded doctor JSON is older than `pi67-doctor/v2`
+
+Regenerate the report with:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-report.sh --operation manual
+```
+
+Or update the installed checkout and regenerate report in one flow:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-update.sh
+```
+
+## Choosing status vs update check-only
+
+Use `pi67-status.sh` for the current local summary and recommendation.
+
+Use `pi67-update.sh --check-only` when you want the full update plan preview, including local config template checks and npm sync status:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-update.sh --check-only
+```

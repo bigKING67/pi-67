@@ -47,14 +47,14 @@ Compatibility rule:
 | `repository` | object | stable | pi-67 checkout state. |
 | `agent` | object | stable | Pi agent directory state. |
 | `runtime` | object | stable | Local runtime versions. |
-| `doctor` | object | passthrough | Doctor JSON result or reporter parse/skip diagnostics. |
+| `doctor` | object | passthrough | Doctor JSON result (`pi67-doctor/v2`) or reporter parse/skip diagnostics. |
 
 ## `pi67`
 
 ```json
 {
-  "version": "0.7.0",
-  "packageVersion": "0.7.0"
+  "version": "0.8.0",
+  "packageVersion": "0.8.0"
 }
 ```
 
@@ -153,6 +153,9 @@ When doctor runs successfully with `--json`, this block includes the doctor resu
   "skipped": false,
   "exitCode": 0,
   "deepMcp": false,
+  "schemaVersion": 2,
+  "schemaId": "pi67-doctor/v2",
+  "generatedBy": "scripts/pi67-doctor.sh",
   "result": "READY WITH WARNINGS",
   "counts": {
     "pass": 32,
@@ -162,6 +165,8 @@ When doctor runs successfully with `--json`, this block includes the doctor resu
   "checks": []
 }
 ```
+
+The embedded doctor schema is documented in `docs/doctor-schema.md`. Consumers that depend on structured doctor metadata should require `doctor.schemaVersion >= 2` when `doctor.skipped !== true`.
 
 When doctor is skipped:
 

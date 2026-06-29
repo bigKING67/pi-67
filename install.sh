@@ -369,8 +369,9 @@ say "Next:"
 say "  1. Configure local keys/paths: ${CYAN}bash ~/.pi/agent/scripts/pi67-configure.sh --prompt-secrets${NC}"
 say "  2. Or manually edit ~/.pi/agent/models.json, mcp.json, auth.json, image-gen.json."
 say "  3. Run: ${CYAN}bash ~/.pi/agent/scripts/pi67-doctor.sh${NC}"
-say "  4. Report: ${CYAN}~/.pi/agent/pi67-report.json${NC}"
-say "  5. Start Pi: ${CYAN}pi${NC}"
+say "  4. Status: ${CYAN}bash ~/.pi/agent/scripts/pi67-status.sh${NC}"
+say "  5. Report: ${CYAN}~/.pi/agent/pi67-report.json${NC}"
+say "  6. Start Pi: ${CYAN}pi${NC}"
 if [ "$BACKUP_CREATED" = true ]; then
   say ""
   if [ "$DRY_RUN" = true ]; then

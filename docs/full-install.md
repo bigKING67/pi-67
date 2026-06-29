@@ -81,7 +81,7 @@ The report includes:
 - runtime versions for Node/npm/Pi
 - doctor JSON result, unless doctor was skipped
 
-The machine-readable field contract is documented in `docs/report-schema.md`. Current reports use schema `pi67-report/v2`.
+The machine-readable field contract is documented in `docs/report-schema.md`. Current reports use schema `pi67-report/v2`. Embedded doctor JSON is documented in `docs/doctor-schema.md`.
 
 Use `--no-report` on install/update if you do not want the report file.
 
@@ -184,6 +184,17 @@ bash ~/.pi/agent/scripts/pi67-doctor.sh --json
 
 `--quiet` prints only the summary and final result. `--json` emits a stable machine-readable object with `result`, `counts`, and per-check `checks[]` entries.
 
+The doctor JSON schema is documented in `docs/doctor-schema.md`. Current doctor JSON uses schema `pi67-doctor/v2`.
+
+For a quick read-only summary of version, Git state, report freshness, and the latest doctor result:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-status.sh
+bash ~/.pi/agent/scripts/pi67-status.sh --json
+```
+
+Status details are documented in `docs/status.md`.
+
 Optional deep MCP probe:
 
 ```bash
@@ -231,6 +242,12 @@ bash ~/.pi/agent/scripts/pi67-update.sh --check-only
 ```
 
 `--check-only` reports the local commit/version, remote branch head, dirty worktree state, local config template gaps, npm sync status, and whether `pi67-report.json` is stale.
+
+For a shorter daily health summary, use:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-status.sh
+```
 
 If the checkout has local edits, the updater stops by default. Commit or stash them first. If you intentionally want to proceed:
 
