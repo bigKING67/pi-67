@@ -10,6 +10,7 @@ PI_AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
 OPERATION="manual"
 OUTPUT=""
 RUN_DOCTOR=true
+DOCTOR_TIMEOUT_MS=90000
 DOCTOR_DEEP_MCP=false
 MCP_TIMEOUT_MS=2500
 DRY_RUN=false
@@ -27,6 +28,8 @@ Options:
       --operation NAME      Report operation: install, update, manual. Defaults to manual.
       --output FILE         Output path. Defaults to ~/.pi/agent/pi67-report.json.
       --no-doctor           Do not run doctor; mark doctor as skipped.
+      --doctor-timeout-ms MS
+                            Timeout for doctor JSON. Defaults to 90000.
       --doctor-deep-mcp     Include doctor --deep-mcp in the report.
       --mcp-timeout-ms MS   Timeout passed to doctor --deep-mcp. Defaults to 2500.
       --dry-run             Print the target path without writing.
@@ -59,6 +62,10 @@ while [ "$#" -gt 0 ]; do
     --no-doctor)
       RUN_DOCTOR=false
       shift
+      ;;
+    --doctor-timeout-ms)
+      DOCTOR_TIMEOUT_MS="${2:?--doctor-timeout-ms requires a number}"
+      shift 2
       ;;
     --doctor-deep-mcp)
       DOCTOR_DEEP_MCP=true
@@ -100,14 +107,15 @@ fi
 
 mkdir -p "$(dirname "$OUTPUT")"
 
-node - "$REPO_ROOT" "$PI_AGENT_DIR" "$OPERATION" "$OUTPUT" "$RUN_DOCTOR" "$DOCTOR_DEEP_MCP" "$MCP_TIMEOUT_MS" <<'NODE'
+node - "$REPO_ROOT" "$PI_AGENT_DIR" "$OPERATION" "$OUTPUT" "$RUN_DOCTOR" "$DOCTOR_TIMEOUT_MS" "$DOCTOR_DEEP_MCP" "$MCP_TIMEOUT_MS" <<'NODE'
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { spawnSync } = require("child_process");
 
-const [, , repoRoot, agentDir, operation, output, runDoctorArg, doctorDeepMcpArg, mcpTimeoutMs] = process.argv;
+const [, , repoRoot, agentDir, operation, output, runDoctorArg, doctorTimeoutMsArg, doctorDeepMcpArg, mcpTimeoutMs] = process.argv;
 const runDoctor = runDoctorArg === "true";
+const doctorTimeoutMs = Number(doctorTimeoutMsArg || "90000");
 const doctorDeepMcp = doctorDeepMcpArg === "true";
 
 function readText(file) {
@@ -186,7 +194,8 @@ function runDoctorJson() {
     args.push("--deep-mcp", "--mcp-timeout-ms", String(mcpTimeoutMs || "2500"));
   }
 
-  const result = command("bash", args, { cwd: repoRoot, timeout: doctorDeepMcp ? 60000 : 30000 });
+  const timeout = Math.max(doctorTimeoutMs, doctorDeepMcp ? 60000 : 10000);
+  const result = command("bash", args, { cwd: repoRoot, timeout });
   const parsed = readJsonFromText(result.stdout);
   if (parsed) {
     return {
@@ -200,8 +209,11 @@ function runDoctorJson() {
   return {
     skipped: false,
     exitCode: result.status,
+    signal: result.signal,
+    error: result.error,
     deepMcp: doctorDeepMcp,
     parseError: "doctor did not emit valid JSON",
+    timeoutMs: timeout,
     stdoutBytes: Buffer.byteLength(result.stdout || "", "utf8"),
     stderrBytes: Buffer.byteLength(result.stderr || "", "utf8"),
   };

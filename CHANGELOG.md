@@ -4,6 +4,12 @@ All notable changes to pi-67 are documented here.
 
 The format is based on Keep a Changelog, and this project uses semantic versioning for the pi-67 distribution itself. Pi package dependency versions are managed separately in `package.json`.
 
+## [0.6.1] - 2026-06-29
+
+### Fixed
+
+- `scripts/pi67-report.sh` now gives doctor JSON enough time on slower local Pi setups and records timeout diagnostics if doctor still cannot emit valid JSON.
+
 ## [0.6.0] - 2026-06-29
 
 ### Added
