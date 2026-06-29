@@ -81,6 +81,8 @@ The report includes:
 - runtime versions for Node/npm/Pi
 - doctor JSON result, unless doctor was skipped
 
+The machine-readable field contract is documented in `docs/report-schema.md`. Current reports use schema `pi67-report/v2`.
+
 Use `--no-report` on install/update if you do not want the report file.
 
 ## Local config files
@@ -221,6 +223,14 @@ Preview without changing files:
 ```bash
 bash ~/.pi/agent/scripts/pi67-update.sh --dry-run
 ```
+
+Check update readiness without pulling, running doctor, or writing files:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-update.sh --check-only
+```
+
+`--check-only` reports the local commit/version, remote branch head, dirty worktree state, local config template gaps, npm sync status, and whether `pi67-report.json` is stale.
 
 If the checkout has local edits, the updater stops by default. Commit or stash them first. If you intentionally want to proceed:
 

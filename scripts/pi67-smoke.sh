@@ -90,6 +90,7 @@ cleanup() {
     /tmp/pi67-smoke-restore.log \
     /tmp/pi67-smoke-ops-install-2.log \
     /tmp/pi67-smoke-update-clone.log \
+    /tmp/pi67-smoke-update-check.log \
     /tmp/pi67-smoke-update-dry.log \
     /tmp/pi67-smoke-update.log \
     /tmp/pi67-smoke-uninstall-dry.log \
@@ -246,7 +247,10 @@ fi
 node -e '
 const fs = require("fs");
 const report = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (report.schemaVersion !== 2) throw new Error(`unexpected report schemaVersion: ${report.schemaVersion}`);
+if (report.schemaId !== "pi67-report/v2") throw new Error(`unexpected report schemaId: ${report.schemaId}`);
 if (report.operation !== "install") throw new Error(`unexpected report operation: ${report.operation}`);
+if (report.pi67?.version !== report.pi67Version) throw new Error("pi67.version does not match legacy pi67Version");
 if (!report.reportPolicy?.currentFileOverwritten) throw new Error("report overwrite policy missing");
 if (report.doctor?.skipped !== true) throw new Error("install --no-doctor report should mark doctor skipped");
 ' "$AGENT_DIR/pi67-report.json"
@@ -467,6 +471,19 @@ chmod +x "$UPDATE_REPO/scripts/pi67-report.sh"
   --agent-dir "$AGENT_DIR" \
   --no-npm \
   --no-doctor \
+  --no-report \
+  --check-only >/tmp/pi67-smoke-update-check.log 2>&1
+if ! grep -q 'check-only completed without writing files' /tmp/pi67-smoke-update-check.log; then
+  cat /tmp/pi67-smoke-update-check.log >&2
+  fail "update check-only did not complete"
+fi
+pass "update check-only completed"
+
+"$REPO_ROOT/scripts/pi67-update.sh" \
+  --repo-root "$UPDATE_REPO" \
+  --agent-dir "$AGENT_DIR" \
+  --no-npm \
+  --no-doctor \
   --allow-dirty \
   --dry-run >/tmp/pi67-smoke-update-dry.log 2>&1
 pass "update dry-run completed"
@@ -487,7 +504,10 @@ pass "update helper completed on temp checkout"
 node -e '
 const fs = require("fs");
 const report = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (report.schemaVersion !== 2) throw new Error(`unexpected report schemaVersion: ${report.schemaVersion}`);
+if (report.schemaId !== "pi67-report/v2") throw new Error(`unexpected report schemaId: ${report.schemaId}`);
 if (report.operation !== "update") throw new Error(`unexpected report operation: ${report.operation}`);
+if (report.pi67?.version !== report.pi67Version) throw new Error("pi67.version does not match legacy pi67Version");
 if (!report.reportPolicy?.currentFileOverwritten) throw new Error("report overwrite policy missing");
 if (report.doctor?.skipped !== true) throw new Error("update --no-doctor report should mark doctor skipped");
 ' "$AGENT_DIR/pi67-report.json"

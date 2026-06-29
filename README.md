@@ -4,7 +4,7 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
-当前发行版版本：`0.6.1`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.7.0`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 这是什么
 
@@ -30,7 +30,7 @@
 | **Rules** | `rules/` (8 篇) | 质量、架构、结构、性能、前端、浏览器、上下文、数据质量规则 |
 | **自定义扩展** | `extensions/` (2 个) | `xtalpi-compat` + `pi-rules-loader` |
 | **Skills** | `skills/` (31 个) | lark 飞书全系列 + 前端设计/输出/重设计技能 |
-| **文档** | `docs/` (7 篇) | 全量安装、排障、发布流程、MCP 优化、爬虫指南、工具速查、xtalpi 配置 |
+| **文档** | `docs/` (8 篇) | 全量安装、报告 schema、排障、发布流程、MCP 优化、爬虫指南、工具速查、xtalpi 配置 |
 | **Prompts** | `prompts/` (5 个) | debug、deliver、frontend-kickoff、review、scoped-commit |
 | **脚本** | `scripts/` | configure、doctor、report、release、release-check、smoke、update、restore、uninstall、xtalpi 工具冒烟测试 |
 | **模板** | `templates/scrapers/` | 采集/合并/轮询相关脚本模板 |
@@ -115,6 +115,8 @@ bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp --mcp-timeout-ms 5000
 ```
 
 这是单文件覆盖写，不会无限追加历史文件；里面记录 pi-67 版本、Git commit、agent 文件状态、runtime 版本和 doctor JSON 结果。
+
+机器可读字段契约见 `docs/report-schema.md`。当前 schema 为 `pi67-report/v2`。
 
 本地/CI 维护检查：
 
@@ -227,6 +229,7 @@ pi-67/
 ├── docs/                           # 文档
 │   ├── full-install.md
 │   ├── mcp-optimization-spec.md
+│   ├── report-schema.md
 │   ├── release.md
 │   ├── scraping-guide.md
 │   ├── troubleshooting.md
@@ -288,6 +291,12 @@ bash scripts/pi67-update.sh
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-update.sh --dry-run
+```
+
+只检查当前是否需要更新、报告是否过期、npm 是否需要同步，但不执行 pull、doctor 或写报告：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-update.sh --check-only
 ```
 
 如果本地改过 pi-67 仓库文件，更新脚本会默认停止，避免覆盖你的改动。先 commit/stash，或确认可接受后使用：

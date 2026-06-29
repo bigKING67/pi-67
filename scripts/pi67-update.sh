@@ -34,6 +34,7 @@ PI_NPM_DIR="$PI_AGENT_DIR/npm"
 REMOTE="origin"
 BRANCH=""
 DRY_RUN=false
+CHECK_ONLY=false
 RUN_NPM=true
 RUN_DOCTOR=true
 RUN_REPORT=true
@@ -53,6 +54,7 @@ Options:
       --remote NAME     Git remote to pull from. Defaults to origin.
       --branch NAME     Git branch to pull. Defaults to current branch.
       --dry-run         Print planned actions without changing files.
+      --check-only      Inspect update/report status without pulling or writing files.
       --no-npm          Skip npm dependency sync.
       --force-npm       Run npm install even when package.json did not change.
       --no-doctor       Skip doctor after update.
@@ -93,6 +95,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --dry-run)
       DRY_RUN=true
+      shift
+      ;;
+    --check-only)
+      CHECK_ONLY=true
       shift
       ;;
     --no-npm)
@@ -169,6 +175,79 @@ file_hash() {
   else
     wc -c "$file" | awk '{print "size:" $1}'
   fi
+}
+
+report_check() {
+  local report="$PI_AGENT_DIR/pi67-report.json"
+  local current_version="$1"
+  local current_short="$2"
+  local current_dirty="$3"
+
+  say ""
+  say "${CYAN}--- report status ---${NC}"
+
+  if [ "$RUN_REPORT" != true ]; then
+    warn "report generation disabled by --no-report"
+    return
+  fi
+
+  if [ ! -f "$report" ]; then
+    warn "report missing; update would write $report"
+    return
+  fi
+
+  if ! command_exists node; then
+    warn "node not found; cannot parse $report"
+    return
+  fi
+
+  node - "$report" "$current_version" "$current_short" "$current_dirty" <<'NODE'
+const fs = require("fs");
+
+const [, , reportPath, currentVersion, currentShort, currentDirtyArg] = process.argv;
+const currentDirty = currentDirtyArg === "true";
+
+function line(level, message) {
+  const prefix = level === "PASS" ? "  PASS" : level === "WARN" ? "  WARN" : "  INFO";
+  console.log(`${prefix} ${message}`);
+}
+
+let report;
+try {
+  report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+} catch (error) {
+  line("WARN", `report is not valid JSON: ${error.message}`);
+  process.exit(0);
+}
+
+line("INFO", `report path: ${reportPath}`);
+line("INFO", `generatedAt: ${report.generatedAt || "unknown"}`);
+line("INFO", `schemaVersion: ${report.schemaVersion ?? "missing"}`);
+line("INFO", `pi67Version: ${report.pi67Version || "unknown"}`);
+line("INFO", `commit: ${report.repository?.shortCommit || "unknown"}`);
+line("INFO", `doctor: ${report.doctor?.result || (report.doctor?.skipped ? "SKIPPED" : "unknown")}`);
+
+const staleReasons = [];
+if (Number(report.schemaVersion || 0) < 2) {
+  staleReasons.push(`schemaVersion ${report.schemaVersion ?? "missing"} < 2`);
+}
+if (String(report.pi67Version || "") !== currentVersion) {
+  staleReasons.push(`version ${report.pi67Version || "unknown"} != ${currentVersion}`);
+}
+if (String(report.repository?.shortCommit || "") !== currentShort) {
+  staleReasons.push(`commit ${report.repository?.shortCommit || "unknown"} != ${currentShort}`);
+}
+if (Boolean(report.repository?.dirty) !== currentDirty) {
+  staleReasons.push(`dirty ${Boolean(report.repository?.dirty)} != ${currentDirty}`);
+}
+
+if (staleReasons.length > 0) {
+  line("WARN", `report is stale: ${staleReasons.join("; ")}`);
+  line("INFO", "update would overwrite the report after doctor");
+} else {
+  line("PASS", "report matches current checkout");
+}
+NODE
 }
 
 copy_example_if_missing() {
@@ -249,6 +328,40 @@ sync_npm() {
   pass "npm packages synced in $PI_NPM_DIR"
 }
 
+check_npm_status() {
+  say ""
+  say "${CYAN}--- npm status ---${NC}"
+
+  if [ "$RUN_NPM" != true ]; then
+    warn "npm sync disabled by --no-npm"
+    return
+  fi
+
+  if ! command_exists npm; then
+    warn "npm not found; update would skip npm sync"
+    return
+  fi
+
+  local repo_pkg="$REPO_ROOT/package.json"
+  local agent_pkg="$PI_NPM_DIR/package.json"
+  if [ ! -f "$repo_pkg" ]; then
+    warn "package.json missing; update would skip npm sync"
+    return
+  fi
+
+  local repo_hash agent_hash
+  repo_hash="$(file_hash "$repo_pkg")"
+  agent_hash="$(file_hash "$agent_pkg")"
+
+  if [ "$FORCE_NPM" = true ]; then
+    warn "npm sync would run because --force-npm is set"
+  elif [ "$repo_hash" = "$agent_hash" ]; then
+    pass "npm package.json already synced"
+  else
+    warn "npm package.json differs; update would run npm install --ignore-scripts"
+  fi
+}
+
 run_doctor() {
   if [ "$RUN_DOCTOR" != true ]; then
     warn "doctor skipped by --no-doctor"
@@ -300,6 +413,138 @@ write_report() {
   else
     warn "report generation failed; rerun scripts/pi67-report.sh manually for details"
   fi
+}
+
+check_local_config_templates() {
+  say ""
+  say "${CYAN}--- local config templates ---${NC}"
+
+  local missing=0
+  local pair example_rel target_rel example target
+  for pair in \
+    "models.example.json:models.json" \
+    "mcp.example.json:mcp.json" \
+    "auth.example.json:auth.json" \
+    "image-gen.example.json:image-gen.json"; do
+    example_rel="${pair%%:*}"
+    target_rel="${pair#*:}"
+    example="$REPO_ROOT/$example_rel"
+    target="$PI_AGENT_DIR/$target_rel"
+
+    if [ ! -f "$example" ]; then
+      warn "example file missing: $example_rel"
+      continue
+    fi
+
+    if [ -e "$target" ] || [ -L "$target" ]; then
+      pass "$target_rel exists"
+    else
+      missing=$((missing + 1))
+      warn "$target_rel missing; update would create it from $example_rel"
+    fi
+  done
+
+  if [ "$missing" -eq 0 ]; then
+    pass "all local config files exist"
+  fi
+}
+
+check_update_plan() {
+  say ""
+  say "${CYAN}--- check only ---${NC}"
+
+  if ! command_exists git; then
+    fail "git not found"
+  fi
+
+  if ! git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    fail "not a git checkout: $REPO_ROOT"
+  fi
+
+  local current_branch dirty local_full local_short current_version remote_ref remote_full remote_short upstream ahead behind
+  current_branch="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD)"
+  if [ "$current_branch" = "HEAD" ] && [ -z "$BRANCH" ]; then
+    fail "detached HEAD; pass --branch explicitly"
+  fi
+  if [ -z "$BRANCH" ]; then
+    BRANCH="$current_branch"
+  fi
+
+  dirty="$(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all)"
+  local_full="$(git -C "$REPO_ROOT" rev-parse HEAD)"
+  local_short="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
+  current_version="$(tr -d '[:space:]' < "$REPO_ROOT/VERSION" 2>/dev/null || true)"
+
+  say "Local branch : ${GREEN}$current_branch${NC}"
+  say "Target branch: ${GREEN}$BRANCH${NC}"
+  say "Local commit : ${GREEN}$local_short${NC}"
+  if [ -n "$current_version" ]; then
+    say "Local version: ${GREEN}$current_version${NC}"
+  fi
+
+  if [ -n "$dirty" ]; then
+    warn "repo has local changes; real update would stop unless --allow-dirty is used"
+    say "$dirty"
+  else
+    pass "repo worktree is clean"
+  fi
+
+  remote_ref="refs/heads/$BRANCH"
+  remote_full="$(git -C "$REPO_ROOT" ls-remote "$REMOTE" "$remote_ref" 2>/dev/null | awk 'NR == 1 {print $1}')"
+  if [ -z "$remote_full" ]; then
+    warn "could not read remote head: $REMOTE $remote_ref"
+  else
+    remote_short="$(printf '%s\n' "$remote_full" | cut -c1-7)"
+    say "Remote head : ${GREEN}$remote_short${NC} ($REMOTE/$BRANCH)"
+    if [ "$remote_full" = "$local_full" ]; then
+      pass "local checkout matches remote head"
+    elif git -C "$REPO_ROOT" cat-file -e "$remote_full^{commit}" 2>/dev/null; then
+      if git -C "$REPO_ROOT" merge-base --is-ancestor "$local_full" "$remote_full" 2>/dev/null; then
+        warn "local checkout is behind remote; update would fast-forward"
+      elif git -C "$REPO_ROOT" merge-base --is-ancestor "$remote_full" "$local_full" 2>/dev/null; then
+        warn "local checkout is ahead of remote; update would likely be a no-op after pull"
+      else
+        warn "local and remote appear diverged; update would fail because it uses --ff-only"
+      fi
+    else
+      warn "remote has a different commit not present locally; update would fetch/pull it"
+    fi
+  fi
+
+  if upstream="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"; then
+    ahead="$(git -C "$REPO_ROOT" rev-list --count "$upstream"..HEAD 2>/dev/null || printf 'unknown')"
+    behind="$(git -C "$REPO_ROOT" rev-list --count HEAD.."$upstream" 2>/dev/null || printf 'unknown')"
+    say "Tracking   : ${GREEN}$upstream${NC} (local refs: ahead=$ahead behind=$behind)"
+  else
+    warn "no upstream tracking branch configured"
+  fi
+
+  check_local_config_templates
+  check_npm_status
+  report_check "$current_version" "$local_short" "$([ -n "$dirty" ] && printf true || printf false)"
+
+  say ""
+  say "${CYAN}--- planned update command ---${NC}"
+  say "  git -C $REPO_ROOT pull --ff-only $REMOTE $BRANCH"
+  say "  sync missing local config templates"
+  if [ "$RUN_NPM" = true ]; then
+    say "  sync npm dependencies when package.json differs"
+  else
+    say "  skip npm sync (--no-npm)"
+  fi
+  if [ "$RUN_DOCTOR" = true ]; then
+    say "  run doctor"
+  else
+    say "  skip doctor (--no-doctor)"
+  fi
+  if [ "$RUN_REPORT" = true ]; then
+    say "  overwrite $PI_AGENT_DIR/pi67-report.json"
+  else
+    say "  skip report (--no-report)"
+  fi
+
+  say ""
+  pass "check-only completed without writing files"
 }
 
 update_repo() {
@@ -367,6 +612,14 @@ if [ -n "$BRANCH" ]; then
 fi
 if [ "$DRY_RUN" = true ]; then
   say "Dry run    : ${YELLOW}yes${NC}"
+fi
+if [ "$CHECK_ONLY" = true ]; then
+  say "Check only : ${YELLOW}yes${NC}"
+fi
+
+if [ "$CHECK_ONLY" = true ]; then
+  check_update_plan
+  exit 0
 fi
 
 update_repo

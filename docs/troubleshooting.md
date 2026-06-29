@@ -284,6 +284,14 @@ Then either commit or stash your local edits. If you intentionally want to proce
 bash ~/.pi/agent/scripts/pi67-update.sh --allow-dirty
 ```
 
+To inspect update readiness without pulling or writing files:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-update.sh --check-only
+```
+
+This reports remote head status, dirty worktree state, missing local config templates, npm sync status, and whether `~/.pi/agent/pi67-report.json` is stale.
+
 For a machine that has not received the updater yet:
 
 ```bash
@@ -339,6 +347,12 @@ is a current-state report. It is overwritten on every install/update, so there i
 ```bash
 ./install.sh --no-report
 bash ~/.pi/agent/scripts/pi67-update.sh --no-report
+```
+
+The schema contract is documented in:
+
+```text
+docs/report-schema.md
 ```
 
 ## Safe uninstall

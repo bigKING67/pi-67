@@ -43,6 +43,7 @@ VERSION_FILE="$REPO_ROOT/VERSION"
 CHANGELOG="$REPO_ROOT/CHANGELOG.md"
 PACKAGE_JSON="$REPO_ROOT/package.json"
 RELEASE_DOC="$REPO_ROOT/docs/release.md"
+REPORT_SCHEMA_DOC="$REPO_ROOT/docs/report-schema.md"
 
 if [ -f "$VERSION_FILE" ]; then
   VERSION="$(tr -d '[:space:]' < "$VERSION_FILE")"
@@ -104,6 +105,12 @@ else
   fail "install/update report is not documented in README.md and docs/full-install.md"
 fi
 
+if [ -f "$REPORT_SCHEMA_DOC" ] && grep -q "pi67-report/v2" "$REPORT_SCHEMA_DOC"; then
+  pass "report schema v2 is documented"
+else
+  fail "report schema v2 is not documented"
+fi
+
 if grep -q "pi67-release.sh" "$REPO_ROOT/README.md" && grep -q "pi67-release.sh" "$REPO_ROOT/docs/release.md"; then
   pass "release automation is documented"
 else
@@ -117,7 +124,7 @@ if command_exists git && git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/d
     fail "git diff --check failed"
   fi
 
-  if git -C "$REPO_ROOT" ls-files --error-unmatch VERSION CHANGELOG.md docs/release.md scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-update.sh >/dev/null 2>&1; then
+  if git -C "$REPO_ROOT" ls-files --error-unmatch VERSION CHANGELOG.md docs/release.md docs/report-schema.md scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-update.sh >/dev/null 2>&1; then
     pass "release metadata files are tracked or staged"
   else
     warn "release metadata files are not all tracked yet; expected before final commit"

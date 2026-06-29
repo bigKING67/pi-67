@@ -236,15 +236,26 @@ const dirty = git(["status", "--porcelain=v1", "--untracked-files=all"]);
 const remote = git(["remote", "get-url", "origin"]);
 
 const report = {
-  schemaVersion: 1,
+  schemaVersion: 2,
+  schemaId: "pi67-report/v2",
   generatedAt: new Date().toISOString(),
+  generatedBy: "scripts/pi67-report.sh",
   operation,
   pi67Version: version,
   packageVersion: packageJson?.version || null,
+  pi67: {
+    version,
+    packageVersion: packageJson?.version || null,
+  },
   reportPolicy: {
     currentFileOverwritten: true,
     historicalReports: false,
     retention: "single-current-file",
+  },
+  diagnostics: {
+    doctorTimeoutMs,
+    doctorDeepMcp,
+    mcpTimeoutMs: Number(mcpTimeoutMs || "2500"),
   },
   repository: {
     root: repoRoot,

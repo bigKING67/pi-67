@@ -4,6 +4,17 @@ All notable changes to pi-67 are documented here.
 
 The format is based on Keep a Changelog, and this project uses semantic versioning for the pi-67 distribution itself. Pi package dependency versions are managed separately in `package.json`.
 
+## [0.7.0] - 2026-06-29
+
+### Added
+
+- `scripts/pi67-update.sh --check-only` for a no-write update readiness preview, including remote head, dirty worktree, local config, npm sync, and report freshness status.
+- `docs/report-schema.md` documents the stable `pi67-report.json` schema v2 contract for future UI or automation consumers.
+
+### Changed
+
+- `pi67-report.json` now uses schema v2 with `schemaId`, `generatedBy`, structured `pi67` metadata, and reporter `diagnostics` while keeping legacy `pi67Version` / `packageVersion` aliases.
+
 ## [0.6.1] - 2026-06-29
 
 ### Fixed

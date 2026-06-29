@@ -39,6 +39,7 @@ Expected result:
    - `README.md`
    - `docs/full-install.md`
    - `docs/troubleshooting.md`
+   - `docs/report-schema.md` if `pi67-report.json` fields changed
    - update workflow docs if `scripts/pi67-update.sh` changed
 5. Run:
 
