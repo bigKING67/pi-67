@@ -17,6 +17,10 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - Install and update now generate a single current-state report by default; it overwrites `pi67-report.json` instead of appending unbounded history.
 - Release automation blocks duplicate same-version tag/release creation by default and only replaces the same current version with explicit `--replace-existing --yes`.
 
+### Fixed
+
+- Release notes temp-file generation now uses a portable temp directory so nested release dry-runs work on macOS.
+
 ## [0.5.0] - 2026-06-28
 
 ### Added

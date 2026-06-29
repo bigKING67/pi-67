@@ -252,8 +252,9 @@ fi
 
 VERSION="$(version)"
 TAG="v$VERSION"
-NOTES_FILE="$(mktemp "${TMPDIR:-/tmp}/pi67-release-notes.XXXXXX.md")"
-trap 'rm -f "$NOTES_FILE"' EXIT
+NOTES_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pi67-release-notes.XXXXXX")"
+NOTES_FILE="$NOTES_DIR/release-notes.md"
+trap 'rm -rf "$NOTES_DIR"' EXIT
 make_notes "$NOTES_FILE"
 
 say "Version    : ${GREEN}$VERSION${NC}"
