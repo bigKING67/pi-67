@@ -24,6 +24,7 @@ YES=false
 DRY_RUN=false
 RUN_NPM=true
 RUN_DOCTOR=true
+RUN_REPORT=true
 BACKUP_CREATED=false
 
 usage() {
@@ -40,6 +41,7 @@ Options:
       --backup-dir DIR Write overwritten files into DIR.
       --no-npm         Skip npm package installation.
       --no-doctor      Skip scripts/pi67-doctor.sh after installation.
+      --no-report      Skip ~/.pi/agent/pi67-report.json generation.
   -h, --help           Show this help.
 
 Design:
@@ -78,6 +80,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --no-doctor)
       RUN_DOCTOR=false
+      shift
+      ;;
+    --no-report)
+      RUN_REPORT=false
       shift
       ;;
     -h|--help)
@@ -268,6 +274,37 @@ run_doctor() {
   fi
 }
 
+write_report() {
+  if [ "$RUN_REPORT" != true ]; then
+    warn "report skipped by --no-report"
+    return
+  fi
+
+  local reporter="$REPO_ROOT/scripts/pi67-report.sh"
+  if [ ! -f "$reporter" ]; then
+    warn "report script missing: $reporter"
+    return
+  fi
+
+  say ""
+  say "${CYAN}--- pi-67 report ---${NC}"
+  if [ "$DRY_RUN" = true ]; then
+    say "  ${CYAN}DRY-RUN${NC} $reporter --repo-root $REPO_ROOT --agent-dir $PI_AGENT_DIR --operation install"
+    return
+  fi
+
+  local args=("--repo-root" "$REPO_ROOT" "--agent-dir" "$PI_AGENT_DIR" "--operation" "install")
+  if [ "$RUN_DOCTOR" != true ]; then
+    args+=("--no-doctor")
+  fi
+
+  if bash "$reporter" "${args[@]}"; then
+    pass "report written: $PI_AGENT_DIR/pi67-report.json"
+  else
+    warn "report generation failed; rerun scripts/pi67-report.sh manually for details"
+  fi
+}
+
 say ""
 say "${CYAN}╔══════════════════════════════════════════╗${NC}"
 say "${CYAN}║        pi-67 full installer             ║${NC}"
@@ -321,6 +358,7 @@ say "${CYAN}--- npm packages ---${NC}"
 install_npm_packages
 
 run_doctor
+write_report
 
 say ""
 say "${GREEN}╔══════════════════════════════════════════╗${NC}"
@@ -331,7 +369,8 @@ say "Next:"
 say "  1. Configure local keys/paths: ${CYAN}bash ~/.pi/agent/scripts/pi67-configure.sh --prompt-secrets${NC}"
 say "  2. Or manually edit ~/.pi/agent/models.json, mcp.json, auth.json, image-gen.json."
 say "  3. Run: ${CYAN}bash ~/.pi/agent/scripts/pi67-doctor.sh${NC}"
-say "  4. Start Pi: ${CYAN}pi${NC}"
+say "  4. Report: ${CYAN}~/.pi/agent/pi67-report.json${NC}"
+say "  5. Start Pi: ${CYAN}pi${NC}"
 if [ "$BACKUP_CREATED" = true ]; then
   say ""
   if [ "$DRY_RUN" = true ]; then

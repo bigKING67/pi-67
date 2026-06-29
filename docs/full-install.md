@@ -38,6 +38,12 @@ Preview without writing:
 ./install.sh --dry-run --no-npm --no-doctor
 ```
 
+Skip local report generation:
+
+```bash
+./install.sh --no-report
+```
+
 Install into a custom Pi agent directory:
 
 ```bash
@@ -53,8 +59,29 @@ Install into a custom Pi agent directory:
 5. Copies `.example` config files only when local config files do not already exist.
 6. Installs npm packages into `~/.pi/agent/npm`.
 7. Runs `scripts/pi67-doctor.sh`.
+8. Writes `~/.pi/agent/pi67-report.json`.
 
 The installer is intentionally full-by-default. It does not ask users to choose a minimal profile.
+
+## Install/update report
+
+Every install or update writes:
+
+```text
+~/.pi/agent/pi67-report.json
+```
+
+This is a single current-state file. It is overwritten atomically on each install/update and does not append historical entries, so normal usage does not create unbounded report files.
+
+The report includes:
+
+- pi-67 version and package version
+- repository branch, commit, dirty state, and origin URL
+- agent directory file states
+- runtime versions for Node/npm/Pi
+- doctor JSON result, unless doctor was skipped
+
+Use `--no-report` on install/update if you do not want the report file.
 
 ## Local config files
 
@@ -179,6 +206,7 @@ The updater:
 3. Creates newly introduced local config files from `.example` templates only when missing.
 4. Syncs npm dependencies when `package.json` differs from `~/.pi/agent/npm/package.json`.
 5. Runs doctor after the update.
+6. Overwrites `~/.pi/agent/pi67-report.json`.
 
 For an older install that does not have `pi67-update.sh` yet:
 

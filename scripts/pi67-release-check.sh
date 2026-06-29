@@ -98,6 +98,18 @@ else
   fail "update workflow is not documented in README.md and docs/full-install.md"
 fi
 
+if grep -q "pi67-report.json" "$REPO_ROOT/README.md" && grep -q "pi67-report.json" "$REPO_ROOT/docs/full-install.md"; then
+  pass "install/update report is documented"
+else
+  fail "install/update report is not documented in README.md and docs/full-install.md"
+fi
+
+if grep -q "pi67-release.sh" "$REPO_ROOT/README.md" && grep -q "pi67-release.sh" "$REPO_ROOT/docs/release.md"; then
+  pass "release automation is documented"
+else
+  fail "release automation is not documented in README.md and docs/release.md"
+fi
+
 if command_exists git && git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   if git -C "$REPO_ROOT" diff --check >/dev/null; then
     pass "git diff --check passed"
@@ -105,7 +117,7 @@ if command_exists git && git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/d
     fail "git diff --check failed"
   fi
 
-  if git -C "$REPO_ROOT" ls-files --error-unmatch VERSION CHANGELOG.md docs/release.md scripts/pi67-release-check.sh scripts/pi67-update.sh >/dev/null 2>&1; then
+  if git -C "$REPO_ROOT" ls-files --error-unmatch VERSION CHANGELOG.md docs/release.md scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-update.sh >/dev/null 2>&1; then
     pass "release metadata files are tracked or staged"
   else
     warn "release metadata files are not all tracked yet; expected before final commit"

@@ -13,6 +13,14 @@ bash ~/.pi/agent/scripts/pi67-doctor.sh --quiet
 bash ~/.pi/agent/scripts/pi67-doctor.sh --json
 ```
 
+The latest install/update report is:
+
+```text
+~/.pi/agent/pi67-report.json
+```
+
+This file is overwritten on each install/update. It is not a history log and should not grow without bound.
+
 For MCP startup/tool-list validation:
 
 ```bash
@@ -293,6 +301,45 @@ bash scripts/pi67-smoke.sh
 ```
 
 Smoke creates a temporary Pi agent directory and validates the full install flow without touching your real `~/.pi/agent`.
+
+## Release script says the tag already exists
+
+`scripts/pi67-release.sh` intentionally blocks duplicate same-version releases:
+
+```text
+vX.Y.Z already exists
+```
+
+Normal fix:
+
+```bash
+# update VERSION, package.json, and CHANGELOG.md first
+bash scripts/pi67-release.sh --dry-run
+bash scripts/pi67-release.sh --yes
+```
+
+If a release attempt failed halfway and you need to redo the same current `VERSION`, explicitly replace only that same version:
+
+```bash
+bash scripts/pi67-release.sh --replace-existing --yes
+```
+
+Do not delete older release tags just to reduce clutter. Historical tags/releases are the release audit trail.
+
+## Report file keeps changing after install/update
+
+This is expected:
+
+```text
+~/.pi/agent/pi67-report.json
+```
+
+is a current-state report. It is overwritten on every install/update, so there is no cleanup needed for normal usage. If you do not want the file written:
+
+```bash
+./install.sh --no-report
+bash ~/.pi/agent/scripts/pi67-update.sh --no-report
+```
 
 ## Safe uninstall
 

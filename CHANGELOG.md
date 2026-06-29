@@ -4,6 +4,19 @@ All notable changes to pi-67 are documented here.
 
 The format is based on Keep a Changelog, and this project uses semantic versioning for the pi-67 distribution itself. Pi package dependency versions are managed separately in `package.json`.
 
+## [0.6.0] - 2026-06-29
+
+### Added
+
+- `scripts/pi67-report.sh` writes `~/.pi/agent/pi67-report.json` after install/update with version, git state, agent file state, runtime versions, and optional doctor JSON.
+- `scripts/pi67-release.sh` automates guarded release notes, tag creation, tag push, and GitHub Release creation from `VERSION` and `CHANGELOG.md`.
+- Smoke coverage for install/update report generation and release automation dry-run.
+
+### Changed
+
+- Install and update now generate a single current-state report by default; it overwrites `pi67-report.json` instead of appending unbounded history.
+- Release automation blocks duplicate same-version tag/release creation by default and only replaces the same current version with explicit `--replace-existing --yes`.
+
 ## [0.5.0] - 2026-06-28
 
 ### Added

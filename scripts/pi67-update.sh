@@ -36,6 +36,7 @@ BRANCH=""
 DRY_RUN=false
 RUN_NPM=true
 RUN_DOCTOR=true
+RUN_REPORT=true
 ALLOW_DIRTY=false
 FORCE_NPM=false
 
@@ -55,6 +56,7 @@ Options:
       --no-npm          Skip npm dependency sync.
       --force-npm       Run npm install even when package.json did not change.
       --no-doctor       Skip doctor after update.
+      --no-report       Skip ~/.pi/agent/pi67-report.json generation.
       --allow-dirty     Allow git pull with a dirty worktree. Default is to stop.
   -h, --help            Show this help.
 
@@ -103,6 +105,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --no-doctor)
       RUN_DOCTOR=false
+      shift
+      ;;
+    --no-report)
+      RUN_REPORT=false
       shift
       ;;
     --allow-dirty)
@@ -265,6 +271,37 @@ run_doctor() {
   bash "$doctor" --repo-root "$REPO_ROOT" --agent-dir "$PI_AGENT_DIR"
 }
 
+write_report() {
+  if [ "$RUN_REPORT" != true ]; then
+    warn "report skipped by --no-report"
+    return
+  fi
+
+  local reporter="$REPO_ROOT/scripts/pi67-report.sh"
+  if [ ! -f "$reporter" ]; then
+    warn "report script missing: $reporter"
+    return
+  fi
+
+  say ""
+  say "${CYAN}--- pi-67 report ---${NC}"
+  if [ "$DRY_RUN" = true ]; then
+    say "  ${CYAN}DRY-RUN${NC} $reporter --repo-root $REPO_ROOT --agent-dir $PI_AGENT_DIR --operation update"
+    return
+  fi
+
+  local args=("--repo-root" "$REPO_ROOT" "--agent-dir" "$PI_AGENT_DIR" "--operation" "update")
+  if [ "$RUN_DOCTOR" != true ]; then
+    args+=("--no-doctor")
+  fi
+
+  if bash "$reporter" "${args[@]}"; then
+    pass "report written: $PI_AGENT_DIR/pi67-report.json"
+  else
+    warn "report generation failed; rerun scripts/pi67-report.sh manually for details"
+  fi
+}
+
 update_repo() {
   say ""
   say "${CYAN}--- git update ---${NC}"
@@ -336,6 +373,7 @@ update_repo
 sync_local_config_templates
 sync_npm
 run_doctor
+write_report
 
 say ""
 say "${GREEN}pi-67 update finished${NC}"

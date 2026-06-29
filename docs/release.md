@@ -17,6 +17,7 @@ Before tagging or publishing release notes:
 ```bash
 bash scripts/pi67-release-check.sh
 bash scripts/pi67-smoke.sh --ci
+bash scripts/pi67-release.sh --dry-run
 git status --short
 ```
 
@@ -24,6 +25,7 @@ Expected result:
 
 - release metadata is internally consistent
 - smoke test passes locally
+- release notes preview is generated from `CHANGELOG.md`
 - worktree is clean except the intentional release commit before committing
 - GitHub Actions passes after push
 - optional user-machine MCP check passes when MCP behavior changed: `bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp`
@@ -43,6 +45,7 @@ Expected result:
 ```bash
 bash scripts/pi67-release-check.sh
 bash scripts/pi67-smoke.sh --ci
+bash scripts/pi67-release.sh --dry-run
 ```
 
 6. Commit with a scoped message, for example:
@@ -58,7 +61,43 @@ git push
 gh run list --limit 3 --branch main
 ```
 
-## Tagging
+## Automated tagging and GitHub Release
+
+After the release commit is pushed and CI passes, create the tag and GitHub Release:
+
+```bash
+bash scripts/pi67-release.sh --yes
+```
+
+The script:
+
+1. Reads `VERSION`.
+2. Extracts the matching `CHANGELOG.md` entry.
+3. Runs `scripts/pi67-release-check.sh`.
+4. Runs `scripts/pi67-smoke.sh --ci` unless `--no-smoke` is passed.
+5. Creates annotated tag `vX.Y.Z`.
+6. Pushes the tag.
+7. Creates a GitHub Release through `gh release create`.
+
+Preview without writing:
+
+```bash
+bash scripts/pi67-release.sh --dry-run
+```
+
+Duplicate policy:
+
+- Historical release tags are retained. Do not delete old versions just to reduce clutter; release history is the audit trail.
+- Same-version duplicates are blocked by default. If `v$(cat VERSION)` already exists, the script stops.
+- If a release attempt failed and you must redo the same current version, use:
+
+```bash
+bash scripts/pi67-release.sh --replace-existing --yes
+```
+
+`--replace-existing --yes` is intentionally scoped: it only replaces the tag/release for the current `VERSION`, not older versions.
+
+## Manual tagging fallback
 
 Use annotated tags for release points:
 

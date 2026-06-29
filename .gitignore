@@ -3,6 +3,8 @@ models.json
 mcp.json
 auth.json
 image-gen.json
+pi67-report.json
+.pi67-report.*.tmp
 
 # 运行时数据
 mcp-cache.json

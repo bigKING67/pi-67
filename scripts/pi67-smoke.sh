@@ -75,6 +75,7 @@ cleanup() {
   rm -f \
     /tmp/pi67-smoke-placeholder.log \
     /tmp/pi67-smoke-release-check.log \
+    /tmp/pi67-smoke-release-dry.log \
     /tmp/pi67-smoke-secrets.log \
     /tmp/pi67-smoke-install.log \
     /tmp/pi67-smoke-doctor.log \
@@ -141,7 +142,9 @@ section "Shell syntax"
 bash -n "$REPO_ROOT/install.sh"
 bash -n "$REPO_ROOT/scripts/pi67-configure.sh"
 bash -n "$REPO_ROOT/scripts/pi67-doctor.sh"
+bash -n "$REPO_ROOT/scripts/pi67-release.sh"
 bash -n "$REPO_ROOT/scripts/pi67-release-check.sh"
+bash -n "$REPO_ROOT/scripts/pi67-report.sh"
 bash -n "$REPO_ROOT/scripts/pi67-smoke.sh"
 bash -n "$REPO_ROOT/scripts/pi67-update.sh"
 if [ -f "$REPO_ROOT/scripts/pi67-restore.sh" ]; then
@@ -162,6 +165,16 @@ done
 section "Release metadata"
 "$REPO_ROOT/scripts/pi67-release-check.sh" >/tmp/pi67-smoke-release-check.log
 pass "release metadata check completed"
+
+"$REPO_ROOT/scripts/pi67-release.sh" \
+  --dry-run \
+  --no-smoke \
+  --no-github-release >/tmp/pi67-smoke-release-dry.log
+if ! grep -q 'dry-run completed' /tmp/pi67-smoke-release-dry.log; then
+  cat /tmp/pi67-smoke-release-dry.log >&2
+  fail "release automation dry-run did not complete"
+fi
+pass "release automation dry-run completed"
 
 section "Prompt/template hygiene"
 if grep_any '\{\{[^}]+\}\}' \
@@ -225,6 +238,19 @@ PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/install.sh" \
   --no-doctor \
   --yes >/tmp/pi67-smoke-install.log
 pass "temp full install completed"
+
+if [ ! -f "$AGENT_DIR/pi67-report.json" ]; then
+  cat /tmp/pi67-smoke-install.log >&2
+  fail "install did not write pi67-report.json"
+fi
+node -e '
+const fs = require("fs");
+const report = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (report.operation !== "install") throw new Error(`unexpected report operation: ${report.operation}`);
+if (!report.reportPolicy?.currentFileOverwritten) throw new Error("report overwrite policy missing");
+if (report.doctor?.skipped !== true) throw new Error("install --no-doctor report should mark doctor skipped");
+' "$AGENT_DIR/pi67-report.json"
+pass "install report JSON written"
 
 PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
   --repo-root "$REPO_ROOT" \
@@ -433,12 +459,15 @@ pass "doctor deep MCP probe completed"
 section "Update helper"
 UPDATE_REPO="$TMP_ROOT/update-repo"
 git clone "$REPO_ROOT" "$UPDATE_REPO" >/tmp/pi67-smoke-update-clone.log 2>&1
+cp "$REPO_ROOT/scripts/pi67-report.sh" "$UPDATE_REPO/scripts/pi67-report.sh"
+chmod +x "$UPDATE_REPO/scripts/pi67-report.sh"
 
 "$REPO_ROOT/scripts/pi67-update.sh" \
   --repo-root "$UPDATE_REPO" \
   --agent-dir "$AGENT_DIR" \
   --no-npm \
   --no-doctor \
+  --allow-dirty \
   --dry-run >/tmp/pi67-smoke-update-dry.log 2>&1
 pass "update dry-run completed"
 
@@ -446,13 +475,23 @@ pass "update dry-run completed"
   --repo-root "$UPDATE_REPO" \
   --agent-dir "$AGENT_DIR" \
   --no-npm \
-  --no-doctor >/tmp/pi67-smoke-update.log 2>&1
+  --no-doctor \
+  --allow-dirty >/tmp/pi67-smoke-update.log 2>&1
 
 if ! grep -q 'already up to date\|update finished' /tmp/pi67-smoke-update.log; then
   cat /tmp/pi67-smoke-update.log >&2
   fail "update helper did not complete cleanly"
 fi
 pass "update helper completed on temp checkout"
+
+node -e '
+const fs = require("fs");
+const report = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (report.operation !== "update") throw new Error(`unexpected report operation: ${report.operation}`);
+if (!report.reportPolicy?.currentFileOverwritten) throw new Error("report overwrite policy missing");
+if (report.doctor?.skipped !== true) throw new Error("update --no-doctor report should mark doctor skipped");
+' "$AGENT_DIR/pi67-report.json"
+pass "update report JSON written"
 
 section "Restore/uninstall operations"
 OPS_AGENT="$TMP_ROOT/ops-agent"
