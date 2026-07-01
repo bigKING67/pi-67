@@ -171,7 +171,7 @@ Install the pinned packages from `settings.json`:
 
 ```bash
 pi install git:github.com/bigKING67/design-craft@ae3f27e79893bf8a63fcfb6431842b557be7b46a
-pi install git:github.com/bigKING67/browser67@e6b4c1071a6488d84f83db9984c0d986e3105f71
+pi install git:github.com/bigKING67/browser67@ac15a5298d0afcba0ae5454e8b1bddb735ace830
 ```
 
 Expected ignored runtime paths:

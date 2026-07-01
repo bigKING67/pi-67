@@ -84,7 +84,7 @@ pi-67 keeps only pi-67-owned skills in `skills/`. Productized external skills ar
 
 ```text
 git:github.com/bigKING67/design-craft@ae3f27e79893bf8a63fcfb6431842b557be7b46a
-git:github.com/bigKING67/browser67@e6b4c1071a6488d84f83db9984c0d986e3105f71
+git:github.com/bigKING67/browser67@ac15a5298d0afcba0ae5454e8b1bddb735ace830
 ```
 
 Expected package clone locations after Pi installs them:

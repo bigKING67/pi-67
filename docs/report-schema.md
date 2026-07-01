@@ -114,12 +114,12 @@ This block is intentionally explicit so downstream tools do not assume report hi
 [
   {
     "name": "browser67",
-    "source": "git:github.com/bigKING67/browser67@e6b4c1071a6488d84f83db9984c0d986e3105f71",
+    "source": "git:github.com/bigKING67/browser67@ac15a5298d0afcba0ae5454e8b1bddb735ace830",
     "declared": true,
-    "pinnedCommit": "e6b4c1071a6488d84f83db9984c0d986e3105f71",
+    "pinnedCommit": "ac15a5298d0afcba0ae5454e8b1bddb735ace830",
     "installPath": "~/.pi/agent/git/github.com/bigKING67/browser67",
     "installed": true,
-    "headCommit": "e6b4c1071a6488d84f83db9984c0d986e3105f71",
+    "headCommit": "ac15a5298d0afcba0ae5454e8b1bddb735ace830",
     "expectedFiles": ["package.json"],
     "missingFiles": []
   }

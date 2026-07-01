@@ -659,7 +659,7 @@ function usesNewlineJsonRpc(server) {
   const command = expand(server.command || "");
   const args = (server.args || []).map((arg) => expand(arg));
   const text = [command, ...args].join(" ");
-  return /browser67|tmwd-browser-mcp|src\/mcp\/browser\/server\.mjs|src\/mcp\/js-reverse\/server\.mjs|src\/server\.mjs|src\/js-reverse-server\.mjs/.test(text);
+  return /browser67|tmwd-browser-mcp|agent-memory|agent_memory|everos|src\/mcp\/browser\/server\.mjs|src\/mcp\/js-reverse\/server\.mjs|src\/server\.mjs|src\/js-reverse-server\.mjs/.test(text);
 }
 
 function encodeMessage(message, framing = "content-length") {

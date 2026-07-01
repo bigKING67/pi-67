@@ -107,9 +107,9 @@ Messages are intended for display and troubleshooting. Do not parse specific wor
 Normal doctor mode only checks MCP commands and paths. `--deep-mcp` is opt-in because it starts local MCP server processes.
 
 Deep MCP probing uses standard `Content-Length` framed stdio JSON-RPC by default.
-For browser67 / legacy tmwd-browser-mcp entrypoints, doctor uses newline-delimited
-JSON-RPC because those servers intentionally expose a line-oriented stdio
-adapter.
+For browser67 / legacy tmwd-browser-mcp and the local agent-memory EverOS
+entrypoint, doctor uses newline-delimited JSON-RPC because those servers expose
+line-oriented stdio adapters.
 
 ## Secret handling
 

@@ -207,7 +207,7 @@ const settings = JSON.parse(fs.readFileSync(path.join(repoRoot, "settings.json")
 const packages = Array.isArray(settings.packages) ? settings.packages : [];
 const requiredPackages = [
   "git:github.com/bigKING67/design-craft@ae3f27e79893bf8a63fcfb6431842b557be7b46a",
-  "git:github.com/bigKING67/browser67@e6b4c1071a6488d84f83db9984c0d986e3105f71",
+  "git:github.com/bigKING67/browser67@ac15a5298d0afcba0ae5454e8b1bddb735ace830",
 ];
 for (const spec of requiredPackages) {
   if (!packages.includes(spec)) throw new Error(`missing package source: ${spec}`);
