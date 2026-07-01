@@ -147,21 +147,55 @@ function git(args) {
   return command("git", ["-C", repoRoot, ...args], { cwd: repoRoot });
 }
 
+function realPathMaybe(target) {
+  try {
+    return fs.realpathSync(target);
+  } catch {
+    return path.resolve(target);
+  }
+}
+
+const installMode = realPathMaybe(repoRoot) === realPathMaybe(agentDir) ? "in-place" : "linked";
+
 function commandVersion(binary, args = ["--version"]) {
   const result = command(binary, args, { cwd: repoRoot, timeout: 5000 });
   if (!result.ok && !result.stdout) return null;
   return result.stdout.split(/\r?\n/)[0] || null;
 }
 
-function fileState(file) {
+function gitTracks(rel) {
+  if (!rel) return false;
+  const result = git(["ls-files", "--", rel]);
+  return result.ok && result.stdout.length > 0;
+}
+
+function gitIgnores(rel) {
+  if (!rel) return false;
+  const result = command("git", ["-C", repoRoot, "check-ignore", "-q", rel], { cwd: repoRoot });
+  return result.status === 0;
+}
+
+function fileState(file, rel = "") {
   try {
     const stat = fs.lstatSync(file);
+    const type = stat.isSymbolicLink() ? "symlink" : stat.isDirectory() ? "directory" : stat.isFile() ? "file" : "other";
+    let classification = type;
+    if (type === "symlink") {
+      classification = "symlink";
+    } else if (installMode === "in-place" && gitTracks(rel)) {
+      classification = stat.isDirectory() ? "tracked_dir" : stat.isFile() ? "tracked_file" : "other";
+    } else if (["models.json", "mcp.json", "auth.json", "image-gen.json"].includes(rel) && gitIgnores(rel)) {
+      classification = "local_file";
+    } else if (gitIgnores(rel)) {
+      classification = "ignored_runtime";
+    }
     return {
       exists: true,
-      type: stat.isSymbolicLink() ? "symlink" : stat.isDirectory() ? "directory" : stat.isFile() ? "file" : "other",
+      type,
+      classification,
     };
   } catch {
-    return { exists: false, type: "missing" };
+    return { exists: false, type: "missing", classification: "missing" };
   }
 }
 
@@ -257,6 +291,7 @@ const report = {
     doctorDeepMcp,
     mcpTimeoutMs: Number(mcpTimeoutMs || "2500"),
   },
+  installMode,
   repository: {
     root: repoRoot,
     branch: branch.ok ? branch.stdout : null,
@@ -267,18 +302,27 @@ const report = {
   },
   agent: {
     dir: agentDir,
+    installMode,
     reportPath: output,
     files: {
-      settings: fileState(path.join(agentDir, "settings.json")),
-      agents: fileState(path.join(agentDir, "AGENTS.md")),
-      rules: fileState(path.join(agentDir, "rules")),
-      prompts: fileState(path.join(agentDir, "prompts")),
-      skills: fileState(path.join(agentDir, "skills")),
-      scripts: fileState(path.join(agentDir, "scripts")),
-      models: fileState(path.join(agentDir, "models.json")),
-      mcp: fileState(path.join(agentDir, "mcp.json")),
-      auth: fileState(path.join(agentDir, "auth.json")),
-      imageGen: fileState(path.join(agentDir, "image-gen.json")),
+      settings: fileState(path.join(agentDir, "settings.json"), "settings.json"),
+      agents: fileState(path.join(agentDir, "AGENTS.md"), "AGENTS.md"),
+      rules: fileState(path.join(agentDir, "rules"), "rules"),
+      prompts: fileState(path.join(agentDir, "prompts"), "prompts"),
+      skills: fileState(path.join(agentDir, "skills"), "skills"),
+      scripts: fileState(path.join(agentDir, "scripts"), "scripts"),
+      models: fileState(path.join(agentDir, "models.json"), "models.json"),
+      mcp: fileState(path.join(agentDir, "mcp.json"), "mcp.json"),
+      auth: fileState(path.join(agentDir, "auth.json"), "auth.json"),
+      imageGen: fileState(path.join(agentDir, "image-gen.json"), "image-gen.json"),
+      trust: fileState(path.join(agentDir, "trust.json"), "trust.json"),
+      mcpCache: fileState(path.join(agentDir, "mcp-cache.json"), "mcp-cache.json"),
+      runHistory: fileState(path.join(agentDir, "run-history.jsonl"), "run-history.jsonl"),
+      sessions: fileState(path.join(agentDir, "sessions"), "sessions"),
+      npm: fileState(path.join(agentDir, "npm"), "npm"),
+      bin: fileState(path.join(agentDir, "bin"), "bin"),
+      git: fileState(path.join(agentDir, "git"), "git"),
+      themes: fileState(path.join(agentDir, "themes"), "themes"),
     },
   },
   runtime: {

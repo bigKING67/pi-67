@@ -8,7 +8,7 @@
 
 ## 这是什么
 
-这个仓库把 `~/.pi/agent/` 中可复用、可公开的 Pi 配置整理成可安装版本。它不是 minimal starter，而是完整 Pi 工作流发行包：
+这个仓库把 `~/.pi/agent/` 中可复用、可公开的 Pi 配置整理成可安装版本。推荐长期形态是 `~/.pi/agent` 本身就是这个 Git checkout；它不是 minimal starter，而是完整 Pi 工作流发行包：
 
 - 常驻内核：`AGENTS.md` 只保留硬规则、工具分流、rules 读取契约和交付闭环。
 - 长规则外置：`rules/` 存放质量、架构、目录、性能、前端、浏览器、上下文和数据规则，按任务最小读取。
@@ -17,7 +17,10 @@
 
 仓库不会提交真实 `auth.json`、`models.json`、`mcp.json`、`image-gen.json`、会话、缓存或运行历史；只提供 `.example` 模板。
 
-默认安装是 **full install**：所有最佳配置都会部署。缺 API key、本地 MCP repo 或外部二进制时，不裁剪配置，而是由 `scripts/pi67-doctor.sh` 报告 readiness warning。
+默认安装是 **full install**：所有最佳配置都会部署。缺 API key、本地 MCP repo 或外部二进制时，不裁剪配置，而是由 `scripts/pi67-doctor.sh` 报告 readiness warning。安装器支持两种模式：
+
+- **in-place repo**：`REPO_ROOT == ~/.pi/agent`，可发布资产是 Git tracked 文件，本机配置/缓存/会话由 `.gitignore` 排除。
+- **linked install**：外部 checkout 通过 symlink 映射到 `~/.pi/agent`，保留给兼容旧安装。
 
 ## 包含内容
 
@@ -47,7 +50,28 @@ npm install -g @earendil-works/pi-coding-agent
 pi --version
 ```
 
-### 一键安装
+### 推荐：原地 checkout 到 `~/.pi/agent`
+
+```bash
+git clone https://github.com/bigKING67/pi-67.git ~/.pi/agent
+cd ~/.pi/agent
+./install.sh --agent-dir "$PWD"
+```
+
+这种模式下不会创建 symlink；`AGENTS.md`、`rules/`、`skills/`、`scripts/` 等都是当前 checkout 的 tracked assets。`models.json`、`mcp.json`、`auth.json`、`image-gen.json`、`sessions/`、`npm/` 等本机运行态会被 ignored。
+
+长期维护流：
+
+```bash
+cd ~/.pi/agent
+git status --short --branch
+bash scripts/pi67-smoke.sh --ci
+git add <scoped files>
+git commit -m "..."
+git push origin main
+```
+
+### 兼容：外部 checkout 安装
 
 ```bash
 git clone https://github.com/bigKING67/pi-67.git
@@ -59,10 +83,9 @@ chmod +x install.sh
 安装脚本会：
 
 1. 检查 `pi`
-2. 自动备份会被覆盖的非 symlink 配置
-3. 创建符号链接，将仓库文件和目录映射到 `~/.pi/agent/`
-4. 链接 `AGENTS.md`、`extensions/`、`skills/`、`docs/`、`prompts/`、`rules/`、`scripts/`、`templates/`
-5. 复制缺失的本地配置文件（从 `.example` 文件复制）
+2. 自动判断 in-place 或 linked 模式
+3. in-place 模式验证 tracked assets；linked 模式备份并创建 symlink
+4. 复制缺失的本地配置文件（从 `.example` 文件复制）
 6. 安装 npm 扩展包
 7. 运行 `scripts/pi67-doctor.sh`
 8. 生成 `~/.pi/agent/pi67-report.json`

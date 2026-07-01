@@ -32,8 +32,10 @@ Compatibility rule:
 | `generatedBy` | string | stable | Script that generated the result. |
 | `pi67` | object | stable | Distribution metadata. |
 | `diagnostics` | object | stable | Doctor mode and timeout settings. |
+| `installMode` | string | stable | `in-place` when the repo root is the agent dir; otherwise `linked`. |
 | `repository` | string | legacy-stable | Repository root inspected by doctor. |
 | `agentDir` | string | legacy-stable | Pi agent directory inspected by doctor. |
+| `agent` | object | stable | Structured agent metadata, including `dir` and `installMode`. |
 | `result` | string | stable | Final readiness result. |
 | `counts` | object | stable | PASS/WARN/FAIL counts. |
 | `checks` | array | stable | Individual check results. |

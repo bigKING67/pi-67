@@ -84,6 +84,9 @@ cleanup() {
     /tmp/pi67-smoke-doctor-deep-mcp.log \
     /tmp/pi67-smoke-status.log \
     /tmp/pi67-smoke-status-json.log \
+    /tmp/pi67-smoke-inplace-install.log \
+    /tmp/pi67-smoke-inplace-doctor-json.log \
+    /tmp/pi67-smoke-inplace-status-json.log \
     /tmp/pi67-smoke-configure-dry.log \
     /tmp/pi67-smoke-configure.log \
     /tmp/pi67-smoke-doctor-configured.log \
@@ -218,7 +221,7 @@ PERSONAL_USER_PART_B="qian"
 PERSONAL_WORKSPACE_PART_A="six"
 PERSONAL_WORKSPACE_PART_B="seven"
 PORTABILITY_PATTERN="${PERSONAL_HOME_PREFIX_PART_A}${PERSONAL_HOME_PREFIX_PART_B}${PERSONAL_USER_PART_A}${PERSONAL_USER_PART_B}|Documents/${PERSONAL_WORKSPACE_PART_A}${PERSONAL_WORKSPACE_PART_B}|${PERSONAL_USER_PART_A}${PERSONAL_USER_PART_B}"
-if grep_any "$PORTABILITY_PATTERN" "$REPO_ROOT" >/tmp/pi67-smoke-portability.log 2>/dev/null; then
+if git -C "$REPO_ROOT" grep -n -E "$PORTABILITY_PATTERN" -- . >/tmp/pi67-smoke-portability.log 2>/dev/null; then
   cat /tmp/pi67-smoke-portability.log >&2
   fail "personal machine paths found in repository content"
 fi
@@ -350,6 +353,78 @@ if (!Array.isArray(data.recommendations) || data.recommendations.length === 0) {
 }
 ' /tmp/pi67-smoke-status-json.log
 pass "status JSON output parsed"
+
+section "Temp in-place install"
+INPLACE_AGENT="$TMP_ROOT/in-place-agent"
+mkdir -p "$INPLACE_AGENT"
+
+while IFS= read -r -d '' file; do
+  mkdir -p "$INPLACE_AGENT/$(dirname "$file")"
+  cp -p "$REPO_ROOT/$file" "$INPLACE_AGENT/$file"
+done < <(git -C "$REPO_ROOT" ls-files -z)
+
+git -C "$INPLACE_AGENT" init -q
+git -C "$INPLACE_AGENT" config user.email "pi67-smoke@example.invalid"
+git -C "$INPLACE_AGENT" config user.name "pi67 smoke"
+git -C "$INPLACE_AGENT" add .
+git -C "$INPLACE_AGENT" commit -q -m "pi67 smoke in-place baseline"
+
+PATH="$FAKE_BIN:$PATH" "$INPLACE_AGENT/install.sh" \
+  --agent-dir "$INPLACE_AGENT" \
+  --no-npm \
+  --no-doctor \
+  --yes >/tmp/pi67-smoke-inplace-install.log
+pass "temp in-place install completed"
+
+if [ -L "$INPLACE_AGENT/AGENTS.md" ]; then
+  cat /tmp/pi67-smoke-inplace-install.log >&2
+  fail "in-place install turned AGENTS.md into a symlink"
+fi
+for path in AGENTS.md rules scripts skills docs prompts extensions templates; do
+  if [ ! -e "$INPLACE_AGENT/$path" ]; then
+    fail "in-place install removed tracked asset: $path"
+  fi
+done
+if find "$INPLACE_AGENT" -maxdepth 1 -name 'backup-*' -print -quit | grep -q .; then
+  fail "in-place install created an asset backup directory"
+fi
+pass "in-place tracked assets preserved"
+
+for path in models.json mcp.json auth.json image-gen.json pi67-report.json; do
+  if [ ! -e "$INPLACE_AGENT/$path" ]; then
+    fail "in-place install did not create local file: $path"
+  fi
+  git -C "$INPLACE_AGENT" check-ignore -q "$path" || fail "in-place local file is not ignored: $path"
+done
+pass "in-place local files created and ignored"
+
+PATH="$FAKE_BIN:$PATH" "$INPLACE_AGENT/scripts/pi67-doctor.sh" \
+  --repo-root "$INPLACE_AGENT" \
+  --agent-dir "$INPLACE_AGENT" \
+  --no-skill-list \
+  --json >/tmp/pi67-smoke-inplace-doctor-json.log
+node -e '
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (data.installMode !== "in-place") throw new Error(`unexpected installMode: ${data.installMode}`);
+if (data.agent?.installMode !== "in-place") throw new Error(`unexpected agent.installMode: ${data.agent?.installMode}`);
+if (!data.counts || data.counts.fail !== 0) throw new Error("in-place doctor JSON reported failures");
+' /tmp/pi67-smoke-inplace-doctor-json.log
+pass "in-place doctor JSON accepted"
+
+PATH="$FAKE_BIN:$PATH" "$INPLACE_AGENT/scripts/pi67-status.sh" \
+  --repo-root "$INPLACE_AGENT" \
+  --agent-dir "$INPLACE_AGENT" \
+  --no-remote \
+  --json >/tmp/pi67-smoke-inplace-status-json.log
+node -e '
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (data.installMode !== "in-place") throw new Error(`unexpected status installMode: ${data.installMode}`);
+if (data.agent?.installMode !== "in-place") throw new Error(`unexpected status agent.installMode: ${data.agent?.installMode}`);
+if (!["READY", "READY_WITH_WARNINGS"].includes(data.result)) throw new Error(`unexpected in-place status result: ${data.result}`);
+' /tmp/pi67-smoke-inplace-status-json.log
+pass "in-place status JSON accepted"
 
 section "Configure helper"
 mkdir -p "$TMP_ROOT/tmwd-browser-mcp/src"

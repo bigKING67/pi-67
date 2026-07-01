@@ -20,6 +20,18 @@ Missing API keys, local MCP repositories, or optional binaries are expected on a
 
 ## Install
 
+Recommended in-place install:
+
+```bash
+git clone https://github.com/bigKING67/pi-67.git ~/.pi/agent
+cd ~/.pi/agent
+./install.sh --agent-dir "$PWD"
+```
+
+In this mode `~/.pi/agent` is the pi-67 Git checkout. The installer does not create symlinks or move tracked assets; it only verifies the tracked asset set and creates missing local config files.
+
+Compatibility linked install:
+
 ```bash
 git clone https://github.com/bigKING67/pi-67.git
 cd pi-67
@@ -54,8 +66,10 @@ Install into a custom Pi agent directory:
 
 1. Checks that `pi` exists.
 2. Creates `~/.pi/agent` if needed.
-3. Backs up overwritten files/directories into `~/.pi/agent/backup-YYYYmmdd-HHMMSS`.
-4. Symlinks the full pi-67 asset set into `~/.pi/agent`.
+3. Detects install mode:
+   - `in-place`: repository root and agent dir are the same path.
+   - `linked`: repository root is outside the agent dir.
+4. In `in-place`, verifies tracked assets in the current checkout. In `linked`, backs up overwritten files/directories and symlinks the full pi-67 asset set into `~/.pi/agent`.
 5. Copies `.example` config files only when local config files do not already exist.
 6. Installs npm packages into `~/.pi/agent/npm`.
 7. Runs `scripts/pi67-doctor.sh`.
@@ -148,7 +162,7 @@ To switch provider/model:
 bash ~/.pi/agent/scripts/pi67-configure.sh --provider codex --model gpt-5.4 --prompt-secrets
 ```
 
-`settings.json` is symlinked by default so updates from pi-67 continue to apply. If you request a provider/model change that differs from the repository default, the configure helper detaches `settings.json` into a local file before writing, so personal defaults do not dirty the repo.
+In linked mode, `settings.json` is symlinked by default so updates from pi-67 continue to apply. If you request a provider/model change that differs from the repository default, the configure helper detaches `settings.json` into a local file before writing, so personal defaults do not dirty the repo. In in-place mode, `settings.json` is tracked by the current checkout; keep personal secrets and machine paths in the ignored local config files instead.
 
 ## Readiness levels
 
@@ -210,6 +224,12 @@ If your installed pi-67 already includes the updater:
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-update.sh
+```
+
+For an in-place checkout, this is equivalent to:
+
+```bash
+git -C ~/.pi/agent pull --ff-only
 ```
 
 The updater:

@@ -127,6 +127,26 @@ ensure_dir() {
   fi
 }
 
+real_dir() {
+  local dir="$1"
+  if [ -d "$dir" ]; then
+    (cd "$dir" && pwd -P)
+  else
+    printf '%s\n' "$dir"
+  fi
+}
+
+detect_install_mode() {
+  local repo_real agent_real
+  repo_real="$(real_dir "$REPO_ROOT")"
+  agent_real="$(real_dir "$PI_AGENT_DIR")"
+  if [ "$repo_real" = "$agent_real" ]; then
+    printf 'in-place\n'
+  else
+    printf 'linked\n'
+  fi
+}
+
 ensure_backup_dir() {
   if [ "$BACKUP_CREATED" = true ]; then
     return
@@ -218,6 +238,30 @@ copy_example_if_missing() {
   warn "created $target_rel from $example_rel; fill placeholders before using gated capabilities"
 }
 
+verify_in_place_asset() {
+  local rel="$1"
+  local target="$PI_AGENT_DIR/$rel"
+  local tracked
+
+  if [ ! -e "$target" ] && [ ! -L "$target" ]; then
+    say "  ${RED}FAIL${NC} tracked asset missing in in-place checkout: $rel" >&2
+    exit 1
+  fi
+
+  if ! git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    say "  ${RED}FAIL${NC} in-place mode requires a Git checkout: $REPO_ROOT" >&2
+    exit 1
+  fi
+
+  tracked="$(git -C "$REPO_ROOT" ls-files -- "$rel")"
+  if [ -z "$tracked" ]; then
+    say "  ${RED}FAIL${NC} asset exists but is not tracked by Git: $rel" >&2
+    exit 1
+  fi
+
+  pass "tracked asset kept in place: $rel"
+}
+
 install_npm_packages() {
   if [ "$RUN_NPM" != true ]; then
     warn "npm package installation skipped by --no-npm"
@@ -305,6 +349,8 @@ write_report() {
   fi
 }
 
+INSTALL_MODE="$(detect_install_mode)"
+
 say ""
 say "${CYAN}╔══════════════════════════════════════════╗${NC}"
 say "${CYAN}║        pi-67 full installer             ║${NC}"
@@ -312,8 +358,16 @@ say "${CYAN}╚═════════════════════�
 say ""
 say "Repository : ${GREEN}$REPO_ROOT${NC}"
 say "Agent dir  : ${GREEN}$PI_AGENT_DIR${NC}"
-say "Backup dir : ${GREEN}$BACKUP_DIR${NC}"
-say "Mode       : ${GREEN}full install by default${NC}"
+if [ "$INSTALL_MODE" = "linked" ]; then
+  say "Backup dir : ${GREEN}$BACKUP_DIR${NC}"
+fi
+if [ "$INSTALL_MODE" = "in-place" ]; then
+  say "Mode       : ${GREEN}in-place repo${NC}"
+  say "Assets     : ${GREEN}tracked in current checkout${NC}"
+else
+  say "Mode       : ${GREEN}linked install${NC}"
+  say "Assets     : ${GREEN}symlinked into agent dir${NC}"
+fi
 if [ "$YES" = true ]; then
   say "Noninteractive: ${GREEN}yes${NC}"
 fi
@@ -333,17 +387,29 @@ pass "pi found: $(pi --version 2>/dev/null || echo unknown)"
 ensure_dir "$PI_AGENT_DIR"
 
 say ""
-say "${CYAN}--- linking full pi-67 assets ---${NC}"
-
-replace_with_symlink "settings.json" "settings.json"
-replace_with_symlink "AGENTS.md" "AGENTS.md"
-replace_with_symlink "extensions" "extensions"
-replace_with_symlink "skills" "skills"
-replace_with_symlink "docs" "docs"
-replace_with_symlink "prompts" "prompts"
-replace_with_symlink "rules" "rules"
-replace_with_symlink "scripts" "scripts"
-replace_with_symlink "templates" "templates"
+if [ "$INSTALL_MODE" = "in-place" ]; then
+  say "${CYAN}--- verifying in-place tracked assets ---${NC}"
+  verify_in_place_asset "settings.json"
+  verify_in_place_asset "AGENTS.md"
+  verify_in_place_asset "extensions"
+  verify_in_place_asset "skills"
+  verify_in_place_asset "docs"
+  verify_in_place_asset "prompts"
+  verify_in_place_asset "rules"
+  verify_in_place_asset "scripts"
+  verify_in_place_asset "templates"
+else
+  say "${CYAN}--- linking full pi-67 assets ---${NC}"
+  replace_with_symlink "settings.json" "settings.json"
+  replace_with_symlink "AGENTS.md" "AGENTS.md"
+  replace_with_symlink "extensions" "extensions"
+  replace_with_symlink "skills" "skills"
+  replace_with_symlink "docs" "docs"
+  replace_with_symlink "prompts" "prompts"
+  replace_with_symlink "rules" "rules"
+  replace_with_symlink "scripts" "scripts"
+  replace_with_symlink "templates" "templates"
+fi
 
 say ""
 say "${CYAN}--- local config templates ---${NC}"
@@ -382,5 +448,10 @@ if [ "$BACKUP_CREATED" = true ]; then
 fi
 say ""
 say "Update later:"
-say "  ${CYAN}bash ~/.pi/agent/scripts/pi67-update.sh${NC}"
+if [ "$INSTALL_MODE" = "in-place" ]; then
+  say "  ${CYAN}git -C ~/.pi/agent pull --ff-only${NC}"
+  say "  ${CYAN}bash ~/.pi/agent/scripts/pi67-update.sh${NC}"
+else
+  say "  ${CYAN}bash ~/.pi/agent/scripts/pi67-update.sh${NC}"
+fi
 say ""

@@ -11,13 +11,14 @@ mcp-cache.json
 run-history.jsonl
 sessions/
 trust.json
+themes/
 *.log
 
 # 依赖
-npm/node_modules/
-npm/package-lock.json
+npm/
 
 # 备份文件
+backup-*/
 *.bak-*
 
 # 系统文件

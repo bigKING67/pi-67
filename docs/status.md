@@ -5,6 +5,7 @@
 It summarizes:
 
 - installed pi-67 version and package version
+- install mode (`in-place` or `linked`)
 - local Git branch, commit, dirty state, upstream ahead/behind
 - optional remote branch head status
 - `~/.pi/agent/pi67-report.json` freshness
@@ -82,6 +83,7 @@ Stable top-level fields:
 | `pi67` | object | Version metadata from `VERSION` and `package.json`. |
 | `repository` | object | Local checkout state. |
 | `remote` | object | Optional remote head state. |
+| `installMode` | string | `in-place` when the repo root is the agent dir; otherwise `linked`. |
 | `agent` | object | Pi agent directory path. |
 | `report` | object | Existing `pi67-report.json` parse/freshness state. |
 | `result` | string | Overall status result. |

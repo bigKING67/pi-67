@@ -2,9 +2,7 @@
 set -euo pipefail
 
 # Safe updater for an existing pi-67 checkout.
-# Most assets are symlinked into ~/.pi/agent, so updating the Git checkout is
-# usually enough. This script adds guardrails, npm sync, new template creation,
-# and doctor verification.
+# Supports both linked installs and in-place repos where ~/.pi/agent is the checkout.
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -160,6 +158,26 @@ run_cmd() {
 
 command_exists() {
   command -v "$1" >/dev/null 2>&1
+}
+
+real_dir() {
+  local dir="$1"
+  if [ -d "$dir" ]; then
+    (cd "$dir" && pwd -P)
+  else
+    printf '%s\n' "$dir"
+  fi
+}
+
+detect_install_mode() {
+  local repo_real agent_real
+  repo_real="$(real_dir "$REPO_ROOT")"
+  agent_real="$(real_dir "$PI_AGENT_DIR")"
+  if [ "$repo_real" = "$agent_real" ]; then
+    printf 'in-place\n'
+  else
+    printf 'linked\n'
+  fi
 }
 
 file_hash() {
@@ -608,10 +626,13 @@ update_repo() {
   fi
 }
 
+INSTALL_MODE="$(detect_install_mode)"
+
 say ""
 say "${CYAN}pi-67 updater${NC}"
 say "Repository : $REPO_ROOT"
 say "Agent dir  : $PI_AGENT_DIR"
+say "Mode       : $INSTALL_MODE"
 say "Remote     : $REMOTE"
 if [ -n "$BRANCH" ]; then
   say "Branch     : $BRANCH"

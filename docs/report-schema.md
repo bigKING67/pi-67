@@ -44,6 +44,7 @@ Compatibility rule:
 | `pi67` | object | stable | pi-67 distribution metadata. |
 | `reportPolicy` | object | stable | Retention/write policy metadata. |
 | `diagnostics` | object | stable | Reporter diagnostic parameters. |
+| `installMode` | string | stable | `in-place` when the repo root is the agent dir; otherwise `linked`. |
 | `repository` | object | stable | pi-67 checkout state. |
 | `agent` | object | stable | Pi agent directory state. |
 | `runtime` | object | stable | Local runtime versions. |
@@ -111,23 +112,26 @@ This block is intentionally explicit so downstream tools do not assume report hi
 ```json
 {
   "dir": "~/.pi/agent",
+  "installMode": "in-place",
   "reportPath": "~/.pi/agent/pi67-report.json",
   "files": {
-    "settings": { "exists": true, "type": "symlink" },
-    "agents": { "exists": true, "type": "symlink" },
-    "rules": { "exists": true, "type": "symlink" },
-    "prompts": { "exists": true, "type": "symlink" },
-    "skills": { "exists": true, "type": "symlink" },
-    "scripts": { "exists": true, "type": "symlink" },
-    "models": { "exists": true, "type": "file" },
-    "mcp": { "exists": true, "type": "file" },
-    "auth": { "exists": true, "type": "file" },
-    "imageGen": { "exists": true, "type": "file" }
+    "settings": { "exists": true, "type": "file", "classification": "tracked_file" },
+    "agents": { "exists": true, "type": "file", "classification": "tracked_file" },
+    "rules": { "exists": true, "type": "directory", "classification": "tracked_dir" },
+    "prompts": { "exists": true, "type": "directory", "classification": "tracked_dir" },
+    "skills": { "exists": true, "type": "directory", "classification": "tracked_dir" },
+    "scripts": { "exists": true, "type": "directory", "classification": "tracked_dir" },
+    "models": { "exists": true, "type": "file", "classification": "local_file" },
+    "mcp": { "exists": true, "type": "file", "classification": "local_file" },
+    "auth": { "exists": true, "type": "file", "classification": "local_file" },
+    "imageGen": { "exists": true, "type": "file", "classification": "local_file" }
   }
 }
 ```
 
 File `type` is one of `symlink`, `directory`, `file`, `other`, or `missing`.
+
+File `classification` is one of `tracked_file`, `tracked_dir`, `local_file`, `ignored_runtime`, `symlink`, `missing`, or `other`. Linked installs usually report tracked assets as `symlink`; in-place installs report them as `tracked_file` or `tracked_dir`.
 
 ## `runtime`
 

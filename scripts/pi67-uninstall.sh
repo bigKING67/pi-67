@@ -90,6 +90,26 @@ warn() {
   say "  ${YELLOW}WARN${NC} $*"
 }
 
+real_dir() {
+  local dir="$1"
+  if [ -d "$dir" ]; then
+    (cd "$dir" && pwd -P)
+  else
+    printf '%s\n' "$dir"
+  fi
+}
+
+detect_install_mode() {
+  local repo_real agent_real
+  repo_real="$(real_dir "$REPO_ROOT")"
+  agent_real="$(real_dir "$PI_AGENT_DIR")"
+  if [ "$repo_real" = "$agent_real" ]; then
+    printf 'in-place\n'
+  else
+    printf 'linked\n'
+  fi
+}
+
 is_pi67_symlink() {
   local target="$1"
   local link_target
@@ -131,15 +151,24 @@ remove_link() {
   pass "removed pi-67 symlink: $rel"
 }
 
+INSTALL_MODE="$(detect_install_mode)"
+
 say ""
 say "${CYAN}pi-67 uninstall${NC}"
 say "Repository : $REPO_ROOT"
 say "Agent dir  : $PI_AGENT_DIR"
-say "Mode       : remove pi-67-owned symlinks only"
+say "Mode       : $INSTALL_MODE"
 if [ "$DRY_RUN" = true ]; then
   say "Dry run    : ${YELLOW}yes${NC}"
 fi
 say ""
+
+if [ "$INSTALL_MODE" = "in-place" ]; then
+  say "${RED}This is an in-place pi-67 checkout. Refusing to remove tracked source files.${NC}"
+  say "To uninstall, first back up local runtime state, then manually remove the whole checkout:"
+  say "  $PI_AGENT_DIR"
+  exit 2
+fi
 
 if [ "$DRY_RUN" != true ] && [ "$YES" != true ]; then
   say "${RED}Refusing to remove symlinks without --yes.${NC}"

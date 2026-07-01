@@ -166,6 +166,18 @@ function boolText(value) {
   return value ? "yes" : "no";
 }
 
+function realPathMaybe(target) {
+  try {
+    return fs.realpathSync(target);
+  } catch {
+    return path.resolve(target);
+  }
+}
+
+function deriveInstallMode() {
+  return realPathMaybe(repoRoot) === realPathMaybe(agentDir) ? "in-place" : "linked";
+}
+
 function deriveRepository() {
   const inside = git(["rev-parse", "--is-inside-work-tree"]);
   if (!inside.ok) {
@@ -389,6 +401,12 @@ function deriveResult(repository, remote, report) {
   const recommendations = [];
   const warnings = [];
   const blockers = [];
+  const updateCommand = installMode === "in-place"
+    ? `Run: git -C ${agentDir} pull --ff-only`
+    : "Run: bash ~/.pi/agent/scripts/pi67-update.sh";
+  const updateCheckCommand = installMode === "in-place"
+    ? `Run: bash ${path.join(agentDir, "scripts", "pi67-update.sh")} --check-only`
+    : "Run: bash ~/.pi/agent/scripts/pi67-update.sh --check-only";
 
   if (!repository.isGit) {
     blockers.push("repository is not a git checkout");
@@ -401,13 +419,16 @@ function deriveResult(repository, remote, report) {
 
   if (["behind", "remote_different"].includes(remote.status)) {
     warnings.push(remote.summary);
-    recommendations.push("Run: bash ~/.pi/agent/scripts/pi67-update.sh");
+    recommendations.push(updateCommand);
+    if (installMode === "in-place") {
+      recommendations.push(`Or run: bash ${path.join(agentDir, "scripts", "pi67-update.sh")}`);
+    }
   } else if (remote.status === "diverged") {
     blockers.push(remote.summary);
     recommendations.push("Resolve the local/remote branch divergence before running pi67-update.");
   } else if (remote.status === "unknown") {
     warnings.push(`remote status unknown: ${remote.summary}`);
-    recommendations.push("Run: bash ~/.pi/agent/scripts/pi67-update.sh --check-only");
+    recommendations.push(updateCheckCommand);
   }
 
   if (!report.exists) {
@@ -466,6 +487,7 @@ function resultText(result) {
 const version = readText(path.join(repoRoot, "VERSION")).trim() || null;
 const packageJson = readJson(path.join(repoRoot, "package.json"));
 const packageVersion = packageJson.ok ? packageJson.data.version || null : null;
+const installMode = deriveInstallMode();
 const repository = deriveRepository();
 const remote = deriveRemote(repository);
 const report = deriveReport(repository, version);
@@ -482,8 +504,10 @@ const output = {
   },
   repository,
   remote,
+  installMode,
   agent: {
     dir: agentDir,
+    installMode,
   },
   report,
   result: status.result,
@@ -501,6 +525,7 @@ console.log("");
 console.log("pi-67 status");
 console.log(`Repository : ${repoRoot}`);
 console.log(`Agent dir  : ${agentDir}`);
+console.log(`Install mode: ${installMode}`);
 console.log("");
 console.log("--- distribution ---");
 console.log(`Version    : ${version || "unknown"}`);

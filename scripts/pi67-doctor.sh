@@ -164,8 +164,13 @@ emit_json() {
   printf '    "mcpTimeoutMs": %s,\n' "$MCP_TIMEOUT_MS"
   printf '    "skillList": %s\n' "$RUN_SKILL_LIST"
   printf '  },\n'
+  printf '  "installMode": "%s",\n' "$(json_escape "$INSTALL_MODE")"
   printf '  "repository": "%s",\n' "$(json_escape "$REPO_ROOT")"
   printf '  "agentDir": "%s",\n' "$(json_escape "$PI_AGENT_DIR")"
+  printf '  "agent": {\n'
+  printf '    "dir": "%s",\n' "$(json_escape "$PI_AGENT_DIR")"
+  printf '    "installMode": "%s"\n' "$(json_escape "$INSTALL_MODE")"
+  printf '  },\n'
   printf '  "result": "%s",\n' "$(json_escape "$result")"
   printf '  "counts": {\n'
   printf '    "pass": %s,\n' "$PASS_COUNT"
@@ -189,6 +194,31 @@ emit_json() {
 
 command_exists() {
   command -v "$1" >/dev/null 2>&1
+}
+
+real_dir() {
+  local dir="$1"
+  if [ -d "$dir" ]; then
+    (cd "$dir" && pwd -P)
+  else
+    printf '%s\n' "$dir"
+  fi
+}
+
+detect_install_mode() {
+  local repo_real agent_real
+  repo_real="$(real_dir "$REPO_ROOT")"
+  agent_real="$(real_dir "$PI_AGENT_DIR")"
+  if [ "$repo_real" = "$agent_real" ]; then
+    printf 'in-place\n'
+  else
+    printf 'linked\n'
+  fi
+}
+
+git_tracks_path() {
+  local rel="$1"
+  git -C "$REPO_ROOT" ls-files -- "$rel" 2>/dev/null | grep -q .
 }
 
 json_valid() {
@@ -230,6 +260,7 @@ check_asset() {
   local local_mode="${3:-symlink-preferred}"
   local source="$REPO_ROOT/$rel"
   local target="$PI_AGENT_DIR/$rel"
+  local asset_type
 
   if [ ! -e "$source" ]; then
     if [ "$required" = "optional" ]; then
@@ -245,6 +276,31 @@ check_asset() {
     return
   fi
 
+  if [ "$INSTALL_MODE" = "in-place" ]; then
+    if ! git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      fail "in-place mode requires a Git checkout: $REPO_ROOT"
+      return
+    fi
+
+    if ! git_tracks_path "$rel"; then
+      fail "in-place asset exists but is not tracked by Git: $rel"
+      return
+    fi
+
+    if [ -L "$target" ]; then
+      warn "in-place asset is a symlink, expected tracked file/dir: $target"
+      return
+    fi
+
+    if [ -d "$target" ]; then
+      asset_type="dir"
+    else
+      asset_type="file"
+    fi
+    pass "installed tracked $asset_type: $rel"
+    return
+  fi
+
   if [ -L "$target" ]; then
     pass "installed link: $rel -> $(readlink "$target")"
   elif [ "$local_mode" = "local-ok" ]; then
@@ -253,6 +309,8 @@ check_asset() {
     warn "installed but not a symlink: $target"
   fi
 }
+
+INSTALL_MODE="$(detect_install_mode)"
 
 count_files() {
   local dir="$1"
@@ -799,6 +857,7 @@ if detailed_text_enabled; then
   echo -e "${CYAN}pi-67 doctor${NC}"
   echo "Repository : $REPO_ROOT"
   echo "Agent dir  : $PI_AGENT_DIR"
+  echo "Mode       : $INSTALL_MODE"
 fi
 
 section "Core tools"
