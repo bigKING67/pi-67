@@ -4,6 +4,21 @@ All notable changes to pi-67 are documented here.
 
 The format is based on Keep a Changelog, and this project uses semantic versioning for the pi-67 distribution itself. Pi package dependency versions are managed separately in `package.json`.
 
+## [0.9.0] - 2026-07-01
+
+### Added
+
+- `scripts/pi67-migrate-skills.sh` for safe dry-run-first migration from legacy active Pi skill roots into the shared `~/.agents/skills` registry.
+- `scripts/pi67-sync-external-skills.sh` for copying skills from external source repositories such as `design-craft` and `browser67` into `~/.agents/skills` without making those repositories active Pi package skill roots.
+- Smoke coverage for skill migration, external skill sync, and doctor detection of `pi skill list` duplicate/conflict warnings.
+
+### Changed
+
+- `~/.agents/skills` is now the canonical shared active skill registry for Pi and Codex; pi-67 bundled skill source lives in `shared-skills/` and installs into that global root.
+- `~/.pi/agent/skills` is treated as a legacy duplicate root and is retired through backup/migration instead of being maintained as an active registry.
+- `design-craft` / `browser67` skills are documented as global skill installs rather than active Pi package sources; browser67 MCP source paths stay outside active skill roots.
+- Doctor now warns when `pi skill list` reports duplicate/conflict/skipped/`auto (user)` skill-selection messages.
+
 ## [0.8.0] - 2026-06-29
 
 ### Added

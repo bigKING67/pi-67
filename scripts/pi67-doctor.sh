@@ -1127,11 +1127,17 @@ fi
 section "Pi runtime"
 if [ "$RUN_SKILL_LIST" = true ]; then
   if command_exists pi; then
-    if pi skill list >/dev/null 2>&1; then
-      pass "pi skill list succeeded"
+    pi_skill_list_output="$(mktemp "${TMPDIR:-/tmp}/pi67-skill-list.XXXXXX")"
+    if pi skill list >"$pi_skill_list_output" 2>&1; then
+      if grep -Eiq 'duplicate|conflict|skipped|auto[[:space:]]*\(user\)|auto\(user\)' "$pi_skill_list_output"; then
+        warn "pi skill list reported duplicate/conflict warnings"
+      else
+        pass "pi skill list completed without duplicate warnings"
+      fi
     else
       warn "pi skill list failed; run manually for details"
     fi
+    rm -f "$pi_skill_list_output"
   else
     fail "cannot run pi skill list because pi is missing"
   fi

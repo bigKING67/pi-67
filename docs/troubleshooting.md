@@ -183,8 +183,24 @@ bash ~/.pi/agent/install.sh --no-npm
 ```
 
 On old linked installs, the installer moves legacy `~/.pi/agent/skills` into
-the normal backup directory. In in-place checkouts, remove that legacy directory
-manually only after confirming the same skills are present in `~/.agents/skills`.
+the normal backup directory. For existing in-place installs or package-cache
+duplicates, use the migration helper instead of manual deletion:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-migrate-skills.sh --dry-run
+bash ~/.pi/agent/scripts/pi67-migrate-skills.sh --apply --yes
+```
+
+It backs up migrated legacy roots and refuses to overwrite a different
+canonical skill. If a maintained external repo contains the desired skill, sync
+that repo into the global root:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-sync-external-skills.sh \
+  --repo /path/to/design-craft \
+  --repo /path/to/browser67 \
+  --dry-run
+```
 
 For browser67 MCP, keep the source checkout/cache outside active skill roots and
 configure `mcp.json` with:

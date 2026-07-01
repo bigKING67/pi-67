@@ -4,7 +4,7 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
-当前发行版版本：`0.8.0`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.9.0`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 这是什么
 
@@ -36,7 +36,7 @@
 | **Skill 治理** | `docs/skill-governance.md` | skill 公开发行 / 个人 overlay / 过期治理规则 |
 | **文档** | `docs/` | 全量安装、doctor/report/status schema、排障、发布流程、MCP 优化、爬虫指南、工具速查、xtalpi 配置 |
 | **Prompts** | `prompts/` (5 个) | debug、deliver、frontend-kickoff、review、scoped-commit |
-| **脚本** | `scripts/` | configure、doctor、report、status、skill-audit、release、release-check、smoke、update、restore、uninstall、xtalpi 工具冒烟测试 |
+| **脚本** | `scripts/` | configure、doctor、report、status、skill-audit、skill migration/sync、release、release-check、smoke、update、restore、uninstall、xtalpi 工具冒烟测试 |
 | **模板** | `templates/scrapers/` | 采集/合并/轮询相关脚本模板 |
 
 ## Shared skill registry
@@ -67,6 +67,25 @@ Pi 和 Codex 都从这里发现共享 skill；`~/.pi/agent` 只保存 Pi 的
 - `~/.pi/agent/skills`：不再使用；出现时视为 legacy duplicate。
 - `design-craft` / `browser67`：不要作为 Pi active package 重复声明；普通用户把其中的 skills 安装到 `~/.agents/skills`。
 - browser67 MCP：在本机 ignored `mcp.json` 里配置源码路径；默认模板指向 `~/.agents/packages/browser67/src/mcp/...`，也可用 `pi67-configure --tmwd-repo` 改到任意 checkout。
+
+旧安装如果已经出现 duplicate / conflict / skipped / `auto (user)` 之类
+`pi skill list` 警告，先用迁移工具预览；它默认 dry-run、只复制缺失 skill、
+遇到内容冲突会停止，不会覆盖 `~/.agents/skills`：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-migrate-skills.sh --dry-run
+bash ~/.pi/agent/scripts/pi67-migrate-skills.sh --apply --yes
+```
+
+独立仓库里的 skills 用同步工具安装到全局 active root，而不是把仓库声明成
+Pi active package source：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-sync-external-skills.sh \
+  --repo /path/to/design-craft \
+  --repo /path/to/browser67 \
+  --dry-run
+```
 
 ## 快速开始
 

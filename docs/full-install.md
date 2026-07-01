@@ -116,6 +116,47 @@ will move that legacy active root into the normal backup directory after the
 shared skills are installed. For in-place checkouts, remove legacy skill roots
 manually after verifying `~/.agents/skills` contains the same skills.
 
+For old installs or package-cache duplicates, use the migration helper instead
+of deleting directories by hand. It defaults to a dry-run, copies missing skills
+into the canonical root, and moves migrated legacy roots into a backup directory
+only when `--apply --yes` is provided:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-migrate-skills.sh --dry-run
+bash ~/.pi/agent/scripts/pi67-migrate-skills.sh --apply --yes
+```
+
+The migration helper scans the legacy active roots that most commonly trigger
+Pi duplicate warnings:
+
+```text
+~/.pi/agent/skills
+~/.pi/agent/git/github.com/bigKING67/design-craft/skills
+~/.pi/agent/git/github.com/bigKING67/browser67/skills
+```
+
+It never overwrites a different `~/.agents/skills/<name>` directory. If a
+canonical skill differs from a legacy copy, the helper stops and leaves both
+roots in place for manual review.
+
+Use the external sync helper for maintained standalone skill repositories:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-sync-external-skills.sh \
+  --repo /path/to/design-craft \
+  --repo /path/to/browser67 \
+  --dry-run
+
+bash ~/.pi/agent/scripts/pi67-sync-external-skills.sh \
+  --repo /path/to/design-craft \
+  --repo /path/to/browser67 \
+  --apply --yes
+```
+
+That command copies `skills/*/SKILL.md` trees into `~/.agents/skills`, skips
+identical already-installed skills, and refuses conflicts. It does not edit
+`~/.pi/agent/git/...`, `settings.json`, or `mcp.json`.
+
 ```text
 ~/.agents/packages/browser67/src/mcp/browser/server.mjs
 ~/.agents/packages/browser67/src/mcp/js-reverse/server.mjs

@@ -81,11 +81,18 @@ cleanup() {
     /tmp/pi67-smoke-doctor.log \
     /tmp/pi67-smoke-doctor-quiet.log \
     /tmp/pi67-smoke-doctor-json.log \
+    /tmp/pi67-smoke-doctor-skill-warning-json.log \
     /tmp/pi67-smoke-doctor-deep-mcp.log \
     /tmp/pi67-smoke-status.log \
     /tmp/pi67-smoke-status-json.log \
     /tmp/pi67-smoke-skill-audit.log \
     /tmp/pi67-smoke-skill-audit-json.log \
+    /tmp/pi67-smoke-migrate-skills-dry.log \
+    /tmp/pi67-smoke-migrate-skills-apply.log \
+    /tmp/pi67-smoke-migrate-skills-conflict.log \
+    /tmp/pi67-smoke-sync-external-dry.log \
+    /tmp/pi67-smoke-sync-external-apply.log \
+    /tmp/pi67-smoke-sync-external-conflict.log \
     /tmp/pi67-smoke-inplace-install.log \
     /tmp/pi67-smoke-inplace-doctor-json.log \
     /tmp/pi67-smoke-inplace-status-json.log \
@@ -153,8 +160,14 @@ bash -n "$REPO_ROOT/scripts/pi67-doctor.sh"
 bash -n "$REPO_ROOT/scripts/pi67-release.sh"
 bash -n "$REPO_ROOT/scripts/pi67-release-check.sh"
 bash -n "$REPO_ROOT/scripts/pi67-report.sh"
+if [ -f "$REPO_ROOT/scripts/pi67-migrate-skills.sh" ]; then
+  bash -n "$REPO_ROOT/scripts/pi67-migrate-skills.sh"
+fi
 if [ -f "$REPO_ROOT/scripts/pi67-skill-audit.sh" ]; then
   bash -n "$REPO_ROOT/scripts/pi67-skill-audit.sh"
+fi
+if [ -f "$REPO_ROOT/scripts/pi67-sync-external-skills.sh" ]; then
+  bash -n "$REPO_ROOT/scripts/pi67-sync-external-skills.sh"
 fi
 bash -n "$REPO_ROOT/scripts/pi67-smoke.sh"
 bash -n "$REPO_ROOT/scripts/pi67-status.sh"
@@ -273,7 +286,11 @@ case "$1" in
     ;;
   skill)
     if [ "${2:-}" = "list" ]; then
-      echo "smoke skill list"
+      if [ "${PI67_SMOKE_PI_SKILL_WARNING:-}" = "1" ]; then
+        echo "warning: duplicate skill design-craft skipped; selected auto (user)" >&2
+      else
+        echo "smoke skill list"
+      fi
     else
       echo "smoke pi skill"
     fi
@@ -425,6 +442,105 @@ if (missing.classification !== "stale_broken_link") throw new Error(`unexpected 
 ' /tmp/pi67-smoke-skill-audit-json.log
 pass "skill audit JSON output parsed"
 
+section "Skill migration helpers"
+MIGRATE_AGENT="$TMP_ROOT/migrate-agent"
+MIGRATE_SHARED="$TMP_ROOT/migrate-shared"
+MIGRATE_BACKUP="$TMP_ROOT/migrate-backup"
+mkdir -p "$MIGRATE_AGENT/skills/legacy-skill"
+cat > "$MIGRATE_AGENT/skills/legacy-skill/SKILL.md" <<'EOF'
+# Legacy Skill
+
+Smoke migration fixture.
+EOF
+
+"$REPO_ROOT/scripts/pi67-migrate-skills.sh" \
+  --agent-dir "$MIGRATE_AGENT" \
+  --skills-dir "$MIGRATE_SHARED" \
+  --backup-dir "$MIGRATE_BACKUP" \
+  --dry-run >/tmp/pi67-smoke-migrate-skills-dry.log
+if [ -e "$MIGRATE_SHARED/legacy-skill" ] || [ ! -d "$MIGRATE_AGENT/skills" ]; then
+  fail "migrate dry-run changed the temp skill roots"
+fi
+pass "skill migration dry-run completed"
+
+"$REPO_ROOT/scripts/pi67-migrate-skills.sh" \
+  --agent-dir "$MIGRATE_AGENT" \
+  --skills-dir "$MIGRATE_SHARED" \
+  --backup-dir "$MIGRATE_BACKUP" \
+  --apply \
+  --yes >/tmp/pi67-smoke-migrate-skills-apply.log
+if [ ! -f "$MIGRATE_SHARED/legacy-skill/SKILL.md" ] || [ -e "$MIGRATE_AGENT/skills" ] || [ ! -f "$MIGRATE_BACKUP/skills/legacy-skill/SKILL.md" ]; then
+  cat /tmp/pi67-smoke-migrate-skills-apply.log >&2
+  fail "skill migration apply did not copy and back up legacy root"
+fi
+pass "skill migration apply copied missing skill and backed up legacy root"
+
+MIGRATE_CONFLICT_AGENT="$TMP_ROOT/migrate-conflict-agent"
+MIGRATE_CONFLICT_SHARED="$TMP_ROOT/migrate-conflict-shared"
+mkdir -p "$MIGRATE_CONFLICT_AGENT/skills/conflict-skill" "$MIGRATE_CONFLICT_SHARED/conflict-skill"
+printf '# Legacy Conflict\n' > "$MIGRATE_CONFLICT_AGENT/skills/conflict-skill/SKILL.md"
+printf '# Canonical Conflict\n' > "$MIGRATE_CONFLICT_SHARED/conflict-skill/SKILL.md"
+if "$REPO_ROOT/scripts/pi67-migrate-skills.sh" \
+  --agent-dir "$MIGRATE_CONFLICT_AGENT" \
+  --skills-dir "$MIGRATE_CONFLICT_SHARED" \
+  --backup-dir "$TMP_ROOT/migrate-conflict-backup" \
+  --apply \
+  --yes >/tmp/pi67-smoke-migrate-skills-conflict.log 2>&1; then
+  cat /tmp/pi67-smoke-migrate-skills-conflict.log >&2
+  fail "skill migration apply overwrote or ignored a conflict"
+fi
+if [ ! -d "$MIGRATE_CONFLICT_AGENT/skills" ] || ! grep -q 'Canonical Conflict' "$MIGRATE_CONFLICT_SHARED/conflict-skill/SKILL.md"; then
+  fail "skill migration conflict path changed source or canonical roots"
+fi
+pass "skill migration refuses canonical conflicts"
+
+EXTERNAL_REPO="$TMP_ROOT/external-repo"
+EXTERNAL_SHARED="$TMP_ROOT/external-shared"
+mkdir -p "$EXTERNAL_REPO/skills/external-skill"
+cat > "$EXTERNAL_REPO/skills/external-skill/SKILL.md" <<'EOF'
+# External Skill
+
+Smoke external sync fixture.
+EOF
+
+"$REPO_ROOT/scripts/pi67-sync-external-skills.sh" \
+  --repo "$EXTERNAL_REPO" \
+  --skills-dir "$EXTERNAL_SHARED" \
+  --dry-run >/tmp/pi67-smoke-sync-external-dry.log
+if [ -e "$EXTERNAL_SHARED/external-skill" ]; then
+  fail "external skill sync dry-run wrote files"
+fi
+pass "external skill sync dry-run completed"
+
+"$REPO_ROOT/scripts/pi67-sync-external-skills.sh" \
+  --repo "$EXTERNAL_REPO" \
+  --skills-dir "$EXTERNAL_SHARED" \
+  --apply \
+  --yes >/tmp/pi67-smoke-sync-external-apply.log
+if [ ! -f "$EXTERNAL_SHARED/external-skill/SKILL.md" ]; then
+  cat /tmp/pi67-smoke-sync-external-apply.log >&2
+  fail "external skill sync did not copy missing skill"
+fi
+pass "external skill sync applied"
+
+EXTERNAL_CONFLICT_REPO="$TMP_ROOT/external-conflict-repo"
+EXTERNAL_CONFLICT_SHARED="$TMP_ROOT/external-conflict-shared"
+mkdir -p "$EXTERNAL_CONFLICT_REPO/skills/conflict-skill" "$EXTERNAL_CONFLICT_SHARED/conflict-skill"
+printf '# External Conflict\n' > "$EXTERNAL_CONFLICT_REPO/skills/conflict-skill/SKILL.md"
+printf '# Canonical External Conflict\n' > "$EXTERNAL_CONFLICT_SHARED/conflict-skill/SKILL.md"
+if "$REPO_ROOT/scripts/pi67-sync-external-skills.sh" \
+  --repo "$EXTERNAL_CONFLICT_REPO" \
+  --skills-dir "$EXTERNAL_CONFLICT_SHARED" \
+  --apply \
+  --yes >/tmp/pi67-smoke-sync-external-conflict.log 2>&1; then
+  cat /tmp/pi67-smoke-sync-external-conflict.log >&2
+  fail "external skill sync overwrote or ignored a conflict"
+fi
+if ! grep -q 'Canonical External Conflict' "$EXTERNAL_CONFLICT_SHARED/conflict-skill/SKILL.md"; then
+  fail "external skill sync conflict path changed canonical skill"
+fi
+pass "external skill sync refuses canonical conflicts"
+
 section "Temp in-place install"
 INPLACE_AGENT="$TMP_ROOT/in-place-agent"
 mkdir -p "$INPLACE_AGENT"
@@ -566,6 +682,24 @@ if ! grep -q 'Result: READY' /tmp/pi67-smoke-doctor-configured.log; then
   fail "doctor did not report READY after configure"
 fi
 pass "doctor reports READY after configure"
+
+PI67_SMOKE_PI_SKILL_WARNING=1 PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
+  --repo-root "$REPO_ROOT" \
+  --skills-dir "$TMP_ROOT/shared-skills" \
+  --agent-dir "$AGENT_DIR" \
+  --json >/tmp/pi67-smoke-doctor-skill-warning-json.log
+node -e '
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+const messages = data.checks.map((item) => item.message).join("\n");
+if (!messages.includes("pi skill list reported duplicate/conflict warnings")) {
+  throw new Error("doctor did not surface pi skill list duplicate warning");
+}
+if (data.counts.warn < 1) {
+  throw new Error("doctor warning count did not include pi skill list warning");
+}
+' /tmp/pi67-smoke-doctor-skill-warning-json.log
+pass "doctor detects pi skill list duplicate warnings"
 
 section "Deep MCP doctor probe"
 cat > "$FAKE_BIN/fake-mcp-server" <<'SH'

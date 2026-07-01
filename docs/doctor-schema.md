@@ -58,6 +58,7 @@ Doctor also validates shared skill governance:
 - `~/.agents/skills` must contain installed copies of those shared skills.
 - `settings.json` must not declare `design-craft` or `browser67` as active Pi skill packages; install their skills into `~/.agents/skills` instead.
 - Existing `~/.pi/agent/skills` or package clone skill directories are reported as duplicate sources when they overlap with `~/.agents/skills`.
+- `pi skill list` output is checked for duplicate/conflict/skipped/`auto (user)` skill-selection warnings and reported as a doctor warning when present.
 
 ## `counts`
 

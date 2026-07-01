@@ -99,6 +99,62 @@ bash scripts/pi67-skill-audit.sh \
 `pi67-skill-audit.json` is ignored because it may include local machine paths or
 private overlay skill names.
 
+## Migration helper
+
+Use the migration helper when Pi reports duplicate/conflict/skipped skill
+selection warnings, or when an old install still has active skill roots under
+`~/.pi/agent`:
+
+```bash
+bash scripts/pi67-migrate-skills.sh --dry-run
+bash scripts/pi67-migrate-skills.sh --apply --yes
+```
+
+It scans the known legacy active roots:
+
+```text
+~/.pi/agent/skills
+~/.pi/agent/git/github.com/bigKING67/design-craft/skills
+~/.pi/agent/git/github.com/bigKING67/browser67/skills
+```
+
+Rules:
+
+- Copy a legacy skill into `~/.agents/skills/<name>` only when the canonical
+  skill is missing.
+- Treat byte-identical canonical skills as already migrated.
+- Treat different canonical skills as conflicts; do not overwrite either side.
+- Move fully migrated legacy roots into a timestamped backup directory.
+- Default to dry-run; require `--apply --yes` for writes.
+
+The backup is intentionally a move, not a delete. If a migration was too broad,
+restore the backed-up root manually or with the normal restore workflow.
+
+## External repo sync helper
+
+Use the external sync helper for package-owned skill repositories:
+
+```bash
+bash scripts/pi67-sync-external-skills.sh \
+  --repo /path/to/design-craft \
+  --repo /path/to/browser67 \
+  --dry-run
+
+bash scripts/pi67-sync-external-skills.sh \
+  --repo /path/to/design-craft \
+  --repo /path/to/browser67 \
+  --apply --yes
+```
+
+This command reads `skills/*/SKILL.md` from each repo and copies missing skills
+into `~/.agents/skills`. It skips identical skills and refuses different
+canonical copies. It deliberately does not modify Pi package cache directories
+or MCP config; for browser67 MCP paths, run:
+
+```bash
+bash scripts/pi67-configure.sh --tmwd-repo /path/to/browser67 --no-prompt
+```
+
 ## Migration rule
 
 When a legacy manifest reports `stale_broken_link`, do not automatically restore
