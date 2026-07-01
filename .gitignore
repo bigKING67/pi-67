@@ -5,6 +5,8 @@ auth.json
 image-gen.json
 pi67-report.json
 .pi67-report.*.tmp
+pi67-skill-audit.json
+.pi67-skill-audit.*.tmp
 
 # 运行时数据
 mcp-cache.json

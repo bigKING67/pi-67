@@ -33,9 +33,10 @@
 | **Rules** | `rules/` (8 篇) | 质量、架构、结构、性能、前端、浏览器、上下文、数据质量规则 |
 | **自定义扩展** | `extensions/` (2 个) | `xtalpi-compat` + `pi-rules-loader` |
 | **Skills** | `skills/` (31 个) | lark 飞书全系列 + 前端设计/输出/重设计技能 |
-| **文档** | `docs/` (10 篇) | 全量安装、doctor/report/status schema、排障、发布流程、MCP 优化、爬虫指南、工具速查、xtalpi 配置 |
+| **Skill 治理** | `docs/skill-governance.md` | skill 公开发行 / 个人 overlay / 过期治理规则 |
+| **文档** | `docs/` | 全量安装、doctor/report/status schema、排障、发布流程、MCP 优化、爬虫指南、工具速查、xtalpi 配置 |
 | **Prompts** | `prompts/` (5 个) | debug、deliver、frontend-kickoff、review、scoped-commit |
-| **脚本** | `scripts/` | configure、doctor、report、status、release、release-check、smoke、update、restore、uninstall、xtalpi 工具冒烟测试 |
+| **脚本** | `scripts/` | configure、doctor、report、status、skill-audit、release、release-check、smoke、update、restore、uninstall、xtalpi 工具冒烟测试 |
 | **模板** | `templates/scrapers/` | 采集/合并/轮询相关脚本模板 |
 
 ## 快速开始

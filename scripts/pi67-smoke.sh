@@ -84,6 +84,8 @@ cleanup() {
     /tmp/pi67-smoke-doctor-deep-mcp.log \
     /tmp/pi67-smoke-status.log \
     /tmp/pi67-smoke-status-json.log \
+    /tmp/pi67-smoke-skill-audit.log \
+    /tmp/pi67-smoke-skill-audit-json.log \
     /tmp/pi67-smoke-inplace-install.log \
     /tmp/pi67-smoke-inplace-doctor-json.log \
     /tmp/pi67-smoke-inplace-status-json.log \
@@ -151,6 +153,9 @@ bash -n "$REPO_ROOT/scripts/pi67-doctor.sh"
 bash -n "$REPO_ROOT/scripts/pi67-release.sh"
 bash -n "$REPO_ROOT/scripts/pi67-release-check.sh"
 bash -n "$REPO_ROOT/scripts/pi67-report.sh"
+if [ -f "$REPO_ROOT/scripts/pi67-skill-audit.sh" ]; then
+  bash -n "$REPO_ROOT/scripts/pi67-skill-audit.sh"
+fi
 bash -n "$REPO_ROOT/scripts/pi67-smoke.sh"
 bash -n "$REPO_ROOT/scripts/pi67-status.sh"
 bash -n "$REPO_ROOT/scripts/pi67-update.sh"
@@ -353,6 +358,35 @@ if (!Array.isArray(data.recommendations) || data.recommendations.length === 0) {
 }
 ' /tmp/pi67-smoke-status-json.log
 pass "status JSON output parsed"
+
+section "Skill audit helper"
+mkdir -p "$TMP_ROOT/skill-audit-agent/skills" "$TMP_ROOT/external-skills"
+printf 'full-output-enforcement\nlegacy-missing\n' > "$TMP_ROOT/legacy-skills.txt"
+printf 'legacy-missing -> ../../../.agents/skills/legacy-missing\n' > "$TMP_ROOT/legacy-links.txt"
+
+bash "$REPO_ROOT/scripts/pi67-skill-audit.sh" \
+  --agent-dir "$TMP_ROOT/skill-audit-agent" \
+  --legacy-names "$TMP_ROOT/legacy-skills.txt" \
+  --legacy-links "$TMP_ROOT/legacy-links.txt" \
+  --skill-root "$TMP_ROOT/external-skills" >/tmp/pi67-smoke-skill-audit.log
+pass "skill audit text output completed"
+
+bash "$REPO_ROOT/scripts/pi67-skill-audit.sh" \
+  --agent-dir "$TMP_ROOT/skill-audit-agent" \
+  --legacy-names "$TMP_ROOT/legacy-skills.txt" \
+  --legacy-links "$TMP_ROOT/legacy-links.txt" \
+  --skill-root "$TMP_ROOT/external-skills" \
+  --json >/tmp/pi67-smoke-skill-audit-json.log
+node -e '
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (data.schemaId !== "pi67-skill-audit/v1") throw new Error(`unexpected schemaId: ${data.schemaId}`);
+if (!data.repository || data.repository.skillCount < 1) throw new Error("missing repository skills");
+const missing = data.legacy?.legacyOnly?.find((entry) => entry.name === "legacy-missing");
+if (!missing) throw new Error("missing legacy-only skill audit entry");
+if (missing.classification !== "stale_broken_link") throw new Error(`unexpected classification: ${missing.classification}`);
+' /tmp/pi67-smoke-skill-audit-json.log
+pass "skill audit JSON output parsed"
 
 section "Temp in-place install"
 INPLACE_AGENT="$TMP_ROOT/in-place-agent"
