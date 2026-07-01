@@ -3,7 +3,7 @@
     "tmwd_browser": {
       "command": "node",
       "args": [
-        "$HOME/Documents/sixseven/codeproject/tmwd-browser-mcp/src/server.mjs"
+        "/path/to/tmwd-browser-mcp/src/server.mjs"
       ],
       "env": {
         "BROWSER_STRUCTURED_TMWD_MODE": "tmwd",
@@ -15,7 +15,7 @@
     "js-reverse": {
       "command": "node",
       "args": [
-        "$HOME/Documents/sixseven/codeproject/tmwd-browser-mcp/src/js-reverse-server.mjs"
+        "/path/to/tmwd-browser-mcp/src/js-reverse-server.mjs"
       ],
       "env": {
         "BROWSER_STRUCTURED_TMWD_MODE": "tmwd",

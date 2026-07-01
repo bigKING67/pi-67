@@ -57,7 +57,7 @@
 - 主动操作网页时默认创建或复用 TMWD-owned managed tab，使用稳定 `workspace_key`；不要导航、点击、输入或关闭用户 unmanaged tab。
 - 任务结束且未要求保留页面时，对当前 `workspace_key` 或 `task_id` 执行 `finalize_task`；只关闭 `keep:false` 的 TMWD-owned tabs。
 - Chrome profile 是用户私有运行态：不查看 cookies、密码、session stores、无关历史、无关标签页、无关账号数据。
-- 页面 API/签名链路/Hook/网络采样优先用 `js-reverse`，并遵循 `/Users/gaoqian/Documents/sixseven/codeproject/tmwd-browser-mcp/docs/codex-integration.md`。
+- 页面 API/签名链路/Hook/网络采样优先用 `js-reverse`；如本机配置了 `tmwd-browser-mcp`，遵循该仓库内的 `docs/codex-integration.md`，实际路径以本地 `mcp.json` / `pi67-configure` 配置为准。
 
 ---
 

@@ -148,7 +148,7 @@ Use the configure helper to set the common local paths:
 ```bash
 bash ~/.pi/agent/scripts/pi67-configure.sh \
   --no-prompt \
-  --tmwd-repo "$HOME/Documents/sixseven/codeproject/tmwd-browser-mcp" \
+  --tmwd-repo "/path/to/tmwd-browser-mcp" \
   --agent-memory-bin "$HOME/.local/bin/agent-memory-mcp"
 ```
 

@@ -110,8 +110,8 @@ This block is intentionally explicit so downstream tools do not assume report hi
 
 ```json
 {
-  "dir": "/Users/example/.pi/agent",
-  "reportPath": "/Users/example/.pi/agent/pi67-report.json",
+  "dir": "~/.pi/agent",
+  "reportPath": "~/.pi/agent/pi67-report.json",
   "files": {
     "settings": { "exists": true, "type": "symlink" },
     "agents": { "exists": true, "type": "symlink" },

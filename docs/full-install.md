@@ -132,7 +132,7 @@ PI67_DEEPSEEK_API_KEY="..." \
 PI67_IMAGE_GEN_API_KEY="..." \
 bash ~/.pi/agent/scripts/pi67-configure.sh \
   --no-prompt \
-  --tmwd-repo "$HOME/Documents/sixseven/codeproject/tmwd-browser-mcp" \
+  --tmwd-repo "/path/to/tmwd-browser-mcp" \
   --agent-memory-bin "$HOME/.local/bin/agent-memory-mcp"
 ```
 

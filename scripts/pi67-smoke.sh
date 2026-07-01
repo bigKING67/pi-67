@@ -210,6 +210,21 @@ fi
 rm -f /tmp/pi67-smoke-secrets.log
 pass "no obvious private key/API token patterns"
 
+section "Portability scan"
+PERSONAL_HOME_PREFIX_PART_A="/Use"
+PERSONAL_HOME_PREFIX_PART_B="rs/"
+PERSONAL_USER_PART_A="gao"
+PERSONAL_USER_PART_B="qian"
+PERSONAL_WORKSPACE_PART_A="six"
+PERSONAL_WORKSPACE_PART_B="seven"
+PORTABILITY_PATTERN="${PERSONAL_HOME_PREFIX_PART_A}${PERSONAL_HOME_PREFIX_PART_B}${PERSONAL_USER_PART_A}${PERSONAL_USER_PART_B}|Documents/${PERSONAL_WORKSPACE_PART_A}${PERSONAL_WORKSPACE_PART_B}|${PERSONAL_USER_PART_A}${PERSONAL_USER_PART_B}"
+if grep_any "$PORTABILITY_PATTERN" "$REPO_ROOT" >/tmp/pi67-smoke-portability.log 2>/dev/null; then
+  cat /tmp/pi67-smoke-portability.log >&2
+  fail "personal machine paths found in repository content"
+fi
+rm -f /tmp/pi67-smoke-portability.log
+pass "no personal machine paths"
+
 section "Temp full install"
 TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/pi67-smoke.XXXXXX")"
 FAKE_BIN="$TMP_ROOT/bin"

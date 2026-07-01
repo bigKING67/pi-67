@@ -179,12 +179,19 @@ prompt_value() {
   local default_value="$3"
   local current="${!var_name:-}"
   local value
+  local prompt_suffix
 
   if [ -n "$current" ]; then
     return
   fi
 
-  printf "%b" "  ${CYAN}?${NC} $label [$default_value] (blank to keep): " >&2
+  if [ -n "$default_value" ]; then
+    prompt_suffix="[$default_value] (blank to use default)"
+  else
+    prompt_suffix="(blank to skip)"
+  fi
+
+  printf "%b" "  ${CYAN}?${NC} $label $prompt_suffix: " >&2
   IFS= read -r value || true
   if [ -z "$value" ]; then
     value="$default_value"
@@ -227,7 +234,7 @@ if [ "$PROMPT_SECRETS" = true ]; then
   prompt_secret PI67_CODEX_API_KEY "local Codex proxy API key"
   prompt_secret PI67_DEEPSEEK_API_KEY "DeepSeek auth key"
   prompt_secret PI67_IMAGE_GEN_API_KEY "image generation API key"
-  prompt_value PI67_TMWD_BROWSER_MCP_REPO "tmwd-browser-mcp repo path" "$HOME/Documents/sixseven/codeproject/tmwd-browser-mcp"
+  prompt_value PI67_TMWD_BROWSER_MCP_REPO "tmwd-browser-mcp repo path" ""
   prompt_value PI67_AGENT_MEMORY_BIN "agent-memory MCP binary" "$HOME/.local/bin/agent-memory-mcp"
 fi
 
