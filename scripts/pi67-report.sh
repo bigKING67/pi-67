@@ -261,13 +261,71 @@ function readJsonFromText(text) {
   }
 }
 
+function pinnedCommitFromSpec(spec) {
+  const match = String(spec || "").match(/@([0-9a-f]{7,40})$/i);
+  return match ? match[1] : null;
+}
+
+function packageHead(dir) {
+  const result = command("git", ["-C", dir, "rev-parse", "HEAD"], { cwd: repoRoot, timeout: 5000 });
+  return result.ok ? result.stdout : null;
+}
+
+function externalPackageState(settings, pkg) {
+  const packages = Array.isArray(settings?.packages) ? settings.packages : [];
+  const sourceNeedle = `github.com/bigKING67/${pkg.repo}`;
+  const source = packages.find((item) => String(item).includes(sourceNeedle)) || null;
+  const cloneDir = path.join(agentDir, "git", "github.com", "bigKING67", pkg.repo);
+  const exists = fs.existsSync(cloneDir);
+  const missingFiles = exists
+    ? pkg.files.filter((rel) => !fs.existsSync(path.join(cloneDir, rel)))
+    : pkg.files.slice();
+  const head = exists ? packageHead(cloneDir) : null;
+
+  return {
+    name: pkg.name,
+    source,
+    declared: Boolean(source),
+    pinnedCommit: pinnedCommitFromSpec(source),
+    installPath: cloneDir,
+    installed: exists,
+    headCommit: head,
+    expectedFiles: pkg.files,
+    missingFiles,
+  };
+}
+
 const version = readText(path.join(repoRoot, "VERSION")).trim() || "unknown";
 const packageJson = readJsonIfExists(path.join(repoRoot, "package.json"));
+const settingsJson = readJsonIfExists(path.join(agentDir, "settings.json"));
 const branch = git(["rev-parse", "--abbrev-ref", "HEAD"]);
 const commit = git(["rev-parse", "HEAD"]);
 const shortCommit = git(["rev-parse", "--short", "HEAD"]);
 const dirty = git(["status", "--porcelain=v1", "--untracked-files=all"]);
 const remote = git(["remote", "get-url", "origin"]);
+const externalPackageSpecs = [
+  {
+    name: "design-craft",
+    repo: "design-craft",
+    files: [
+      "package.json",
+      "skills/design-craft/SKILL.md",
+      "skills/frontend-craft/SKILL.md",
+    ],
+  },
+  {
+    name: "browser67",
+    repo: "browser67",
+    files: [
+      "package.json",
+      "skills/browser67/SKILL.md",
+      "skills/tmwd-browser-mcp/SKILL.md",
+      "skills/js-reverse/SKILL.md",
+      "src/mcp/browser/server.mjs",
+      "src/mcp/js-reverse/server.mjs",
+    ],
+  },
+];
 
 const report = {
   schemaVersion: 2,
@@ -300,6 +358,7 @@ const report = {
     dirty: dirty.ok ? dirty.stdout.length > 0 : null,
     remote: remote.ok ? remote.stdout : null,
   },
+  externalPackages: externalPackageSpecs.map((pkg) => externalPackageState(settingsJson, pkg)),
   agent: {
     dir: agentDir,
     installMode,

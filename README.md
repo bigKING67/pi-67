@@ -26,9 +26,9 @@
 
 | 类别 | 内容 | 说明 |
 |------|------|------|
-| **核心配置** | `settings.json` | 默认 provider/model、17 个 Pi package 列表 |
+| **核心配置** | `settings.json` | 默认 provider/model、19 个 Pi package 列表 |
 | **模型配置** | `models.example.json` | xtalpi / xtalpi-tools / codex 三 provider 模板 |
-| **MCP** | `mcp.example.json` | tmwd_browser、js-reverse、agent_memory 模板 |
+| **MCP** | `mcp.example.json` | browser67 tmwd_browser、js-reverse、agent_memory 模板 |
 | **全局内核** | `AGENTS.md` | Pi 常驻行为规范（v1.4-pi kernel） |
 | **Rules** | `rules/` (8 篇) | 质量、架构、结构、性能、前端、浏览器、上下文、数据质量规则 |
 | **自定义扩展** | `extensions/` (2 个) | `xtalpi-compat` + `pi-rules-loader` |
@@ -38,6 +38,28 @@
 | **Prompts** | `prompts/` (5 个) | debug、deliver、frontend-kickoff、review、scoped-commit |
 | **脚本** | `scripts/` | configure、doctor、report、status、skill-audit、release、release-check、smoke、update、restore、uninstall、xtalpi 工具冒烟测试 |
 | **模板** | `templates/scrapers/` | 采集/合并/轮询相关脚本模板 |
+
+## 外部 skill package
+
+pi-67 只维护自己的基础发行资产；`design-craft` 和 `browser67` 是独立来源仓，不再复制进 `pi-67/skills`：
+
+```text
+git:github.com/bigKING67/design-craft@ae3f27e79893bf8a63fcfb6431842b557be7b46a
+git:github.com/bigKING67/browser67@e6b4c1071a6488d84f83db9984c0d986e3105f71
+```
+
+安装后 Pi 会把这些包放在 ignored runtime 目录：
+
+```text
+~/.pi/agent/git/github.com/bigKING67/design-craft
+~/.pi/agent/git/github.com/bigKING67/browser67
+```
+
+因此长期规则是：
+
+- `~/.pi/agent/skills`：只放 pi-67 自身公开发行的 tracked skills。
+- `design-craft` / `browser67`：通过 `settings.json` 的 Pi package pin 安装和升级。
+- browser67 MCP：只在本机 ignored `mcp.json` 里配置路径；默认模板指向 package clone 下的 `src/mcp/...` 入口。
 
 ## 快速开始
 
@@ -172,7 +194,7 @@ PI67_DEEPSEEK_API_KEY="..." \
 PI67_IMAGE_GEN_API_KEY="..." \
 bash ~/.pi/agent/scripts/pi67-configure.sh \
   --no-prompt \
-  --tmwd-repo "/path/to/tmwd-browser-mcp" \
+  --tmwd-repo "/path/to/browser67" \
   --agent-memory-bin "$HOME/.local/bin/agent-memory-mcp"
 ```
 

@@ -420,6 +420,120 @@ NODE
   rm -f "$tmp"
 }
 
+check_external_packages() {
+  local tmp
+  tmp="$(mktemp)"
+  cat > "$tmp" <<'NODE'
+const fs = require("fs");
+const path = require("path");
+const { execFileSync } = require("child_process");
+const [, , repoRoot, agentDir] = process.argv;
+
+function emit(level, message) {
+  console.log(`${level}|${message}`);
+}
+
+function readJson(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (error) {
+    emit("FAIL", `cannot read JSON ${file}: ${error.message}`);
+    return null;
+  }
+}
+
+function pinnedCommitFromSpec(spec) {
+  const match = String(spec || "").match(/@([0-9a-f]{7,40})$/i);
+  return match ? match[1] : "";
+}
+
+function gitHead(dir) {
+  try {
+    return execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 5000,
+    }).trim();
+  } catch {
+    return "";
+  }
+}
+
+const settings = readJson(path.join(agentDir, "settings.json"));
+if (!settings) process.exit(0);
+
+if (!Array.isArray(settings.packages)) {
+  emit("FAIL", "settings.json packages must be an array");
+  process.exit(0);
+}
+
+const required = [
+  {
+    name: "design-craft",
+    repo: "design-craft",
+    files: [
+      "package.json",
+      "skills/design-craft/SKILL.md",
+      "skills/frontend-craft/SKILL.md",
+    ],
+  },
+  {
+    name: "browser67",
+    repo: "browser67",
+    files: [
+      "package.json",
+      "skills/browser67/SKILL.md",
+      "skills/tmwd-browser-mcp/SKILL.md",
+      "skills/js-reverse/SKILL.md",
+      "src/mcp/browser/server.mjs",
+      "src/mcp/js-reverse/server.mjs",
+    ],
+  },
+];
+
+for (const pkg of required) {
+  const sourceNeedle = `github.com/bigKING67/${pkg.repo}`;
+  const spec = settings.packages.find((item) => String(item).includes(sourceNeedle));
+  if (!spec) {
+    emit("FAIL", `settings.json missing required external package: ${sourceNeedle}`);
+    continue;
+  }
+
+  emit("PASS", `external package declared: ${pkg.name}`);
+  const pinned = pinnedCommitFromSpec(spec);
+  if (pinned) {
+    emit("PASS", `external package pinned: ${pkg.name}@${pinned.slice(0, 12)}`);
+  } else {
+    emit("WARN", `external package is not pinned to a commit: ${pkg.name}`);
+  }
+
+  const cloneDir = path.join(agentDir, "git", "github.com", "bigKING67", pkg.repo);
+  if (!fs.existsSync(cloneDir)) {
+    emit("WARN", `external package declared but not installed yet: ${pkg.name} (${cloneDir})`);
+    continue;
+  }
+
+  const missing = pkg.files.filter((rel) => !fs.existsSync(path.join(cloneDir, rel)));
+  if (missing.length > 0) {
+    emit("FAIL", `external package ${pkg.name} missing expected files: ${missing.join(", ")}`);
+    continue;
+  }
+  emit("PASS", `external package installed: ${pkg.name}`);
+
+  const head = gitHead(cloneDir);
+  if (pinned && head) {
+    if (head.startsWith(pinned)) {
+      emit("PASS", `external package matches pinned commit: ${pkg.name}@${head.slice(0, 12)}`);
+    } else {
+      emit("WARN", `external package commit differs from settings pin: ${pkg.name} head=${head.slice(0, 12)} pin=${pinned.slice(0, 12)}`);
+    }
+  }
+}
+NODE
+  run_node_report "$tmp"
+  rm -f "$tmp"
+}
+
 check_mcp() {
   local tmp
   tmp="$(mktemp)"
@@ -541,8 +655,18 @@ function pathArgsMissing(server) {
     .filter((arg) => !isUrl(arg) && !fs.existsSync(arg));
 }
 
-function encodeMessage(message) {
+function usesNewlineJsonRpc(server) {
+  const command = expand(server.command || "");
+  const args = (server.args || []).map((arg) => expand(arg));
+  const text = [command, ...args].join(" ");
+  return /browser67|tmwd-browser-mcp|src\/mcp\/browser\/server\.mjs|src\/mcp\/js-reverse\/server\.mjs|src\/server\.mjs|src\/js-reverse-server\.mjs/.test(text);
+}
+
+function encodeMessage(message, framing = "content-length") {
   const body = JSON.stringify(message);
+  if (framing === "newline") {
+    return `${body}\n`;
+  }
   return `Content-Length: ${Buffer.byteLength(body, "utf8")}\r\n\r\n${body}`;
 }
 
@@ -665,6 +789,7 @@ async function probeServer(name, server) {
   const waiters = new Map();
   let stderrBytes = 0;
   let child;
+  const framing = usesNewlineJsonRpc(server) ? "newline" : "content-length";
 
   try {
     child = spawn(command, args, {
@@ -707,7 +832,7 @@ async function probeServer(name, server) {
   };
 
   const initializeWait = waitForResponse(child, waiters, 1, timeoutMs);
-  child.stdin.write(encodeMessage(initialize));
+  child.stdin.write(encodeMessage(initialize, framing));
   const initializeResult = await initializeWait;
 
   if (initializeResult.type !== "message") {
@@ -733,7 +858,7 @@ async function probeServer(name, server) {
     jsonrpc: "2.0",
     method: "notifications/initialized",
     params: {},
-  }));
+  }, framing));
 
   const toolsList = {
     jsonrpc: "2.0",
@@ -743,7 +868,7 @@ async function probeServer(name, server) {
   };
 
   const toolsWait = waitForResponse(child, waiters, 2, timeoutMs);
-  child.stdin.write(encodeMessage(toolsList));
+  child.stdin.write(encodeMessage(toolsList, framing));
   const toolsResult = await toolsWait;
 
   if (toolsResult.type !== "message") {
@@ -931,6 +1056,9 @@ placeholder_check "$PI_AGENT_DIR/auth.json"
 placeholder_check "$PI_AGENT_DIR/image-gen.json"
 
 check_provider_model
+
+section "External packages"
+check_external_packages
 
 section "MCP readiness"
 check_mcp

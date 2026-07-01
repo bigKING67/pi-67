@@ -46,6 +46,7 @@ Compatibility rule:
 | `diagnostics` | object | stable | Reporter diagnostic parameters. |
 | `installMode` | string | stable | `in-place` when the repo root is the agent dir; otherwise `linked`. |
 | `repository` | object | stable | pi-67 checkout state. |
+| `externalPackages` | array | stable | Declared and installed state for package-owned external skills. |
 | `agent` | object | stable | Pi agent directory state. |
 | `runtime` | object | stable | Local runtime versions. |
 | `doctor` | object | passthrough | Doctor JSON result (`pi67-doctor/v2`) or reporter parse/skip diagnostics. |
@@ -106,6 +107,28 @@ This block is intentionally explicit so downstream tools do not assume report hi
 ```
 
 `dirty` is derived from `git status --porcelain=v1 --untracked-files=all`.
+
+## `externalPackages`
+
+```json
+[
+  {
+    "name": "browser67",
+    "source": "git:github.com/bigKING67/browser67@e6b4c1071a6488d84f83db9984c0d986e3105f71",
+    "declared": true,
+    "pinnedCommit": "e6b4c1071a6488d84f83db9984c0d986e3105f71",
+    "installPath": "~/.pi/agent/git/github.com/bigKING67/browser67",
+    "installed": true,
+    "headCommit": "e6b4c1071a6488d84f83db9984c0d986e3105f71",
+    "expectedFiles": ["package.json"],
+    "missingFiles": []
+  }
+]
+```
+
+This block is intentionally metadata-only. It records whether pi-67 declares
+the package source and whether the ignored package clone appears structurally
+complete. It does not include package logs or private runtime state.
 
 ## `agent`
 

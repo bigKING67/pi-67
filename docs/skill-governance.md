@@ -32,6 +32,32 @@ for public distribution:
 Use a local/private skill root or private repository for this class. Do not copy
 it into pi-67 just because it existed in an old runtime manifest.
 
+### Package-owned external skill
+
+Keep a skill outside `pi-67/skills` when it has its own public source-of-truth
+repository and release cadence. Current package-owned skill sources:
+
+```text
+git:github.com/bigKING67/design-craft@ae3f27e79893bf8a63fcfb6431842b557be7b46a
+git:github.com/bigKING67/browser67@e6b4c1071a6488d84f83db9984c0d986e3105f71
+```
+
+These packages are declared in `settings.json` and installed under ignored
+runtime package clones:
+
+```text
+~/.pi/agent/git/github.com/bigKING67/design-craft
+~/.pi/agent/git/github.com/bigKING67/browser67
+```
+
+Do not vendor/copy their skills into `~/.pi/agent/skills`. Upgrade flow is:
+commit and push the upstream package repo first, then update the pinned
+`git:github.com/bigKING67/<repo>@<commit>` source in pi-67.
+
+MCP servers from `browser67` belong in local `mcp.json`, not in pi-67 skill
+directories. The tracked `mcp.example.json` points at the package clone's
+canonical `src/mcp/...` entrypoints.
+
 ### C. Stale or obsolete skill
 
 Do not restore a legacy entry when its symlink target is missing, it has no

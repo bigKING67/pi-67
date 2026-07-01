@@ -41,7 +41,7 @@ Options:
       --provider ID            Set local settings.defaultProvider.
       --model ID               Set local settings.defaultModel.
       --codex-base-url URL     Set models.providers.codex.baseUrl and image-gen baseUrl when requested.
-      --tmwd-repo DIR          Set tmwd_browser/js-reverse MCP paths from this repo root.
+      --tmwd-repo DIR          Set browser67 tmwd_browser/js-reverse MCP paths from this repo root.
       --agent-memory-bin FILE  Set agent_memory MCP command path.
       --image-gen-base-url URL Set image-gen.json baseUrl.
       --image-gen-model ID     Set image-gen.json model.
@@ -66,7 +66,7 @@ Supported env vars:
   PI67_IMAGE_GEN_API_KEY
   PI67_IMAGE_GEN_BASE_URL
   PI67_IMAGE_GEN_MODEL
-  PI67_TMWD_BROWSER_MCP_REPO
+  PI67_TMWD_BROWSER_MCP_REPO  # legacy env name; value should point to browser67
   PI67_AGENT_MEMORY_BIN
 USAGE
 }
@@ -234,7 +234,7 @@ if [ "$PROMPT_SECRETS" = true ]; then
   prompt_secret PI67_CODEX_API_KEY "local Codex proxy API key"
   prompt_secret PI67_DEEPSEEK_API_KEY "DeepSeek auth key"
   prompt_secret PI67_IMAGE_GEN_API_KEY "image generation API key"
-  prompt_value PI67_TMWD_BROWSER_MCP_REPO "tmwd-browser-mcp repo path" ""
+  prompt_value PI67_TMWD_BROWSER_MCP_REPO "browser67 repo/package path" ""
   prompt_value PI67_AGENT_MEMORY_BIN "agent-memory MCP binary" "$HOME/.local/bin/agent-memory-mcp"
 fi
 
@@ -448,9 +448,9 @@ if (env("PI67_TMWD_BROWSER_MCP_REPO")) {
   mcp.mcpServers["js-reverse"] = mcp.mcpServers["js-reverse"] || {};
   mcp.mcpServers.tmwd_browser.command = mcp.mcpServers.tmwd_browser.command || "node";
   mcp.mcpServers["js-reverse"].command = mcp.mcpServers["js-reverse"].command || "node";
-  mcp.mcpServers.tmwd_browser.args = [`${tmwdRoot}/src/server.mjs`];
-  mcp.mcpServers["js-reverse"].args = [`${tmwdRoot}/src/js-reverse-server.mjs`];
-  noteChange(`configure tmwd_browser/js-reverse MCP repo: ${tmwdRoot}`);
+  mcp.mcpServers.tmwd_browser.args = [`${tmwdRoot}/src/mcp/browser/server.mjs`];
+  mcp.mcpServers["js-reverse"].args = [`${tmwdRoot}/src/mcp/js-reverse/server.mjs`];
+  noteChange(`configure browser67 tmwd_browser/js-reverse MCP repo: ${tmwdRoot}`);
 }
 
 if (env("PI67_AGENT_MEMORY_BIN")) {

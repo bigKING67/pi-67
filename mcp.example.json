@@ -3,7 +3,7 @@
     "tmwd_browser": {
       "command": "node",
       "args": [
-        "/path/to/tmwd-browser-mcp/src/server.mjs"
+        "$HOME/.pi/agent/git/github.com/bigKING67/browser67/src/mcp/browser/server.mjs"
       ],
       "env": {
         "BROWSER_STRUCTURED_TMWD_MODE": "tmwd",
@@ -15,7 +15,7 @@
     "js-reverse": {
       "command": "node",
       "args": [
-        "/path/to/tmwd-browser-mcp/src/js-reverse-server.mjs"
+        "$HOME/.pi/agent/git/github.com/bigKING67/browser67/src/mcp/js-reverse/server.mjs"
       ],
       "env": {
         "BROWSER_STRUCTURED_TMWD_MODE": "tmwd",

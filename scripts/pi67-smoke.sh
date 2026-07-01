@@ -133,6 +133,30 @@ grep_any() {
   fi
 }
 
+create_fake_external_packages() {
+  local agent_dir="$1"
+  local package_root="$agent_dir/git/github.com/bigKING67"
+
+  mkdir -p \
+    "$package_root/design-craft/skills/design-craft" \
+    "$package_root/design-craft/skills/frontend-craft" \
+    "$package_root/browser67/skills/browser67" \
+    "$package_root/browser67/skills/tmwd-browser-mcp" \
+    "$package_root/browser67/skills/js-reverse" \
+    "$package_root/browser67/src/mcp/browser" \
+    "$package_root/browser67/src/mcp/js-reverse"
+
+  printf '{"name":"design-craft"}\n' > "$package_root/design-craft/package.json"
+  printf '# design-craft smoke\n' > "$package_root/design-craft/skills/design-craft/SKILL.md"
+  printf '# frontend-craft smoke\n' > "$package_root/design-craft/skills/frontend-craft/SKILL.md"
+  printf '{"name":"browser67"}\n' > "$package_root/browser67/package.json"
+  printf '# browser67 smoke\n' > "$package_root/browser67/skills/browser67/SKILL.md"
+  printf '# tmwd-browser-mcp smoke\n' > "$package_root/browser67/skills/tmwd-browser-mcp/SKILL.md"
+  printf '# js-reverse smoke\n' > "$package_root/browser67/skills/js-reverse/SKILL.md"
+  printf 'console.log("smoke browser67 server")\n' > "$package_root/browser67/src/mcp/browser/server.mjs"
+  printf 'console.log("smoke js reverse server")\n' > "$package_root/browser67/src/mcp/js-reverse/server.mjs"
+}
+
 echo ""
 echo -e "${CYAN}pi-67 smoke${NC}"
 echo "Repository: $REPO_ROOT"
@@ -173,6 +197,33 @@ for file in settings.json auth.example.json image-gen.example.json models.exampl
   json_valid "$REPO_ROOT/$file"
   pass "valid JSON: $file"
 done
+
+section "External package defaults"
+node - "$REPO_ROOT" <<'NODE'
+const fs = require("fs");
+const path = require("path");
+const repoRoot = process.argv[2];
+const settings = JSON.parse(fs.readFileSync(path.join(repoRoot, "settings.json"), "utf8"));
+const packages = Array.isArray(settings.packages) ? settings.packages : [];
+const requiredPackages = [
+  "git:github.com/bigKING67/design-craft@ae3f27e79893bf8a63fcfb6431842b557be7b46a",
+  "git:github.com/bigKING67/browser67@e6b4c1071a6488d84f83db9984c0d986e3105f71",
+];
+for (const spec of requiredPackages) {
+  if (!packages.includes(spec)) throw new Error(`missing package source: ${spec}`);
+}
+
+const mcp = JSON.parse(fs.readFileSync(path.join(repoRoot, "mcp.example.json"), "utf8"));
+const tmwdArg = mcp.mcpServers?.tmwd_browser?.args?.[0] || "";
+const jsArg = mcp.mcpServers?.["js-reverse"]?.args?.[0] || "";
+if (!tmwdArg.includes("git/github.com/bigKING67/browser67/src/mcp/browser/server.mjs")) {
+  throw new Error(`tmwd_browser example does not use canonical browser67 MCP path: ${tmwdArg}`);
+}
+if (!jsArg.includes("git/github.com/bigKING67/browser67/src/mcp/js-reverse/server.mjs")) {
+  throw new Error(`js-reverse example does not use canonical browser67 MCP path: ${jsArg}`);
+}
+NODE
+pass "external package defaults are pinned and use canonical browser67 MCP paths"
 
 section "Release metadata"
 "$REPO_ROOT/scripts/pi67-release-check.sh" >/tmp/pi67-smoke-release-check.log
@@ -265,6 +316,7 @@ PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/install.sh" \
   --no-doctor \
   --yes >/tmp/pi67-smoke-install.log
 pass "temp full install completed"
+create_fake_external_packages "$AGENT_DIR"
 
 if [ ! -f "$AGENT_DIR/pi67-report.json" ]; then
   cat /tmp/pi67-smoke-install.log >&2
@@ -278,6 +330,8 @@ if (report.schemaId !== "pi67-report/v2") throw new Error(`unexpected report sch
 if (report.operation !== "install") throw new Error(`unexpected report operation: ${report.operation}`);
 if (report.pi67?.version !== report.pi67Version) throw new Error("pi67.version does not match legacy pi67Version");
 if (!report.reportPolicy?.currentFileOverwritten) throw new Error("report overwrite policy missing");
+if (!Array.isArray(report.externalPackages) || report.externalPackages.length !== 2) throw new Error("report externalPackages missing");
+if (!report.externalPackages.every((pkg) => pkg.declared === true)) throw new Error("report externalPackages should be declared");
 if (report.doctor?.skipped !== true) throw new Error("install --no-doctor report should mark doctor skipped");
 ' "$AGENT_DIR/pi67-report.json"
 pass "install report JSON written"
@@ -461,9 +515,9 @@ if (!["READY", "READY_WITH_WARNINGS"].includes(data.result)) throw new Error(`un
 pass "in-place status JSON accepted"
 
 section "Configure helper"
-mkdir -p "$TMP_ROOT/tmwd-browser-mcp/src"
-printf 'console.log("smoke tmwd server")\n' > "$TMP_ROOT/tmwd-browser-mcp/src/server.mjs"
-printf 'console.log("smoke js reverse server")\n' > "$TMP_ROOT/tmwd-browser-mcp/src/js-reverse-server.mjs"
+mkdir -p "$TMP_ROOT/browser67/src/mcp/browser" "$TMP_ROOT/browser67/src/mcp/js-reverse"
+printf 'console.log("smoke tmwd server")\n' > "$TMP_ROOT/browser67/src/mcp/browser/server.mjs"
+printf 'console.log("smoke js reverse server")\n' > "$TMP_ROOT/browser67/src/mcp/js-reverse/server.mjs"
 cat > "$FAKE_BIN/agent-memory-mcp" <<'SH'
 #!/usr/bin/env bash
 echo "smoke agent memory"
@@ -481,7 +535,7 @@ PI67_IMAGE_GEN_API_KEY="smoke_image_gen_api_key" \
   --provider xtalpi-tools \
   --model deepseek-v4-pro \
   --codex-base-url "http://127.0.0.1:8317/v1" \
-  --tmwd-repo "$TMP_ROOT/tmwd-browser-mcp" \
+  --tmwd-repo "$TMP_ROOT/browser67" \
   --agent-memory-bin "$FAKE_BIN/agent-memory-mcp" \
   --image-gen-model "gpt-image-2" \
   --no-prompt \
@@ -500,7 +554,7 @@ PI67_IMAGE_GEN_API_KEY="smoke_image_gen_api_key" \
   --provider xtalpi-tools \
   --model deepseek-v4-pro \
   --codex-base-url "http://127.0.0.1:8317/v1" \
-  --tmwd-repo "$TMP_ROOT/tmwd-browser-mcp" \
+  --tmwd-repo "$TMP_ROOT/browser67" \
   --agent-memory-bin "$FAKE_BIN/agent-memory-mcp" \
   --image-gen-model "gpt-image-2" \
   --no-prompt \

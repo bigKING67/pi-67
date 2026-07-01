@@ -52,6 +52,12 @@ Compatibility rule:
 
 Fresh installs often produce `READY WITH WARNINGS` because API keys, MCP paths, or optional local binaries still need user-specific configuration.
 
+Doctor also validates package-owned external skills:
+
+- `settings.json` must declare pinned `design-craft` and `browser67` package sources.
+- Missing local package clones under `~/.pi/agent/git/github.com/bigKING67/` are warnings, not failures, because Pi may not have installed packages yet.
+- Existing package clones must contain their expected `SKILL.md` files and browser67 MCP entrypoints.
+
 ## `counts`
 
 ```json
@@ -71,7 +77,7 @@ Each check is a compact object:
 ```json
 {
   "level": "WARN",
-  "message": "MCP tmwd_browser path missing or needs local edit: /path/to/tmwd-browser-mcp"
+  "message": "MCP tmwd_browser path missing or needs local edit: /path/to/browser67"
 }
 ```
 
@@ -99,6 +105,11 @@ Messages are intended for display and troubleshooting. Do not parse specific wor
 | `skillList` | boolean | Whether doctor ran `pi skill list`. |
 
 Normal doctor mode only checks MCP commands and paths. `--deep-mcp` is opt-in because it starts local MCP server processes.
+
+Deep MCP probing uses standard `Content-Length` framed stdio JSON-RPC by default.
+For browser67 / legacy tmwd-browser-mcp entrypoints, doctor uses newline-delimited
+JSON-RPC because those servers intentionally expose a line-oriented stdio
+adapter.
 
 ## Secret handling
 

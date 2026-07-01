@@ -136,7 +136,7 @@ Fix by installing the dependency or editing:
 Common local dependencies:
 
 ```text
-tmwd-browser-mcp repo
+browser67 package clone or local browser67 checkout
 agent-memory-mcp binary
 local Codex proxy if using the codex provider
 ```
@@ -148,7 +148,7 @@ Use the configure helper to set the common local paths:
 ```bash
 bash ~/.pi/agent/scripts/pi67-configure.sh \
   --no-prompt \
-  --tmwd-repo "/path/to/tmwd-browser-mcp" \
+  --tmwd-repo "/path/to/browser67" \
   --agent-memory-bin "$HOME/.local/bin/agent-memory-mcp"
 ```
 
@@ -157,6 +157,31 @@ Preview first if you are unsure:
 ```bash
 bash ~/.pi/agent/scripts/pi67-configure.sh --dry-run --no-prompt
 ```
+
+## External package warnings
+
+Warnings like these mean `settings.json` declares the package, but Pi has not materialized the ignored package clone yet:
+
+```text
+external package declared but not installed yet: design-craft
+external package declared but not installed yet: browser67
+```
+
+Install the pinned packages from `settings.json`:
+
+```bash
+pi install git:github.com/bigKING67/design-craft@ae3f27e79893bf8a63fcfb6431842b557be7b46a
+pi install git:github.com/bigKING67/browser67@e6b4c1071a6488d84f83db9984c0d986e3105f71
+```
+
+Expected ignored runtime paths:
+
+```text
+~/.pi/agent/git/github.com/bigKING67/design-craft
+~/.pi/agent/git/github.com/bigKING67/browser67
+```
+
+Do not copy those package-owned skills into `~/.pi/agent/skills`; keep upstream ownership in `design-craft` and `browser67`.
 
 ## Deep MCP probe warnings
 

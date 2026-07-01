@@ -15,6 +15,7 @@ Default installation deploys the complete configuration:
 - `settings.json`
 - local config templates for `models.json`, `mcp.json`, `auth.json`, and `image-gen.json`
 - npm packages listed in `package.json`
+- pinned external Pi skill packages from `design-craft` and `browser67`
 
 Missing API keys, local MCP repositories, or optional binaries are expected on a fresh machine. The installer does not remove those capabilities. Instead, run `pi67-doctor.sh` to see which capabilities are ready and which need local setup.
 
@@ -77,6 +78,24 @@ Install into a custom Pi agent directory:
 
 The installer is intentionally full-by-default. It does not ask users to choose a minimal profile.
 
+## External skill packages
+
+pi-67 keeps only pi-67-owned skills in `skills/`. Productized external skills are installed as Pi packages from their own source repositories:
+
+```text
+git:github.com/bigKING67/design-craft@ae3f27e79893bf8a63fcfb6431842b557be7b46a
+git:github.com/bigKING67/browser67@e6b4c1071a6488d84f83db9984c0d986e3105f71
+```
+
+Expected package clone locations after Pi installs them:
+
+```text
+~/.pi/agent/git/github.com/bigKING67/design-craft
+~/.pi/agent/git/github.com/bigKING67/browser67
+```
+
+`~/.pi/agent/git/` is ignored runtime state. Do not copy package-owned skills back into `pi-67/skills`; upgrade them by changing the pinned package source after the upstream repo is committed and pushed.
+
 ## Install/update report
 
 Every install or update writes:
@@ -91,6 +110,7 @@ The report includes:
 
 - pi-67 version and package version
 - repository branch, commit, dirty state, and origin URL
+- external Pi package declaration/install state
 - agent directory file states
 - runtime versions for Node/npm/Pi
 - doctor JSON result, unless doctor was skipped
@@ -146,7 +166,7 @@ PI67_DEEPSEEK_API_KEY="..." \
 PI67_IMAGE_GEN_API_KEY="..." \
 bash ~/.pi/agent/scripts/pi67-configure.sh \
   --no-prompt \
-  --tmwd-repo "/path/to/tmwd-browser-mcp" \
+  --tmwd-repo "/path/to/browser67" \
   --agent-memory-bin "$HOME/.local/bin/agent-memory-mcp"
 ```
 
@@ -176,8 +196,8 @@ pi-67 distinguishes between installed and ready:
 | Skills | Yes | `pi skill list` succeeds |
 | xtalpi provider | Yes | `models.json` has a real xtalpi API key |
 | Codex provider | Yes | local Codex proxy and API key are configured |
-| tmwd_browser MCP | Yes | local `tmwd-browser-mcp` path exists |
-| js-reverse MCP | Yes | local `tmwd-browser-mcp` path and bridge settings are valid |
+| tmwd_browser MCP | Yes | browser67 package clone or local browser67 checkout path exists |
+| js-reverse MCP | Yes | browser67 package clone or local browser67 checkout path and bridge settings are valid |
 | agent_memory MCP | Yes | `agent-memory-mcp` binary exists |
 | image generation | Yes | `image-gen.json` has a usable key/base URL |
 
