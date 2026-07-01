@@ -334,6 +334,33 @@ To verify what will happen without writing:
 
 Use this before installing on a machine with important existing Pi configuration.
 
+## Installer reports a shared skill conflict
+
+When `~/.agents/skills/<name>` already exists but differs from the pi-67
+bundled copy, current installers keep the existing global skill by default:
+
+```text
+WARN shared skill conflict: lark-approval
+WARN shared skill differs from pi-67 baseline; keeping existing global skill: lark-approval
+```
+
+This is usually the right behavior. `~/.agents/skills` is the active global
+registry shared by Pi and Codex, and a hash mismatch only means "different",
+not "pi-67 is newer". If the existing skill came from a trusted update or a
+maintained external repository, keep it.
+
+Use strict mode only when you intentionally want the install/update to stop on
+any bundled-skill mismatch:
+
+```bash
+bash install.sh --agent-dir "$PWD" --strict-shared-skills
+bash ~/.pi/agent/scripts/pi67-update.sh --strict-shared-skills
+```
+
+If an existing global skill is old residue and you want to replace it with the
+pi-67 baseline, move that one skill to a backup directory first; do not delete
+it until Pi works after reinstalling.
+
 ## Update stops because the checkout is dirty
 
 `pi67-update.sh` defaults to safe fast-forward updates. If the pi-67 checkout has local edits, it stops before pulling:

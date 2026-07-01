@@ -4,6 +4,13 @@
 Codex. pi-67 stores its distributable skill source in `shared-skills/` and the
 installer copies those skills into `~/.agents/skills`.
 
+The global registry is authoritative for already-installed skills. If a target
+machine already has `~/.agents/skills/<name>` and its content differs from the
+pi-67 bundled baseline, installers and updaters keep the existing global skill
+by default and warn. A hash mismatch only proves that the directories differ;
+it does not prove the pi-67 copy is newer. Use `--strict-shared-skills` only
+for release/parity checks where differing global skills should block.
+
 `~/.pi/agent/skills` is legacy. If it exists with active skills, treat it as a
 duplicate source and remove or back it up after confirming the same skills exist
 in `~/.agents/skills`.

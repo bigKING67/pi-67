@@ -108,6 +108,12 @@ Messages are intended for display and troubleshooting. Do not parse specific wor
 
 Normal doctor mode only checks MCP commands and paths. `--deep-mcp` is opt-in because it starts local MCP server processes.
 
+By default, doctor reports pi-67 bundled shared skills that differ from
+installed global skills as `WARN`, not `FAIL`, because the global
+`~/.agents/skills/<name>` copy may be newer or intentionally maintained outside
+pi-67. Use `--strict-shared-skills` when release/parity checks should treat
+those differences as blocking failures.
+
 Deep MCP probing uses standard `Content-Length` framed stdio JSON-RPC by default.
 For browser67 / legacy tmwd-browser-mcp and the local agent-memory EverOS
 entrypoint, doctor uses newline-delimited JSON-RPC because those servers expose

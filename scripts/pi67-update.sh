@@ -41,6 +41,7 @@ RUN_REPORT=true
 ALLOW_DIRTY=false
 FORCE_NPM=false
 DEV_LINK_SKILLS=false
+STRICT_SHARED_SKILLS=false
 
 usage() {
   cat <<'USAGE'
@@ -54,6 +55,10 @@ Options:
       --agent-dir DIR   Pi agent dir. Defaults to ~/.pi/agent.
       --skills-dir DIR  Sync shared skills into DIR instead of ~/.agents/skills.
       --dev-link-skills Link skills into --skills-dir for local development.
+      --strict-shared-skills
+                        Stop when an existing global shared skill differs from
+                        the pi-67 bundled baseline. Default keeps the existing
+                        global skill and continues.
       --remote NAME     Git remote to pull from. Defaults to origin.
       --branch NAME     Git branch to pull. Defaults to current branch.
       --dry-run         Print planned actions without changing files.
@@ -94,6 +99,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --dev-link-skills)
       DEV_LINK_SKILLS=true
+      shift
+      ;;
+    --strict-shared-skills)
+      STRICT_SHARED_SKILLS=true
       shift
       ;;
     --remote)
@@ -255,7 +264,13 @@ sync_one_shared_skill() {
       pass "shared skill already synced: $name"
       return
     fi
-    fail "shared skill conflict: $name (existing=$dest dirHash=$dest_hash source=$src dirHash=$src_hash). Resolve manually; update will not overwrite shared skills."
+    if [ "$STRICT_SHARED_SKILLS" = true ]; then
+      fail "shared skill conflict: $name (existing=$dest dirHash=$dest_hash source=$src dirHash=$src_hash). Strict mode enabled; resolve manually or choose a different --skills-dir."
+    fi
+    warn "shared skill differs from pi-67 baseline; keeping existing global skill: $name"
+    warn "existing=$dest dirHash=$dest_hash"
+    warn "source skipped=$src dirHash=$src_hash"
+    return
   fi
 
   if [ "$DEV_LINK_SKILLS" = true ]; then

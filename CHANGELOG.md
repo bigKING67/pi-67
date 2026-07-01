@@ -4,6 +4,17 @@ All notable changes to pi-67 are documented here.
 
 The format is based on Keep a Changelog, and this project uses semantic versioning for the pi-67 distribution itself. Pi package dependency versions are managed separately in `package.json`.
 
+## [0.9.2] - 2026-07-01
+
+### Changed
+
+- Install and update now keep existing different global shared skills in `~/.agents/skills` by default, warning instead of blocking. This prevents pi-67 from downgrading a machine's newer or more authoritative global skill copy.
+- `scripts/pi67-doctor.sh` now reports shared-skill baseline differences as WARN by default and supports `--strict-shared-skills` for release/parity checks.
+
+### Added
+
+- `--strict-shared-skills` for `install.sh`, `scripts/pi67-update.sh`, and `scripts/pi67-doctor.sh` to restore blocking behavior when exact pi-67 bundled shared-skill parity is required.
+
 ## [0.9.1] - 2026-07-01
 
 ### Added

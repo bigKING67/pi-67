@@ -78,9 +78,13 @@ cleanup() {
     /tmp/pi67-smoke-release-dry.log \
     /tmp/pi67-smoke-secrets.log \
     /tmp/pi67-smoke-install.log \
+    /tmp/pi67-smoke-install-conflict.log \
+    /tmp/pi67-smoke-install-strict-conflict.log \
     /tmp/pi67-smoke-doctor.log \
     /tmp/pi67-smoke-doctor-quiet.log \
     /tmp/pi67-smoke-doctor-json.log \
+    /tmp/pi67-smoke-doctor-shared-conflict-json.log \
+    /tmp/pi67-smoke-doctor-shared-strict-json.log \
     /tmp/pi67-smoke-doctor-skill-warning-json.log \
     /tmp/pi67-smoke-doctor-deep-mcp.log \
     /tmp/pi67-smoke-status.log \
@@ -110,6 +114,8 @@ cleanup() {
     /tmp/pi67-smoke-update-check.log \
     /tmp/pi67-smoke-update-dry.log \
     /tmp/pi67-smoke-update.log \
+    /tmp/pi67-smoke-update-conflict.log \
+    /tmp/pi67-smoke-update-strict-conflict.log \
     /tmp/pi67-smoke-uninstall-dry.log \
     /tmp/pi67-smoke-uninstall.log
   if [ "$KEEP_TMP" = true ]; then
@@ -289,6 +295,8 @@ section "Temp full install"
 TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/pi67-smoke.XXXXXX")"
 FAKE_BIN="$TMP_ROOT/bin"
 AGENT_DIR="$TMP_ROOT/agent"
+FIRST_SHARED_SKILL_DIR="$(find "$REPO_ROOT/shared-skills" -mindepth 1 -maxdepth 1 -type d -print | sort | head -n 1)"
+FIRST_SHARED_SKILL_NAME="$(basename "$FIRST_SHARED_SKILL_DIR")"
 mkdir -p "$FAKE_BIN"
 cat > "$FAKE_BIN/pi" <<'SH'
 #!/usr/bin/env bash
@@ -344,6 +352,74 @@ if (!Array.isArray(report.externalPackages) || report.externalPackages.length !=
 if (report.doctor?.skipped !== true) throw new Error("install --no-doctor report should mark doctor skipped");
 ' "$AGENT_DIR/pi67-report.json" "$TMP_ROOT/shared-skills"
 pass "install report JSON written"
+
+INSTALL_CONFLICT_AGENT="$TMP_ROOT/install-conflict-agent"
+INSTALL_CONFLICT_SKILLS="$TMP_ROOT/install-conflict-shared-skills"
+mkdir -p "$INSTALL_CONFLICT_SKILLS/$FIRST_SHARED_SKILL_NAME"
+printf '# Existing newer global skill\n' > "$INSTALL_CONFLICT_SKILLS/$FIRST_SHARED_SKILL_NAME/SKILL.md"
+PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/install.sh" \
+  --agent-dir "$INSTALL_CONFLICT_AGENT" \
+  --skills-dir "$INSTALL_CONFLICT_SKILLS" \
+  --backup-dir "$TMP_ROOT/install-conflict-backup" \
+  --no-npm \
+  --no-doctor \
+  --no-report \
+  --yes >/tmp/pi67-smoke-install-conflict.log 2>&1
+if ! grep -q "keeping existing global skill: $FIRST_SHARED_SKILL_NAME" /tmp/pi67-smoke-install-conflict.log; then
+  cat /tmp/pi67-smoke-install-conflict.log >&2
+  fail "install did not keep existing different shared skill"
+fi
+if ! grep -q "Existing newer global skill" "$INSTALL_CONFLICT_SKILLS/$FIRST_SHARED_SKILL_NAME/SKILL.md"; then
+  cat "$INSTALL_CONFLICT_SKILLS/$FIRST_SHARED_SKILL_NAME/SKILL.md" >&2
+  fail "install overwrote existing different shared skill"
+fi
+pass "install keeps existing different shared skills by default"
+
+if PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/install.sh" \
+  --agent-dir "$TMP_ROOT/install-strict-agent" \
+  --skills-dir "$INSTALL_CONFLICT_SKILLS" \
+  --backup-dir "$TMP_ROOT/install-strict-backup" \
+  --no-npm \
+  --no-doctor \
+  --no-report \
+  --strict-shared-skills \
+  --yes >/tmp/pi67-smoke-install-strict-conflict.log 2>&1; then
+  cat /tmp/pi67-smoke-install-strict-conflict.log >&2
+  fail "install strict shared skill mode accepted a conflict"
+fi
+pass "install strict shared skill mode blocks conflicts"
+
+PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
+  --repo-root "$REPO_ROOT" \
+  --agent-dir "$INSTALL_CONFLICT_AGENT" \
+  --skills-dir "$INSTALL_CONFLICT_SKILLS" \
+  --json >/tmp/pi67-smoke-doctor-shared-conflict-json.log
+node -e '
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+const check = data.checks.find((item) => item.message.includes("shared skill contents differ from pi-67 source"));
+if (!check) throw new Error("doctor did not report shared skill mismatch");
+if (check.level !== "WARN") throw new Error(`doctor mismatch should warn by default, got ${check.level}`);
+' /tmp/pi67-smoke-doctor-shared-conflict-json.log
+pass "doctor warns on different existing shared skills by default"
+
+if PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
+  --repo-root "$REPO_ROOT" \
+  --agent-dir "$INSTALL_CONFLICT_AGENT" \
+  --skills-dir "$INSTALL_CONFLICT_SKILLS" \
+  --strict-shared-skills \
+  --json >/tmp/pi67-smoke-doctor-shared-strict-json.log 2>&1; then
+  cat /tmp/pi67-smoke-doctor-shared-strict-json.log >&2
+  fail "doctor strict shared skill mode accepted a conflict"
+fi
+node -e '
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+const check = data.checks.find((item) => item.message.includes("shared skill contents differ from pi-67 source"));
+if (!check) throw new Error("doctor strict did not report shared skill mismatch");
+if (check.level !== "FAIL") throw new Error(`doctor strict mismatch should fail, got ${check.level}`);
+' /tmp/pi67-smoke-doctor-shared-strict-json.log
+pass "doctor strict shared skill mode blocks conflicts"
 
 PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
   --repo-root "$REPO_ROOT" \
@@ -771,6 +847,37 @@ if ! grep -q 'already up to date\|update finished' /tmp/pi67-smoke-update.log; t
   fail "update helper did not complete cleanly"
 fi
 pass "update helper completed on temp checkout"
+
+UPDATE_CONFLICT_SKILLS="$TMP_ROOT/update-conflict-shared-skills"
+mkdir -p "$UPDATE_CONFLICT_SKILLS/$FIRST_SHARED_SKILL_NAME"
+printf '# Existing newer global skill\n' > "$UPDATE_CONFLICT_SKILLS/$FIRST_SHARED_SKILL_NAME/SKILL.md"
+"$REPO_ROOT/scripts/pi67-update.sh" \
+  --repo-root "$UPDATE_REPO" \
+  --agent-dir "$AGENT_DIR" \
+  --skills-dir "$UPDATE_CONFLICT_SKILLS" \
+  --no-npm \
+  --no-doctor \
+  --no-report \
+  --allow-dirty >/tmp/pi67-smoke-update-conflict.log 2>&1
+if ! grep -q "keeping existing global skill: $FIRST_SHARED_SKILL_NAME" /tmp/pi67-smoke-update-conflict.log; then
+  cat /tmp/pi67-smoke-update-conflict.log >&2
+  fail "update did not keep existing different shared skill"
+fi
+pass "update keeps existing different shared skills by default"
+
+if "$REPO_ROOT/scripts/pi67-update.sh" \
+  --repo-root "$UPDATE_REPO" \
+  --agent-dir "$AGENT_DIR" \
+  --skills-dir "$UPDATE_CONFLICT_SKILLS" \
+  --no-npm \
+  --no-doctor \
+  --no-report \
+  --strict-shared-skills \
+  --allow-dirty >/tmp/pi67-smoke-update-strict-conflict.log 2>&1; then
+  cat /tmp/pi67-smoke-update-strict-conflict.log >&2
+  fail "update strict shared skill mode accepted a conflict"
+fi
+pass "update strict shared skill mode blocks conflicts"
 
 node -e '
 const fs = require("fs");

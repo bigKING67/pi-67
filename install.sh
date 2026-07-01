@@ -29,6 +29,7 @@ RUN_DOCTOR=true
 RUN_REPORT=true
 BACKUP_CREATED=false
 DEV_LINK_SKILLS=false
+STRICT_SHARED_SKILLS=false
 
 usage() {
   cat <<'USAGE'
@@ -45,6 +46,10 @@ Options:
       --dev-link-skills
                         Link skills into --skills-dir for local development.
                         Default is copy/install, not symlink.
+      --strict-shared-skills
+                        Stop when an existing global shared skill differs from
+                        the pi-67 bundled baseline. Default keeps the existing
+                        global skill and continues.
       --backup-dir DIR Write overwritten files into DIR.
       --no-npm         Skip npm package installation.
       --no-doctor      Skip scripts/pi67-doctor.sh after installation.
@@ -57,6 +62,8 @@ Design:
   readiness warnings after installation.
   Shared skills are installed into ~/.agents/skills so Pi and Codex use one
   active skill registry. ~/.pi/agent is reserved for Pi runtime/config assets.
+  If a global shared skill with the same name already exists and differs,
+  pi-67 keeps that existing skill by default instead of downgrading it.
 USAGE
 }
 
@@ -84,6 +91,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --dev-link-skills)
       DEV_LINK_SKILLS=true
+      shift
+      ;;
+    --strict-shared-skills)
+      STRICT_SHARED_SKILLS=true
       shift
       ;;
     --backup-dir)
@@ -326,13 +337,22 @@ install_one_shared_skill() {
       pass "shared skill already installed: $name"
       return
     fi
-    say "  ${RED}FAIL${NC} shared skill conflict: $name" >&2
+    if [ "$STRICT_SHARED_SKILLS" = true ]; then
+      say "  ${RED}FAIL${NC} shared skill conflict: $name" >&2
+    else
+      say "  ${YELLOW}WARN${NC} shared skill conflict: $name" >&2
+    fi
     say "       existing: $dest" >&2
     say "       source  : $src" >&2
     say "       existing dir hash: $dest_hash" >&2
     say "       source   dir hash: $src_hash" >&2
-    say "       resolve manually or choose a different --skills-dir; installer will not overwrite shared skills" >&2
-    exit 1
+    if [ "$STRICT_SHARED_SKILLS" = true ]; then
+      say "       strict mode enabled; resolve manually or choose a different --skills-dir" >&2
+      exit 1
+    fi
+    warn "shared skill differs from pi-67 baseline; keeping existing global skill: $name"
+    warn "source skipped: $src"
+    return
   fi
 
   if [ "$DEV_LINK_SKILLS" = true ]; then

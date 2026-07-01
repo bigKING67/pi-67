@@ -4,7 +4,7 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
-当前发行版版本：`0.9.1`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.9.2`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 这是什么
 
@@ -155,7 +155,14 @@ chmod +x install.sh
 ./install.sh --no-npm                      # 跳过 npm install
 ./install.sh --no-report                   # 不生成 pi67-report.json
 ./install.sh --agent-dir /path/to/.pi/agent # 安装到自定义 Pi agent 目录
+./install.sh --strict-shared-skills        # shared skill 内容不一致时阻断
 ```
+
+默认情况下，若 `~/.agents/skills/<name>` 已有同名 skill 但内容与
+pi-67 打包基线不同，安装器会保留已有全局 skill、打印 WARN 并继续。
+这避免把目标电脑上可能更新、更可信的全局 skill 降级为 pi-67
+发行包里的旧副本。只有需要强制核对 pi-67 打包基线时，才使用
+`--strict-shared-skills`。
 
 安装后运行：
 

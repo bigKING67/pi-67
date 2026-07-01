@@ -20,6 +20,7 @@ OUTPUT_FORMAT="text"
 QUIET=false
 DEEP_MCP=false
 MCP_TIMEOUT_MS=2500
+STRICT_SHARED_SKILLS=false
 
 CHECKS_FILE="$(mktemp "${TMPDIR:-/tmp}/pi67-doctor-checks.XXXXXX")"
 
@@ -44,6 +45,9 @@ Options:
       --agent-dir DIR      Pi agent dir. Defaults to ~/.pi/agent.
       --skills-dir DIR     Shared skill root. Defaults to ~/.agents/skills.
       --no-skill-list      Skip `pi skill list`.
+      --strict-shared-skills
+                           Treat global shared skills that differ from the
+                           pi-67 bundled baseline as FAIL instead of WARN.
       --deep-mcp           Start configured MCP servers briefly and probe initialize + tools/list.
       --mcp-timeout-ms MS  Timeout per MCP deep probe. Defaults to 2500.
       --quiet              Print only the text summary and final result.
@@ -68,6 +72,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --no-skill-list)
       RUN_SKILL_LIST=false
+      shift
+      ;;
+    --strict-shared-skills)
+      STRICT_SHARED_SKILLS=true
       shift
       ;;
     --deep-mcp)
@@ -438,7 +446,8 @@ check_shared_skills() {
 const fs = require("fs");
 const crypto = require("crypto");
 const path = require("path");
-const [, , repoRoot, agentDir, sharedSkillsDir] = process.argv;
+const [, , repoRoot, agentDir, sharedSkillsDir, strictSharedSkillsRaw] = process.argv;
+const strictSharedSkills = strictSharedSkillsRaw === "true";
 
 function emit(level, message) {
   console.log(`${level}|${message}`);
@@ -558,7 +567,13 @@ const mismatched = sourceSkills
     return sourceHash !== installedHash;
   });
 if (mismatched.length > 0) {
-  emit("FAIL", `shared skill contents differ from pi-67 source: ${mismatched.join(", ")}`);
+  const message = `shared skill contents differ from pi-67 source; keeping existing global skills: ${mismatched.join(", ")}`;
+  emit(
+    strictSharedSkills ? "FAIL" : "WARN",
+    strictSharedSkills
+      ? `shared skill contents differ from pi-67 source: ${mismatched.join(", ")}`
+      : message
+  );
 } else if (sourceSkills.length > 0 && missing.length === 0) {
   emit("PASS", "all pi-67 shared skill contents match the shared skill root");
 }
@@ -588,7 +603,7 @@ for (const root of packageSkillRoots) {
   }
 }
 NODE
-  run_node_report "$tmp" "$REPO_ROOT" "$PI_AGENT_DIR" "$SHARED_SKILLS_DIR"
+  run_node_report "$tmp" "$REPO_ROOT" "$PI_AGENT_DIR" "$SHARED_SKILLS_DIR" "$STRICT_SHARED_SKILLS"
   rm -f "$tmp"
 }
 

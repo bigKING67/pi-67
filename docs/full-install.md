@@ -71,6 +71,17 @@ Install shared skills into a custom global skill root:
 `--dev-link-skills` is available for local skill development. Normal user
 installation copies skills and does not create skill symlinks.
 
+Shared skill conflicts are non-destructive by default. If
+`~/.agents/skills/<name>` already exists and differs from the pi-67 bundled
+baseline, the installer keeps the existing global skill, prints a warning, and
+continues. This is intentional: a target machine may already have a newer or
+more authoritative global skill. Use strict mode only when you explicitly want
+pi-67 bundled-skill parity:
+
+```bash
+./install.sh --strict-shared-skills
+```
+
 ## What the installer does
 
 1. Checks that `pi` exists.
@@ -79,8 +90,8 @@ installation copies skills and does not create skill symlinks.
    - `in-place`: repository root and agent dir are the same path.
    - `linked`: repository root is outside the agent dir.
 4. In `in-place`, verifies tracked assets in the current checkout. In `linked`, backs up overwritten files/directories and symlinks Pi runtime assets into `~/.pi/agent`.
-5. Copies `shared-skills/` into `~/.agents/skills` unless an identical skill already exists.
-6. Stops on a shared skill name conflict instead of overwriting user/global skills.
+5. Copies missing `shared-skills/` into `~/.agents/skills`.
+6. Keeps existing different global skills by default and warns; `--strict-shared-skills` restores blocking conflict behavior.
 7. Retires legacy `~/.pi/agent/skills` in linked installs by moving it into the installer backup directory.
 8. Copies `.example` config files only when local config files do not already exist.
 9. Installs npm packages into `~/.pi/agent/npm`.
