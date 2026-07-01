@@ -195,7 +195,12 @@ bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp --mcp-timeout-ms 5000
 
 这是单文件覆盖写，不会无限追加历史文件；里面记录 pi-67 版本、Git commit、agent 文件状态、runtime 版本和 doctor JSON 结果。
 
-机器可读字段契约见 `docs/report-schema.md`。当前 schema 为 `pi67-report/v2`；doctor JSON 契约见 `docs/doctor-schema.md`。
+机器可读字段契约见：
+
+- `docs/report-schema.md`：`pi67-report/v2`
+- `docs/doctor-schema.md`：`pi67-doctor/v2`
+- `docs/skill-migration-schema.md`：`pi67-skill-migration/v1`
+- `docs/external-skill-sync-schema.md`：`pi67-external-skill-sync/v1`
 
 本地/CI 维护检查：
 

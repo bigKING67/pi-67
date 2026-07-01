@@ -46,6 +46,8 @@ RELEASE_DOC="$REPO_ROOT/docs/release.md"
 REPORT_SCHEMA_DOC="$REPO_ROOT/docs/report-schema.md"
 DOCTOR_SCHEMA_DOC="$REPO_ROOT/docs/doctor-schema.md"
 STATUS_DOC="$REPO_ROOT/docs/status.md"
+SKILL_MIGRATION_SCHEMA_DOC="$REPO_ROOT/docs/skill-migration-schema.md"
+EXTERNAL_SKILL_SYNC_SCHEMA_DOC="$REPO_ROOT/docs/external-skill-sync-schema.md"
 FULL_INSTALL_DOC="$REPO_ROOT/docs/full-install.md"
 SKILL_GOV_DOC="$REPO_ROOT/docs/skill-governance.md"
 TROUBLESHOOTING_DOC="$REPO_ROOT/docs/troubleshooting.md"
@@ -128,6 +130,18 @@ else
   fail "status workflow is not documented"
 fi
 
+if [ -f "$SKILL_MIGRATION_SCHEMA_DOC" ] && grep -q "pi67-skill-migration/v1" "$SKILL_MIGRATION_SCHEMA_DOC"; then
+  pass "skill migration schema v1 is documented"
+else
+  fail "skill migration schema v1 is not documented"
+fi
+
+if [ -f "$EXTERNAL_SKILL_SYNC_SCHEMA_DOC" ] && grep -q "pi67-external-skill-sync/v1" "$EXTERNAL_SKILL_SYNC_SCHEMA_DOC"; then
+  pass "external skill sync schema v1 is documented"
+else
+  fail "external skill sync schema v1 is not documented"
+fi
+
 if [ -f "$SKILL_GOV_DOC" ] && grep -q "pi67-migrate-skills.sh" "$SKILL_GOV_DOC" && grep -q "pi67-sync-external-skills.sh" "$SKILL_GOV_DOC" && grep -q "pi67-migrate-skills.sh" "$FULL_INSTALL_DOC" && grep -q "pi67-sync-external-skills.sh" "$FULL_INSTALL_DOC" && grep -q "pi67-migrate-skills.sh" "$TROUBLESHOOTING_DOC"; then
   pass "skill migration/sync workflows are documented"
 else
@@ -147,7 +161,7 @@ if command_exists git && git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/d
     fail "git diff --check failed"
   fi
 
-  if git -C "$REPO_ROOT" ls-files --error-unmatch VERSION CHANGELOG.md docs/release.md docs/report-schema.md docs/doctor-schema.md docs/status.md docs/skill-governance.md docs/troubleshooting.md scripts/pi67-doctor.sh scripts/pi67-migrate-skills.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-status.sh scripts/pi67-sync-external-skills.sh scripts/pi67-update.sh >/dev/null 2>&1; then
+  if git -C "$REPO_ROOT" ls-files --error-unmatch VERSION CHANGELOG.md docs/release.md docs/report-schema.md docs/doctor-schema.md docs/status.md docs/skill-migration-schema.md docs/external-skill-sync-schema.md docs/skill-governance.md docs/troubleshooting.md scripts/pi67-doctor.sh scripts/pi67-migrate-skills.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-status.sh scripts/pi67-sync-external-skills.sh scripts/pi67-update.sh >/dev/null 2>&1; then
     pass "release metadata files are tracked or staged"
   else
     warn "release metadata files are not all tracked yet; expected before final commit"

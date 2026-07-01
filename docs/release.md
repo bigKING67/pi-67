@@ -42,6 +42,8 @@ Expected result:
    - `docs/report-schema.md` if `pi67-report.json` fields changed
    - `docs/doctor-schema.md` if doctor JSON fields changed
    - `docs/status.md` if `scripts/pi67-status.sh` behavior changed
+   - `docs/skill-migration-schema.md` if `scripts/pi67-migrate-skills.sh --json` behavior changed
+   - `docs/external-skill-sync-schema.md` if `scripts/pi67-sync-external-skills.sh --json` behavior changed
    - `docs/skill-governance.md` if skill registry, migration, or external sync behavior changed
    - update workflow docs if `scripts/pi67-update.sh` changed
 5. Run:

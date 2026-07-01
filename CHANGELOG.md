@@ -10,6 +10,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 - `scripts/pi67-migrate-skills.sh` for safe dry-run-first migration from legacy active Pi skill roots into the shared `~/.agents/skills` registry.
 - `scripts/pi67-sync-external-skills.sh` for copying skills from external source repositories such as `design-craft` and `browser67` into `~/.agents/skills` without making those repositories active Pi package skill roots.
+- `docs/skill-migration-schema.md` and `docs/external-skill-sync-schema.md` document the new migration/sync JSON output contracts.
 - Smoke coverage for skill migration, external skill sync, and doctor detection of `pi skill list` duplicate/conflict warnings.
 
 ### Changed
