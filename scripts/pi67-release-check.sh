@@ -51,6 +51,9 @@ EXTERNAL_SKILL_SYNC_SCHEMA_DOC="$REPO_ROOT/docs/external-skill-sync-schema.md"
 FULL_INSTALL_DOC="$REPO_ROOT/docs/full-install.md"
 SKILL_GOV_DOC="$REPO_ROOT/docs/skill-governance.md"
 TROUBLESHOOTING_DOC="$REPO_ROOT/docs/troubleshooting.md"
+SKILL_GOVERNANCE_TEST="$REPO_ROOT/scripts/pi67-test-skill-governance.sh"
+EXTERNAL_SKILLS_CHECK="$REPO_ROOT/scripts/pi67-check-external-skills.sh"
+RELEASE_ARTIFACT_SMOKE="$REPO_ROOT/scripts/pi67-release-artifact-smoke.sh"
 
 if [ -f "$VERSION_FILE" ]; then
   VERSION="$(tr -d '[:space:]' < "$VERSION_FILE")"
@@ -148,6 +151,24 @@ else
   fail "skill migration/sync workflows are not documented"
 fi
 
+if [ -f "$SKILL_GOVERNANCE_TEST" ] && [ -f "$EXTERNAL_SKILLS_CHECK" ] && [ -f "$RELEASE_ARTIFACT_SMOKE" ]; then
+  pass "governance and artifact check scripts exist"
+else
+  fail "governance and artifact check scripts are missing"
+fi
+
+if grep -q "pi67-test-skill-governance.sh" "$SKILL_GOV_DOC" && grep -q "pi67-check-external-skills.sh" "$SKILL_GOV_DOC"; then
+  pass "skill governance check scripts are documented"
+else
+  fail "skill governance check scripts are not documented"
+fi
+
+if grep -q "pi67-release-artifact-smoke.sh" "$RELEASE_DOC"; then
+  pass "release artifact smoke is documented"
+else
+  fail "release artifact smoke is not documented"
+fi
+
 if grep -q "pi67-release.sh" "$REPO_ROOT/README.md" && grep -q "pi67-release.sh" "$REPO_ROOT/docs/release.md"; then
   pass "release automation is documented"
 else
@@ -161,7 +182,7 @@ if command_exists git && git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/d
     fail "git diff --check failed"
   fi
 
-  if git -C "$REPO_ROOT" ls-files --error-unmatch VERSION CHANGELOG.md docs/release.md docs/report-schema.md docs/doctor-schema.md docs/status.md docs/skill-migration-schema.md docs/external-skill-sync-schema.md docs/skill-governance.md docs/troubleshooting.md scripts/pi67-doctor.sh scripts/pi67-migrate-skills.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-status.sh scripts/pi67-sync-external-skills.sh scripts/pi67-update.sh >/dev/null 2>&1; then
+  if git -C "$REPO_ROOT" ls-files --error-unmatch VERSION CHANGELOG.md docs/release.md docs/report-schema.md docs/doctor-schema.md docs/status.md docs/skill-migration-schema.md docs/external-skill-sync-schema.md docs/skill-governance.md docs/troubleshooting.md scripts/pi67-check-external-skills.sh scripts/pi67-doctor.sh scripts/pi67-migrate-skills.sh scripts/pi67-release-artifact-smoke.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-status.sh scripts/pi67-sync-external-skills.sh scripts/pi67-test-skill-governance.sh scripts/pi67-update.sh >/dev/null 2>&1; then
     pass "release metadata files are tracked or staged"
   else
     warn "release metadata files are not all tracked yet; expected before final commit"

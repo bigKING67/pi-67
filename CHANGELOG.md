@@ -4,6 +4,19 @@ All notable changes to pi-67 are documented here.
 
 The format is based on Keep a Changelog, and this project uses semantic versioning for the pi-67 distribution itself. Pi package dependency versions are managed separately in `package.json`.
 
+## [0.9.1] - 2026-07-01
+
+### Added
+
+- `scripts/pi67-test-skill-governance.sh` as a dedicated fixture runner for skill migration and external skill sync JSON/schema/conflict coverage.
+- `scripts/pi67-check-external-skills.sh` as an optional local dry-run integration check for real external skill repositories before applying syncs into `~/.agents/skills`.
+- `scripts/pi67-release-artifact-smoke.sh` to validate a clean worktree/ref/tag artifact through install dry-run, release metadata check, and skill migration schema check.
+
+### Changed
+
+- `scripts/pi67-smoke.sh` now delegates skill governance fixture coverage to the dedicated runner and includes a release artifact smoke pass.
+- `scripts/pi67-release-check.sh` now verifies the new governance/artifact check scripts and their documentation are present.
+
 ## [0.9.0] - 2026-07-01
 
 ### Added

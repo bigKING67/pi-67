@@ -17,6 +17,7 @@ Before tagging or publishing release notes:
 ```bash
 bash scripts/pi67-release-check.sh
 bash scripts/pi67-smoke.sh --ci
+bash scripts/pi67-release-artifact-smoke.sh --ref WORKTREE
 bash scripts/pi67-release.sh --dry-run
 git status --short
 ```
@@ -25,6 +26,7 @@ Expected result:
 
 - release metadata is internally consistent
 - smoke test passes locally
+- clean artifact smoke passes for the current worktree candidate
 - release notes preview is generated from `CHANGELOG.md`
 - worktree is clean except the intentional release commit before committing
 - GitHub Actions passes after push
@@ -46,11 +48,13 @@ Expected result:
    - `docs/external-skill-sync-schema.md` if `scripts/pi67-sync-external-skills.sh --json` behavior changed
    - `docs/skill-governance.md` if skill registry, migration, or external sync behavior changed
    - update workflow docs if `scripts/pi67-update.sh` changed
+   - release artifact docs if `scripts/pi67-release-artifact-smoke.sh` changed
 5. Run:
 
 ```bash
 bash scripts/pi67-release-check.sh
 bash scripts/pi67-smoke.sh --ci
+bash scripts/pi67-release-artifact-smoke.sh --ref WORKTREE
 bash scripts/pi67-release.sh --dry-run
 ```
 
@@ -90,6 +94,23 @@ Preview without writing:
 ```bash
 bash scripts/pi67-release.sh --dry-run
 ```
+
+## Artifact smoke
+
+Use `scripts/pi67-release-artifact-smoke.sh` to verify that a clean copy/ref can
+perform the essential release-consumer checks without touching the real Pi
+config:
+
+```bash
+bash scripts/pi67-release-artifact-smoke.sh --ref WORKTREE
+bash scripts/pi67-release-artifact-smoke.sh --ref HEAD
+bash scripts/pi67-release-artifact-smoke.sh --ref v0.9.0
+```
+
+`WORKTREE` is for pre-commit local candidates and copies Git-tracked plus
+non-ignored candidate files into a temporary Git repo. `HEAD` and tag refs use a
+normal clone checkout, which is the right shape for post-commit or published
+release validation.
 
 Duplicate policy:
 

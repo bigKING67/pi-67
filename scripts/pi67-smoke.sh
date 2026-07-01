@@ -87,6 +87,9 @@ cleanup() {
     /tmp/pi67-smoke-status-json.log \
     /tmp/pi67-smoke-skill-audit.log \
     /tmp/pi67-smoke-skill-audit-json.log \
+    /tmp/pi67-smoke-skill-governance.log \
+    /tmp/pi67-smoke-external-skills-check.log \
+    /tmp/pi67-smoke-release-artifact.log \
     /tmp/pi67-smoke-migrate-skills-dry.log \
     /tmp/pi67-smoke-migrate-skills-apply.log \
     /tmp/pi67-smoke-migrate-skills-conflict.log \
@@ -168,6 +171,15 @@ if [ -f "$REPO_ROOT/scripts/pi67-skill-audit.sh" ]; then
 fi
 if [ -f "$REPO_ROOT/scripts/pi67-sync-external-skills.sh" ]; then
   bash -n "$REPO_ROOT/scripts/pi67-sync-external-skills.sh"
+fi
+if [ -f "$REPO_ROOT/scripts/pi67-test-skill-governance.sh" ]; then
+  bash -n "$REPO_ROOT/scripts/pi67-test-skill-governance.sh"
+fi
+if [ -f "$REPO_ROOT/scripts/pi67-check-external-skills.sh" ]; then
+  bash -n "$REPO_ROOT/scripts/pi67-check-external-skills.sh"
+fi
+if [ -f "$REPO_ROOT/scripts/pi67-release-artifact-smoke.sh" ]; then
+  bash -n "$REPO_ROOT/scripts/pi67-release-artifact-smoke.sh"
 fi
 bash -n "$REPO_ROOT/scripts/pi67-smoke.sh"
 bash -n "$REPO_ROOT/scripts/pi67-status.sh"
@@ -442,104 +454,16 @@ if (missing.classification !== "stale_broken_link") throw new Error(`unexpected 
 ' /tmp/pi67-smoke-skill-audit-json.log
 pass "skill audit JSON output parsed"
 
-section "Skill migration helpers"
-MIGRATE_AGENT="$TMP_ROOT/migrate-agent"
-MIGRATE_SHARED="$TMP_ROOT/migrate-shared"
-MIGRATE_BACKUP="$TMP_ROOT/migrate-backup"
-mkdir -p "$MIGRATE_AGENT/skills/legacy-skill"
-cat > "$MIGRATE_AGENT/skills/legacy-skill/SKILL.md" <<'EOF'
-# Legacy Skill
+section "Skill governance helper tests"
+"$REPO_ROOT/scripts/pi67-test-skill-governance.sh" \
+  --repo-root "$REPO_ROOT" >/tmp/pi67-smoke-skill-governance.log
+pass "skill governance helper tests completed"
 
-Smoke migration fixture.
-EOF
-
-"$REPO_ROOT/scripts/pi67-migrate-skills.sh" \
-  --agent-dir "$MIGRATE_AGENT" \
-  --skills-dir "$MIGRATE_SHARED" \
-  --backup-dir "$MIGRATE_BACKUP" \
-  --dry-run >/tmp/pi67-smoke-migrate-skills-dry.log
-if [ -e "$MIGRATE_SHARED/legacy-skill" ] || [ ! -d "$MIGRATE_AGENT/skills" ]; then
-  fail "migrate dry-run changed the temp skill roots"
-fi
-pass "skill migration dry-run completed"
-
-"$REPO_ROOT/scripts/pi67-migrate-skills.sh" \
-  --agent-dir "$MIGRATE_AGENT" \
-  --skills-dir "$MIGRATE_SHARED" \
-  --backup-dir "$MIGRATE_BACKUP" \
-  --apply \
-  --yes >/tmp/pi67-smoke-migrate-skills-apply.log
-if [ ! -f "$MIGRATE_SHARED/legacy-skill/SKILL.md" ] || [ -e "$MIGRATE_AGENT/skills" ] || [ ! -f "$MIGRATE_BACKUP/skills/legacy-skill/SKILL.md" ]; then
-  cat /tmp/pi67-smoke-migrate-skills-apply.log >&2
-  fail "skill migration apply did not copy and back up legacy root"
-fi
-pass "skill migration apply copied missing skill and backed up legacy root"
-
-MIGRATE_CONFLICT_AGENT="$TMP_ROOT/migrate-conflict-agent"
-MIGRATE_CONFLICT_SHARED="$TMP_ROOT/migrate-conflict-shared"
-mkdir -p "$MIGRATE_CONFLICT_AGENT/skills/conflict-skill" "$MIGRATE_CONFLICT_SHARED/conflict-skill"
-printf '# Legacy Conflict\n' > "$MIGRATE_CONFLICT_AGENT/skills/conflict-skill/SKILL.md"
-printf '# Canonical Conflict\n' > "$MIGRATE_CONFLICT_SHARED/conflict-skill/SKILL.md"
-if "$REPO_ROOT/scripts/pi67-migrate-skills.sh" \
-  --agent-dir "$MIGRATE_CONFLICT_AGENT" \
-  --skills-dir "$MIGRATE_CONFLICT_SHARED" \
-  --backup-dir "$TMP_ROOT/migrate-conflict-backup" \
-  --apply \
-  --yes >/tmp/pi67-smoke-migrate-skills-conflict.log 2>&1; then
-  cat /tmp/pi67-smoke-migrate-skills-conflict.log >&2
-  fail "skill migration apply overwrote or ignored a conflict"
-fi
-if [ ! -d "$MIGRATE_CONFLICT_AGENT/skills" ] || ! grep -q 'Canonical Conflict' "$MIGRATE_CONFLICT_SHARED/conflict-skill/SKILL.md"; then
-  fail "skill migration conflict path changed source or canonical roots"
-fi
-pass "skill migration refuses canonical conflicts"
-
-EXTERNAL_REPO="$TMP_ROOT/external-repo"
-EXTERNAL_SHARED="$TMP_ROOT/external-shared"
-mkdir -p "$EXTERNAL_REPO/skills/external-skill"
-cat > "$EXTERNAL_REPO/skills/external-skill/SKILL.md" <<'EOF'
-# External Skill
-
-Smoke external sync fixture.
-EOF
-
-"$REPO_ROOT/scripts/pi67-sync-external-skills.sh" \
-  --repo "$EXTERNAL_REPO" \
-  --skills-dir "$EXTERNAL_SHARED" \
-  --dry-run >/tmp/pi67-smoke-sync-external-dry.log
-if [ -e "$EXTERNAL_SHARED/external-skill" ]; then
-  fail "external skill sync dry-run wrote files"
-fi
-pass "external skill sync dry-run completed"
-
-"$REPO_ROOT/scripts/pi67-sync-external-skills.sh" \
-  --repo "$EXTERNAL_REPO" \
-  --skills-dir "$EXTERNAL_SHARED" \
-  --apply \
-  --yes >/tmp/pi67-smoke-sync-external-apply.log
-if [ ! -f "$EXTERNAL_SHARED/external-skill/SKILL.md" ]; then
-  cat /tmp/pi67-smoke-sync-external-apply.log >&2
-  fail "external skill sync did not copy missing skill"
-fi
-pass "external skill sync applied"
-
-EXTERNAL_CONFLICT_REPO="$TMP_ROOT/external-conflict-repo"
-EXTERNAL_CONFLICT_SHARED="$TMP_ROOT/external-conflict-shared"
-mkdir -p "$EXTERNAL_CONFLICT_REPO/skills/conflict-skill" "$EXTERNAL_CONFLICT_SHARED/conflict-skill"
-printf '# External Conflict\n' > "$EXTERNAL_CONFLICT_REPO/skills/conflict-skill/SKILL.md"
-printf '# Canonical External Conflict\n' > "$EXTERNAL_CONFLICT_SHARED/conflict-skill/SKILL.md"
-if "$REPO_ROOT/scripts/pi67-sync-external-skills.sh" \
-  --repo "$EXTERNAL_CONFLICT_REPO" \
-  --skills-dir "$EXTERNAL_CONFLICT_SHARED" \
-  --apply \
-  --yes >/tmp/pi67-smoke-sync-external-conflict.log 2>&1; then
-  cat /tmp/pi67-smoke-sync-external-conflict.log >&2
-  fail "external skill sync overwrote or ignored a conflict"
-fi
-if ! grep -q 'Canonical External Conflict' "$EXTERNAL_CONFLICT_SHARED/conflict-skill/SKILL.md"; then
-  fail "external skill sync conflict path changed canonical skill"
-fi
-pass "external skill sync refuses canonical conflicts"
+section "Release artifact smoke"
+"$REPO_ROOT/scripts/pi67-release-artifact-smoke.sh" \
+  --repo-root "$REPO_ROOT" \
+  --ref WORKTREE >/tmp/pi67-smoke-release-artifact.log
+pass "release artifact smoke completed"
 
 section "Temp in-place install"
 INPLACE_AGENT="$TMP_ROOT/in-place-agent"

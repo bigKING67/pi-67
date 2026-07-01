@@ -202,6 +202,14 @@ bash ~/.pi/agent/scripts/pi67-sync-external-skills.sh \
   --dry-run
 ```
 
+For a read-only summary before applying a real repo sync, use:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-check-external-skills.sh \
+  --repo /path/to/design-craft \
+  --repo /path/to/browser67
+```
+
 For browser67 MCP, keep the source checkout/cache outside active skill roots and
 configure `mcp.json` with:
 
@@ -373,6 +381,13 @@ bash scripts/pi67-smoke.sh
 ```
 
 Smoke creates a temporary Pi agent directory and validates the full install flow without touching your real `~/.pi/agent`.
+
+For narrower checks:
+
+```bash
+bash scripts/pi67-test-skill-governance.sh
+bash scripts/pi67-release-artifact-smoke.sh --ref WORKTREE
+```
 
 ## Release script says the tag already exists
 

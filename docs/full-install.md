@@ -157,6 +157,15 @@ That command copies `skills/*/SKILL.md` trees into `~/.agents/skills`, skips
 identical already-installed skills, and refuses conflicts. It does not edit
 `~/.pi/agent/git/...`, `settings.json`, or `mcp.json`.
 
+Before applying real repo syncs, use the optional read-only checker when you
+want a concise local integration summary:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-check-external-skills.sh \
+  --repo /path/to/design-craft \
+  --repo /path/to/browser67
+```
+
 ```text
 ~/.agents/packages/browser67/src/mcp/browser/server.mjs
 ~/.agents/packages/browser67/src/mcp/js-reverse/server.mjs
@@ -373,6 +382,14 @@ bash scripts/pi67-smoke.sh
 ```
 
 The smoke test does not touch the real `~/.pi/agent`. It creates a temporary agent directory, installs the full asset set there with a fake `pi` binary, and runs doctor against that temp install.
+
+Skill governance and artifact-level checks are also available as focused
+runners:
+
+```bash
+bash scripts/pi67-test-skill-governance.sh
+bash scripts/pi67-release-artifact-smoke.sh --ref WORKTREE
+```
 
 ## Recovery
 

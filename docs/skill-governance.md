@@ -155,6 +155,43 @@ or MCP config; for browser67 MCP paths, run:
 bash scripts/pi67-configure.sh --tmwd-repo /path/to/browser67 --no-prompt
 ```
 
+## Validation helpers
+
+Use the dedicated governance fixture test when changing migration or external
+sync behavior:
+
+```bash
+bash scripts/pi67-test-skill-governance.sh
+```
+
+It creates temporary legacy roots and external repositories, then validates:
+
+- migration dry-run does not write
+- migration apply copies missing skills and backs up migrated roots
+- migration conflicts return `NEEDS_REVIEW` and preserve both sides
+- external sync dry-run does not write
+- external sync apply copies missing skills
+- external sync conflicts return `NEEDS_REVIEW` and preserve canonical skills
+- migration and sync JSON outputs keep their documented schema IDs
+
+Use the optional external repo integration check before applying real
+`design-craft`, `browser67`, or similar repo skills into the global registry:
+
+```bash
+bash scripts/pi67-check-external-skills.sh \
+  --repo /path/to/design-craft \
+  --repo /path/to/browser67
+```
+
+This command is read-only. It wraps `pi67-sync-external-skills.sh --dry-run
+--json`, summarizes missing/identical/conflicting skills, and exits zero for
+warnings by default. Add `--strict` in local release preparation when conflicts
+or invalid repo paths should fail the check:
+
+```bash
+bash scripts/pi67-check-external-skills.sh --repo /path/to/design-craft --strict
+```
+
 ## Migration rule
 
 When a legacy manifest reports `stale_broken_link`, do not automatically restore
