@@ -52,11 +52,12 @@ Compatibility rule:
 
 Fresh installs often produce `READY WITH WARNINGS` because API keys, MCP paths, or optional local binaries still need user-specific configuration.
 
-Doctor also validates package-owned external skills:
+Doctor also validates shared skill governance:
 
-- `settings.json` must declare pinned `design-craft` and `browser67` package sources.
-- Missing local package clones under `~/.pi/agent/git/github.com/bigKING67/` are warnings, not failures, because Pi may not have installed packages yet.
-- Existing package clones must contain their expected `SKILL.md` files and browser67 MCP entrypoints.
+- `shared-skills/` must contain pi-67's distributable skill source.
+- `~/.agents/skills` must contain installed copies of those shared skills.
+- `settings.json` must not declare `design-craft` or `browser67` as active Pi skill packages; install their skills into `~/.agents/skills` instead.
+- Existing `~/.pi/agent/skills` or package clone skill directories are reported as duplicate sources when they overlap with `~/.agents/skills`.
 
 ## `counts`
 

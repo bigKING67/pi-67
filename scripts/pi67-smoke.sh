@@ -133,30 +133,6 @@ grep_any() {
   fi
 }
 
-create_fake_external_packages() {
-  local agent_dir="$1"
-  local package_root="$agent_dir/git/github.com/bigKING67"
-
-  mkdir -p \
-    "$package_root/design-craft/skills/design-craft" \
-    "$package_root/design-craft/skills/frontend-craft" \
-    "$package_root/browser67/skills/browser67" \
-    "$package_root/browser67/skills/tmwd-browser-mcp" \
-    "$package_root/browser67/skills/js-reverse" \
-    "$package_root/browser67/src/mcp/browser" \
-    "$package_root/browser67/src/mcp/js-reverse"
-
-  printf '{"name":"design-craft"}\n' > "$package_root/design-craft/package.json"
-  printf '# design-craft smoke\n' > "$package_root/design-craft/skills/design-craft/SKILL.md"
-  printf '# frontend-craft smoke\n' > "$package_root/design-craft/skills/frontend-craft/SKILL.md"
-  printf '{"name":"browser67"}\n' > "$package_root/browser67/package.json"
-  printf '# browser67 smoke\n' > "$package_root/browser67/skills/browser67/SKILL.md"
-  printf '# tmwd-browser-mcp smoke\n' > "$package_root/browser67/skills/tmwd-browser-mcp/SKILL.md"
-  printf '# js-reverse smoke\n' > "$package_root/browser67/skills/js-reverse/SKILL.md"
-  printf 'console.log("smoke browser67 server")\n' > "$package_root/browser67/src/mcp/browser/server.mjs"
-  printf 'console.log("smoke js reverse server")\n' > "$package_root/browser67/src/mcp/js-reverse/server.mjs"
-}
-
 echo ""
 echo -e "${CYAN}pi-67 smoke${NC}"
 echo "Repository: $REPO_ROOT"
@@ -198,32 +174,31 @@ for file in settings.json auth.example.json image-gen.example.json models.exampl
   pass "valid JSON: $file"
 done
 
-section "External package defaults"
+section "Shared skill defaults"
 node - "$REPO_ROOT" <<'NODE'
 const fs = require("fs");
 const path = require("path");
 const repoRoot = process.argv[2];
 const settings = JSON.parse(fs.readFileSync(path.join(repoRoot, "settings.json"), "utf8"));
 const packages = Array.isArray(settings.packages) ? settings.packages : [];
-const requiredPackages = [
-  "git:github.com/bigKING67/design-craft@ae3f27e79893bf8a63fcfb6431842b557be7b46a",
-  "git:github.com/bigKING67/browser67@ac15a5298d0afcba0ae5454e8b1bddb735ace830",
-];
-for (const spec of requiredPackages) {
-  if (!packages.includes(spec)) throw new Error(`missing package source: ${spec}`);
+for (const spec of packages) {
+  const value = String(spec);
+  if (value.includes("github.com/bigKING67/design-craft") || value.includes("github.com/bigKING67/browser67")) {
+    throw new Error(`shared skill source should not be an active Pi package: ${spec}`);
+  }
 }
 
 const mcp = JSON.parse(fs.readFileSync(path.join(repoRoot, "mcp.example.json"), "utf8"));
 const tmwdArg = mcp.mcpServers?.tmwd_browser?.args?.[0] || "";
 const jsArg = mcp.mcpServers?.["js-reverse"]?.args?.[0] || "";
-if (!tmwdArg.includes("git/github.com/bigKING67/browser67/src/mcp/browser/server.mjs")) {
-  throw new Error(`tmwd_browser example does not use canonical browser67 MCP path: ${tmwdArg}`);
+if (!tmwdArg.includes(".agents/packages/browser67/src/mcp/browser/server.mjs")) {
+  throw new Error(`tmwd_browser example does not use shared browser67 package path: ${tmwdArg}`);
 }
-if (!jsArg.includes("git/github.com/bigKING67/browser67/src/mcp/js-reverse/server.mjs")) {
-  throw new Error(`js-reverse example does not use canonical browser67 MCP path: ${jsArg}`);
+if (!jsArg.includes(".agents/packages/browser67/src/mcp/js-reverse/server.mjs")) {
+  throw new Error(`js-reverse example does not use shared browser67 package path: ${jsArg}`);
 }
 NODE
-pass "external package defaults are pinned and use canonical browser67 MCP paths"
+pass "shared skill defaults avoid active Pi package duplication"
 
 section "Release metadata"
 "$REPO_ROOT/scripts/pi67-release-check.sh" >/tmp/pi67-smoke-release-check.log
@@ -262,6 +237,7 @@ if grep_any 'BEGIN [A-Z ]*PRIVATE KEY|sk-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-
   "$REPO_ROOT/prompts" \
   "$REPO_ROOT/rules" \
   "$REPO_ROOT/scripts" \
+  "$REPO_ROOT/shared-skills" \
   "$REPO_ROOT/.github" >/tmp/pi67-smoke-secrets.log 2>/dev/null; then
   cat /tmp/pi67-smoke-secrets.log >&2
   fail "possible real secret pattern found"
@@ -311,12 +287,12 @@ chmod +x "$FAKE_BIN/pi"
 
 PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/install.sh" \
   --agent-dir "$AGENT_DIR" \
+  --skills-dir "$TMP_ROOT/shared-skills" \
   --backup-dir "$TMP_ROOT/backup" \
   --no-npm \
   --no-doctor \
   --yes >/tmp/pi67-smoke-install.log
 pass "temp full install completed"
-create_fake_external_packages "$AGENT_DIR"
 
 if [ ! -f "$AGENT_DIR/pi67-report.json" ]; then
   cat /tmp/pi67-smoke-install.log >&2
@@ -325,19 +301,24 @@ fi
 node -e '
 const fs = require("fs");
 const report = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+const expectedSkillsRoot = process.argv[2];
 if (report.schemaVersion !== 2) throw new Error(`unexpected report schemaVersion: ${report.schemaVersion}`);
 if (report.schemaId !== "pi67-report/v2") throw new Error(`unexpected report schemaId: ${report.schemaId}`);
 if (report.operation !== "install") throw new Error(`unexpected report operation: ${report.operation}`);
 if (report.pi67?.version !== report.pi67Version) throw new Error("pi67.version does not match legacy pi67Version");
 if (!report.reportPolicy?.currentFileOverwritten) throw new Error("report overwrite policy missing");
-if (!Array.isArray(report.externalPackages) || report.externalPackages.length !== 2) throw new Error("report externalPackages missing");
-if (!report.externalPackages.every((pkg) => pkg.declared === true)) throw new Error("report externalPackages should be declared");
+if (!report.sharedSkills || report.sharedSkills.sourceCount < 1) throw new Error("report sharedSkills missing");
+if (report.sharedSkillsRoot !== expectedSkillsRoot) throw new Error(`report sharedSkillsRoot mismatch: ${report.sharedSkillsRoot}`);
+if (report.sharedSkills.canonicalRoot !== expectedSkillsRoot) throw new Error(`report sharedSkills canonicalRoot mismatch: ${report.sharedSkills.canonicalRoot}`);
+if (report.sharedSkills.missingInstalled.length !== 0) throw new Error(`shared skills missing from temp root: ${report.sharedSkills.missingInstalled.join(", ")}`);
+if (!Array.isArray(report.externalPackages) || report.externalPackages.length !== 0) throw new Error("report externalPackages should be empty under shared skill governance");
 if (report.doctor?.skipped !== true) throw new Error("install --no-doctor report should mark doctor skipped");
-' "$AGENT_DIR/pi67-report.json"
+' "$AGENT_DIR/pi67-report.json" "$TMP_ROOT/shared-skills"
 pass "install report JSON written"
 
 PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
   --repo-root "$REPO_ROOT" \
+  --skills-dir "$TMP_ROOT/shared-skills" \
   --agent-dir "$AGENT_DIR" >/tmp/pi67-smoke-doctor.log
 pass "doctor completed on temp install"
 
@@ -350,6 +331,7 @@ pass "doctor readiness result accepted"
 PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
   --repo-root "$REPO_ROOT" \
   --agent-dir "$AGENT_DIR" \
+  --skills-dir "$TMP_ROOT/shared-skills" \
   --quiet >/tmp/pi67-smoke-doctor-quiet.log
 if grep -q -- '--- Core tools ---' /tmp/pi67-smoke-doctor-quiet.log; then
   cat /tmp/pi67-smoke-doctor-quiet.log >&2
@@ -364,6 +346,7 @@ pass "doctor quiet output completed"
 PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
   --repo-root "$REPO_ROOT" \
   --agent-dir "$AGENT_DIR" \
+  --skills-dir "$TMP_ROOT/shared-skills" \
   --json >/tmp/pi67-smoke-doctor-json.log
 node -e '
 const fs = require("fs");
@@ -459,6 +442,7 @@ git -C "$INPLACE_AGENT" commit -q -m "pi67 smoke in-place baseline"
 
 PATH="$FAKE_BIN:$PATH" "$INPLACE_AGENT/install.sh" \
   --agent-dir "$INPLACE_AGENT" \
+  --skills-dir "$TMP_ROOT/inplace-shared-skills" \
   --no-npm \
   --no-doctor \
   --yes >/tmp/pi67-smoke-inplace-install.log
@@ -468,11 +452,17 @@ if [ -L "$INPLACE_AGENT/AGENTS.md" ]; then
   cat /tmp/pi67-smoke-inplace-install.log >&2
   fail "in-place install turned AGENTS.md into a symlink"
 fi
-for path in AGENTS.md rules scripts skills docs prompts extensions templates; do
+for path in AGENTS.md rules scripts shared-skills docs prompts extensions templates; do
   if [ ! -e "$INPLACE_AGENT/$path" ]; then
     fail "in-place install removed tracked asset: $path"
   fi
 done
+if [ -e "$INPLACE_AGENT/skills" ] || [ -L "$INPLACE_AGENT/skills" ]; then
+  fail "in-place install left legacy active skills directory"
+fi
+if [ ! -d "$TMP_ROOT/inplace-shared-skills" ]; then
+  fail "in-place install did not install shared skills"
+fi
 if find "$INPLACE_AGENT" -maxdepth 1 -name 'backup-*' -print -quit | grep -q .; then
   fail "in-place install created an asset backup directory"
 fi
@@ -489,6 +479,7 @@ pass "in-place local files created and ignored"
 PATH="$FAKE_BIN:$PATH" "$INPLACE_AGENT/scripts/pi67-doctor.sh" \
   --repo-root "$INPLACE_AGENT" \
   --agent-dir "$INPLACE_AGENT" \
+  --skills-dir "$TMP_ROOT/inplace-shared-skills" \
   --no-skill-list \
   --json >/tmp/pi67-smoke-inplace-doctor-json.log
 node -e '
@@ -563,6 +554,7 @@ pass "configure applied to temp install"
 
 PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
   --repo-root "$REPO_ROOT" \
+  --skills-dir "$TMP_ROOT/shared-skills" \
   --agent-dir "$AGENT_DIR" >/tmp/pi67-smoke-doctor-configured.log
 
 if grep -q 'Result: READY WITH WARNINGS' /tmp/pi67-smoke-doctor-configured.log; then
@@ -654,6 +646,7 @@ JSON
 PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
   --repo-root "$REPO_ROOT" \
   --agent-dir "$AGENT_DIR" \
+  --skills-dir "$TMP_ROOT/shared-skills" \
   --deep-mcp \
   --mcp-timeout-ms 2000 \
   --json >/tmp/pi67-smoke-doctor-deep-mcp.log
@@ -686,6 +679,7 @@ chmod +x "$UPDATE_REPO/scripts/pi67-report.sh"
 "$REPO_ROOT/scripts/pi67-update.sh" \
   --repo-root "$UPDATE_REPO" \
   --agent-dir "$AGENT_DIR" \
+  --skills-dir "$TMP_ROOT/shared-skills" \
   --no-npm \
   --no-doctor \
   --no-report \
@@ -699,6 +693,7 @@ pass "update check-only completed"
 "$REPO_ROOT/scripts/pi67-update.sh" \
   --repo-root "$UPDATE_REPO" \
   --agent-dir "$AGENT_DIR" \
+  --skills-dir "$TMP_ROOT/shared-skills" \
   --no-npm \
   --no-doctor \
   --allow-dirty \
@@ -708,6 +703,7 @@ pass "update dry-run completed"
 "$REPO_ROOT/scripts/pi67-update.sh" \
   --repo-root "$UPDATE_REPO" \
   --agent-dir "$AGENT_DIR" \
+  --skills-dir "$TMP_ROOT/shared-skills" \
   --no-npm \
   --no-doctor \
   --allow-dirty >/tmp/pi67-smoke-update.log 2>&1
@@ -739,10 +735,20 @@ printf 'old skill\n' > "$OPS_AGENT/skills/old.txt"
 
 PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/install.sh" \
   --agent-dir "$OPS_AGENT" \
+  --skills-dir "$TMP_ROOT/ops-shared-skills" \
   --backup-dir "$OPS_BACKUP" \
   --no-npm \
   --no-doctor \
   --yes >/tmp/pi67-smoke-ops-install.log
+
+if [ -e "$OPS_AGENT/skills" ] || [ -L "$OPS_AGENT/skills" ]; then
+  cat /tmp/pi67-smoke-ops-install.log >&2
+  fail "install did not retire legacy agent skills"
+fi
+if [ ! -f "$OPS_BACKUP/skills/old.txt" ]; then
+  cat /tmp/pi67-smoke-ops-install.log >&2
+  fail "install did not back up legacy agent skills"
+fi
 
 "$REPO_ROOT/scripts/pi67-restore.sh" \
   --agent-dir "$OPS_AGENT" \
@@ -761,6 +767,7 @@ pass "restore recovered preinstall files"
 
 PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/install.sh" \
   --agent-dir "$OPS_AGENT" \
+  --skills-dir "$TMP_ROOT/ops-shared-skills-2" \
   --backup-dir "$TMP_ROOT/ops-backup-2" \
   --no-npm \
   --no-doctor \

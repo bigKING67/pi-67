@@ -13,6 +13,8 @@ NC='\033[0m'
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 PI_AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
 PI_NPM_DIR="$PI_AGENT_DIR/npm"
+SHARED_SKILLS_DIR="${SHARED_SKILLS_DIR:-$HOME/.agents/skills}"
+SKILL_SOURCE_DIR="$REPO_ROOT/shared-skills"
 if [ -n "${BACKUP_DIR:-}" ]; then
   BACKUP_DIR_USER_SET=true
 else
@@ -26,6 +28,7 @@ RUN_NPM=true
 RUN_DOCTOR=true
 RUN_REPORT=true
 BACKUP_CREATED=false
+DEV_LINK_SKILLS=false
 
 usage() {
   cat <<'USAGE'
@@ -38,6 +41,10 @@ Options:
   -y, --yes            Non-interactive mode. Kept for automation; full install is default.
       --dry-run        Print actions without writing files.
       --agent-dir DIR  Install into DIR instead of ~/.pi/agent.
+      --skills-dir DIR Install shared skills into DIR instead of ~/.agents/skills.
+      --dev-link-skills
+                        Link skills into --skills-dir for local development.
+                        Default is copy/install, not symlink.
       --backup-dir DIR Write overwritten files into DIR.
       --no-npm         Skip npm package installation.
       --no-doctor      Skip scripts/pi67-doctor.sh after installation.
@@ -48,6 +55,8 @@ Design:
   pi-67 installs the full best-practice configuration by default. Missing API keys,
   local MCP repos, or optional binaries are not removed; doctor reports them as
   readiness warnings after installation.
+  Shared skills are installed into ~/.agents/skills so Pi and Codex use one
+  active skill registry. ~/.pi/agent is reserved for Pi runtime/config assets.
 USAGE
 }
 
@@ -68,6 +77,14 @@ while [ "$#" -gt 0 ]; do
         BACKUP_DIR="$PI_AGENT_DIR/backup-$(date +%Y%m%d-%H%M%S)"
       fi
       shift 2
+      ;;
+    --skills-dir)
+      SHARED_SKILLS_DIR="${2:?--skills-dir requires a path}"
+      shift 2
+      ;;
+    --dev-link-skills)
+      DEV_LINK_SKILLS=true
+      shift
       ;;
     --backup-dir)
       BACKUP_DIR="${2:?--backup-dir requires a path}"
@@ -262,6 +279,123 @@ verify_in_place_asset() {
   pass "tracked asset kept in place: $rel"
 }
 
+skill_dir_hash() {
+  local dir="$1"
+  if [ ! -d "$dir" ]; then
+    printf 'missing\n'
+    return
+  fi
+  if command -v shasum >/dev/null 2>&1; then
+    (
+      cd "$dir"
+      find . -type f -print | LC_ALL=C sort | while IFS= read -r file; do
+        printf '%s\n' "$file"
+        shasum -a 256 "$file" | awk '{print $1}'
+      done
+    ) | shasum -a 256 | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    (
+      cd "$dir"
+      find . -type f -print | LC_ALL=C sort | while IFS= read -r file; do
+        printf '%s\n' "$file"
+        sha256sum "$file" | awk '{print $1}'
+      done
+    ) | sha256sum | awk '{print $1}'
+  else
+    find "$dir" -type f -print | wc -l | awk '{print "files:" $1}'
+  fi
+}
+
+install_one_shared_skill() {
+  local src="$1"
+  local name dest src_hash dest_hash
+  name="$(basename "$src")"
+  dest="$SHARED_SKILLS_DIR/$name"
+
+  if [ ! -f "$src/SKILL.md" ]; then
+    warn "shared skill missing SKILL.md, skipped: $name"
+    return
+  fi
+
+  ensure_dir "$SHARED_SKILLS_DIR"
+
+  if [ -e "$dest" ] || [ -L "$dest" ]; then
+    src_hash="$(skill_dir_hash "$src")"
+    dest_hash="$(skill_dir_hash "$dest")"
+    if [ "$src_hash" = "$dest_hash" ] && [ "$dest_hash" != "missing" ]; then
+      pass "shared skill already installed: $name"
+      return
+    fi
+    say "  ${RED}FAIL${NC} shared skill conflict: $name" >&2
+    say "       existing: $dest" >&2
+    say "       source  : $src" >&2
+    say "       existing dir hash: $dest_hash" >&2
+    say "       source   dir hash: $src_hash" >&2
+    say "       resolve manually or choose a different --skills-dir; installer will not overwrite shared skills" >&2
+    exit 1
+  fi
+
+  if [ "$DEV_LINK_SKILLS" = true ]; then
+    if [ "$DRY_RUN" = true ]; then
+      say "  ${CYAN}DRY-RUN${NC} link $src -> $dest"
+    else
+      ln -s "$src" "$dest"
+    fi
+    pass "linked shared skill: $name -> $src"
+    return
+  fi
+
+  if [ "$DRY_RUN" = true ]; then
+    say "  ${CYAN}DRY-RUN${NC} copy $src -> $dest"
+  else
+    cp -R "$src" "$dest"
+  fi
+  pass "installed shared skill: $name"
+}
+
+install_shared_skills() {
+  say ""
+  say "${CYAN}--- shared skills ---${NC}"
+
+  if [ ! -d "$SKILL_SOURCE_DIR" ]; then
+    say "  ${RED}FAIL${NC} shared skill source missing: $SKILL_SOURCE_DIR" >&2
+    exit 1
+  fi
+
+  local found=false
+  while IFS= read -r skill_dir; do
+    found=true
+    install_one_shared_skill "$skill_dir"
+  done < <(find "$SKILL_SOURCE_DIR" -mindepth 1 -maxdepth 1 -type d -print | sort)
+
+  if [ "$found" != true ]; then
+    warn "no shared skills found in $SKILL_SOURCE_DIR"
+  else
+    pass "shared skills target: $SHARED_SKILLS_DIR"
+  fi
+}
+
+retire_legacy_agent_skills() {
+  local legacy="$PI_AGENT_DIR/skills"
+
+  if [ ! -e "$legacy" ] && [ ! -L "$legacy" ]; then
+    pass "no legacy active skill directory under agent dir"
+    return
+  fi
+
+  say ""
+  say "${CYAN}--- legacy skill root ---${NC}"
+
+  if [ "$INSTALL_MODE" = "in-place" ]; then
+    warn "legacy active skill root exists in in-place checkout and was left untouched: $legacy"
+    warn "remove it manually after confirming the same skills exist in $SHARED_SKILLS_DIR"
+    return
+  fi
+
+  backup_existing "$legacy" "skills"
+  warn "retired legacy active skill root into backup; $SHARED_SKILLS_DIR is canonical"
+}
+
 install_npm_packages() {
   if [ "$RUN_NPM" != true ]; then
     warn "npm package installation skipped by --no-npm"
@@ -307,11 +441,11 @@ run_doctor() {
   say ""
   say "${CYAN}--- pi-67 doctor ---${NC}"
   if [ "$DRY_RUN" = true ]; then
-    say "  ${CYAN}DRY-RUN${NC} $doctor --repo-root $REPO_ROOT --agent-dir $PI_AGENT_DIR"
+    say "  ${CYAN}DRY-RUN${NC} $doctor --repo-root $REPO_ROOT --agent-dir $PI_AGENT_DIR --skills-dir $SHARED_SKILLS_DIR"
     return
   fi
 
-  if bash "$doctor" --repo-root "$REPO_ROOT" --agent-dir "$PI_AGENT_DIR"; then
+  if bash "$doctor" --repo-root "$REPO_ROOT" --agent-dir "$PI_AGENT_DIR" --skills-dir "$SHARED_SKILLS_DIR"; then
     pass "doctor completed"
   else
     warn "doctor found blocking failures; fix the reported items and rerun scripts/pi67-doctor.sh"
@@ -333,11 +467,11 @@ write_report() {
   say ""
   say "${CYAN}--- pi-67 report ---${NC}"
   if [ "$DRY_RUN" = true ]; then
-    say "  ${CYAN}DRY-RUN${NC} $reporter --repo-root $REPO_ROOT --agent-dir $PI_AGENT_DIR --operation install"
+    say "  ${CYAN}DRY-RUN${NC} $reporter --repo-root $REPO_ROOT --agent-dir $PI_AGENT_DIR --skills-dir $SHARED_SKILLS_DIR --operation install"
     return
   fi
 
-  local args=("--repo-root" "$REPO_ROOT" "--agent-dir" "$PI_AGENT_DIR" "--operation" "install")
+  local args=("--repo-root" "$REPO_ROOT" "--agent-dir" "$PI_AGENT_DIR" "--skills-dir" "$SHARED_SKILLS_DIR" "--operation" "install")
   if [ "$RUN_DOCTOR" != true ]; then
     args+=("--no-doctor")
   fi
@@ -358,6 +492,7 @@ say "${CYAN}╚═════════════════════�
 say ""
 say "Repository : ${GREEN}$REPO_ROOT${NC}"
 say "Agent dir  : ${GREEN}$PI_AGENT_DIR${NC}"
+say "Skills dir : ${GREEN}$SHARED_SKILLS_DIR${NC}"
 if [ "$INSTALL_MODE" = "linked" ]; then
   say "Backup dir : ${GREEN}$BACKUP_DIR${NC}"
 fi
@@ -366,7 +501,7 @@ if [ "$INSTALL_MODE" = "in-place" ]; then
   say "Assets     : ${GREEN}tracked in current checkout${NC}"
 else
   say "Mode       : ${GREEN}linked install${NC}"
-  say "Assets     : ${GREEN}symlinked into agent dir${NC}"
+  say "Assets     : ${GREEN}symlinked into agent dir; shared skills copied to skills dir${NC}"
 fi
 if [ "$YES" = true ]; then
   say "Noninteractive: ${GREEN}yes${NC}"
@@ -392,7 +527,7 @@ if [ "$INSTALL_MODE" = "in-place" ]; then
   verify_in_place_asset "settings.json"
   verify_in_place_asset "AGENTS.md"
   verify_in_place_asset "extensions"
-  verify_in_place_asset "skills"
+  verify_in_place_asset "shared-skills"
   verify_in_place_asset "docs"
   verify_in_place_asset "prompts"
   verify_in_place_asset "rules"
@@ -403,13 +538,15 @@ else
   replace_with_symlink "settings.json" "settings.json"
   replace_with_symlink "AGENTS.md" "AGENTS.md"
   replace_with_symlink "extensions" "extensions"
-  replace_with_symlink "skills" "skills"
   replace_with_symlink "docs" "docs"
   replace_with_symlink "prompts" "prompts"
   replace_with_symlink "rules" "rules"
   replace_with_symlink "scripts" "scripts"
   replace_with_symlink "templates" "templates"
 fi
+
+install_shared_skills
+retire_legacy_agent_skills
 
 say ""
 say "${CYAN}--- local config templates ---${NC}"

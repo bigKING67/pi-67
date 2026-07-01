@@ -1,8 +1,17 @@
 # pi-67 skill governance
 
-`skills/` is part of the public pi-67 distribution. In the recommended in-place
-layout, these directories are tracked source under `~/.pi/agent/skills`; they
-are not symlinks into a private machine-specific skill root.
+`~/.agents/skills` is the canonical active skill registry shared by Pi and
+Codex. pi-67 stores its distributable skill source in `shared-skills/` and the
+installer copies those skills into `~/.agents/skills`.
+
+`~/.pi/agent/skills` is legacy. If it exists with active skills, treat it as a
+duplicate source and remove or back it up after confirming the same skills exist
+in `~/.agents/skills`.
+
+The installer handles linked installs by backing up `~/.pi/agent/skills` into
+the normal install backup directory. The update helper removes only old
+pi-67-owned skill symlinks; local non-symlink directories are preserved and
+reported so the user can review them manually.
 
 ## Classification
 
@@ -10,7 +19,7 @@ Use three buckets when migrating or reviewing skills.
 
 ### A. Public distribution skill
 
-Add a skill to `skills/` only when it is suitable for other machines:
+Add a skill to `shared-skills/` only when it is suitable for other machines:
 
 - no secrets, credentials, cookies, or private tokens
 - no personal absolute paths
@@ -29,34 +38,37 @@ for public distribution:
 - wraps a tool that is not part of the pi-67 distribution
 - is experimental or too narrow for shared release
 
-Use a local/private skill root or private repository for this class. Do not copy
-it into pi-67 just because it existed in an old runtime manifest.
+Use `~/.agents/skills` or a private repository for this class. Do not copy it
+into pi-67 just because it existed in an old runtime manifest.
 
 ### Package-owned external skill
 
-Keep a skill outside `pi-67/skills` when it has its own public source-of-truth
-repository and release cadence. Current package-owned skill sources:
+When a skill has its own public source-of-truth repository and release cadence,
+install the skill into the global active root instead of declaring it as an
+active Pi package:
 
 ```text
-git:github.com/bigKING67/design-craft@ae3f27e79893bf8a63fcfb6431842b557be7b46a
-git:github.com/bigKING67/browser67@ac15a5298d0afcba0ae5454e8b1bddb735ace830
+~/.agents/skills/design-craft
+~/.agents/skills/frontend-craft
+~/.agents/skills/tmwd-browser-mcp
+~/.agents/skills/js-reverse
 ```
 
-These packages are declared in `settings.json` and installed under ignored
-runtime package clones:
+Normal installs copy the skill directories into `~/.agents/skills`. Symlinks are
+only for local development when the maintainer wants live edits in a checkout to
+be visible immediately.
+
+If the same repository also provides MCP servers, keep that checkout/cache
+outside active skill roots and point `mcp.json` at the server files:
 
 ```text
-~/.pi/agent/git/github.com/bigKING67/design-craft
-~/.pi/agent/git/github.com/bigKING67/browser67
+~/.agents/packages/browser67/src/mcp/browser/server.mjs
+~/.agents/packages/browser67/src/mcp/js-reverse/server.mjs
 ```
 
-Do not vendor/copy their skills into `~/.pi/agent/skills`. Upgrade flow is:
-commit and push the upstream package repo first, then update the pinned
-`git:github.com/bigKING67/<repo>@<commit>` source in pi-67.
-
-MCP servers from `browser67` belong in local `mcp.json`, not in pi-67 skill
-directories. The tracked `mcp.example.json` points at the package clone's
-canonical `src/mcp/...` entrypoints.
+Do not install or expose the same skill name from both `~/.agents/skills` and
+`~/.pi/agent/git/.../skills`; Pi will de-duplicate, but the warning means the
+skill registry is no longer single-source.
 
 ### C. Stale or obsolete skill
 
@@ -66,7 +78,7 @@ manifest as evidence, but leave the skill out of the active distribution.
 
 ## Audit helper
 
-Use the audit helper to compare tracked skills with legacy manifests:
+Use the audit helper to compare pi-67 shared skills with legacy manifests:
 
 ```bash
 bash scripts/pi67-skill-audit.sh \

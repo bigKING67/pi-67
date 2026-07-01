@@ -1,4 +1,4 @@
-# js-reverse + TMWD 工具速查表
+# js-reverse + browser67 工具速查表
 
 > 按场景快速找到应该用哪个 MCP Server 的哪个工具
 
@@ -9,13 +9,13 @@
 ```
 MCP namespace:      mcp__<server>__<tool_name>
 js-reverse 直调:    js_reverse_<tool_name>        (蛇形)
-TMWD 直调:         通过 mcp({ tool, server }) 调用 (驼峰)
+browser67 直调:    通过 mcp({ tool, server }) 调用 (工具 key 当前为 tmwd_browser)
 ```
 
 **简单记法：**
-- 页面执行 / 交互 / 下载 / 登录态 → **tmwd**
+- 页面执行 / 交互 / 下载 / 登录态 → **browser67**
 - API 发现 / hook / 签名链路 / 浏览器状态 → **js-reverse**
-- 长任务 / 等待 / 分页 → **tmwd**（新增能力）
+- 长任务 / 等待 / 分页 → **browser67**
 
 ---
 
@@ -30,21 +30,21 @@ TMWD 直调:         通过 mcp({ tool, server }) 调用 (驼峰)
 | 切换到某个页面 | `js_reverse_select_page` | 通过 page_id 选定 |
 | 创建新标签页 | `js_reverse_new_page` | 打开新 tab |
 | 浏览器关闭/断开后重连 | `js_reverse_check_browser_health` | 自动尝试重连 |
-| 诊断 transport 健康度 | `mcp:browser_transport_health` | 新增，ws/link 分别诊断 |
+| 诊断 transport 健康度 | `mcp:browser_transport_health` | browser67 preflight，ws/link 分别诊断 |
 | 导航到 URL | `mcp:browser_tab_ops` | navigate 操作 |
 
-### 页面脚本执行（tmwd）
+### 页面脚本执行（browser67）
 
 | 我想做什么 | 工具 | 说明 |
 |------------|------|------|
 | 在页面执行 JS | `mcp:browser_execute_js` | 传 code 参数 |
-| 执行长任务（翻页采集） | `mcp:browser_background_task` | 新增，start/status/cancel |
-| 查看长任务进度 | `mcp:browser_background_task.status` | 轮询 |
-| 等待元素出现 | `mcp:browser_wait` | 新增，替代 setTimeout |
-| 翻页导航 | `mcp:browser_paginate` | 新增，处理双 pager/省略号 |
-| 点击/悬停/输入 | `mcp:browser_interact` | 新增，click/hover/type |
+| 执行长任务（翻页采集） | `mcp:browser_job_ops` | start/status/result/list/cancel；in-process、durable:false |
+| 查看长任务进度 | `mcp:browser_job_ops` | status/result 轮询；cancel 是 best-effort |
+| 等待元素出现 | `mcp:browser_wait` | 替代 setTimeout / 固定 sleep |
+| 翻页导航 | `mcp:browser_execute_js` + `mcp:browser_wait` | 不声明独立 paginate 工具 |
+| 点击/悬停/输入 | `mcp:browser_execute_js` / `mcp:browser_native_input` | 普通 DOM 动作走 JS；需真实输入才用 native |
 | 真实鼠标点击 | `mcp:browser_native_input` | 需要 x/y 坐标 |
-| 读 localStorage | `mcp:get_local_storage` | 新增，不写 JS 直接读 |
+| 读 localStorage | `js_reverse_get_storage` / `mcp:browser_execute_js` | scoped 读取；不要 dump 全量 storage |
 | DOM 截图/提取 | `mcp:browser_extract` | 提取页面内容 |
 | 下载文件 | `mcp:browser_download_ops` | save/download |
 | 刷新页面 | `mcp:browser_tab_lifecycle` | reload 操作 |
@@ -68,11 +68,12 @@ TMWD 直调:         通过 mcp({ tool, server }) 调用 (驼峰)
 
 | 我想做什么 | 工具 | 说明 |
 |------------|------|------|
-| 检测微前端框架 | `js_reverse_detect_microfrontends` | Garfish/qiankun/single-spa |
-| 注入 preload 脚本 | `js_reverse_inject_preload_script` | document_start 注入 |
-| 在子应用中执行 | `js_reverse_execute_in_subapp` | 在 iframe/sandbox 中执行 |
+| 建 frame tree | `js_reverse_list_frames` | 记录 frame id/url/origin/path；cross-origin 返回 degraded evidence |
+| 定位子应用脚本 | `js_reverse_list_scripts` / `js_reverse_search_in_scripts` | 结合 frame、script source、network/runtime marker 判断 |
+| 注入 preload 脚本 | `js_reverse_inject_preload_script` | 不是保证 true document_start；区分 current eval / next navigation / extension content script / remote CDP preload |
+| 无法 hook 子应用 | `js_reverse_record_reverse_evidence` | 明确 same-origin/cross-origin/sandbox/shadow DOM 限制与证据 |
 
-### 登录态 / 文件操作（tmwd）
+### 登录态 / 文件操作（browser67）
 
 | 我想做什么 | 工具 | 说明 |
 |------------|------|------|
@@ -98,9 +99,10 @@ TMWD 直调:         通过 mcp({ tool, server }) 调用 (驼峰)
 ```
 1. js_reverse_check_browser_health         → 确认浏览器就绪
 2. js_reverse_select_page                  → 选目标页面
-3. mcp:browser_background_task.start       → 启动采集脚本
-4. mcp:browser_background_task.status × N  → 轮询进度
-5. [超时] mcp:get_local_storage            → 直接读 localStorage 确认
+3. mcp:browser_job_ops start              → 启动采集脚本
+4. mcp:browser_job_ops status/result × N  → 轮询进度
+5. [超时] js_reverse_get_storage 或
+   mcp:browser_execute_js(scoped read)    → 读取必要 storage key
 6. mcp:browser_execute_js(merge_export)    → 导出 JSON
 7. js_reverse_finalize_task                → 清理
 ```
@@ -121,9 +123,9 @@ TMWD 直调:         通过 mcp({ tool, server }) 调用 (驼峰)
 
 ```
 1. js_reverse_select_page                  → 选目标页面
-2. js_reverse_detect_microfrontends        → 检测框架类型
-3. js_reverse_inject_preload_script        → document_start 注入
-4. js_reverse_execute_in_subapp            → 在子应用内执行
-5. [如果不支持 MAIN world]
+2. js_reverse_list_frames                  → 建 frame tree
+3. js_reverse_list_scripts/search          → 定位子应用脚本/容器线索
+4. js_reverse_inject_preload_script        → 首屏采样；不宣称 true document_start
+5. [如果 frame/sandbox/shadow DOM 不可 hook]
    → 接受 degraded 结果，或用 network_hook_collect 模板
 ```

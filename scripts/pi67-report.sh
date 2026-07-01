@@ -7,6 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PI_AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
+SHARED_SKILLS_DIR="${SHARED_SKILLS_DIR:-$HOME/.agents/skills}"
 OPERATION="manual"
 OUTPUT=""
 RUN_DOCTOR=true
@@ -25,6 +26,7 @@ Usage:
 Options:
       --repo-root DIR       pi-67 checkout. Defaults to parent of this script.
       --agent-dir DIR       Pi agent dir. Defaults to ~/.pi/agent.
+      --skills-dir DIR      Shared skill root. Defaults to ~/.agents/skills.
       --operation NAME      Report operation: install, update, manual. Defaults to manual.
       --output FILE         Output path. Defaults to ~/.pi/agent/pi67-report.json.
       --no-doctor           Do not run doctor; mark doctor as skipped.
@@ -49,6 +51,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --agent-dir)
       PI_AGENT_DIR="${2:?--agent-dir requires a path}"
+      shift 2
+      ;;
+    --skills-dir)
+      SHARED_SKILLS_DIR="${2:?--skills-dir requires a path}"
       shift 2
       ;;
     --operation)
@@ -107,13 +113,13 @@ fi
 
 mkdir -p "$(dirname "$OUTPUT")"
 
-node - "$REPO_ROOT" "$PI_AGENT_DIR" "$OPERATION" "$OUTPUT" "$RUN_DOCTOR" "$DOCTOR_TIMEOUT_MS" "$DOCTOR_DEEP_MCP" "$MCP_TIMEOUT_MS" <<'NODE'
+node - "$REPO_ROOT" "$PI_AGENT_DIR" "$SHARED_SKILLS_DIR" "$OPERATION" "$OUTPUT" "$RUN_DOCTOR" "$DOCTOR_TIMEOUT_MS" "$DOCTOR_DEEP_MCP" "$MCP_TIMEOUT_MS" <<'NODE'
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { spawnSync } = require("child_process");
 
-const [, , repoRoot, agentDir, operation, output, runDoctorArg, doctorTimeoutMsArg, doctorDeepMcpArg, mcpTimeoutMs] = process.argv;
+const [, , repoRoot, agentDir, sharedSkillsDir, operation, output, runDoctorArg, doctorTimeoutMsArg, doctorDeepMcpArg, mcpTimeoutMs] = process.argv;
 const runDoctor = runDoctorArg === "true";
 const doctorTimeoutMs = Number(doctorTimeoutMsArg || "90000");
 const doctorDeepMcp = doctorDeepMcpArg === "true";
@@ -223,7 +229,7 @@ function runDoctorJson() {
     };
   }
 
-  const args = [doctor, "--repo-root", repoRoot, "--agent-dir", agentDir, "--json"];
+  const args = [doctor, "--repo-root", repoRoot, "--agent-dir", agentDir, "--skills-dir", sharedSkillsDir, "--json"];
   if (doctorDeepMcp) {
     args.push("--deep-mcp", "--mcp-timeout-ms", String(mcpTimeoutMs || "2500"));
   }
@@ -261,37 +267,71 @@ function readJsonFromText(text) {
   }
 }
 
-function pinnedCommitFromSpec(spec) {
-  const match = String(spec || "").match(/@([0-9a-f]{7,40})$/i);
-  return match ? match[1] : null;
+function readSkillNames(dir) {
+  try {
+    return fs.readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+      .map((entry) => entry.name)
+      .filter((name) => fs.existsSync(path.join(dir, name, "SKILL.md")))
+      .sort((a, b) => a.localeCompare(b));
+  } catch {
+    return [];
+  }
 }
 
-function packageHead(dir) {
-  const result = command("git", ["-C", dir, "rev-parse", "HEAD"], { cwd: repoRoot, timeout: 5000 });
-  return result.ok ? result.stdout : null;
+function intersection(left, right) {
+  const rightSet = new Set(right);
+  return left.filter((item) => rightSet.has(item));
 }
 
-function externalPackageState(settings, pkg) {
+function sharedSkillState(settings) {
+  const sourceDir = path.join(repoRoot, "shared-skills");
+  const sourceSkills = readSkillNames(sourceDir);
+  const installedSkills = readSkillNames(sharedSkillsDir);
+  const missingInstalled = sourceSkills.filter((name) => !installedSkills.includes(name));
+  const legacyAgentSkillsDir = path.join(agentDir, "skills");
+  const legacyAgentSkills = readSkillNames(legacyAgentSkillsDir);
+  const packageRoots = [
+    path.join(agentDir, "git", "github.com", "bigKING67", "design-craft", "skills"),
+    path.join(agentDir, "git", "github.com", "bigKING67", "browser67", "skills"),
+  ];
+  const duplicateRoots = [];
+
+  if (legacyAgentSkills.length > 0) {
+    duplicateRoots.push({
+      root: legacyAgentSkillsDir,
+      names: legacyAgentSkills,
+      duplicateNames: intersection(legacyAgentSkills, installedSkills),
+    });
+  }
+
+  for (const root of packageRoots) {
+    const names = readSkillNames(root);
+    if (names.length > 0) {
+      duplicateRoots.push({
+        root,
+        names,
+        duplicateNames: intersection(names, installedSkills),
+      });
+    }
+  }
+
   const packages = Array.isArray(settings?.packages) ? settings.packages : [];
-  const sourceNeedle = `github.com/bigKING67/${pkg.repo}`;
-  const source = packages.find((item) => String(item).includes(sourceNeedle)) || null;
-  const cloneDir = path.join(agentDir, "git", "github.com", "bigKING67", pkg.repo);
-  const exists = fs.existsSync(cloneDir);
-  const missingFiles = exists
-    ? pkg.files.filter((rel) => !fs.existsSync(path.join(cloneDir, rel)))
-    : pkg.files.slice();
-  const head = exists ? packageHead(cloneDir) : null;
+  const activeSkillPackageSources = packages.filter((item) => {
+    const value = String(item);
+    return value.includes("github.com/bigKING67/design-craft") || value.includes("github.com/bigKING67/browser67");
+  });
 
   return {
-    name: pkg.name,
-    source,
-    declared: Boolean(source),
-    pinnedCommit: pinnedCommitFromSpec(source),
-    installPath: cloneDir,
-    installed: exists,
-    headCommit: head,
-    expectedFiles: pkg.files,
-    missingFiles,
+    canonicalRoot: sharedSkillsDir,
+    sourceDir,
+    sourceCount: sourceSkills.length,
+    installedCount: installedSkills.length,
+    sourceSkills,
+    installedSkills,
+    missingInstalled,
+    duplicateRoots,
+    activeSkillPackageSources,
   };
 }
 
@@ -303,29 +343,7 @@ const commit = git(["rev-parse", "HEAD"]);
 const shortCommit = git(["rev-parse", "--short", "HEAD"]);
 const dirty = git(["status", "--porcelain=v1", "--untracked-files=all"]);
 const remote = git(["remote", "get-url", "origin"]);
-const externalPackageSpecs = [
-  {
-    name: "design-craft",
-    repo: "design-craft",
-    files: [
-      "package.json",
-      "skills/design-craft/SKILL.md",
-      "skills/frontend-craft/SKILL.md",
-    ],
-  },
-  {
-    name: "browser67",
-    repo: "browser67",
-    files: [
-      "package.json",
-      "skills/browser67/SKILL.md",
-      "skills/tmwd-browser-mcp/SKILL.md",
-      "skills/js-reverse/SKILL.md",
-      "src/mcp/browser/server.mjs",
-      "src/mcp/js-reverse/server.mjs",
-    ],
-  },
-];
+const sharedSkills = sharedSkillState(settingsJson);
 
 const report = {
   schemaVersion: 2,
@@ -358,7 +376,9 @@ const report = {
     dirty: dirty.ok ? dirty.stdout.length > 0 : null,
     remote: remote.ok ? remote.stdout : null,
   },
-  externalPackages: externalPackageSpecs.map((pkg) => externalPackageState(settingsJson, pkg)),
+  sharedSkillsRoot: sharedSkillsDir,
+  sharedSkills,
+  externalPackages: [],
   agent: {
     dir: agentDir,
     installMode,
@@ -368,7 +388,8 @@ const report = {
       agents: fileState(path.join(agentDir, "AGENTS.md"), "AGENTS.md"),
       rules: fileState(path.join(agentDir, "rules"), "rules"),
       prompts: fileState(path.join(agentDir, "prompts"), "prompts"),
-      skills: fileState(path.join(agentDir, "skills"), "skills"),
+      sharedSkillsSource: fileState(path.join(repoRoot, "shared-skills"), "shared-skills"),
+      legacyAgentSkills: fileState(path.join(agentDir, "skills"), "skills"),
       scripts: fileState(path.join(agentDir, "scripts"), "scripts"),
       models: fileState(path.join(agentDir, "models.json"), "models.json"),
       mcp: fileState(path.join(agentDir, "mcp.json"), "mcp.json"),

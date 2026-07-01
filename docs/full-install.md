@@ -7,7 +7,7 @@ Default installation deploys the complete configuration:
 - `AGENTS.md` kernel
 - `rules/`
 - `prompts/`
-- `skills/`
+- `shared-skills/` copied into `~/.agents/skills`
 - `extensions/`
 - `docs/`
 - `templates/`
@@ -15,7 +15,6 @@ Default installation deploys the complete configuration:
 - `settings.json`
 - local config templates for `models.json`, `mcp.json`, `auth.json`, and `image-gen.json`
 - npm packages listed in `package.json`
-- pinned external Pi skill packages from `design-craft` and `browser67`
 
 Missing API keys, local MCP repositories, or optional binaries are expected on a fresh machine. The installer does not remove those capabilities. Instead, run `pi67-doctor.sh` to see which capabilities are ready and which need local setup.
 
@@ -63,6 +62,15 @@ Install into a custom Pi agent directory:
 ./install.sh --agent-dir /path/to/.pi/agent
 ```
 
+Install shared skills into a custom global skill root:
+
+```bash
+./install.sh --skills-dir /path/to/.agents/skills
+```
+
+`--dev-link-skills` is available for local skill development. Normal user
+installation copies skills and does not create skill symlinks.
+
 ## What the installer does
 
 1. Checks that `pi` exists.
@@ -70,31 +78,51 @@ Install into a custom Pi agent directory:
 3. Detects install mode:
    - `in-place`: repository root and agent dir are the same path.
    - `linked`: repository root is outside the agent dir.
-4. In `in-place`, verifies tracked assets in the current checkout. In `linked`, backs up overwritten files/directories and symlinks the full pi-67 asset set into `~/.pi/agent`.
-5. Copies `.example` config files only when local config files do not already exist.
-6. Installs npm packages into `~/.pi/agent/npm`.
-7. Runs `scripts/pi67-doctor.sh`.
-8. Writes `~/.pi/agent/pi67-report.json`.
+4. In `in-place`, verifies tracked assets in the current checkout. In `linked`, backs up overwritten files/directories and symlinks Pi runtime assets into `~/.pi/agent`.
+5. Copies `shared-skills/` into `~/.agents/skills` unless an identical skill already exists.
+6. Stops on a shared skill name conflict instead of overwriting user/global skills.
+7. Retires legacy `~/.pi/agent/skills` in linked installs by moving it into the installer backup directory.
+8. Copies `.example` config files only when local config files do not already exist.
+9. Installs npm packages into `~/.pi/agent/npm`.
+10. Runs `scripts/pi67-doctor.sh`.
+11. Writes `~/.pi/agent/pi67-report.json`.
 
 The installer is intentionally full-by-default. It does not ask users to choose a minimal profile.
 
-## External skill packages
+## Shared skills
 
-pi-67 keeps only pi-67-owned skills in `skills/`. Productized external skills are installed as Pi packages from their own source repositories:
+`~/.agents/skills` is the canonical active skill registry shared by Pi and
+Codex. The repository stores pi-67-owned distributable skills in
+`shared-skills/`; the installer copies them into `~/.agents/skills`.
+
+Productized external skills such as `design-craft`, `frontend-craft`,
+`tmwd-browser-mcp`, and `js-reverse` should also be installed into
+`~/.agents/skills`:
 
 ```text
-git:github.com/bigKING67/design-craft@ae3f27e79893bf8a63fcfb6431842b557be7b46a
-git:github.com/bigKING67/browser67@ac15a5298d0afcba0ae5454e8b1bddb735ace830
+~/.agents/skills/design-craft
+~/.agents/skills/frontend-craft
+~/.agents/skills/tmwd-browser-mcp
+~/.agents/skills/js-reverse
 ```
 
-Expected package clone locations after Pi installs them:
+Do not declare those skill repositories as active Pi packages when their skills
+are already installed globally; that creates duplicate skill names. If a repo
+also provides MCP servers, keep the source checkout/package cache outside the
+Pi active skill roots and point `mcp.json` at its server entrypoints.
+
+If an old linked install left `~/.pi/agent/skills`, rerun the installer. It
+will move that legacy active root into the normal backup directory after the
+shared skills are installed. For in-place checkouts, remove legacy skill roots
+manually after verifying `~/.agents/skills` contains the same skills.
 
 ```text
-~/.pi/agent/git/github.com/bigKING67/design-craft
-~/.pi/agent/git/github.com/bigKING67/browser67
+~/.agents/packages/browser67/src/mcp/browser/server.mjs
+~/.agents/packages/browser67/src/mcp/js-reverse/server.mjs
 ```
 
-`~/.pi/agent/git/` is ignored runtime state. Do not copy package-owned skills back into `pi-67/skills`; upgrade them by changing the pinned package source after the upstream repo is committed and pushed.
+Use `scripts/pi67-configure.sh --tmwd-repo /path/to/browser67` to point MCP at
+a local browser67 checkout.
 
 ## Install/update report
 
@@ -110,7 +138,7 @@ The report includes:
 
 - pi-67 version and package version
 - repository branch, commit, dirty state, and origin URL
-- external Pi package declaration/install state
+- shared skill source/install/duplicate state
 - agent directory file states
 - runtime versions for Node/npm/Pi
 - doctor JSON result, unless doctor was skipped

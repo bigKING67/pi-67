@@ -21,8 +21,6 @@
     "npm:@narumitw/pi-plan-mode",
     "npm:@feniix/pi-sequential-thinking",
     "git:github.com/justhil/pi-image-gen",
-    "git:github.com/bigKING67/design-craft@ae3f27e79893bf8a63fcfb6431842b557be7b46a",
-    "git:github.com/bigKING67/browser67@7241fca37b5a7b038e9fb734d8c495d47aa538d3",
     "npm:@narumitw/pi-btw",
     "git:github.com/arpagon/pi-rewind",
     "npm:pi-mcp-adapter",

@@ -46,7 +46,9 @@ Compatibility rule:
 | `diagnostics` | object | stable | Reporter diagnostic parameters. |
 | `installMode` | string | stable | `in-place` when the repo root is the agent dir; otherwise `linked`. |
 | `repository` | object | stable | pi-67 checkout state. |
-| `externalPackages` | array | stable | Declared and installed state for package-owned external skills. |
+| `sharedSkillsRoot` | string | stable | Canonical active skill root, normally `~/.agents/skills`. |
+| `sharedSkills` | object | stable | Shared skill source/install/duplicate state. |
+| `externalPackages` | array | deprecated | Always empty under shared skill governance. Kept for compatibility. |
 | `agent` | object | stable | Pi agent directory state. |
 | `runtime` | object | stable | Local runtime versions. |
 | `doctor` | object | passthrough | Doctor JSON result (`pi67-doctor/v2`) or reporter parse/skip diagnostics. |
@@ -108,27 +110,32 @@ This block is intentionally explicit so downstream tools do not assume report hi
 
 `dirty` is derived from `git status --porcelain=v1 --untracked-files=all`.
 
-## `externalPackages`
+## `sharedSkills`
 
 ```json
-[
-  {
-    "name": "browser67",
-    "source": "git:github.com/bigKING67/browser67@ac15a5298d0afcba0ae5454e8b1bddb735ace830",
-    "declared": true,
-    "pinnedCommit": "ac15a5298d0afcba0ae5454e8b1bddb735ace830",
-    "installPath": "~/.pi/agent/git/github.com/bigKING67/browser67",
-    "installed": true,
-    "headCommit": "ac15a5298d0afcba0ae5454e8b1bddb735ace830",
-    "expectedFiles": ["package.json"],
-    "missingFiles": []
-  }
-]
+{
+  "canonicalRoot": "~/.agents/skills",
+  "sourceDir": "/path/to/pi-67/shared-skills",
+  "sourceCount": 31,
+  "installedCount": 31,
+  "sourceSkills": ["lark-base"],
+  "installedSkills": ["lark-base"],
+  "missingInstalled": [],
+  "duplicateRoots": [],
+  "activeSkillPackageSources": []
+}
 ```
 
-This block is intentionally metadata-only. It records whether pi-67 declares
-the package source and whether the ignored package clone appears structurally
-complete. It does not include package logs or private runtime state.
+`missingInstalled` should be empty after install/update. `duplicateRoots`
+reports legacy active roots such as `~/.pi/agent/skills` or package clone
+`skills/` directories when they overlap with the canonical global root.
+`activeSkillPackageSources` should be empty; skill repositories are installed
+into `~/.agents/skills` instead of declared as active Pi packages.
+
+## `externalPackages`
+
+This field is kept as an empty array for compatibility with older consumers.
+Do not use it for shared skill readiness; read `sharedSkills` instead.
 
 ## `agent`
 
@@ -142,7 +149,8 @@ complete. It does not include package logs or private runtime state.
     "agents": { "exists": true, "type": "file", "classification": "tracked_file" },
     "rules": { "exists": true, "type": "directory", "classification": "tracked_dir" },
     "prompts": { "exists": true, "type": "directory", "classification": "tracked_dir" },
-    "skills": { "exists": true, "type": "directory", "classification": "tracked_dir" },
+    "sharedSkillsSource": { "exists": true, "type": "directory", "classification": "tracked_dir" },
+    "legacyAgentSkills": { "exists": false, "type": "missing", "classification": "missing" },
     "scripts": { "exists": true, "type": "directory", "classification": "tracked_dir" },
     "models": { "exists": true, "type": "file", "classification": "local_file" },
     "mcp": { "exists": true, "type": "file", "classification": "local_file" },

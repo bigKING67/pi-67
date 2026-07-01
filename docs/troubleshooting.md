@@ -158,30 +158,40 @@ Preview first if you are unsure:
 bash ~/.pi/agent/scripts/pi67-configure.sh --dry-run --no-prompt
 ```
 
-## External package warnings
+## Shared skill warnings
 
-Warnings like these mean `settings.json` declares the package, but Pi has not materialized the ignored package clone yet:
+Warnings like these mean a skill exists in more than one active source:
 
 ```text
-external package declared but not installed yet: design-craft
-external package declared but not installed yet: browser67
+legacy ~/.pi/agent/skills duplicates shared skills
+settings.json still declares active skill package source
+package skill cache duplicates shared skills and should not be active
 ```
 
-Install the pinned packages from `settings.json`:
+Canonical active skills live in:
+
+```text
+~/.agents/skills
+```
+
+Fix by installing/copying the desired skill into `~/.agents/skills` and removing
+the duplicate active declaration or legacy directory. For pi-67-owned skills,
+rerun:
 
 ```bash
-pi install git:github.com/bigKING67/design-craft@ae3f27e79893bf8a63fcfb6431842b557be7b46a
-pi install git:github.com/bigKING67/browser67@ac15a5298d0afcba0ae5454e8b1bddb735ace830
+bash ~/.pi/agent/install.sh --no-npm
 ```
 
-Expected ignored runtime paths:
+On old linked installs, the installer moves legacy `~/.pi/agent/skills` into
+the normal backup directory. In in-place checkouts, remove that legacy directory
+manually only after confirming the same skills are present in `~/.agents/skills`.
 
-```text
-~/.pi/agent/git/github.com/bigKING67/design-craft
-~/.pi/agent/git/github.com/bigKING67/browser67
+For browser67 MCP, keep the source checkout/cache outside active skill roots and
+configure `mcp.json` with:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-configure.sh --tmwd-repo "/path/to/browser67" --no-prompt
 ```
-
-Do not copy those package-owned skills into `~/.pi/agent/skills`; keep upstream ownership in `design-craft` and `browser67`.
 
 ## Deep MCP probe warnings
 
@@ -231,6 +241,7 @@ Then check:
 
 ```text
 ~/.pi/agent/skills
+~/.agents/skills
 ~/.pi/agent/npm
 ~/.pi/agent/npm/node_modules
 ```

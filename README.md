@@ -26,40 +26,47 @@
 
 | 类别 | 内容 | 说明 |
 |------|------|------|
-| **核心配置** | `settings.json` | 默认 provider/model、19 个 Pi package 列表 |
+| **核心配置** | `settings.json` | 默认 provider/model、Pi package 列表 |
 | **模型配置** | `models.example.json` | xtalpi / xtalpi-tools / codex 三 provider 模板 |
 | **MCP** | `mcp.example.json` | browser67 tmwd_browser、js-reverse、agent_memory 模板 |
 | **全局内核** | `AGENTS.md` | Pi 常驻行为规范（v1.4-pi kernel） |
 | **Rules** | `rules/` (8 篇) | 质量、架构、结构、性能、前端、浏览器、上下文、数据质量规则 |
 | **自定义扩展** | `extensions/` (2 个) | `xtalpi-compat` + `pi-rules-loader` |
-| **Skills** | `skills/` (31 个) | lark 飞书全系列 + 前端设计/输出/重设计技能 |
+| **Shared Skills** | `shared-skills/` (31 个) | 安装到 `~/.agents/skills`，供 Pi/Codex 共用 |
 | **Skill 治理** | `docs/skill-governance.md` | skill 公开发行 / 个人 overlay / 过期治理规则 |
 | **文档** | `docs/` | 全量安装、doctor/report/status schema、排障、发布流程、MCP 优化、爬虫指南、工具速查、xtalpi 配置 |
 | **Prompts** | `prompts/` (5 个) | debug、deliver、frontend-kickoff、review、scoped-commit |
 | **脚本** | `scripts/` | configure、doctor、report、status、skill-audit、release、release-check、smoke、update、restore、uninstall、xtalpi 工具冒烟测试 |
 | **模板** | `templates/scrapers/` | 采集/合并/轮询相关脚本模板 |
 
-## 外部 skill package
+## Shared skill registry
 
-pi-67 只维护自己的基础发行资产；`design-craft` 和 `browser67` 是独立来源仓，不再复制进 `pi-67/skills`：
+pi-67 的共享 skill 统一安装到全局 active root：
 
 ```text
-git:github.com/bigKING67/design-craft@ae3f27e79893bf8a63fcfb6431842b557be7b46a
-git:github.com/bigKING67/browser67@ac15a5298d0afcba0ae5454e8b1bddb735ace830
+~/.agents/skills
 ```
 
-安装后 Pi 会把这些包放在 ignored runtime 目录：
+Pi 和 Codex 都从这里发现共享 skill；`~/.pi/agent` 只保存 Pi 的
+`AGENTS.md`、rules、prompts、extensions、scripts、MCP/config 模板和运行态。
+仓库里的 `shared-skills/` 是发布源，安装器默认复制到 `~/.agents/skills`。
+`--dev-link-skills` 只用于本机开发模式，普通安装不使用 symlink。
+
+来自独立仓库的 skill 也应安装到同一个全局 root：
 
 ```text
-~/.pi/agent/git/github.com/bigKING67/design-craft
-~/.pi/agent/git/github.com/bigKING67/browser67
+~/.agents/skills/design-craft
+~/.agents/skills/frontend-craft
+~/.agents/skills/tmwd-browser-mcp
+~/.agents/skills/js-reverse
 ```
 
 因此长期规则是：
 
-- `~/.pi/agent/skills`：只放 pi-67 自身公开发行的 tracked skills。
-- `design-craft` / `browser67`：通过 `settings.json` 的 Pi package pin 安装和升级。
-- browser67 MCP：只在本机 ignored `mcp.json` 里配置路径；默认模板指向 package clone 下的 `src/mcp/...` 入口。
+- `~/.agents/skills`：唯一跨 agent active skill registry。
+- `~/.pi/agent/skills`：不再使用；出现时视为 legacy duplicate。
+- `design-craft` / `browser67`：不要作为 Pi active package 重复声明；普通用户把其中的 skills 安装到 `~/.agents/skills`。
+- browser67 MCP：在本机 ignored `mcp.json` 里配置源码路径；默认模板指向 `~/.agents/packages/browser67/src/mcp/...`，也可用 `pi67-configure --tmwd-repo` 改到任意 checkout。
 
 ## 快速开始
 
@@ -81,7 +88,7 @@ cd ~/.pi/agent
 ./install.sh --agent-dir "$PWD"
 ```
 
-这种模式下不会创建 symlink；`AGENTS.md`、`rules/`、`skills/`、`scripts/` 等都是当前 checkout 的 tracked assets。`models.json`、`mcp.json`、`auth.json`、`image-gen.json`、`sessions/`、`npm/` 等本机运行态会被 ignored。
+这种模式下不会把 Pi runtime 资产创建成 symlink；`AGENTS.md`、`rules/`、`shared-skills/`、`scripts/` 等都是当前 checkout 的 tracked assets。安装器会把 `shared-skills/` 复制到 `~/.agents/skills`。`models.json`、`mcp.json`、`auth.json`、`image-gen.json`、`sessions/`、`npm/` 等本机运行态会被 ignored。
 
 长期维护流：
 
@@ -271,7 +278,7 @@ pi-67/
 │   ├── performance.md
 │   ├── project-structure.md
 │   └── quality.md
-├── skills/                         # 31 个 Skills
+├── shared-skills/                  # 31 个共享 Skills，安装到 ~/.agents/skills
 │   ├── lark-*                      # 飞书全系列
 │   ├── full-output-enforcement/
 │   ├── high-end-visual-design/

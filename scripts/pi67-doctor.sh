@@ -14,6 +14,7 @@ NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PI_AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
+SHARED_SKILLS_DIR="${SHARED_SKILLS_DIR:-$HOME/.agents/skills}"
 RUN_SKILL_LIST=true
 OUTPUT_FORMAT="text"
 QUIET=false
@@ -41,6 +42,7 @@ Usage:
 Options:
       --repo-root DIR      Repository root. Defaults to parent of this script.
       --agent-dir DIR      Pi agent dir. Defaults to ~/.pi/agent.
+      --skills-dir DIR     Shared skill root. Defaults to ~/.agents/skills.
       --no-skill-list      Skip `pi skill list`.
       --deep-mcp           Start configured MCP servers briefly and probe initialize + tools/list.
       --mcp-timeout-ms MS  Timeout per MCP deep probe. Defaults to 2500.
@@ -58,6 +60,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --agent-dir)
       PI_AGENT_DIR="${2:?--agent-dir requires a path}"
+      shift 2
+      ;;
+    --skills-dir)
+      SHARED_SKILLS_DIR="${2:?--skills-dir requires a path}"
       shift 2
       ;;
     --no-skill-list)
@@ -350,6 +356,11 @@ check_prompt_placeholders() {
 
 run_node_report() {
   local script="$1"
+  shift
+  local args=("$@")
+  if [ "${#args[@]}" -eq 0 ]; then
+    args=("$REPO_ROOT" "$PI_AGENT_DIR")
+  fi
   if ! command_exists node; then
     fail "node is required for this check"
     return
@@ -363,7 +374,7 @@ run_node_report() {
       "") ;;
       *) warn "$level|$message" ;;
     esac
-  done < <(node "$script" "$REPO_ROOT" "$PI_AGENT_DIR")
+  done < <(node "$script" "${args[@]}")
 }
 
 check_provider_model() {
@@ -420,14 +431,14 @@ NODE
   rm -f "$tmp"
 }
 
-check_external_packages() {
+check_shared_skills() {
   local tmp
   tmp="$(mktemp)"
   cat > "$tmp" <<'NODE'
 const fs = require("fs");
+const crypto = require("crypto");
 const path = require("path");
-const { execFileSync } = require("child_process");
-const [, , repoRoot, agentDir] = process.argv;
+const [, , repoRoot, agentDir, sharedSkillsDir] = process.argv;
 
 function emit(level, message) {
   console.log(`${level}|${message}`);
@@ -442,21 +453,59 @@ function readJson(file) {
   }
 }
 
-function pinnedCommitFromSpec(spec) {
-  const match = String(spec || "").match(/@([0-9a-f]{7,40})$/i);
-  return match ? match[1] : "";
+function readSkillNames(dir) {
+  try {
+    return fs.readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+      .map((entry) => entry.name)
+      .filter((name) => fs.existsSync(path.join(dir, name, "SKILL.md")))
+      .sort((a, b) => a.localeCompare(b));
+  } catch {
+    return [];
+  }
 }
 
-function gitHead(dir) {
+function intersection(left, right) {
+  const rightSet = new Set(right);
+  return left.filter((item) => rightSet.has(item));
+}
+
+function collectFileHashes(dir, base = dir, output = []) {
+  let entries = [];
   try {
-    return execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 5000,
-    }).trim();
+    entries = fs.readdirSync(dir, { withFileTypes: true });
   } catch {
-    return "";
+    return output;
   }
+
+  entries.sort((a, b) => a.name.localeCompare(b.name));
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    let stat;
+    try {
+      stat = fs.statSync(full);
+    } catch {
+      continue;
+    }
+    if (stat.isDirectory()) {
+      collectFileHashes(full, base, output);
+    } else if (stat.isFile()) {
+      const relative = path.relative(base, full).split(path.sep).join("/");
+      const fileHash = crypto.createHash("sha256").update(fs.readFileSync(full)).digest("hex");
+      output.push(`${relative}\0${fileHash}`);
+    }
+  }
+  return output;
+}
+
+function skillDirFingerprint(dir) {
+  if (!fs.existsSync(path.join(dir, "SKILL.md"))) return "missing";
+  const hash = crypto.createHash("sha256");
+  for (const item of collectFileHashes(dir)) {
+    hash.update(item);
+    hash.update("\0");
+  }
+  return hash.digest("hex");
 }
 
 const settings = readJson(path.join(agentDir, "settings.json"));
@@ -467,70 +516,79 @@ if (!Array.isArray(settings.packages)) {
   process.exit(0);
 }
 
-const required = [
-  {
-    name: "design-craft",
-    repo: "design-craft",
-    files: [
-      "package.json",
-      "skills/design-craft/SKILL.md",
-      "skills/frontend-craft/SKILL.md",
-    ],
-  },
-  {
-    name: "browser67",
-    repo: "browser67",
-    files: [
-      "package.json",
-      "skills/browser67/SKILL.md",
-      "skills/tmwd-browser-mcp/SKILL.md",
-      "skills/js-reverse/SKILL.md",
-      "src/mcp/browser/server.mjs",
-      "src/mcp/js-reverse/server.mjs",
-    ],
-  },
+const bannedSkillPackageSources = [
+  "github.com/bigKING67/design-craft",
+  "github.com/bigKING67/browser67",
 ];
-
-for (const pkg of required) {
-  const sourceNeedle = `github.com/bigKING67/${pkg.repo}`;
+for (const sourceNeedle of bannedSkillPackageSources) {
   const spec = settings.packages.find((item) => String(item).includes(sourceNeedle));
-  if (!spec) {
-    emit("FAIL", `settings.json missing required external package: ${sourceNeedle}`);
-    continue;
+  if (spec) {
+    emit("FAIL", `settings.json still declares active skill package source: ${spec}`);
   }
+}
 
-  emit("PASS", `external package declared: ${pkg.name}`);
-  const pinned = pinnedCommitFromSpec(spec);
-  if (pinned) {
-    emit("PASS", `external package pinned: ${pkg.name}@${pinned.slice(0, 12)}`);
+const sourceDir = path.join(repoRoot, "shared-skills");
+const sourceSkills = readSkillNames(sourceDir);
+const sharedSkills = readSkillNames(sharedSkillsDir);
+
+if (sourceSkills.length === 0) {
+  emit("FAIL", `shared skill source has no skills: ${sourceDir}`);
+} else {
+  emit("PASS", `shared skill source available: ${sourceSkills.length} skills`);
+}
+
+if (sharedSkills.length === 0) {
+  emit("FAIL", `shared skill root has no installed skills: ${sharedSkillsDir}`);
+} else {
+  emit("PASS", `shared skill root available: ${sharedSkillsDir} (${sharedSkills.length} skills)`);
+}
+
+const missing = sourceSkills.filter((name) => !sharedSkills.includes(name));
+if (missing.length > 0) {
+  emit("FAIL", `shared skills not installed in ${sharedSkillsDir}: ${missing.join(", ")}`);
+} else if (sourceSkills.length > 0) {
+  emit("PASS", "all pi-67 shared skills are installed in the shared skill root");
+}
+
+const mismatched = sourceSkills
+  .filter((name) => sharedSkills.includes(name))
+  .filter((name) => {
+    const sourceHash = skillDirFingerprint(path.join(sourceDir, name));
+    const installedHash = skillDirFingerprint(path.join(sharedSkillsDir, name));
+    return sourceHash !== installedHash;
+  });
+if (mismatched.length > 0) {
+  emit("FAIL", `shared skill contents differ from pi-67 source: ${mismatched.join(", ")}`);
+} else if (sourceSkills.length > 0 && missing.length === 0) {
+  emit("PASS", "all pi-67 shared skill contents match the shared skill root");
+}
+
+const legacyAgentSkills = readSkillNames(path.join(agentDir, "skills"));
+if (legacyAgentSkills.length > 0) {
+  const duplicates = intersection(legacyAgentSkills, sharedSkills);
+  if (duplicates.length > 0) {
+    emit("WARN", `legacy ${path.join(agentDir, "skills")} duplicates shared skills: ${duplicates.join(", ")}`);
   } else {
-    emit("WARN", `external package is not pinned to a commit: ${pkg.name}`);
+    emit("WARN", `legacy ${path.join(agentDir, "skills")} still exists with ${legacyAgentSkills.length} skills; ~/.agents/skills is canonical`);
   }
+} else {
+  emit("PASS", "no legacy active skill directory under ~/.pi/agent/skills");
+}
 
-  const cloneDir = path.join(agentDir, "git", "github.com", "bigKING67", pkg.repo);
-  if (!fs.existsSync(cloneDir)) {
-    emit("WARN", `external package declared but not installed yet: ${pkg.name} (${cloneDir})`);
-    continue;
-  }
-
-  const missing = pkg.files.filter((rel) => !fs.existsSync(path.join(cloneDir, rel)));
-  if (missing.length > 0) {
-    emit("FAIL", `external package ${pkg.name} missing expected files: ${missing.join(", ")}`);
-    continue;
-  }
-  emit("PASS", `external package installed: ${pkg.name}`);
-
-  const head = gitHead(cloneDir);
-  if (pinned && head) {
-    if (head.startsWith(pinned)) {
-      emit("PASS", `external package matches pinned commit: ${pkg.name}@${head.slice(0, 12)}`);
-    } else {
-      emit("WARN", `external package commit differs from settings pin: ${pkg.name} head=${head.slice(0, 12)} pin=${pinned.slice(0, 12)}`);
-    }
+const packageSkillRoots = [
+  path.join(agentDir, "git", "github.com", "bigKING67", "design-craft", "skills"),
+  path.join(agentDir, "git", "github.com", "bigKING67", "browser67", "skills"),
+];
+for (const root of packageSkillRoots) {
+  const packageSkills = readSkillNames(root);
+  if (packageSkills.length === 0) continue;
+  const duplicates = intersection(packageSkills, sharedSkills);
+  if (duplicates.length > 0) {
+    emit("WARN", `package skill cache duplicates shared skills and should not be active: ${root} (${duplicates.join(", ")})`);
   }
 }
 NODE
-  run_node_report "$tmp"
+  run_node_report "$tmp" "$REPO_ROOT" "$PI_AGENT_DIR" "$SHARED_SKILLS_DIR"
   rm -f "$tmp"
 }
 
@@ -1008,7 +1066,6 @@ section "Installed full assets"
 check_asset "settings.json" "required" "local-ok"
 check_asset "AGENTS.md"
 check_asset "extensions"
-check_asset "skills"
 check_asset "docs"
 check_asset "prompts"
 check_asset "rules"
@@ -1029,11 +1086,11 @@ else
   fail "expected at least 5 prompts, found $prompts_count"
 fi
 
-skills_count="$(count_dirs "$PI_AGENT_DIR/skills")"
-if [ "$skills_count" -ge 20 ]; then
-  pass "skills directories available: $skills_count"
+shared_source_count="$(count_dirs "$REPO_ROOT/shared-skills")"
+if [ "$shared_source_count" -ge 20 ]; then
+  pass "shared skill source directories available: $shared_source_count"
 else
-  warn "skills directories look low: $skills_count"
+  warn "shared skill source directories look low: $shared_source_count"
 fi
 
 if [ -f "$PI_AGENT_DIR/extensions/pi-rules-loader/index.ts" ]; then
@@ -1057,8 +1114,8 @@ placeholder_check "$PI_AGENT_DIR/image-gen.json"
 
 check_provider_model
 
-section "External packages"
-check_external_packages
+section "Shared skills"
+check_shared_skills
 
 section "MCP readiness"
 check_mcp

@@ -44,7 +44,7 @@
 | 本地搜索 | `fffind` / `ffgrep` / `fff-multi-grep` | 优先定位文件和精确命中；必要时用 `bash` 辅助 |
 | Web 检索 | `web_search` / `web_fetch` / `fetch_content` / `batch_web_fetch` | 普通事实核验、最新信息、官方资料 |
 | 子代理 | `subagent` / `/parallel` / `/chain` | 并行只读优先；写入代理必须划清文件边界 |
-| 浏览器 | `tmwd_browser` MCP | 真实 Chrome/Edge 登录态、managed tab、下载/上传、CDP 精确断言 |
+| 浏览器 | browser67 MCP（工具 key `tmwd_browser`） | 真实 Chrome/Edge 登录态、managed tab、下载/上传、CDP 精确断言 |
 | JS 逆向 | `js-reverse` MCP | API 发现、initiator、签名链路、脚本搜索、Hook、证据导出 |
 | 记忆 | `agent_memory_*` / `recall` | 长期偏好、跨 session 决策；不存凭据/raw logs/diff |
 | 二审 | `/advisor` / `advisor` | 架构、迁移、安全、数据高风险决策 |
@@ -53,11 +53,11 @@
 
 ### 浏览器边界
 
-- 登录态/当前 tab/cookie 感知读取/后台 tab/下载上传/file chooser/clipboard wrapper/managed tab lifecycle 优先用 `tmwd_browser`。
-- 主动操作网页时默认创建或复用 TMWD-owned managed tab，使用稳定 `workspace_key`；不要导航、点击、输入或关闭用户 unmanaged tab。
-- 任务结束且未要求保留页面时，对当前 `workspace_key` 或 `task_id` 执行 `finalize_task`；只关闭 `keep:false` 的 TMWD-owned tabs。
+- 登录态/当前 tab/cookie 感知读取/后台 tab/下载上传/file chooser/clipboard wrapper/managed tab lifecycle 优先用 browser67 real-browser MCP；当前工具 key 是 `tmwd_browser`，`tmwd` 只作为 transport/protocol 术语。
+- 主动操作网页时默认创建或复用 browser67-owned managed tab，使用稳定 `workspace_key`；不要导航、点击、输入或关闭用户 unmanaged tab。
+- 任务结束且未要求保留页面时，对当前 `workspace_key` 或 `task_id` 执行 `finalize_task`；只关闭 `keep:false` 的 browser67-owned tabs。
 - Chrome profile 是用户私有运行态：不查看 cookies、密码、session stores、无关历史、无关标签页、无关账号数据。
-- 页面 API/签名链路/Hook/网络采样优先用 `js-reverse`；如本机配置了 `tmwd-browser-mcp`，遵循该仓库内的 `docs/codex-integration.md`，实际路径以本地 `mcp.json` / `pi67-configure` 配置为准。
+- 页面 API/签名链路/Hook/网络采样优先用 `js-reverse`；如本机配置了 browser67，遵循该仓库内的 `docs/codex-integration.md`，实际路径以本地 `mcp.json` / `pi67-configure` 配置为准；`tmwd-browser-mcp` 仅视为 legacy alias。
 
 ---
 

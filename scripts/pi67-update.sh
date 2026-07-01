@@ -28,6 +28,8 @@ SCRIPT_DIR="$(resolve_script_dir)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 PI_AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
 PI_NPM_DIR="$PI_AGENT_DIR/npm"
+SHARED_SKILLS_DIR="${SHARED_SKILLS_DIR:-$HOME/.agents/skills}"
+SKILL_SOURCE_DIR="$REPO_ROOT/shared-skills"
 
 REMOTE="origin"
 BRANCH=""
@@ -38,6 +40,7 @@ RUN_DOCTOR=true
 RUN_REPORT=true
 ALLOW_DIRTY=false
 FORCE_NPM=false
+DEV_LINK_SKILLS=false
 
 usage() {
   cat <<'USAGE'
@@ -49,6 +52,8 @@ Usage:
 Options:
       --repo-root DIR   pi-67 checkout to update. Defaults to this script's repo.
       --agent-dir DIR   Pi agent dir. Defaults to ~/.pi/agent.
+      --skills-dir DIR  Sync shared skills into DIR instead of ~/.agents/skills.
+      --dev-link-skills Link skills into --skills-dir for local development.
       --remote NAME     Git remote to pull from. Defaults to origin.
       --branch NAME     Git branch to pull. Defaults to current branch.
       --dry-run         Print planned actions without changing files.
@@ -82,6 +87,14 @@ while [ "$#" -gt 0 ]; do
       PI_AGENT_DIR="${2:?--agent-dir requires a path}"
       PI_NPM_DIR="$PI_AGENT_DIR/npm"
       shift 2
+      ;;
+    --skills-dir)
+      SHARED_SKILLS_DIR="${2:?--skills-dir requires a path}"
+      shift 2
+      ;;
+    --dev-link-skills)
+      DEV_LINK_SKILLS=true
+      shift
       ;;
     --remote)
       REMOTE="${2:?--remote requires a name}"
@@ -193,6 +206,124 @@ file_hash() {
   else
     wc -c "$file" | awk '{print "size:" $1}'
   fi
+}
+
+skill_dir_hash() {
+  local dir="$1"
+  if [ ! -d "$dir" ]; then
+    printf 'missing\n'
+    return
+  fi
+  if command_exists shasum; then
+    (
+      cd "$dir"
+      find . -type f -print | LC_ALL=C sort | while IFS= read -r file; do
+        printf '%s\n' "$file"
+        shasum -a 256 "$file" | awk '{print $1}'
+      done
+    ) | shasum -a 256 | awk '{print $1}'
+  elif command_exists sha256sum; then
+    (
+      cd "$dir"
+      find . -type f -print | LC_ALL=C sort | while IFS= read -r file; do
+        printf '%s\n' "$file"
+        sha256sum "$file" | awk '{print $1}'
+      done
+    ) | sha256sum | awk '{print $1}'
+  else
+    find "$dir" -type f -print | wc -l | awk '{print "files:" $1}'
+  fi
+}
+
+sync_one_shared_skill() {
+  local src="$1"
+  local name dest src_hash dest_hash
+  name="$(basename "$src")"
+  dest="$SHARED_SKILLS_DIR/$name"
+
+  if [ ! -f "$src/SKILL.md" ]; then
+    warn "shared skill missing SKILL.md, skipped: $name"
+    return
+  fi
+
+  run_cmd mkdir -p "$SHARED_SKILLS_DIR"
+
+  if [ -e "$dest" ] || [ -L "$dest" ]; then
+    src_hash="$(skill_dir_hash "$src")"
+    dest_hash="$(skill_dir_hash "$dest")"
+    if [ "$src_hash" = "$dest_hash" ] && [ "$dest_hash" != "missing" ]; then
+      pass "shared skill already synced: $name"
+      return
+    fi
+    fail "shared skill conflict: $name (existing=$dest dirHash=$dest_hash source=$src dirHash=$src_hash). Resolve manually; update will not overwrite shared skills."
+  fi
+
+  if [ "$DEV_LINK_SKILLS" = true ]; then
+    if [ "$DRY_RUN" = true ]; then
+      say "  ${CYAN}DRY-RUN${NC} link $src -> $dest"
+    else
+      ln -s "$src" "$dest"
+    fi
+    pass "linked shared skill: $name -> $src"
+    return
+  fi
+
+  if [ "$DRY_RUN" = true ]; then
+    say "  ${CYAN}DRY-RUN${NC} copy $src -> $dest"
+  else
+    cp -R "$src" "$dest"
+  fi
+  pass "synced shared skill: $name"
+}
+
+sync_shared_skills() {
+  say ""
+  say "${CYAN}--- shared skills ---${NC}"
+
+  if [ ! -d "$SKILL_SOURCE_DIR" ]; then
+    fail "shared skill source missing: $SKILL_SOURCE_DIR"
+  fi
+
+  local found=false
+  while IFS= read -r skill_dir; do
+    found=true
+    sync_one_shared_skill "$skill_dir"
+  done < <(find "$SKILL_SOURCE_DIR" -mindepth 1 -maxdepth 1 -type d -print | sort)
+
+  if [ "$found" != true ]; then
+    warn "no shared skills found in $SKILL_SOURCE_DIR"
+  else
+    pass "shared skills target: $SHARED_SKILLS_DIR"
+  fi
+}
+
+retire_legacy_agent_skills() {
+  local legacy="$PI_AGENT_DIR/skills"
+  local link_target=""
+
+  if [ ! -e "$legacy" ] && [ ! -L "$legacy" ]; then
+    pass "no legacy active skill directory under agent dir"
+    return
+  fi
+
+  say ""
+  say "${CYAN}--- legacy skill root ---${NC}"
+
+  if [ -L "$legacy" ]; then
+    link_target="$(readlink "$legacy" || true)"
+    case "$link_target" in
+      "$REPO_ROOT"|"$REPO_ROOT"/*)
+        run_cmd rm -f "$legacy"
+        pass "removed legacy active skill symlink: $legacy"
+        return
+        ;;
+    esac
+    warn "legacy active skill symlink is not pi-67-owned; preserved: $legacy -> $link_target"
+    return
+  fi
+
+  warn "legacy active skill directory exists and was preserved: $legacy"
+  warn "move it out manually after confirming the same skills exist in $SHARED_SKILLS_DIR"
 }
 
 report_check() {
@@ -401,11 +532,11 @@ run_doctor() {
   say ""
   say "${CYAN}--- pi-67 doctor ---${NC}"
   if [ "$DRY_RUN" = true ]; then
-    say "  ${CYAN}DRY-RUN${NC} $doctor --repo-root $REPO_ROOT --agent-dir $PI_AGENT_DIR"
+    say "  ${CYAN}DRY-RUN${NC} $doctor --repo-root $REPO_ROOT --agent-dir $PI_AGENT_DIR --skills-dir $SHARED_SKILLS_DIR"
     return
   fi
 
-  bash "$doctor" --repo-root "$REPO_ROOT" --agent-dir "$PI_AGENT_DIR"
+  bash "$doctor" --repo-root "$REPO_ROOT" --agent-dir "$PI_AGENT_DIR" --skills-dir "$SHARED_SKILLS_DIR"
 }
 
 write_report() {
@@ -423,11 +554,11 @@ write_report() {
   say ""
   say "${CYAN}--- pi-67 report ---${NC}"
   if [ "$DRY_RUN" = true ]; then
-    say "  ${CYAN}DRY-RUN${NC} $reporter --repo-root $REPO_ROOT --agent-dir $PI_AGENT_DIR --operation update"
+    say "  ${CYAN}DRY-RUN${NC} $reporter --repo-root $REPO_ROOT --agent-dir $PI_AGENT_DIR --skills-dir $SHARED_SKILLS_DIR --operation update"
     return
   fi
 
-  local args=("--repo-root" "$REPO_ROOT" "--agent-dir" "$PI_AGENT_DIR" "--operation" "update")
+  local args=("--repo-root" "$REPO_ROOT" "--agent-dir" "$PI_AGENT_DIR" "--skills-dir" "$SHARED_SKILLS_DIR" "--operation" "update")
   if [ "$RUN_DOCTOR" != true ]; then
     args+=("--no-doctor")
   fi
@@ -551,6 +682,7 @@ check_update_plan() {
   say "${CYAN}--- planned update command ---${NC}"
   say "  git -C $REPO_ROOT pull --ff-only $REMOTE $BRANCH"
   say "  sync missing local config templates"
+  say "  sync shared skills into $SHARED_SKILLS_DIR"
   if [ "$RUN_NPM" = true ]; then
     say "  sync npm dependencies when package.json differs"
   else
@@ -651,6 +783,8 @@ fi
 
 update_repo
 sync_local_config_templates
+sync_shared_skills
+retire_legacy_agent_skills
 sync_npm
 run_doctor
 write_report

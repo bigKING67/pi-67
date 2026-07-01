@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Compare pi-67 tracked skills with optional legacy manifests and local skill roots.
+# Compare pi-67 shared skills with optional legacy manifests and local skill roots.
 # The command is read-only unless --output is provided.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -15,7 +15,7 @@ SKILL_ROOTS=()
 
 usage() {
   cat <<'USAGE'
-pi67-skill-audit compares tracked pi-67 skills with legacy manifests.
+pi67-skill-audit compares pi-67 shared skills with legacy manifests.
 
 Usage:
   scripts/pi67-skill-audit.sh [options]
@@ -206,7 +206,8 @@ function skillRootEntry(root, repoSkills) {
   };
 }
 
-const repoSkills = readDirNames(path.join(repoRoot, "skills"));
+const repoSkillsDir = path.join(repoRoot, "shared-skills");
+const repoSkills = readDirNames(repoSkillsDir);
 const legacyNames = parseNames(legacyNamesFile);
 const legacyLinks = parseLinks(legacyLinksFile);
 const commonLegacy = legacyNames.length ? intersection(legacyNames, repoSkills) : [];
@@ -220,7 +221,7 @@ const report = {
   generatedAt: new Date().toISOString(),
   repository: {
     root: displayPath(repoRoot),
-    skillsDir: displayPath(path.join(repoRoot, "skills")),
+    skillsDir: displayPath(repoSkillsDir),
     skillCount: repoSkills.length,
     skills: repoSkills,
   },
