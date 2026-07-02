@@ -25,6 +25,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `xtalpi-pi-tools` now repairs function-style pseudo tool calls such as `fetch_content({...})`, and live smoke checks require expected tool execution events instead of accepting any final text.
 - `xtalpi-pi-tools` now validates tool arguments against a lightweight JSON Schema subset before execution and repairs obvious schema mismatches locally.
 - `xtalpi-pi-tools` debug output now emits a stable redacted JSONL schema, and the live smoke checks validate debug telemetry plus recovery-event summaries.
+- Tool metadata, tool-call history, and repair prompts now neutralize local protocol markers before sending text to xtalpi, reducing injection risk from malformed tool descriptions or bad model output.
 
 ### Removed
 

@@ -1,14 +1,17 @@
 import {
   PROTOCOL_SYSTEM_PROMPT,
-  TOOL_CALL_CLOSE,
   TOOL_CALL_HISTORY_CLOSE,
   TOOL_CALL_HISTORY_OPEN,
-  TOOL_CALL_OPEN,
   TOOL_RESULT_CLOSE,
   TOOL_RESULT_OPEN,
   type PiToolCallEnvelope,
   type XtalpiChatMessage,
 } from "./protocol.ts";
+import {
+  safeBlockText,
+  safeInlineText,
+  safeJsonStringify,
+} from "./text-safety.ts";
 
 type ContentBlock = Record<string, unknown>;
 
@@ -43,18 +46,7 @@ export type SerializedXtalpiContext = {
   selectedToolNames: Set<string>;
 };
 
-function truncate(value: string, maxChars: number): string {
-  if (maxChars <= 0 || value.length <= maxChars) return value;
-  return `${value.slice(0, maxChars)}\n\n[truncated ${value.length - maxChars} chars by xtalpi-pi-tools]`;
-}
-
-function neutralizeProtocolMarkers(value: string): string {
-  return value
-    .replaceAll(TOOL_CALL_OPEN, "[literal pi_tool_call open tag]")
-    .replaceAll(TOOL_CALL_CLOSE, "[literal pi_tool_call close tag]")
-    .replaceAll(TOOL_RESULT_OPEN, "[literal pi_tool_result open tag]")
-    .replaceAll(TOOL_RESULT_CLOSE, "[literal pi_tool_result close tag]");
-}
+const MAX_TOOL_CALL_HISTORY_ARGUMENTS_CHARS = 4000;
 
 export function contentToText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -68,9 +60,9 @@ export function contentToText(content: unknown): string {
       if (item.type === "image") return "[image omitted: xtalpi-pi-tools is text-only]";
       if (item.type === "thinking") return "";
       if (item.type === "toolCall") {
-        const name = typeof item.name === "string" ? item.name : "unknown";
-        const id = typeof item.id === "string" ? item.id : "";
-        const args = JSON.stringify(item.arguments ?? {});
+        const name = safeInlineText(typeof item.name === "string" ? item.name : "unknown", 160);
+        const id = safeInlineText(typeof item.id === "string" ? item.id : "", 160);
+        const args = safeBlockText(safeJsonStringify(item.arguments ?? {}), MAX_TOOL_CALL_HISTORY_ARGUMENTS_CHARS);
         return `${TOOL_CALL_HISTORY_OPEN}\nid: ${id}\nname: ${name}\narguments: ${args}\n${TOOL_CALL_HISTORY_CLOSE}`;
       }
       return "";
@@ -111,11 +103,13 @@ function summarizeParameters(parameters: unknown): string {
   return entries
     .map(([name, prop]) => {
       const marker = required.has(name) ? "required" : "optional";
+      const displayName = safeInlineText(name, 120);
+      const displayType = safeInlineText(schemaType(prop), 80);
       let description = "";
       if (typeof prop === "object" && prop !== null && typeof (prop as Record<string, unknown>).description === "string") {
-        description = ` - ${String((prop as Record<string, unknown>).description).slice(0, 120)}`;
+        description = ` - ${safeInlineText((prop as Record<string, unknown>).description, 120)}`;
       }
-      return `${name}:${schemaType(prop)} ${marker}${description}`;
+      return `${displayName}:${displayType} ${marker}${description}`;
     })
     .join("; ");
 }
@@ -133,7 +127,8 @@ const CORE_TOOL_NAMES = new Set([
 ]);
 
 function scoreTool(tool: ToolLike, prompt: string): number {
-  const haystack = `${tool.name} ${tool.description ?? ""}`.toLowerCase();
+  const description = typeof tool.description === "string" ? tool.description.slice(0, 1000) : "";
+  const haystack = `${tool.name} ${description}`.toLowerCase();
   const promptLower = prompt.toLowerCase();
   let score = CORE_TOOL_NAMES.has(tool.name) ? 25 : 0;
   if (promptLower.includes(tool.name.toLowerCase())) score += 100;
@@ -154,7 +149,15 @@ function scoreTool(tool: ToolLike, prompt: string): number {
 }
 
 export function selectTools(tools: ToolLike[] | undefined, prompt: string, maxTools: number): ToolLike[] {
-  const validTools = (tools ?? []).filter((tool) => tool && typeof tool.name === "string" && tool.name.trim());
+  const validTools: ToolLike[] = [];
+  const seenNames = new Set<string>();
+  for (const tool of tools ?? []) {
+    if (!tool || typeof tool.name !== "string") continue;
+    const name = tool.name.trim();
+    if (!name || seenNames.has(name)) continue;
+    seenNames.add(name);
+    validTools.push(name === tool.name ? tool : { ...tool, name });
+  }
   if (validTools.length <= maxTools) return validTools;
 
   return validTools
@@ -172,8 +175,9 @@ function serializeSelectedTools(selected: ToolLike[], totalToolCount: number): s
   return [
     `Available Pi tools (${selected.length}/${totalToolCount}; call only one at a time):`,
     ...selected.map((tool) => {
-      const description = (tool.description ?? "No description").replace(/\s+/g, " ").slice(0, 240);
-      return `- ${tool.name}: ${description}\n  arguments: ${summarizeParameters(tool.parameters)}`;
+      const name = safeInlineText(tool.name, 160);
+      const description = safeInlineText(tool.description ?? "No description", 240);
+      return `- ${name}: ${description}\n  arguments: ${summarizeParameters(tool.parameters)}`;
     }),
   ].join("\n");
 }
@@ -184,9 +188,9 @@ export function serializeAvailableTools(tools: ToolLike[] | undefined, prompt: s
 }
 
 export function serializeToolResultAsUserText(message: MessageLike, maxToolResultChars: number): string {
-  const toolName = typeof message.toolName === "string" ? message.toolName : "unknown";
-  const toolCallId = typeof message.toolCallId === "string" ? message.toolCallId : "unknown";
-  const content = neutralizeProtocolMarkers(truncate(contentToText(message.content), maxToolResultChars));
+  const toolName = safeInlineText(typeof message.toolName === "string" ? message.toolName : "unknown", 160);
+  const toolCallId = safeInlineText(typeof message.toolCallId === "string" ? message.toolCallId : "unknown", 160);
+  const content = safeBlockText(contentToText(message.content), maxToolResultChars);
 
   return `${TOOL_RESULT_OPEN}
 tool_call_id: ${toolCallId}
@@ -200,10 +204,13 @@ ${TOOL_RESULT_CLOSE}`;
 }
 
 export function serializeToolCallHistory(call: PiToolCallEnvelope, id = ""): string {
+  const safeId = safeInlineText(id, 160);
+  const safeName = safeInlineText(call.name, 160);
+  const safeArguments = safeBlockText(safeJsonStringify(call.arguments), MAX_TOOL_CALL_HISTORY_ARGUMENTS_CHARS);
   return `${TOOL_CALL_HISTORY_OPEN}
-id: ${id}
-name: ${call.name}
-arguments: ${JSON.stringify(call.arguments)}
+id: ${safeId}
+name: ${safeName}
+arguments: ${safeArguments}
 ${TOOL_CALL_HISTORY_CLOSE}`;
 }
 

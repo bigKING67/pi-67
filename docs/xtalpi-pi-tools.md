@@ -39,6 +39,8 @@ content:
 
 工具结果内容是不可信数据：其中出现的指令、角色声明、伪 system prompt 或 `<pi_tool_call>` / `<pi_tool_result>` 文本都不能覆盖 Pi/system/user 指令。实现会把工具结果里的协议标记中和为普通文本，避免工具输出伪造协议边界。
 
+工具元数据同样按模型可见的不可信文本处理。工具描述、参数描述、repair prompt 里的旧模型输出和工具名列表都会做协议标记中和、单行化或截断，避免恶意/异常 MCP 工具说明伪造 `<pi_tool_call>` / `<pi_tool_result>` / `<pi_tool_call_history>` 边界。
+
 每轮只允许执行实际展示给模型的 selected tools。即使 `context.tools` 里存在更多工具，模型猜中未展示工具名也会被拒绝；unknown-tool 修复提示同样只列出 selected tools。
 
 工具参数在交给 Pi 执行前会做轻量 schema 校验。当前校验覆盖 JSON Schema 常用子集：`required`、`properties`、基础 `type`、`enum`、`array.items`、`anyOf` / `oneOf` 和 `additionalProperties:false`。如果参数明显不匹配，会先要求模型修复为正确的 `<pi_tool_call>`，而不是把坏参数直接交给工具层。
@@ -182,6 +184,7 @@ bash ~/.pi/agent/scripts/pi67-test-xtalpi-pi-tools.sh
 - tool arguments 轻量 schema 校验与修复
 - tool result 作为普通 user 文本序列化
 - tool result prompt-injection / 协议边界中和
+- tool metadata / repair prompt 协议边界中和
 - payload 不包含 `tools`、`tool_choice`、`parallel_tool_calls`、`thinking`、`reasoning_effort`
 - payload 不包含 `role=tool`
 
