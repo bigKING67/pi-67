@@ -35,6 +35,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `xtalpi-pi-tools` now neutralizes attributed Pi protocol tags inside untrusted tool output, closing a prompt-injection gap around `<pi_tool_call name="...">` variants.
 - `xtalpi-pi-tools` now treats incomplete Pi protocol tag fragments as raw markup, so malformed `<pi_tool_call name="...` leaks trigger repair and gate failures instead of passing as final text.
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh` now writes a stable per-run JSON summary artifact, and debug-summary can target an exact `--run-id` for trend-safe telemetry.
+- `scripts/pi67-xtalpi-pi-tools-debug-summary.sh --history N` now reports the newest persisted smoke summary artifacts for trend-safe recovery/raw-markup/failure comparisons.
 
 ### Removed
 

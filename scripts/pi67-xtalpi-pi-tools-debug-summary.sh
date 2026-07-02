@@ -6,6 +6,7 @@ OUT_DIR="${OUT_DIR:-$HOME/tmp/xtalpi-pi-tools-smoke}"
 FORMAT="text"
 LATEST_ONLY="0"
 RUN_ID=""
+HISTORY_LIMIT=""
 EXPECT_CASES=""
 MAX_ERRORS="0"
 MAX_EMPTY_ASSISTANT_ENDS=""
@@ -24,6 +25,7 @@ Summarize xtalpi-pi-tools live smoke artifacts:
 Selection:
   --latest                       summarize the newest run id
   --run-id RUN_ID                summarize one exact smoke run, e.g. 20260702-144643
+  --history N                    show newest N persisted *-summary.json smoke runs
 
 Gate options:
   --expect-cases N
@@ -117,6 +119,47 @@ writeCase(recovery, "20260702-000003", "recovering", {
     },
   ],
 });
+
+const history = ensureDir("history");
+function writeSummary(runId, { ok = true, failures = 0, recoveries = 0, raw = 0, errors = 0 } = {}) {
+  fs.writeFileSync(path.join(history, `${runId}-summary.json`), `${JSON.stringify({
+    schema: "xtalpi-pi-tools.smoke-summary.v1",
+    createdAt: "2026-07-02T00:00:00.000Z",
+    provider: "xtalpi-pi-tools",
+    model: "deepseek-v4-pro",
+    stamp: runId,
+    runId,
+    outDir: history,
+    caseTimeoutSeconds: 180,
+    failures,
+    debugSummaryStatus: 0,
+    ok,
+    debugSummary: {
+      outDir: history,
+      latestOnly: false,
+      runId,
+      gateFailures: ok ? [] : ["fixture failure"],
+      totals: {
+        cases: 5,
+        debugEvents: 20,
+        turns: 10,
+        toolCalls: 6,
+        recoveries,
+        recoveryRate: recoveries / 10,
+        emptyAssistantEnds: 0,
+        rawToolMarkupFinalAnswers: raw,
+        toolEnvelopeFinalAnswers: 0,
+        piToolStarts: 6,
+        errors,
+      },
+      cases: [],
+    },
+  }, null, 2)}\n`);
+}
+writeSummary("20260702-000001", { ok: true, failures: 0, recoveries: 0 });
+writeSummary("20260702-000002", { ok: true, failures: 0, recoveries: 2 });
+writeSummary("20260702-000003", { ok: false, failures: 1, recoveries: 1, raw: 1 });
+fs.writeFileSync(path.join(history, "20260702-000004-debug-summary.json"), "{}\n");
 NODE
 
   if ! output="$("$SCRIPT_PATH" --run-id 20260702-000001 --expect-cases 1 --max-errors 0 --max-empty-assistant-ends 0 --max-raw-tool-markup-final-answers 0 --max-recoveries 0 "$tmp_dir/clean" 2>&1)"; then
@@ -148,6 +191,40 @@ NODE
     return 1
   fi
 
+  local history_json="$tmp_dir/history-output.json"
+  if ! output="$("$SCRIPT_PATH" --history 2 --json "$tmp_dir/history" >"$history_json" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+  if ! node - "$history_json" <<'NODE'; then
+const fs = require("node:fs");
+const file = process.argv[2];
+const data = JSON.parse(fs.readFileSync(file, "utf8"));
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+assert(data.schema === "xtalpi-pi-tools.smoke-history.v1", "unexpected history schema");
+assert(data.totalArtifacts === 3, "debug-summary artifact should not be counted as a smoke summary");
+assert(data.runs.length === 2, "history limit did not select two runs");
+assert(data.runs[0].runId === "20260702-000003", "newest run should be first");
+assert(data.runs[1].runId === "20260702-000002", "second newest run should be second");
+assert(data.runs[0].ok === false && data.runs[0].failures === 1, "failed run was not visible");
+assert(data.runs[0].rawToolMarkupFinalAnswers === 1, "raw final-answer count was not preserved");
+assert(data.runs[1].recoveries === 2, "recovery run was not visible");
+NODE
+    return 1
+  fi
+
+  if ! output="$("$SCRIPT_PATH" --history 2 "$tmp_dir/history" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+  if [[ "$output" != *"20260702-000003"* || "$output" != *"20260702-000002"* || "$output" == *"20260702-000001"* ]]; then
+    echo "history text output did not show only the newest two runs"
+    echo "$output"
+    return 1
+  fi
+
   echo "xtalpi-pi-tools debug summary self-test passed"
 }
 
@@ -168,6 +245,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --run-id)
       RUN_ID="${2:-}"
+      shift 2
+      ;;
+    --history)
+      HISTORY_LIMIT="${2:-}"
       shift 2
       ;;
     --expect-cases)
@@ -210,6 +291,7 @@ node - \
   "$FORMAT" \
   "$LATEST_ONLY" \
   "$RUN_ID" \
+  "$HISTORY_LIMIT" \
   "$EXPECT_CASES" \
   "$MAX_ERRORS" \
   "$MAX_EMPTY_ASSISTANT_ENDS" \
@@ -224,6 +306,7 @@ const [
   format,
   latestOnlyRaw,
   runIdRaw,
+  historyLimitRaw,
   expectCasesRaw,
   maxErrorsRaw,
   maxEmptyAssistantEndsRaw,
@@ -255,6 +338,12 @@ const gates = {
   maxRecoveries: optionalNumber(maxRecoveriesRaw, "--max-recoveries"),
   maxRecoveryRate: optionalNumber(maxRecoveryRateRaw, "--max-recovery-rate"),
 };
+
+const historyLimit = optionalNumber(historyLimitRaw, "--history");
+if (historyLimit !== undefined && (!Number.isInteger(historyLimit) || historyLimit < 1)) {
+  console.error("xtalpi-pi-tools debug summary: --history must be a positive integer");
+  process.exit(2);
+}
 
 function readJsonl(file) {
   const result = { events: [], parseErrors: 0 };
@@ -371,9 +460,129 @@ function summarizeCase(debugFileName) {
   };
 }
 
+function readJsonFile(file) {
+  try {
+    return { ok: true, value: JSON.parse(fs.readFileSync(file, "utf8")) };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function numberOrZero(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function summarizeSmokeSummaryFile(fileName) {
+  const file = path.join(outDir, fileName);
+  const stem = fileName.replace(/-summary\.json$/, "");
+  const parsed = readJsonFile(file);
+  if (!parsed.ok) {
+    return {
+      file,
+      runId: stem,
+      stamp: stem,
+      ok: false,
+      parseError: parsed.error,
+      failures: 0,
+      debugSummaryStatus: 1,
+      cases: 0,
+      recoveries: 0,
+      recoveryRate: 0,
+      rawToolMarkupFinalAnswers: 0,
+      emptyAssistantEnds: 0,
+      toolEnvelopeFinalAnswers: 0,
+      errors: 0,
+      gateFailures: ["summary_parse_error"],
+    };
+  }
+
+  const artifact = parsed.value;
+  const totals = artifact?.debugSummary?.totals ?? {};
+  const gateFailures = Array.isArray(artifact?.debugSummary?.gateFailures)
+    ? artifact.debugSummary.gateFailures
+    : [];
+
+  return {
+    file,
+    schema: artifact?.schema,
+    ok: artifact?.ok === true,
+    provider: artifact?.provider,
+    model: artifact?.model,
+    stamp: artifact?.stamp || stem,
+    runId: artifact?.runId || artifact?.stamp || stem,
+    failures: numberOrZero(artifact?.failures),
+    debugSummaryStatus: numberOrZero(artifact?.debugSummaryStatus),
+    cases: numberOrZero(totals.cases),
+    recoveries: numberOrZero(totals.recoveries),
+    recoveryRate: numberOrZero(totals.recoveryRate),
+    rawToolMarkupFinalAnswers: numberOrZero(totals.rawToolMarkupFinalAnswers),
+    emptyAssistantEnds: numberOrZero(totals.emptyAssistantEnds),
+    toolEnvelopeFinalAnswers: numberOrZero(totals.toolEnvelopeFinalAnswers),
+    errors: numberOrZero(totals.errors),
+    gateFailures,
+  };
+}
+
+function printHistory(limit) {
+  const summaryFiles = fs.readdirSync(outDir)
+    .filter((file) => /^\d{8}-\d{6}-summary\.json$/.test(file))
+    .sort();
+
+  if (summaryFiles.length === 0) {
+    console.error(`xtalpi-pi-tools debug summary: no *-summary.json files found in ${outDir}`);
+    process.exit(1);
+  }
+
+  const selectedFiles = summaryFiles.slice(-limit).reverse();
+  const runs = selectedFiles.map(summarizeSmokeSummaryFile);
+  const parseErrorCount = runs.filter((run) => run.parseError).length;
+  const history = {
+    schema: "xtalpi-pi-tools.smoke-history.v1",
+    outDir,
+    requested: limit,
+    totalArtifacts: summaryFiles.length,
+    found: runs.length,
+    order: "newest_first",
+    parseErrorCount,
+    runs,
+  };
+
+  if (format === "json") {
+    console.log(JSON.stringify(history, null, 2));
+  } else {
+    console.log("xtalpi-pi-tools smoke history");
+    console.log(
+      `out_dir=${outDir} requested=${limit} found=${runs.length} total_artifacts=${summaryFiles.length} ` +
+        "order=newest_first",
+    );
+    for (const run of runs) {
+      const parseText = run.parseError ? ` parse_error=${JSON.stringify(run.parseError)}` : "";
+      const gateText = run.gateFailures?.length ? ` gate_failures=${JSON.stringify(run.gateFailures)}` : "";
+      const providerText = run.provider ? ` provider=${run.provider}` : "";
+      const modelText = run.model ? ` model=${run.model}` : "";
+      console.log(
+        `- ${run.runId}: ok=${run.ok} failures=${run.failures} cases=${run.cases} ` +
+          `recoveries=${run.recoveries} recovery_rate=${run.recoveryRate.toFixed(4)} ` +
+          `raw_tool_markup_final_answers=${run.rawToolMarkupFinalAnswers} ` +
+          `empty_assistant_ends=${run.emptyAssistantEnds} ` +
+          `tool_envelope_final_answers=${run.toolEnvelopeFinalAnswers} ` +
+          `errors=${run.errors} debug_summary_status=${run.debugSummaryStatus}` +
+          `${providerText}${modelText}${gateText}${parseText}`,
+      );
+    }
+  }
+
+  process.exit(parseErrorCount > 0 ? 1 : 0);
+}
+
 if (!fs.existsSync(outDir) || !fs.statSync(outDir).isDirectory()) {
   console.error(`xtalpi-pi-tools debug summary: directory not found: ${outDir}`);
   process.exit(1);
+}
+
+if (historyLimit !== undefined) {
+  printHistory(historyLimit);
 }
 
 let debugFiles = fs.readdirSync(outDir)

@@ -249,6 +249,16 @@ $HOME/tmp/xtalpi-pi-tools-smoke/<stamp>-summary.json
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --latest
 ```
 
+查看最近 N 次已归档 smoke 摘要，用于人工趋势对比和 CI artifact 复盘：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
+  --history 5 \
+  "$HOME/tmp/xtalpi-pi-tools-smoke"
+```
+
+`--history` 读取 `<stamp>-summary.json`，按最新优先输出每轮 `ok`、`failures`、`cases`、`recoveries`、`recovery_rate`、raw markup final answer、empty assistant end 和 error 计数；它会忽略同目录下的 `<stamp>-debug-summary.json` 中间产物，避免把 debug-summary 自身误当成 smoke run。
+
 也可以精确汇总某一次 smoke run，避免并发或历史 artifact 干扰：
 
 ```bash
@@ -259,6 +269,15 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --run-id 20260702
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --latest --json
+```
+
+history 模式同样支持 JSON：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
+  --history 5 \
+  --json \
+  "$HOME/tmp/xtalpi-pi-tools-smoke"
 ```
 
 也可以给 summary 加发布阈值：
