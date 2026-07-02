@@ -13,6 +13,8 @@ SMOKE_MAX_OUTPUT_TOKENS="${XTALPI_PI_TOOLS_SMOKE_MAX_OUTPUT_TOKENS:-${XTALPI_PI_
 SMOKE_STOP_ON_PROVIDER_ERROR="${XTALPI_PI_TOOLS_SMOKE_STOP_ON_PROVIDER_ERROR:-1}"
 SMOKE_PREFLIGHT="${XTALPI_PI_TOOLS_SMOKE_PREFLIGHT:-1}"
 SMOKE_PREFLIGHT_TIMEOUT_MS="${XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_TIMEOUT_MS:-30000}"
+SMOKE_PREFLIGHT_ATTEMPTS="${XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_ATTEMPTS:-2}"
+SMOKE_PREFLIGHT_RETRY_DELAY_MS="${XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_RETRY_DELAY_MS:-1000}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 SUMMARY_FILE="${XTALPI_PI_TOOLS_SMOKE_SUMMARY_FILE:-$OUT_DIR/${STAMP}-summary.json}"
 DEBUG_SUMMARY_JSON_FILE="$OUT_DIR/${STAMP}-debug-summary.json"
@@ -54,6 +56,8 @@ Environment:
   XTALPI_PI_TOOLS_SMOKE_STOP_ON_PROVIDER_ERROR Stop remaining cases after a provider error. Default: 1.
   XTALPI_PI_TOOLS_SMOKE_PREFLIGHT              Run provider health preflight before cases. Default: 1.
   XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_TIMEOUT_MS   Provider health preflight timeout. Default: 30000.
+  XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_ATTEMPTS     Provider health preflight attempts. Default: 2.
+  XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_RETRY_DELAY_MS Delay between preflight retryable attempts. Default: 1000.
   XTALPI_PI_TOOLS_SMOKE_CASES                  Comma-separated case filter, same values as --case.
 EOF
 }
@@ -156,6 +160,8 @@ run_provider_preflight() {
     --provider "$PROVIDER" \
     --model "$MODEL" \
     --timeout-ms "$SMOKE_PREFLIGHT_TIMEOUT_MS" \
+    --attempts "$SMOKE_PREFLIGHT_ATTEMPTS" \
+    --retry-delay-ms "$SMOKE_PREFLIGHT_RETRY_DELAY_MS" \
     --output-file "$PROVIDER_HEALTH_FILE"
 }
 
@@ -697,7 +703,7 @@ write_run_summary_artifact() {
   local selected_cases_csv="$3"
   local stop_reason="$4"
 
-  node - "$DEBUG_SUMMARY_JSON_FILE" "$SUMMARY_FILE" "$PROVIDER_HEALTH_FILE" "$PROVIDER" "$MODEL" "$STAMP" "$CASE_TIMEOUT_SECONDS" "$SMOKE_REQUEST_TIMEOUT_MS" "$SMOKE_MAX_OUTPUT_TOKENS" "$selected_cases_csv" "$failure_count" "$debug_summary_status" "$SMOKE_STOP_ON_PROVIDER_ERROR" "$SMOKE_PREFLIGHT" "$SMOKE_PREFLIGHT_TIMEOUT_MS" "$stop_reason" <<'NODE'
+  node - "$DEBUG_SUMMARY_JSON_FILE" "$SUMMARY_FILE" "$PROVIDER_HEALTH_FILE" "$PROVIDER" "$MODEL" "$STAMP" "$CASE_TIMEOUT_SECONDS" "$SMOKE_REQUEST_TIMEOUT_MS" "$SMOKE_MAX_OUTPUT_TOKENS" "$selected_cases_csv" "$failure_count" "$debug_summary_status" "$SMOKE_STOP_ON_PROVIDER_ERROR" "$SMOKE_PREFLIGHT" "$SMOKE_PREFLIGHT_TIMEOUT_MS" "$SMOKE_PREFLIGHT_ATTEMPTS" "$SMOKE_PREFLIGHT_RETRY_DELAY_MS" "$stop_reason" <<'NODE'
 const fs = require("fs");
 const [
   debugSummaryFile,
@@ -715,6 +721,8 @@ const [
   stopOnProviderErrorRaw,
   preflightRaw,
   preflightTimeoutMsRaw,
+  preflightAttemptsRaw,
+  preflightRetryDelayMsRaw,
   stopReasonRaw,
 ] = process.argv.slice(2);
 
@@ -739,6 +747,8 @@ const artifact = {
   stopOnProviderError: /^(1|true|yes|on)$/i.test(String(stopOnProviderErrorRaw || "")),
   providerHealthPreflight: /^(1|true|yes|on)$/i.test(String(preflightRaw || "")),
   providerHealthPreflightTimeoutMs: Number(preflightTimeoutMsRaw),
+  providerHealthPreflightAttempts: Number(preflightAttemptsRaw),
+  providerHealthPreflightRetryDelayMs: Number(preflightRetryDelayMsRaw),
   stopReason: stopReasonRaw || undefined,
   providerHealth,
   failures,
@@ -755,7 +765,7 @@ write_preflight_failure_summary_artifact() {
   local failure_count="$1"
   local stop_reason="$2"
 
-  node - "$SUMMARY_FILE" "$PROVIDER_HEALTH_FILE" "$PROVIDER" "$MODEL" "$STAMP" "$CASE_TIMEOUT_SECONDS" "$SMOKE_REQUEST_TIMEOUT_MS" "$SMOKE_MAX_OUTPUT_TOKENS" "$failure_count" "$SMOKE_STOP_ON_PROVIDER_ERROR" "$SMOKE_PREFLIGHT" "$SMOKE_PREFLIGHT_TIMEOUT_MS" "$stop_reason" <<'NODE'
+  node - "$SUMMARY_FILE" "$PROVIDER_HEALTH_FILE" "$PROVIDER" "$MODEL" "$STAMP" "$CASE_TIMEOUT_SECONDS" "$SMOKE_REQUEST_TIMEOUT_MS" "$SMOKE_MAX_OUTPUT_TOKENS" "$failure_count" "$SMOKE_STOP_ON_PROVIDER_ERROR" "$SMOKE_PREFLIGHT" "$SMOKE_PREFLIGHT_TIMEOUT_MS" "$SMOKE_PREFLIGHT_ATTEMPTS" "$SMOKE_PREFLIGHT_RETRY_DELAY_MS" "$stop_reason" <<'NODE'
 const fs = require("fs");
 const [
   summaryFile,
@@ -770,6 +780,8 @@ const [
   stopOnProviderErrorRaw,
   preflightRaw,
   preflightTimeoutMsRaw,
+  preflightAttemptsRaw,
+  preflightRetryDelayMsRaw,
   stopReasonRaw,
 ] = process.argv.slice(2);
 
@@ -830,6 +842,8 @@ const artifact = {
   stopOnProviderError: /^(1|true|yes|on)$/i.test(String(stopOnProviderErrorRaw || "")),
   providerHealthPreflight: /^(1|true|yes|on)$/i.test(String(preflightRaw || "")),
   providerHealthPreflightTimeoutMs: Number(preflightTimeoutMsRaw),
+  providerHealthPreflightAttempts: Number(preflightAttemptsRaw),
+  providerHealthPreflightRetryDelayMs: Number(preflightRetryDelayMsRaw),
   stopReason: stopReasonRaw || undefined,
   providerHealth,
   failures: Number(failuresRaw),
@@ -855,7 +869,7 @@ if flag_enabled "$SMOKE_PREFLIGHT"; then
       failures=$((failures + 1))
     fi
     echo "===== summary ====="
-    echo "provider=$PROVIDER model=$MODEL out_dir=$OUT_DIR stamp=$STAMP selected_cases= case_timeout_seconds=$CASE_TIMEOUT_SECONDS request_timeout_ms=$SMOKE_REQUEST_TIMEOUT_MS max_output_tokens=$SMOKE_MAX_OUTPUT_TOKENS preflight=$SMOKE_PREFLIGHT preflight_timeout_ms=$SMOKE_PREFLIGHT_TIMEOUT_MS stop_on_provider_error=$SMOKE_STOP_ON_PROVIDER_ERROR stop_reason=${STOP_REASON:-none} failures=$failures"
+    echo "provider=$PROVIDER model=$MODEL out_dir=$OUT_DIR stamp=$STAMP selected_cases= case_timeout_seconds=$CASE_TIMEOUT_SECONDS request_timeout_ms=$SMOKE_REQUEST_TIMEOUT_MS max_output_tokens=$SMOKE_MAX_OUTPUT_TOKENS preflight=$SMOKE_PREFLIGHT preflight_timeout_ms=$SMOKE_PREFLIGHT_TIMEOUT_MS preflight_attempts=$SMOKE_PREFLIGHT_ATTEMPTS preflight_retry_delay_ms=$SMOKE_PREFLIGHT_RETRY_DELAY_MS stop_on_provider_error=$SMOKE_STOP_ON_PROVIDER_ERROR stop_reason=${STOP_REASON:-none} failures=$failures"
     if [ -f "$SUMMARY_FILE" ]; then
       echo "summary_json=$SUMMARY_FILE"
     fi
@@ -918,7 +932,7 @@ if [ -x "$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh" ]; then
 fi
 
 echo "===== summary ====="
-echo "provider=$PROVIDER model=$MODEL out_dir=$OUT_DIR stamp=$STAMP selected_cases=$SELECTED_CASES_CSV case_timeout_seconds=$CASE_TIMEOUT_SECONDS request_timeout_ms=$SMOKE_REQUEST_TIMEOUT_MS max_output_tokens=$SMOKE_MAX_OUTPUT_TOKENS preflight=$SMOKE_PREFLIGHT preflight_timeout_ms=$SMOKE_PREFLIGHT_TIMEOUT_MS stop_on_provider_error=$SMOKE_STOP_ON_PROVIDER_ERROR stop_reason=${STOP_REASON:-none} failures=$failures"
+echo "provider=$PROVIDER model=$MODEL out_dir=$OUT_DIR stamp=$STAMP selected_cases=$SELECTED_CASES_CSV case_timeout_seconds=$CASE_TIMEOUT_SECONDS request_timeout_ms=$SMOKE_REQUEST_TIMEOUT_MS max_output_tokens=$SMOKE_MAX_OUTPUT_TOKENS preflight=$SMOKE_PREFLIGHT preflight_timeout_ms=$SMOKE_PREFLIGHT_TIMEOUT_MS preflight_attempts=$SMOKE_PREFLIGHT_ATTEMPTS preflight_retry_delay_ms=$SMOKE_PREFLIGHT_RETRY_DELAY_MS stop_on_provider_error=$SMOKE_STOP_ON_PROVIDER_ERROR stop_reason=${STOP_REASON:-none} failures=$failures"
 if [ -f "$SUMMARY_FILE" ]; then
   echo "summary_json=$SUMMARY_FILE"
 fi

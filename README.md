@@ -414,6 +414,8 @@ provider health 快速预检：
 node ~/.pi/agent/scripts/pi67-xtalpi-provider-health.mjs
 ```
 
+provider health 会输出结构化 JSON，并对瞬时 timeout/network/upstream/protocol 抖动做有界重试；`http_429` 只记录为 rate-limit，不做立即重试。
+
 冒烟 telemetry 汇总：
 
 ```bash

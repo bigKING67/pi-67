@@ -49,6 +49,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - xtalpi provider failures are now classified into structured telemetry codes such as `api_key_missing`, `request_timeout`, `network_error`, `http_401`, `http_429`, `http_5xx`, `non_json_response`, and `malformed_response`; debug summary gates fail on provider errors and report provider error code/category counts.
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh` now stops remaining cases after the first provider error by default, while still writing a scoped summary artifact; set `XTALPI_PI_TOOLS_SMOKE_STOP_ON_PROVIDER_ERROR=0` for exhaustive failure collection.
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh` now runs a bounded provider-health preflight before live cases, writes `<stamp>-provider-health.json`, and records preflight failures in the normal summary/history schema so upstream network/auth/rate-limit failures are diagnosed before the slower Pi tool loop.
+- Provider-health preflight now records per-attempt telemetry and retries bounded transient failures by default while suppressing immediate `http_429` retries to avoid burning rate-limit windows.
 
 ### Removed
 
