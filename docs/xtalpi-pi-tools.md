@@ -280,6 +280,25 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   "$HOME/tmp/xtalpi-pi-tools-smoke"
 ```
 
+比较两次已归档 smoke run，用于快速定位 telemetry 回归：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
+  --compare 20260702-145306 20260702-151958 \
+  "$HOME/tmp/xtalpi-pi-tools-smoke"
+```
+
+compare 模式会读取两个 `<stamp>-summary.json`，输出总体 delta 和 case-level delta；总体 delta 覆盖 failures、cases、recoveries、recovery rate、raw markup final answer、empty assistant end、tool envelope final answer、errors 和 debug-summary status。case-level delta 只比较会影响协议质量判断的稳定字段（turns、tool calls、recoveries、error/raw-markup/empty-assistant/tool-envelope、实际工具序列），不会因为 final answer 文本长度的自然漂移制造噪音。
+
+compare 模式也支持 JSON，schema 为 `xtalpi-pi-tools.smoke-compare.v1`：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
+  --compare 20260702-145306 20260702-151958 \
+  --json \
+  "$HOME/tmp/xtalpi-pi-tools-smoke"
+```
+
 也可以给 summary 加发布阈值：
 
 ```bash

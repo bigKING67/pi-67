@@ -7,6 +7,8 @@ FORMAT="text"
 LATEST_ONLY="0"
 RUN_ID=""
 HISTORY_LIMIT=""
+COMPARE_BASE_RUN_ID=""
+COMPARE_HEAD_RUN_ID=""
 EXPECT_CASES=""
 MAX_ERRORS="0"
 MAX_EMPTY_ASSISTANT_ENDS=""
@@ -26,6 +28,7 @@ Selection:
   --latest                       summarize the newest run id
   --run-id RUN_ID                summarize one exact smoke run, e.g. 20260702-144643
   --history N                    show newest N persisted *-summary.json smoke runs
+  --compare BASE_RUN HEAD_RUN    compare two persisted smoke summaries
 
 Gate options:
   --expect-cases N
@@ -121,7 +124,22 @@ writeCase(recovery, "20260702-000003", "recovering", {
 });
 
 const history = ensureDir("history");
-function writeSummary(runId, { ok = true, failures = 0, recoveries = 0, raw = 0, errors = 0 } = {}) {
+function writeSummary(runId, { ok = true, failures = 0, recoveries = 0, raw = 0, errors = 0, cases } = {}) {
+  const caseItems = cases || [
+    {
+      runId,
+      caseName: "read",
+      turns: 2,
+      toolCalls: 1,
+      recoveries,
+      emptyAssistantEnds: 0,
+      rawToolMarkupFinalAnswer: raw > 0,
+      toolEnvelopeFinalAnswer: false,
+      errors,
+      finalTextChars: 42,
+      piToolStarts: ["read"],
+    },
+  ];
   fs.writeFileSync(path.join(history, `${runId}-summary.json`), `${JSON.stringify({
     schema: "xtalpi-pi-tools.smoke-summary.v1",
     createdAt: "2026-07-02T00:00:00.000Z",
@@ -152,7 +170,7 @@ function writeSummary(runId, { ok = true, failures = 0, recoveries = 0, raw = 0,
         piToolStarts: 6,
         errors,
       },
-      cases: [],
+      cases: caseItems,
     },
   }, null, 2)}\n`);
 }
@@ -225,6 +243,40 @@ NODE
     return 1
   fi
 
+  local compare_json="$tmp_dir/compare-output.json"
+  if ! output="$("$SCRIPT_PATH" --compare 20260702-000002 20260702-000003 --json "$tmp_dir/history" >"$compare_json" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+  if ! node - "$compare_json" <<'NODE'; then
+const fs = require("node:fs");
+const file = process.argv[2];
+const data = JSON.parse(fs.readFileSync(file, "utf8"));
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+assert(data.schema === "xtalpi-pi-tools.smoke-compare.v1", "unexpected compare schema");
+assert(data.baseRunId === "20260702-000002", "unexpected base run id");
+assert(data.headRunId === "20260702-000003", "unexpected head run id");
+assert(data.delta.failures === 1, "failure delta should show regression");
+assert(data.delta.rawToolMarkupFinalAnswers === 1, "raw markup delta should show regression");
+assert(data.delta.recoveries === -1, "recovery delta should be head-base");
+assert(data.okChanged === true, "ok change should be visible");
+assert(data.caseDeltas.some((item) => item.caseName === "read" && item.delta.rawToolMarkupFinalAnswer === true), "case-level raw markup change missing");
+NODE
+    return 1
+  fi
+
+  if ! output="$("$SCRIPT_PATH" --compare 20260702-000002 20260702-000003 "$tmp_dir/history" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+  if [[ "$output" != *"xtalpi-pi-tools smoke compare"* || "$output" != *"failures_delta=1"* || "$output" != *"raw_tool_markup_final_answers_delta=1"* ]]; then
+    echo "compare text output did not expose expected regression deltas"
+    echo "$output"
+    return 1
+  fi
+
   echo "xtalpi-pi-tools debug summary self-test passed"
 }
 
@@ -250,6 +302,15 @@ while [ "$#" -gt 0 ]; do
     --history)
       HISTORY_LIMIT="${2:-}"
       shift 2
+      ;;
+    --compare)
+      if [ "$#" -lt 3 ]; then
+        echo "xtalpi-pi-tools debug summary: --compare requires BASE_RUN and HEAD_RUN" >&2
+        exit 2
+      fi
+      COMPARE_BASE_RUN_ID="${2:-}"
+      COMPARE_HEAD_RUN_ID="${3:-}"
+      shift 3
       ;;
     --expect-cases)
       EXPECT_CASES="${2:-}"
@@ -292,6 +353,8 @@ node - \
   "$LATEST_ONLY" \
   "$RUN_ID" \
   "$HISTORY_LIMIT" \
+  "$COMPARE_BASE_RUN_ID" \
+  "$COMPARE_HEAD_RUN_ID" \
   "$EXPECT_CASES" \
   "$MAX_ERRORS" \
   "$MAX_EMPTY_ASSISTANT_ENDS" \
@@ -307,6 +370,8 @@ const [
   latestOnlyRaw,
   runIdRaw,
   historyLimitRaw,
+  compareBaseRunIdRaw,
+  compareHeadRunIdRaw,
   expectCasesRaw,
   maxErrorsRaw,
   maxEmptyAssistantEndsRaw,
@@ -316,6 +381,8 @@ const [
 ] = process.argv.slice(2);
 const latestOnly = latestOnlyRaw === "1";
 const runIdFilter = String(runIdRaw || "").trim();
+const compareBaseRunId = String(compareBaseRunIdRaw || "").trim();
+const compareHeadRunId = String(compareHeadRunIdRaw || "").trim();
 
 function optionalNumber(raw, name) {
   if (raw === undefined || raw === "") return undefined;
@@ -342,6 +409,19 @@ const gates = {
 const historyLimit = optionalNumber(historyLimitRaw, "--history");
 if (historyLimit !== undefined && (!Number.isInteger(historyLimit) || historyLimit < 1)) {
   console.error("xtalpi-pi-tools debug summary: --history must be a positive integer");
+  process.exit(2);
+}
+const compareMode = compareBaseRunId !== "" || compareHeadRunId !== "";
+if (compareMode && (compareBaseRunId === "" || compareHeadRunId === "")) {
+  console.error("xtalpi-pi-tools debug summary: --compare requires BASE_RUN and HEAD_RUN");
+  process.exit(2);
+}
+if (compareMode && historyLimit !== undefined) {
+  console.error("xtalpi-pi-tools debug summary: --compare cannot be combined with --history");
+  process.exit(2);
+}
+if (compareMode && (latestOnly || runIdFilter !== "")) {
+  console.error("xtalpi-pi-tools debug summary: --compare cannot be combined with --latest or --run-id");
   process.exit(2);
 }
 
@@ -524,6 +604,191 @@ function summarizeSmokeSummaryFile(fileName) {
   };
 }
 
+function validateRunId(runId, optionName) {
+  if (!/^\d{8}-\d{6}$/.test(runId)) {
+    console.error(`xtalpi-pi-tools debug summary: ${optionName} must look like YYYYMMDD-HHMMSS`);
+    process.exit(2);
+  }
+}
+
+function loadSmokeSummaryArtifact(runId, optionName) {
+  validateRunId(runId, optionName);
+  const fileName = `${runId}-summary.json`;
+  const file = path.join(outDir, fileName);
+  if (!fs.existsSync(file)) {
+    console.error(`xtalpi-pi-tools debug summary: summary artifact not found for ${optionName}: ${file}`);
+    process.exit(1);
+  }
+
+  const parsed = readJsonFile(file);
+  if (!parsed.ok) {
+    console.error(`xtalpi-pi-tools debug summary: failed to parse ${file}: ${parsed.error}`);
+    process.exit(1);
+  }
+
+  return {
+    file,
+    artifact: parsed.value,
+    summary: summarizeSmokeSummaryFile(fileName),
+  };
+}
+
+function boolValue(value) {
+  return value === true;
+}
+
+function normalizeCaseForCompare(item) {
+  return {
+    caseName: String(item?.caseName || "unknown"),
+    turns: numberOrZero(item?.turns),
+    toolCalls: numberOrZero(item?.toolCalls),
+    recoveries: numberOrZero(item?.recoveries),
+    emptyAssistantEnds: numberOrZero(item?.emptyAssistantEnds),
+    rawToolMarkupFinalAnswer: boolValue(item?.rawToolMarkupFinalAnswer),
+    toolEnvelopeFinalAnswer: boolValue(item?.toolEnvelopeFinalAnswer),
+    errors: numberOrZero(item?.errors),
+    finalTextChars: numberOrZero(item?.finalTextChars),
+    piToolStarts: Array.isArray(item?.piToolStarts) ? item.piToolStarts.map(String) : [],
+  };
+}
+
+function caseMapFromArtifact(artifact) {
+  const result = new Map();
+  const cases = Array.isArray(artifact?.debugSummary?.cases) ? artifact.debugSummary.cases : [];
+  for (const item of cases) {
+    const normalized = normalizeCaseForCompare(item);
+    result.set(normalized.caseName, normalized);
+  }
+  return result;
+}
+
+function deltaNumber(base, head) {
+  return numberOrZero(head) - numberOrZero(base);
+}
+
+function deltaSummary(base, head) {
+  return {
+    failures: deltaNumber(base.failures, head.failures),
+    debugSummaryStatus: deltaNumber(base.debugSummaryStatus, head.debugSummaryStatus),
+    cases: deltaNumber(base.cases, head.cases),
+    recoveries: deltaNumber(base.recoveries, head.recoveries),
+    recoveryRate: numberOrZero(head.recoveryRate) - numberOrZero(base.recoveryRate),
+    rawToolMarkupFinalAnswers: deltaNumber(base.rawToolMarkupFinalAnswers, head.rawToolMarkupFinalAnswers),
+    emptyAssistantEnds: deltaNumber(base.emptyAssistantEnds, head.emptyAssistantEnds),
+    toolEnvelopeFinalAnswers: deltaNumber(base.toolEnvelopeFinalAnswers, head.toolEnvelopeFinalAnswers),
+    errors: deltaNumber(base.errors, head.errors),
+  };
+}
+
+function changedNumberMap(base, head, keys) {
+  const result = {};
+  for (const key of keys) {
+    const delta = deltaNumber(base?.[key], head?.[key]);
+    if (delta !== 0) result[key] = delta;
+  }
+  return result;
+}
+
+function changedBooleanMap(base, head, keys) {
+  const result = {};
+  for (const key of keys) {
+    const baseValue = boolValue(base?.[key]);
+    const headValue = boolValue(head?.[key]);
+    if (baseValue !== headValue) result[key] = headValue;
+  }
+  return result;
+}
+
+function buildCaseDeltas(baseArtifact, headArtifact) {
+  const baseCases = caseMapFromArtifact(baseArtifact);
+  const headCases = caseMapFromArtifact(headArtifact);
+  const names = [...new Set([...baseCases.keys(), ...headCases.keys()])].sort();
+  const result = [];
+
+  for (const caseName of names) {
+    const baseCase = baseCases.get(caseName);
+    const headCase = headCases.get(caseName);
+    if (!baseCase) {
+      result.push({ caseName, status: "added", base: null, head: headCase, delta: {} });
+      continue;
+    }
+    if (!headCase) {
+      result.push({ caseName, status: "removed", base: baseCase, head: null, delta: {} });
+      continue;
+    }
+
+    const numericDelta = changedNumberMap(baseCase, headCase, [
+      "turns",
+      "toolCalls",
+      "recoveries",
+      "emptyAssistantEnds",
+      "errors",
+    ]);
+    const booleanDelta = changedBooleanMap(baseCase, headCase, [
+      "rawToolMarkupFinalAnswer",
+      "toolEnvelopeFinalAnswer",
+    ]);
+    const baseTools = baseCase.piToolStarts.join(",");
+    const headTools = headCase.piToolStarts.join(",");
+    const toolDelta = baseTools === headTools ? {} : { piToolStarts: { base: baseCase.piToolStarts, head: headCase.piToolStarts } };
+    const delta = { ...numericDelta, ...booleanDelta, ...toolDelta };
+    if (Object.keys(delta).length > 0) {
+      result.push({ caseName, status: "changed", base: baseCase, head: headCase, delta });
+    }
+  }
+
+  return result;
+}
+
+function printCompare(baseRunId, headRunId) {
+  const base = loadSmokeSummaryArtifact(baseRunId, "--compare BASE_RUN");
+  const head = loadSmokeSummaryArtifact(headRunId, "--compare HEAD_RUN");
+  const delta = deltaSummary(base.summary, head.summary);
+  const caseDeltas = buildCaseDeltas(base.artifact, head.artifact);
+  const compare = {
+    schema: "xtalpi-pi-tools.smoke-compare.v1",
+    outDir,
+    baseRunId,
+    headRunId,
+    base: base.summary,
+    head: head.summary,
+    delta,
+    okChanged: base.summary.ok !== head.summary.ok,
+    providerChanged: base.summary.provider !== head.summary.provider,
+    modelChanged: base.summary.model !== head.summary.model,
+    caseDeltas,
+  };
+
+  if (format === "json") {
+    console.log(JSON.stringify(compare, null, 2));
+  } else {
+    console.log("xtalpi-pi-tools smoke compare");
+    console.log(`out_dir=${outDir} base=${baseRunId} head=${headRunId}`);
+    console.log(
+      `base_ok=${base.summary.ok} head_ok=${head.summary.ok} ok_changed=${compare.okChanged} ` +
+        `provider_changed=${compare.providerChanged} model_changed=${compare.modelChanged}`,
+    );
+    console.log(
+      `failures_delta=${delta.failures} cases_delta=${delta.cases} recoveries_delta=${delta.recoveries} ` +
+        `recovery_rate_delta=${delta.recoveryRate.toFixed(4)} ` +
+        `raw_tool_markup_final_answers_delta=${delta.rawToolMarkupFinalAnswers} ` +
+        `empty_assistant_ends_delta=${delta.emptyAssistantEnds} ` +
+        `tool_envelope_final_answers_delta=${delta.toolEnvelopeFinalAnswers} ` +
+        `errors_delta=${delta.errors} debug_summary_status_delta=${delta.debugSummaryStatus}`,
+    );
+    if (caseDeltas.length === 0) {
+      console.log("case_deltas=none");
+    } else {
+      console.log("case_deltas:");
+      for (const item of caseDeltas) {
+        console.log(`- ${item.caseName}: status=${item.status} delta=${JSON.stringify(item.delta)}`);
+      }
+    }
+  }
+
+  process.exit(0);
+}
+
 function printHistory(limit) {
   const summaryFiles = fs.readdirSync(outDir)
     .filter((file) => /^\d{8}-\d{6}-summary\.json$/.test(file))
@@ -583,6 +848,10 @@ if (!fs.existsSync(outDir) || !fs.statSync(outDir).isDirectory()) {
 
 if (historyLimit !== undefined) {
   printHistory(historyLimit);
+}
+
+if (compareMode) {
+  printCompare(compareBaseRunId, compareHeadRunId);
 }
 
 let debugFiles = fs.readdirSync(outDir)
