@@ -22,6 +22,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `scripts/pi67-update.sh` now runs a no-prompt config migration step after updates, so existing installs converge to `xtalpi-pi-tools` without a separate manual command.
 - Release and smoke checks now validate `xtalpi-pi-tools` artifacts and no-native-tools payload invariants.
 - `xtalpi-pi-tools` now executes only the selected tools shown to the model and marks tool results as untrusted data to reduce prompt-injection and protocol-boundary confusion.
+- `xtalpi-pi-tools` now repairs function-style pseudo tool calls such as `fetch_content({...})`, and live smoke checks require expected tool execution events instead of accepting any final text.
 
 ### Removed
 

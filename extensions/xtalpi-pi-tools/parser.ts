@@ -21,6 +21,7 @@ export type ToolCallParseResult =
   | {
       kind: "error";
       code:
+        | "function_style_tool_call"
         | "multiple_tool_calls"
         | "invalid_json"
         | "invalid_envelope"
@@ -40,6 +41,18 @@ function stripMarkdownFence(value: string): string {
   const trimmed = value.trim();
   const fenceMatch = trimmed.match(/^```(?:json|JSON)?\s*([\s\S]*?)\s*```$/);
   return fenceMatch ? fenceMatch[1].trim() : trimmed;
+}
+
+function detectFunctionStyleToolCall(value: string): { name: string; raw: string } | undefined {
+  const trimmed = stripMarkdownFence(value).replace(/^`([\s\S]*)`$/, "$1").trim();
+  const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*\(([\s\S]*)\)$/);
+  if (!match) return undefined;
+
+  const name = match[1];
+  const args = match[2].trim();
+  if (!args.startsWith("{") || !args.endsWith("}")) return undefined;
+
+  return { name, raw: `${name}(${args})` };
 }
 
 function parseEnvelope(raw: string, originalText: string): ToolCallParseResult {
@@ -188,6 +201,17 @@ export function parseToolCall(text: string): ToolCallParseResult {
         warnings: [...parsed.warnings, "accepted bare JSON tool envelope without protocol tags"],
       };
     }
+  }
+
+  const functionStyle = detectFunctionStyleToolCall(source);
+  if (functionStyle) {
+    return {
+      kind: "error",
+      code: "function_style_tool_call",
+      message: `function-style tool calls like ${functionStyle.name}(...) are not valid Pi tool protocol`,
+      raw: functionStyle.raw,
+      text: source,
+    };
   }
 
   return {

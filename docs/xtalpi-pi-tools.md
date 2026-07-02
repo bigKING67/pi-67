@@ -173,9 +173,12 @@ bash ~/.pi/agent/scripts/pi67-test-xtalpi-pi-tools.sh
 
 - `<pi_tool_call>` 解析
 - fenced JSON 容错
+- 函数式伪调用（如 `fetch_content({...})`）触发修复，而不是被当作最终回答
 - 多工具调用拒绝
 - unknown top-level field 拒绝
+- selected tools 执行白名单
 - tool result 作为普通 user 文本序列化
+- tool result prompt-injection / 协议边界中和
 - payload 不包含 `tools`、`tool_choice`、`parallel_tool_calls`、`thinking`、`reasoning_effort`
 - payload 不包含 `role=tool`
 
@@ -191,6 +194,8 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
 2. `bash pwd`
 3. `read package.json`
 4. web/read 混合任务
+
+冒烟脚本会校验预期工具是否真的执行：无工具 case 必须没有 `tool_execution_start`；`bash` / `read` / web-read case 必须出现对应工具执行事件，避免把函数式伪调用文本或空工具路径误判为成功。
 
 输出 JSONL artifact 默认在：
 

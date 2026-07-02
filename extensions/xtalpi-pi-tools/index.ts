@@ -33,6 +33,7 @@ import {
 } from "./protocol.ts";
 import {
   buildEmptyResponseRepairPrompt,
+  buildFunctionStyleToolRepairPrompt,
   buildInvalidToolJsonRepairPrompt,
   buildRepeatedToolRepairPrompt,
   buildUnknownToolRepairPrompt,
@@ -494,9 +495,12 @@ async function runProviderTurn(
       if (repairRetries < maxRepairRetries() && totalRecoveries < maxTotalRecoveries()) {
         repairRetries += 1;
         totalRecoveries += 1;
+        const repairPrompt = parsed.code === "function_style_tool_call"
+          ? buildFunctionStyleToolRepairPrompt(parsed.raw, [...names].sort())
+          : buildInvalidToolJsonRepairPrompt(parsed.message, parsed.raw);
         messages.push({ role: "assistant", content: raw.slice(0, 4000) });
-        messages.push({ role: "user", content: buildInvalidToolJsonRepairPrompt(parsed.message, parsed.raw) });
-        debugLog("recovery.invalid_tool_json", {
+        messages.push({ role: "user", content: repairPrompt });
+        debugLog(parsed.code === "function_style_tool_call" ? "recovery.function_style_tool_call" : "recovery.invalid_tool_json", {
           code: parsed.code,
           repairRetries,
           totalRecoveries,

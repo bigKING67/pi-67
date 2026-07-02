@@ -2,6 +2,8 @@ import {
   DEFAULT_MAX_EMPTY_RETRIES,
   DEFAULT_MAX_REPAIR_RETRIES,
   DEFAULT_MAX_TOTAL_RECOVERIES,
+  TOOL_CALL_CLOSE,
+  TOOL_CALL_OPEN,
 } from "./protocol.ts";
 
 export function envInt(name: string, fallback: number, min = 0): number {
@@ -44,6 +46,24 @@ Return either a normal final answer, or exactly one valid envelope:
 <pi_tool_call>
 {"name":"tool_name","arguments":{}}
 </pi_tool_call>`;
+}
+
+export function buildFunctionStyleToolRepairPrompt(raw: string, availableNames: string[]): string {
+  const names = availableNames.slice(0, 80).join(", ") || "(none)";
+  return `[xtalpi-pi-tools-function-style-tool-repair]
+Your previous response looked like a function-style tool call, which Pi cannot execute:
+${raw.slice(0, 2000)}
+
+Available tool names:
+${names}
+
+Do not return JavaScript/Python-style tool calls such as tool_name({...}).
+If a tool is still necessary, return exactly one valid Pi tool envelope and no extra prose:
+${TOOL_CALL_OPEN}
+{"name":"tool_name","arguments":{}}
+${TOOL_CALL_CLOSE}
+
+If no available tool fits, return a normal final answer.`;
 }
 
 export function buildUnknownToolRepairPrompt(toolName: string, availableNames: string[]): string {

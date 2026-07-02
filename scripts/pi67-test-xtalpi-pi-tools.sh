@@ -34,6 +34,10 @@ const { pathToFileURL } = require("node:url");
   assert.equal(unknownField.kind, "error");
   assert.equal(unknownField.code, "unknown_top_level_field");
 
+  const functionStyle = parser.parseToolCall('fetch_content({"url":"https://example.invalid"})');
+  assert.equal(functionStyle.kind, "error");
+  assert.equal(functionStyle.code, "function_style_tool_call");
+
   const context = {
     systemPrompt: "system base",
     tools: [
@@ -124,6 +128,74 @@ const { pathToFileURL } = require("node:url");
   assert.ok(registeredProvider?.streamSimple);
 
   const originalFetch = global.fetch;
+
+  process.env.XTALPI_PI_TOOLS_MAX_TOOLS = "8";
+  process.env.XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES = "2";
+  process.env.XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES = "4";
+
+  const functionStyleThenEnvelope = [
+    {
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: 'fetch_content({"url":"https://example.invalid"})',
+          },
+          finish_reason: "stop",
+        },
+      ],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    },
+    {
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: '<pi_tool_call>\n{"name":"fetch_content","arguments":{"url":"https://example.invalid"}}\n</pi_tool_call>',
+          },
+          finish_reason: "stop",
+        },
+      ],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    },
+  ];
+  let functionStyleFetchCount = 0;
+  global.fetch = async () => {
+    const envelope = functionStyleThenEnvelope[Math.min(functionStyleFetchCount, functionStyleThenEnvelope.length - 1)];
+    functionStyleFetchCount += 1;
+    return new Response(JSON.stringify(envelope), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const functionStyleContext = {
+      systemPrompt: "system base",
+      tools: [
+        { name: "fetch_content", description: "Fetch a URL", parameters: { type: "object", properties: { url: { type: "string" } } } },
+      ],
+      messages: [{ role: "user", content: "check https://example.invalid" }],
+    };
+    const functionStyleStream = registeredProvider.streamSimple(
+      {
+        id: "deepseek-v4-pro",
+        maxTokens: 32768,
+        api: "xtalpi-pi-tools",
+        provider: "xtalpi-pi-tools",
+        baseUrl: "https://example.invalid/v1",
+      },
+      functionStyleContext,
+      {},
+    );
+    const functionStyleFinal = await functionStyleStream.result();
+    assert.equal(functionStyleFetchCount, 2);
+    assert.equal(functionStyleFinal.stopReason, "toolUse");
+    const toolCallBlocks = functionStyleFinal.content.filter((block) => block.type === "toolCall");
+    assert.equal(toolCallBlocks.length, 1);
+    assert.equal(toolCallBlocks[0].name, "fetch_content");
+  } finally {
+    global.fetch = originalFetch;
+  }
 
   process.env.XTALPI_PI_TOOLS_MAX_TOOLS = "1";
   process.env.XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES = "0";
