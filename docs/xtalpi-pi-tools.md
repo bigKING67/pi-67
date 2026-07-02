@@ -207,11 +207,14 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
 1. 无工具普通回答
 2. `bash pwd`
 3. `read package.json`
-4. web/read 混合任务
+4. `bash pwd` + `read package.json` 本地多工具链路
+5. web/read 混合任务
 
 冒烟脚本会校验预期工具是否真的执行：无工具 case 必须没有 `tool_execution_start`；`bash` / `read` / web-read case 必须出现对应工具执行事件，避免把函数式伪调用文本或空工具路径误判为成功。
 
 冒烟脚本还会为每个 case 开启 `XTALPI_PI_TOOLS_DEBUG=1`，校验 debug JSONL schema，并汇总 `recovery.*` 事件，便于判断是否发生了本地修复重试。
+
+冒烟结束时会调用 debug summary 对最新一轮 artifact 做门禁：case 数必须匹配、Pi 事件不能有 error、不能出现空 assistant 结束，recovery 次数不能超过脚本设定阈值。
 
 输出 JSONL artifact 默认在：
 
@@ -229,6 +232,17 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --latest
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --latest --json
+```
+
+也可以给 summary 加发布阈值：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
+  --latest \
+  --expect-cases 5 \
+  --max-errors 0 \
+  --max-empty-assistant-ends 0 \
+  --max-recoveries 8
 ```
 
 ## 旧 provider 清理

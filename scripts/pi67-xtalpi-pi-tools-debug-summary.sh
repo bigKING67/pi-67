@@ -4,14 +4,26 @@ set -euo pipefail
 OUT_DIR="${OUT_DIR:-$HOME/tmp/xtalpi-pi-tools-smoke}"
 FORMAT="text"
 LATEST_ONLY="0"
+EXPECT_CASES=""
+MAX_ERRORS="0"
+MAX_EMPTY_ASSISTANT_ENDS=""
+MAX_RECOVERIES=""
+MAX_RECOVERY_RATE=""
 
 usage() {
   cat <<'EOF'
-Usage: pi67-xtalpi-pi-tools-debug-summary.sh [--json] [--latest] [OUT_DIR]
+Usage: pi67-xtalpi-pi-tools-debug-summary.sh [--json] [--latest] [options] [OUT_DIR]
 
 Summarize xtalpi-pi-tools live smoke artifacts:
   - *.debug.jsonl provider telemetry
   - matching *.jsonl Pi event streams, when present
+
+Gate options:
+  --expect-cases N
+  --max-errors N                  default: 0
+  --max-empty-assistant-ends N
+  --max-recoveries N
+  --max-recovery-rate N           recoveries / turns
 
 Default OUT_DIR:
   $HOME/tmp/xtalpi-pi-tools-smoke
@@ -28,6 +40,26 @@ while [ "$#" -gt 0 ]; do
       LATEST_ONLY="1"
       shift
       ;;
+    --expect-cases)
+      EXPECT_CASES="${2:-}"
+      shift 2
+      ;;
+    --max-errors)
+      MAX_ERRORS="${2:-}"
+      shift 2
+      ;;
+    --max-empty-assistant-ends)
+      MAX_EMPTY_ASSISTANT_ENDS="${2:-}"
+      shift 2
+      ;;
+    --max-recoveries)
+      MAX_RECOVERIES="${2:-}"
+      shift 2
+      ;;
+    --max-recovery-rate)
+      MAX_RECOVERY_RATE="${2:-}"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -39,12 +71,47 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-node - "$OUT_DIR" "$FORMAT" "$LATEST_ONLY" <<'NODE'
+node - \
+  "$OUT_DIR" \
+  "$FORMAT" \
+  "$LATEST_ONLY" \
+  "$EXPECT_CASES" \
+  "$MAX_ERRORS" \
+  "$MAX_EMPTY_ASSISTANT_ENDS" \
+  "$MAX_RECOVERIES" \
+  "$MAX_RECOVERY_RATE" <<'NODE'
 const fs = require("node:fs");
 const path = require("node:path");
 
-const [outDir, format, latestOnlyRaw] = process.argv.slice(2);
+const [
+  outDir,
+  format,
+  latestOnlyRaw,
+  expectCasesRaw,
+  maxErrorsRaw,
+  maxEmptyAssistantEndsRaw,
+  maxRecoveriesRaw,
+  maxRecoveryRateRaw,
+] = process.argv.slice(2);
 const latestOnly = latestOnlyRaw === "1";
+
+function optionalNumber(raw, name) {
+  if (raw === undefined || raw === "") return undefined;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) {
+    console.error(`xtalpi-pi-tools debug summary: ${name} must be a non-negative number`);
+    process.exit(2);
+  }
+  return value;
+}
+
+const gates = {
+  expectCases: optionalNumber(expectCasesRaw, "--expect-cases"),
+  maxErrors: optionalNumber(maxErrorsRaw, "--max-errors"),
+  maxEmptyAssistantEnds: optionalNumber(maxEmptyAssistantEndsRaw, "--max-empty-assistant-ends"),
+  maxRecoveries: optionalNumber(maxRecoveriesRaw, "--max-recoveries"),
+  maxRecoveryRate: optionalNumber(maxRecoveryRateRaw, "--max-recovery-rate"),
+};
 
 function readJsonl(file) {
   const result = { events: [], parseErrors: 0 };
@@ -105,6 +172,13 @@ function summarizeCase(debugFileName) {
   const errors = main.events.filter(
     (event) => event.type === "error" || event.message?.stopReason === "error" || event.message?.errorMessage,
   );
+  const emptyAssistantEnds = main.events.filter(
+    (event) =>
+      event.type === "message_end" &&
+      event.message?.role === "assistant" &&
+      Array.isArray(event.message.content) &&
+      event.message.content.length === 0,
+  ).length;
   const finalText = finalAssistantText(main.events);
 
   return {
@@ -121,6 +195,7 @@ function summarizeCase(debugFileName) {
     recoveryByEvent,
     piToolStarts: toolStartEvents.map((event) => String(event.toolName || "")),
     errors: errors.length,
+    emptyAssistantEnds,
     finalTextChars: finalText.length,
     selectedToolCountMin: selectedToolCounts.length ? Math.min(...selectedToolCounts) : undefined,
     selectedToolCountMax: selectedToolCounts.length ? Math.max(...selectedToolCounts) : undefined,
@@ -161,6 +236,7 @@ const totals = {
   turns: 0,
   toolCalls: 0,
   recoveries: 0,
+  emptyAssistantEnds: 0,
   piToolStarts: 0,
   errors: 0,
   recoveryByEvent: {},
@@ -173,6 +249,7 @@ for (const item of cases) {
   totals.turns += item.turns;
   totals.toolCalls += item.toolCalls;
   totals.recoveries += item.recoveries;
+  totals.emptyAssistantEnds += item.emptyAssistantEnds;
   totals.piToolStarts += item.piToolStarts.length;
   totals.errors += item.errors;
   for (const [event, count] of Object.entries(item.recoveryByEvent)) {
@@ -180,7 +257,29 @@ for (const item of cases) {
   }
 }
 
-const summary = { outDir, latestOnly, totals, cases };
+totals.recoveryRate = totals.turns > 0 ? totals.recoveries / totals.turns : 0;
+
+const gateFailures = [];
+if (gates.expectCases !== undefined && totals.cases !== gates.expectCases) {
+  gateFailures.push(`expected cases=${gates.expectCases}, got ${totals.cases}`);
+}
+if (gates.maxErrors !== undefined && totals.errors > gates.maxErrors) {
+  gateFailures.push(`expected errors<=${gates.maxErrors}, got ${totals.errors}`);
+}
+if (totals.debugParseErrors > 0 || totals.mainParseErrors > 0) {
+  gateFailures.push(`expected parse_errors=0, got debug=${totals.debugParseErrors} main=${totals.mainParseErrors}`);
+}
+if (gates.maxEmptyAssistantEnds !== undefined && totals.emptyAssistantEnds > gates.maxEmptyAssistantEnds) {
+  gateFailures.push(`expected empty_assistant_ends<=${gates.maxEmptyAssistantEnds}, got ${totals.emptyAssistantEnds}`);
+}
+if (gates.maxRecoveries !== undefined && totals.recoveries > gates.maxRecoveries) {
+  gateFailures.push(`expected recoveries<=${gates.maxRecoveries}, got ${totals.recoveries}`);
+}
+if (gates.maxRecoveryRate !== undefined && totals.recoveryRate > gates.maxRecoveryRate) {
+  gateFailures.push(`expected recovery_rate<=${gates.maxRecoveryRate}, got ${totals.recoveryRate.toFixed(4)}`);
+}
+
+const summary = { outDir, latestOnly, gates, gateFailures, totals, cases };
 
 if (format === "json") {
   console.log(JSON.stringify(summary, null, 2));
@@ -189,7 +288,8 @@ if (format === "json") {
   console.log(`out_dir=${outDir} latest_only=${latestOnly}`);
   console.log(
     `cases=${totals.cases} debug_events=${totals.debugEvents} turns=${totals.turns} ` +
-      `tool_calls=${totals.toolCalls} recoveries=${totals.recoveries} pi_tool_starts=${totals.piToolStarts} errors=${totals.errors}`,
+      `tool_calls=${totals.toolCalls} recoveries=${totals.recoveries} recovery_rate=${totals.recoveryRate.toFixed(4)} ` +
+      `empty_assistant_ends=${totals.emptyAssistantEnds} pi_tool_starts=${totals.piToolStarts} errors=${totals.errors}`,
   );
   if (Object.keys(totals.recoveryByEvent).length > 0) {
     console.log(`recovery_by_event=${JSON.stringify(totals.recoveryByEvent)}`);
@@ -204,11 +304,14 @@ if (format === "json") {
       : "";
     console.log(
       `- ${item.runId}/${item.caseName}: debug_events=${item.debugEvents} turns=${item.turns} tool_calls=${item.toolCalls}` +
-        ` recoveries=${item.recoveries}${recoveryText}${toolText}${selectedText} final_text_chars=${item.finalTextChars}`,
+        ` recoveries=${item.recoveries} empty_assistant_ends=${item.emptyAssistantEnds}${recoveryText}${toolText}${selectedText}` +
+        ` final_text_chars=${item.finalTextChars}`,
     );
+  }
+  if (gateFailures.length > 0) {
+    console.error(`gate_failures=${JSON.stringify(gateFailures)}`);
   }
 }
 
-const hasParseErrors = totals.debugParseErrors > 0 || totals.mainParseErrors > 0;
-process.exit(hasParseErrors || totals.errors > 0 ? 1 : 0);
+process.exit(gateFailures.length > 0 ? 1 : 0);
 NODE
