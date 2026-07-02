@@ -6,6 +6,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 node --no-warnings - "$REPO_ROOT" <<'NODE'
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
@@ -18,6 +19,100 @@ const { pathToFileURL } = require("node:url");
   const serializer = await import(ext("serializer.ts"));
   const validator = await import(ext("argument-validator.ts"));
   const provider = await import(ext("index.ts"));
+  const replayFixtures = JSON.parse(
+    fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "fixtures", "replay-cases.json"), "utf8"),
+  );
+
+  function chatResponse(content) {
+    return {
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content,
+          },
+          finish_reason: "stop",
+        },
+      ],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    };
+  }
+
+  function assertParserFixture(fixture) {
+    const actual = parser.parseToolCall(fixture.input);
+    const expected = fixture.expect;
+    assert.equal(actual.kind, expected.kind, fixture.name);
+    if (expected.kind === "tool_call") {
+      assert.equal(actual.call.name, expected.name, fixture.name);
+      assert.deepEqual(actual.call.arguments, expected.arguments ?? {}, fixture.name);
+      if (Object.prototype.hasOwnProperty.call(expected, "before")) {
+        assert.equal(actual.before, expected.before, fixture.name);
+      }
+      if (Object.prototype.hasOwnProperty.call(expected, "after")) {
+        assert.equal(actual.after, expected.after, fixture.name);
+      }
+      for (const expectedWarning of expected.warningsContain ?? []) {
+        assert.ok(actual.warnings.some((warning) => warning.includes(expectedWarning)), fixture.name);
+      }
+      return;
+    }
+    if (expected.kind === "error") {
+      assert.equal(actual.code, expected.code, fixture.name);
+    }
+  }
+
+  async function assertProviderReplayFixture(fixture, registeredProvider, originalFetch) {
+    process.env.XTALPI_PI_TOOLS_MAX_TOOLS = String(fixture.maxTools ?? 8);
+    process.env.XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES = String(fixture.maxRepairRetries ?? 2);
+    process.env.XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES = String(fixture.maxTotalRecoveries ?? 4);
+
+    let fetchCount = 0;
+    global.fetch = async () => {
+      const index = Math.min(fetchCount, fixture.responses.length - 1);
+      fetchCount += 1;
+      return new Response(JSON.stringify(chatResponse(fixture.responses[index].content)), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    try {
+      const stream = registeredProvider.streamSimple(
+        {
+          id: "deepseek-v4-pro",
+          maxTokens: 32768,
+          api: "xtalpi-pi-tools",
+          provider: "xtalpi-pi-tools",
+          baseUrl: "https://example.invalid/v1",
+        },
+        fixture.context,
+        {},
+      );
+      const final = await stream.result();
+      assert.equal(fetchCount, fixture.expect.fetchCount, fixture.name);
+      assert.equal(final.stopReason, fixture.expect.stopReason, fixture.name);
+
+      const text = final.content
+        .filter((block) => block.type === "text")
+        .map((block) => block.text)
+        .join("\n");
+      if (fixture.expect.leadingTextIncludes) assert.ok(text.includes(fixture.expect.leadingTextIncludes), fixture.name);
+      if (fixture.expect.trailingTextIncludes) assert.ok(text.includes(fixture.expect.trailingTextIncludes), fixture.name);
+
+      const toolCallBlocks = final.content.filter((block) => block.type === "toolCall");
+      assert.equal(toolCallBlocks.length, fixture.expect.toolCalls?.length ?? 0, fixture.name);
+      for (const [index, expectedToolCall] of (fixture.expect.toolCalls ?? []).entries()) {
+        assert.equal(toolCallBlocks[index].name, expectedToolCall.name, fixture.name);
+        assert.deepEqual(toolCallBlocks[index].arguments, expectedToolCall.arguments ?? {}, fixture.name);
+      }
+    } finally {
+      global.fetch = originalFetch;
+    }
+  }
+
+  for (const fixture of replayFixtures.parser ?? []) {
+    assertParserFixture(fixture);
+  }
 
   const valid = parser.parseToolCall('<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>');
   assert.equal(valid.kind, "tool_call");
@@ -210,6 +305,10 @@ const { pathToFileURL } = require("node:url");
   assert.ok(registeredProvider?.streamSimple);
 
   const originalFetch = global.fetch;
+
+  for (const fixture of replayFixtures.providerReplay ?? []) {
+    await assertProviderReplayFixture(fixture, registeredProvider, originalFetch);
+  }
 
   process.env.XTALPI_PI_TOOLS_MAX_TOOLS = "8";
   process.env.XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES = "2";

@@ -12,6 +12,8 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `scripts/pi67-xtalpi-pi-tools.sh` stable launcher for `xtalpi-pi-tools/deepseek-v4-pro`.
 - `scripts/pi67-test-xtalpi-pi-tools.sh` protocol/unit coverage for parser, serializer, and no-native-tools payload invariants.
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh` live smoke coverage for no-tool, bash, read, and web/read tasks.
+- `scripts/pi67-xtalpi-pi-tools-debug-summary.sh` for summarizing live smoke debug telemetry and recovery events.
+- `extensions/xtalpi-pi-tools/fixtures/replay-cases.json` for parser/provider replay regression cases.
 - `docs/xtalpi-pi-tools.md` documenting the local tool protocol, runtime knobs, migration, and validation flow.
 
 ### Changed
@@ -26,6 +28,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `xtalpi-pi-tools` now validates tool arguments against a lightweight JSON Schema subset before execution and repairs obvious schema mismatches locally.
 - `xtalpi-pi-tools` debug output now emits a stable redacted JSONL schema, and the live smoke checks validate debug telemetry plus recovery-event summaries.
 - Tool metadata, tool-call history, and repair prompts now neutralize local protocol markers before sending text to xtalpi, reducing injection risk from malformed tool descriptions or bad model output.
+- `scripts/pi67-test-xtalpi-pi-tools.sh` now replays fixture-backed bad-output cases, so real parser/provider regressions are easier to extend without bloating test code.
 
 ### Removed
 

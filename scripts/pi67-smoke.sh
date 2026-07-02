@@ -206,6 +206,9 @@ fi
 if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-pi-tools-smoke.sh" ]; then
   bash -n "$REPO_ROOT/scripts/pi67-xtalpi-pi-tools-smoke.sh"
 fi
+if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-pi-tools-debug-summary.sh" ]; then
+  bash -n "$REPO_ROOT/scripts/pi67-xtalpi-pi-tools-debug-summary.sh"
+fi
 pass "shell scripts parse"
 
 section "JSON"
@@ -213,6 +216,10 @@ for file in settings.json auth.example.json image-gen.example.json models.exampl
   json_valid "$REPO_ROOT/$file"
   pass "valid JSON: $file"
 done
+if [ -f "$REPO_ROOT/extensions/xtalpi-pi-tools/fixtures/replay-cases.json" ]; then
+  json_valid "$REPO_ROOT/extensions/xtalpi-pi-tools/fixtures/replay-cases.json"
+  pass "valid JSON: extensions/xtalpi-pi-tools/fixtures/replay-cases.json"
+fi
 
 section "Shared skill defaults"
 node - "$REPO_ROOT" <<'NODE'

@@ -377,7 +377,8 @@ pi-67/
 │   ├── pi67-uninstall.sh
 │   ├── pi67-xtalpi-pi-tools.sh
 │   ├── pi67-test-xtalpi-pi-tools.sh
-│   └── pi67-xtalpi-pi-tools-smoke.sh
+│   ├── pi67-xtalpi-pi-tools-smoke.sh
+│   └── pi67-xtalpi-pi-tools-debug-summary.sh
 └── templates/
     └── scrapers/
 ```
@@ -404,6 +405,12 @@ bash ~/.pi/agent/scripts/pi67-test-xtalpi-pi-tools.sh
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
+```
+
+冒烟 telemetry 汇总：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --latest
 ```
 
 详细说明见 `docs/xtalpi-pi-tools.md` 和 `docs/troubleshooting.md`。
