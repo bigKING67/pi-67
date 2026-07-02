@@ -33,6 +33,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `xtalpi-pi-tools` now accepts the common `<pi_tool_call name="...">{"arg":...}</pi_tool_call>` variant as a local tool call, repairs raw Pi protocol markup leaked into final answers, and the live smoke rejects any remaining raw markup.
 - `scripts/pi67-test-xtalpi-pi-tools.sh` now runs smoke/debug-summary self-tests, so tool-boundary and artifact-threshold gates have offline regression coverage.
 - `xtalpi-pi-tools` now neutralizes attributed Pi protocol tags inside untrusted tool output, closing a prompt-injection gap around `<pi_tool_call name="...">` variants.
+- `xtalpi-pi-tools` now treats incomplete Pi protocol tag fragments as raw markup, so malformed `<pi_tool_call name="...` leaks trigger repair and gate failures instead of passing as final text.
 
 ### Removed
 

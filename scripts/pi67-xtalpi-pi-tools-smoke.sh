@@ -76,7 +76,7 @@ function stripPiToolEnvelopes(text) {
     .trim();
 }
 function containsRawPiToolMarkup(text) {
-  return /<\/?pi_tool_(?:call_history|call|result)\b[^>]*>/.test(String(text || ""));
+  return /<\/?pi_tool_(?:call_history|call|result)\b(?:[^<>\r\n]*>|[^<>\r\n]*(?:$|\r?\n))/i.test(String(text || ""));
 }
 function isToolEnvelopeOnlyFinalAnswer(text) {
   const trimmed = String(text || "").trim();
@@ -243,6 +243,10 @@ writeFixture("raw-markup", {
   tools: ["read"],
   finalText: "<pi_tool_call_history>\nid: call_1\nname: read\n</pi_tool_call_history>",
 });
+writeFixture("malformed-markup", {
+  tools: ["read"],
+  finalText: "<pi_tool_call name=\"read\"\n{\"path\":\"package.json\"}",
+});
 NODE
 
   if ! output="$(summarize_jsonl "$tmp_dir/good.jsonl" "$tmp_dir/good.stderr" 0 "all:web_fetch,read;only:web_fetch,read" "$tmp_dir/good.debug.jsonl" 2>&1)"; then
@@ -258,6 +262,12 @@ NODE
 
   if output="$(summarize_jsonl "$tmp_dir/raw-markup.jsonl" "$tmp_dir/raw-markup.stderr" 0 "read" "$tmp_dir/raw-markup.debug.jsonl" 2>&1)"; then
     echo "expected raw-markup fixture to fail"
+    echo "$output"
+    return 1
+  fi
+
+  if output="$(summarize_jsonl "$tmp_dir/malformed-markup.jsonl" "$tmp_dir/malformed-markup.stderr" 0 "read" "$tmp_dir/malformed-markup.debug.jsonl" 2>&1)"; then
+    echo "expected malformed-markup fixture to fail"
     echo "$output"
     return 1
   fi

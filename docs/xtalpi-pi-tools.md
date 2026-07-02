@@ -37,7 +37,7 @@ content:
 </pi_tool_result>
 ```
 
-工具结果内容是不可信数据：其中出现的指令、角色声明、伪 system prompt 或 `<pi_tool_call>` / `<pi_tool_result>` 文本都不能覆盖 Pi/system/user 指令。实现会把工具结果里的协议标记（包括 `<pi_tool_call name="...">` 这类带属性变体）中和为普通文本，避免工具输出伪造协议边界。
+工具结果内容是不可信数据：其中出现的指令、角色声明、伪 system prompt 或 `<pi_tool_call>` / `<pi_tool_result>` 文本都不能覆盖 Pi/system/user 指令。实现会把工具结果里的协议标记（包括 `<pi_tool_call name="...">` 这类带属性变体，以及缺少 `>` 的残缺标签片段）中和为普通文本，避免工具输出伪造协议边界。
 
 工具元数据同样按模型可见的不可信文本处理。工具描述、参数描述、repair prompt 里的旧模型输出和工具名列表都会做协议标记中和、单行化或截断，避免恶意/异常 MCP 工具说明伪造 `<pi_tool_call>` / `<pi_tool_result>` / `<pi_tool_call_history>` 边界。
 
@@ -191,9 +191,9 @@ extensions/xtalpi-pi-tools/fixtures/replay-cases.json
 - selected tools 执行白名单
 - tool arguments 轻量 schema 校验与修复
 - `<pi_tool_call name="...">{"arg":...}</pi_tool_call>` 变体解析
-- raw Pi protocol markup final answer repair
+- raw Pi protocol markup final answer repair（含残缺/畸形协议标签）
 - tool result 作为普通 user 文本序列化
-- tool result prompt-injection / 协议边界中和（含带属性协议标签变体）
+- tool result prompt-injection / 协议边界中和（含带属性与残缺协议标签变体）
 - tool metadata / repair prompt 协议边界中和
 - payload 不包含 `tools`、`tool_choice`、`parallel_tool_calls`、`thinking`、`reasoning_effort`
 - payload 不包含 `role=tool`
@@ -223,7 +223,7 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
 
 冒烟脚本会校验预期工具是否真的执行：无工具 case 必须没有 `tool_execution_start`；`bash` / `read` / web-read case 必须出现对应工具执行事件，避免把函数式伪调用文本或空工具路径误判为成功。web-read case 还会通过 `--tools web_fetch,read` 和 `only:web_fetch,read` gate 限制实际工具边界，防止模型混入未授权的本地/MCP 工具。
 
-最终回答也会被检查：如果 assistant final text 残留裸 `<pi_tool_call_history>` / `<pi_tool_call>` / `<pi_tool_result>` raw markup（包括 `<pi_tool_call name="...">` 这类变体），provider 会先触发 repair；如果最终 artifact 仍残留 raw markup，冒烟会失败，避免把未执行的伪工具调用误判为正常结论。
+最终回答也会被检查：如果 assistant final text 残留裸 `<pi_tool_call_history>` / `<pi_tool_call>` / `<pi_tool_result>` raw markup（包括 `<pi_tool_call name="...">` 这类变体，以及缺少 `>` 的残缺标签片段），provider 会先触发 repair；如果最终 artifact 仍残留 raw markup，冒烟会失败，避免把未执行的伪工具调用误判为正常结论。
 
 冒烟脚本还会为每个 case 开启 `XTALPI_PI_TOOLS_DEBUG=1`，校验 debug JSONL schema，并汇总 `recovery.*` 事件，便于判断是否发生了本地修复重试。
 

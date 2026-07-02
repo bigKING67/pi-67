@@ -1,5 +1,5 @@
 const CONTROL_CHARS_EXCEPT_COMMON_WHITESPACE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
-const PROTOCOL_MARKUP_TAG = /<\/?pi_tool_(?:call_history|call|result)\b[^>]*>/gi;
+const PROTOCOL_MARKUP_TAG = /<\/?pi_tool_(?:call_history|call|result)\b(?:[^<>\r\n]*>|[^<>\r\n]*)/gi;
 
 export function truncateText(value: string, maxChars: number): string {
   if (maxChars <= 0 || value.length <= maxChars) return value;

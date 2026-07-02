@@ -56,8 +56,10 @@ function detectFunctionStyleToolCall(value: string): { name: string; raw: string
   return { name, raw: `${name}(${args})` };
 }
 
+const RAW_PROTOCOL_MARKUP_PATTERN = /<\/?pi_tool_(?:call_history|call|result)\b(?:[^<>\r\n]*>|[^<>\r\n]*(?:$|\r?\n))/i;
+
 function containsRawProtocolMarkup(value: string): boolean {
-  return /<\/?pi_tool_(?:call_history|call|result)\b[^>]*>/.test(value);
+  return RAW_PROTOCOL_MARKUP_PATTERN.test(value);
 }
 
 function parseEnvelope(raw: string, originalText: string): ToolCallParseResult {

@@ -72,6 +72,14 @@
       }
     },
     {
+      "name": "malformed-incomplete-tool-call-markup",
+      "input": "I leaked a partial protocol tag:\n<pi_tool_call name=\"read\"\n{\"path\":\"package.json\"}",
+      "expect": {
+        "kind": "error",
+        "code": "raw_protocol_markup"
+      }
+    },
+    {
       "name": "multiple-tool-calls",
       "input": "<pi_tool_call>{\"name\":\"read\",\"arguments\":{}}</pi_tool_call><pi_tool_call>{\"name\":\"bash\",\"arguments\":{}}</pi_tool_call>",
       "expect": {
@@ -272,6 +280,51 @@
         "fetchCount": 2,
         "stopReason": "stop",
         "leadingTextIncludes": "Package summary"
+      }
+    },
+    {
+      "name": "malformed-protocol-markup-then-final",
+      "maxTools": 8,
+      "maxRepairRetries": 2,
+      "maxTotalRecoveries": 4,
+      "context": {
+        "systemPrompt": "system base",
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a file",
+            "parameters": {
+              "type": "object",
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": "read package.json"
+          }
+        ]
+      },
+      "responses": [
+        {
+          "content": "<pi_tool_call name=\"read\"\n{\"path\":\"package.json\"}"
+        },
+        {
+          "content": "Recovered from malformed protocol markup."
+        }
+      ],
+      "expect": {
+        "fetchCount": 2,
+        "stopReason": "stop",
+        "leadingTextIncludes": "Recovered from malformed"
       }
     },
     {
