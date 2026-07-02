@@ -738,6 +738,94 @@ const { pathToFileURL } = require("node:url");
   }
 
   process.env.XTALPI_PI_TOOLS_MAX_TOOLS = "1";
+  process.env.XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES = "2";
+  process.env.XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES = "4";
+
+  const selectedWhitelistRepairResponses = [
+    {
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: '<pi_tool_call>\n{"name":"hidden_admin","arguments":{"action":"dump"}}\n</pi_tool_call>',
+          },
+          finish_reason: "stop",
+        },
+      ],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    },
+    {
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: '<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>',
+          },
+          finish_reason: "stop",
+        },
+      ],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    },
+  ];
+  const selectedWhitelistRepairRequests = [];
+  let selectedWhitelistRepairFetchCount = 0;
+  global.fetch = async (_input, init) => {
+    selectedWhitelistRepairRequests.push(JSON.parse(String(init?.body || "{}")));
+    const envelope = selectedWhitelistRepairResponses[
+      Math.min(selectedWhitelistRepairFetchCount, selectedWhitelistRepairResponses.length - 1)
+    ];
+    selectedWhitelistRepairFetchCount += 1;
+    return new Response(JSON.stringify(envelope), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const selectedWhitelistRepairContext = {
+      systemPrompt: "system base",
+      tools: [
+        { name: "read", description: "Read a file", parameters: { type: "object", properties: { path: { type: "string" } } } },
+        { name: "hidden_admin", description: "Hidden admin tool", parameters: { type: "object", properties: {} } },
+        { name: "bash", description: "Run a shell command", parameters: { type: "object", properties: { command: { type: "string" } } } },
+      ],
+      messages: [{ role: "user", content: "read package.json" }],
+    };
+    const selectedWhitelistRepairStream = registeredProvider.streamSimple(
+      {
+        id: "deepseek-v4-pro",
+        maxTokens: 32768,
+        api: "xtalpi-pi-tools",
+        provider: "xtalpi-pi-tools",
+        baseUrl: "https://example.invalid/v1",
+      },
+      selectedWhitelistRepairContext,
+      {},
+    );
+    const selectedWhitelistRepairFinal = await selectedWhitelistRepairStream.result();
+    assert.equal(selectedWhitelistRepairFetchCount, 2);
+    assert.equal(selectedWhitelistRepairFinal.stopReason, "toolUse");
+    assert.equal(selectedWhitelistRepairRequests.length, 2);
+    const initialSystemPrompt = selectedWhitelistRepairRequests[0].messages[0].content;
+    assert.match(initialSystemPrompt, /Available Pi tools \(1\/3; call only one at a time\):/);
+    assert.ok(initialSystemPrompt.includes("- read:"));
+    assert.ok(!initialSystemPrompt.includes("hidden_admin"));
+    assert.ok(!initialSystemPrompt.includes("- bash:"));
+    const repairPrompt = selectedWhitelistRepairRequests[1].messages.at(-1).content;
+    assert.match(repairPrompt, /xtalpi-pi-tools-unknown-tool-repair/);
+    assert.match(repairPrompt, /"hidden_admin"/);
+    const availableNamesInRepair = repairPrompt.match(/Available tool names:\n([\s\S]*?)\n\n/)?.[1];
+    assert.equal(availableNamesInRepair, '"read"');
+    assert.ok(!availableNamesInRepair.includes("hidden_admin"));
+    assert.ok(!availableNamesInRepair.includes("bash"));
+    const selectedWhitelistToolCalls = selectedWhitelistRepairFinal.content.filter((block) => block.type === "toolCall");
+    assert.equal(selectedWhitelistToolCalls.length, 1);
+    assert.equal(selectedWhitelistToolCalls[0].name, "read");
+    assert.deepEqual(selectedWhitelistToolCalls[0].arguments, { path: "package.json" });
+  } finally {
+    global.fetch = originalFetch;
+  }
+
+  process.env.XTALPI_PI_TOOLS_MAX_TOOLS = "1";
   process.env.XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES = "0";
   process.env.XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES = "0";
 

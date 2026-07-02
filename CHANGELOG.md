@@ -57,6 +57,8 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - Release/smoke gates now run standalone provider error contract validation, including error code coverage, category/retryability semantics, immediate retry policy, and HTTP status range ordering.
 - The provider error contract validator now has a `--self-test` mode with known-bad contract samples, so release/smoke gates prove both the contract and the validator fail closed on drift.
 - `provider-error-contract.json` now carries the required code/category/status/sample manifest, and runtime, provider-health preflight, validator, and TypeScript union tests all read or check that manifest instead of maintaining separate unchecked classification lists.
+- Unknown-tool repair regression coverage now proves repair prompts expose only the selected tools shown in the current turn, not every tool present in Pi context.
+- Live xtalpi smoke now includes a `tool-result-injection` case that reads hostile tool-output fixture data and gates against raw protocol leakage, missing canary confirmation, or unexpected tool execution.
 
 ### Removed
 

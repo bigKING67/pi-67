@@ -408,6 +408,8 @@ bash ~/.pi/agent/scripts/pi67-test-xtalpi-pi-tools.sh
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
 ```
 
+真实冒烟覆盖 no-tool、bash、read、bash/read、web/read，以及 adversarial `tool-result-injection` 场景；可用 `--case tool-result-injection` 单独复核工具结果注入边界与 canary confirmation gate。
+
 provider health 快速预检：
 
 ```bash
