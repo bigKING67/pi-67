@@ -60,6 +60,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - Unknown-tool repair regression coverage now proves repair prompts expose only the selected tools shown in the current turn, not every tool present in Pi context.
 - Live xtalpi smoke now includes a `tool-result-injection` case that reads hostile tool-output fixture data and gates against raw protocol leakage, missing canary confirmation, or unexpected tool execution.
 - xtalpi smoke trend-gate now applies `--expect-cases` to every persisted summary it evaluates, so targeted/subset smoke runs cannot be mistaken for full-suite trend evidence.
+- xtalpi smoke debug summary now supports `--expect-case-names` / `--expect-selected-cases`, allowing trend gates to require the exact full smoke case set instead of relying on case count alone.
 
 ### Removed
 

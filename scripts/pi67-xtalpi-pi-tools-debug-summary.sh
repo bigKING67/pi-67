@@ -13,6 +13,7 @@ COMPARE_HEAD_RUN_ID=""
 FAIL_ON_RECOVERY_INCREASE="0"
 MAX_RECOVERY_CASE_RUNS=""
 EXPECT_CASES=""
+EXPECT_CASE_NAMES=""
 MAX_ERRORS="0"
 MAX_EMPTY_ASSISTANT_ENDS=""
 MAX_RAW_TOOL_MARKUP_FINAL_ANSWERS=""
@@ -36,6 +37,7 @@ Selection:
 
 Gate options:
   --expect-cases N                 require case count for --latest/--run-id and every --trend-gate run
+  --expect-case-names LIST          require exact comma-separated case names for --latest/--run-id and --trend-gate
   --max-errors N                  default: 0
   --max-empty-assistant-ends N
   --max-raw-tool-markup-final-answers N
@@ -186,7 +188,10 @@ writeCase(providerError, "20260702-000007", "http-429", {
 });
 
 const history = ensureDir("history");
-function writeSummary(runId, { dir = history, ok = true, failures = 0, recoveries = 0, raw = 0, errors = 0, cases, totalCases = 5 } = {}) {
+function writeSummary(
+  runId,
+  { dir = history, ok = true, failures = 0, recoveries = 0, raw = 0, errors = 0, cases, totalCases = 5, selectedCases } = {},
+) {
   const caseItems = cases || [
     {
       runId,
@@ -202,6 +207,7 @@ function writeSummary(runId, { dir = history, ok = true, failures = 0, recoverie
       piToolStarts: ["read"],
     },
   ];
+  const selectedCaseNames = selectedCases || caseItems.map((item) => item.caseName);
   fs.writeFileSync(path.join(dir, `${runId}-summary.json`), `${JSON.stringify({
     schema: "xtalpi-pi-tools.smoke-summary.v1",
     createdAt: "2026-07-02T00:00:00.000Z",
@@ -210,6 +216,7 @@ function writeSummary(runId, { dir = history, ok = true, failures = 0, recoverie
     stamp: runId,
     runId,
     outDir: dir,
+    selectedCases: selectedCaseNames,
     caseTimeoutSeconds: 180,
     failures,
     debugSummaryStatus: 0,
@@ -247,6 +254,7 @@ writeSummary("20260702-000001", {
   ok: true,
   failures: 0,
   recoveries: 0,
+  selectedCases: ["no-tool", "bash", "read", "bash-read", "web-read"],
   cases: [
     {
       runId: "20260702-000001",
@@ -267,6 +275,7 @@ writeSummary("20260702-000002", {
   ok: true,
   failures: 0,
   recoveries: 1,
+  selectedCases: ["no-tool", "bash", "read", "bash-read", "web-read"],
   cases: [
     {
       runId: "20260702-000002",
@@ -300,7 +309,13 @@ writeSummary("20260702-000002", {
 });
 NODE
 
-  if ! output="$("$SCRIPT_PATH" --run-id 20260702-000001 --expect-cases 1 --max-errors 0 --max-empty-assistant-ends 0 --max-raw-tool-markup-final-answers 0 --max-recoveries 0 "$tmp_dir/clean" 2>&1)"; then
+  if ! output="$("$SCRIPT_PATH" --run-id 20260702-000001 --expect-cases 1 --expect-case-names clean --max-errors 0 --max-empty-assistant-ends 0 --max-raw-tool-markup-final-answers 0 --max-recoveries 0 "$tmp_dir/clean" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+
+  if output="$("$SCRIPT_PATH" --run-id 20260702-000001 --expect-case-names read "$tmp_dir/clean" 2>&1)"; then
+    echo "expected direct case-name gate to fail"
     echo "$output"
     return 1
   fi
@@ -445,7 +460,13 @@ NODE
     return 1
   fi
 
-  if ! output="$("$SCRIPT_PATH" --trend-gate 2 --expect-cases 5 "$tmp_dir/trend" 2>&1)"; then
+  if ! output="$("$SCRIPT_PATH" --trend-gate 2 --expect-cases 5 --expect-case-names no-tool,bash,read,bash-read,web-read "$tmp_dir/trend" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+
+  if output="$("$SCRIPT_PATH" --trend-gate 2 --expect-case-names no-tool,bash,read,bash-read,tool-result-injection "$tmp_dir/trend" 2>&1)"; then
+    echo "expected trend case-name gate to fail"
     echo "$output"
     return 1
   fi
@@ -521,6 +542,10 @@ while [ "$#" -gt 0 ]; do
       EXPECT_CASES="${2:-}"
       shift 2
       ;;
+    --expect-case-names|--expect-selected-cases)
+      EXPECT_CASE_NAMES="${2:-}"
+      shift 2
+      ;;
     --max-errors)
       MAX_ERRORS="${2:-}"
       shift 2
@@ -576,6 +601,7 @@ node - \
   "$FAIL_ON_RECOVERY_INCREASE" \
   "$MAX_RECOVERY_CASE_RUNS" \
   "$EXPECT_CASES" \
+  "$EXPECT_CASE_NAMES" \
   "$MAX_ERRORS" \
   "$MAX_EMPTY_ASSISTANT_ENDS" \
   "$MAX_RAW_TOOL_MARKUP_FINAL_ANSWERS" \
@@ -596,6 +622,7 @@ const [
   failOnRecoveryIncreaseRaw,
   maxRecoveryCaseRunsRaw,
   expectCasesRaw,
+  expectCaseNamesRaw,
   maxErrorsRaw,
   maxEmptyAssistantEndsRaw,
   maxRawToolMarkupFinalAnswersRaw,
@@ -618,8 +645,34 @@ function optionalNumber(raw, name) {
   return value;
 }
 
+function sortedUniqueStrings(values) {
+  return [...new Set((Array.isArray(values) ? values : []).map((value) => String(value).trim()).filter(Boolean))].sort();
+}
+
+function parseCaseNameList(raw, name) {
+  if (raw === undefined || raw === "") return undefined;
+  const list = String(raw).split(",").map((item) => item.trim());
+  if (list.length === 0 || list.some((item) => item === "")) {
+    console.error(`xtalpi-pi-tools debug summary: ${name} must be a comma-separated non-empty case list`);
+    process.exit(2);
+  }
+  return sortedUniqueStrings(list);
+}
+
+function caseNameListsEqual(actual, expected) {
+  const actualSorted = sortedUniqueStrings(actual);
+  const expectedSorted = sortedUniqueStrings(expected);
+  return actualSorted.length === expectedSorted.length &&
+    actualSorted.every((item, index) => item === expectedSorted[index]);
+}
+
+function formatCaseNames(values) {
+  return sortedUniqueStrings(values).join(",");
+}
+
 const gates = {
   expectCases: optionalNumber(expectCasesRaw, "--expect-cases"),
+  expectCaseNames: parseCaseNameList(expectCaseNamesRaw, "--expect-case-names"),
   maxErrors: optionalNumber(maxErrorsRaw, "--max-errors"),
   maxEmptyAssistantEnds: optionalNumber(maxEmptyAssistantEndsRaw, "--max-empty-assistant-ends"),
   maxRawToolMarkupFinalAnswers: optionalNumber(
@@ -957,6 +1010,8 @@ function summarizeSmokeSummaryFile(fileName) {
       retryableProviderErrors: 0,
       providerErrorCodes: {},
       providerErrorCategories: {},
+      selectedCases: [],
+      caseNames: [],
       recoveryCaseNames: [],
       caseRecoveries: [],
       gateFailures: ["summary_parse_error"],
@@ -966,6 +1021,10 @@ function summarizeSmokeSummaryFile(fileName) {
   const artifact = parsed.value;
   const totals = artifact?.debugSummary?.totals ?? {};
   const cases = Array.isArray(artifact?.debugSummary?.cases) ? artifact.debugSummary.cases : [];
+  const caseNames = sortedUniqueStrings(cases.map((item) => item?.caseName || "unknown"));
+  const selectedCases = Array.isArray(artifact?.selectedCases)
+    ? sortedUniqueStrings(artifact.selectedCases)
+    : caseNames;
   const caseRecoveries = cases
     .map((item) => ({
       caseName: String(item?.caseName || "unknown"),
@@ -1003,6 +1062,8 @@ function summarizeSmokeSummaryFile(fileName) {
     retryableProviderErrors: numberOrZero(totals.retryableProviderErrors),
     providerErrorCodes: objectOrUndefined(totals.providerErrorCodes) || {},
     providerErrorCategories: objectOrUndefined(totals.providerErrorCategories) || {},
+    selectedCases,
+    caseNames,
     recoveryCaseNames: caseRecoveries.map((item) => item.caseName),
     caseRecoveries,
     gateFailures,
@@ -1273,6 +1334,7 @@ function printHistory(limit) {
       const gateText = run.gateFailures?.length ? ` gate_failures=${JSON.stringify(run.gateFailures)}` : "";
       const providerText = run.provider ? ` provider=${run.provider}` : "";
       const modelText = run.model ? ` model=${run.model}` : "";
+      const selectedText = run.selectedCases?.length ? ` selected_cases=${run.selectedCases.join(",")}` : "";
       console.log(
         `- ${run.runId}: ok=${run.ok} failures=${run.failures} cases=${run.cases} ` +
           `recoveries=${run.recoveries} recovery_rate=${run.recoveryRate.toFixed(4)} ` +
@@ -1283,7 +1345,7 @@ function printHistory(limit) {
           `watchdog_timeouts=${run.watchdogTimeouts} timed_out_after_agent_end=${run.timedOutAfterAgentEnd} ` +
           `provider_errors=${run.providerErrors} retryable_provider_errors=${run.retryableProviderErrors} ` +
           `debug_summary_status=${run.debugSummaryStatus}` +
-          `${providerText}${modelText}${gateText}${parseText}`,
+          `${providerText}${modelText}${selectedText}${gateText}${parseText}`,
       );
     }
   }
@@ -1325,6 +1387,7 @@ function buildRecoveryCaseRunCounts(runs) {
 function evaluateTrendGate(history) {
   const hardLimits = {
     expectCases: gates.expectCases,
+    expectCaseNames: gates.expectCaseNames,
     maxErrors: gates.maxErrors ?? 0,
     maxEmptyAssistantEnds: gates.maxEmptyAssistantEnds ?? 0,
     maxRawToolMarkupFinalAnswers: gates.maxRawToolMarkupFinalAnswers ?? 0,
@@ -1352,6 +1415,14 @@ function evaluateTrendGate(history) {
     }
     if (hardLimits.expectCases !== undefined && run.cases !== hardLimits.expectCases) {
       gateFailures.push(`${run.runId}: expected cases=${hardLimits.expectCases}, got ${run.cases}`);
+    }
+    if (
+      hardLimits.expectCaseNames !== undefined &&
+      !caseNameListsEqual(run.selectedCases, hardLimits.expectCaseNames)
+    ) {
+      gateFailures.push(
+        `${run.runId}: expected case_names=${formatCaseNames(hardLimits.expectCaseNames)}, got ${formatCaseNames(run.selectedCases)}`,
+      );
     }
     if (run.errors > hardLimits.maxErrors) {
       gateFailures.push(`${run.runId}: expected errors<=${hardLimits.maxErrors}, got ${run.errors}`);
@@ -1574,6 +1645,14 @@ totals.recoveryRate = totals.turns > 0 ? totals.recoveries / totals.turns : 0;
 const gateFailures = [];
 if (gates.expectCases !== undefined && totals.cases !== gates.expectCases) {
   gateFailures.push(`expected cases=${gates.expectCases}, got ${totals.cases}`);
+}
+if (
+  gates.expectCaseNames !== undefined &&
+  !caseNameListsEqual(cases.map((item) => item.caseName), gates.expectCaseNames)
+) {
+  gateFailures.push(
+    `expected case_names=${formatCaseNames(gates.expectCaseNames)}, got ${formatCaseNames(cases.map((item) => item.caseName))}`,
+  );
 }
 if (gates.maxErrors !== undefined && totals.errors > gates.maxErrors) {
   gateFailures.push(`expected errors<=${gates.maxErrors}, got ${totals.errors}`);

@@ -363,15 +363,17 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   --trend-gate 5 \
   --expect-cases 6 \
+  --expect-case-names no-tool,bash,read,bash-read,web-read,tool-result-injection \
   "$HOME/tmp/xtalpi-pi-tools-smoke"
 ```
 
-trend-gate 模式会复用 `<stamp>-summary.json`，默认要求最近 N 次都满足：`ok=true`、`failures=0`、`debug_summary_status=0`、`errors=0`、`provider_errors=0`、`empty_assistant_ends=0`、`raw_tool_markup_final_answers=0`、`tool_envelope_final_answers=0`、`process_lifecycle_failures=0`。加上 `--expect-cases 6` 后，最近 N 次每一轮都必须是完整 6-case 覆盖，避免把只跑 `--case web-read` / `--case tool-result-injection` 的局部复核误当成全量趋势证据。可选地用现有阈值限制 recovery：
+trend-gate 模式会复用 `<stamp>-summary.json`，默认要求最近 N 次都满足：`ok=true`、`failures=0`、`debug_summary_status=0`、`errors=0`、`provider_errors=0`、`empty_assistant_ends=0`、`raw_tool_markup_final_answers=0`、`tool_envelope_final_answers=0`、`process_lifecycle_failures=0`。加上 `--expect-cases 6` 和 `--expect-case-names ...` 后，最近 N 次每一轮都必须是完整且同一组 6-case 覆盖，避免把只跑 `--case web-read` / `--case tool-result-injection` 的局部复核，或未来 case 集合变化后的非标准 6-case 结果，误当成全量趋势证据。可选地用现有阈值限制 recovery：
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   --trend-gate 5 \
   --expect-cases 6 \
+  --expect-case-names no-tool,bash,read,bash-read,web-read,tool-result-injection \
   --max-recoveries 1 \
   --max-recovery-rate 0.1 \
   --max-recovery-case-runs 1 \
