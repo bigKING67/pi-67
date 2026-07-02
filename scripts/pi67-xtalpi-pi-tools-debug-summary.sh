@@ -72,7 +72,12 @@ function writeJsonl(dir, file, events) {
   fs.writeFileSync(path.join(dir, file), events.map((event) => JSON.stringify(event)).join("\n") + "\n");
 }
 
-function writeCase(dir, runId, name, { finalText = "normal final answer", debugEvents = [], toolNames = [] } = {}) {
+function writeCase(
+  dir,
+  runId,
+  name,
+  { finalText = "normal final answer", debugEvents = [], toolNames = [], lifecycle } = {},
+) {
   writeJsonl(dir, `${runId}-${name}.jsonl`, [
     ...toolNames.map((toolName) => ({ type: "tool_execution_start", toolName, args: {} })),
     {
@@ -94,6 +99,13 @@ function writeCase(dir, runId, name, { finalText = "normal final answer", debugE
       selected_tool_count: toolNames.length,
     },
   ]);
+  if (lifecycle) {
+    fs.writeFileSync(path.join(dir, `${runId}-${name}.lifecycle.json`), `${JSON.stringify({
+      schema: "xtalpi-pi-tools.smoke-lifecycle.v1",
+      caseName: name,
+      ...lifecycle,
+    }, null, 2)}\n`);
+  }
 }
 
 const clean = ensureDir("clean");
@@ -133,6 +145,20 @@ writeCase(recovery, "20260702-000003", "recovering", {
       selected_tool_count: 1,
     },
   ],
+});
+
+const lifecycle = ensureDir("lifecycle");
+writeCase(lifecycle, "20260702-000006", "timed-out-after-agent-end", {
+  toolNames: ["web_fetch", "read"],
+  lifecycle: {
+    exitStatus: 124,
+    elapsedSeconds: 42,
+    caseTimeoutSeconds: 40,
+    timedOutByWatchdog: true,
+    agentEndSeenDuringRun: true,
+    agentEndElapsedSeconds: 12,
+    postAgentEndLingerSeconds: 30,
+  },
 });
 
 const history = ensureDir("history");
@@ -259,6 +285,17 @@ NODE
 
   if output="$("$SCRIPT_PATH" --latest --expect-cases 1 --max-errors 0 --max-empty-assistant-ends 0 --max-raw-tool-markup-final-answers 0 --max-recoveries 0 "$tmp_dir/recovery" 2>&1)"; then
     echo "expected recovery-threshold fixture to fail"
+    echo "$output"
+    return 1
+  fi
+
+  if output="$("$SCRIPT_PATH" --latest --expect-cases 1 --max-errors 0 --max-empty-assistant-ends 0 --max-raw-tool-markup-final-answers 0 --max-recoveries 0 "$tmp_dir/lifecycle" 2>&1)"; then
+    echo "expected lifecycle timeout fixture to fail"
+    echo "$output"
+    return 1
+  fi
+  if [[ "$output" != *"process_lifecycle_failures"* || "$output" != *"timed_out_after_agent_end"* ]]; then
+    echo "lifecycle timeout output did not expose process lifecycle diagnostics"
     echo "$output"
     return 1
   fi
@@ -629,11 +666,77 @@ function isToolEnvelopeOnlyFinalAnswer(text) {
   return containsRawPiToolMarkup(trimmed) && stripPiToolEnvelopes(trimmed).length === 0;
 }
 
+function uniqueStrings(values) {
+  return [...new Set(values.filter((value) => typeof value === "string" && value.trim()).map(String))].sort();
+}
+
+function uniqueNumbers(values) {
+  return [...new Set(values.filter((value) => typeof value === "number" && Number.isFinite(value)))].sort((a, b) => a - b);
+}
+
+function eventData(event) {
+  return objectOrUndefined(event?.data) || {};
+}
+
+function stringMetric(event, camelName, snakeName) {
+  const direct = event?.[snakeName];
+  if (typeof direct === "string") return direct;
+  const fromData = eventData(event)[camelName];
+  return typeof fromData === "string" ? fromData : undefined;
+}
+
+function numberMetric(event, camelName, snakeName) {
+  const direct = numberOrUndefined(event?.[snakeName]);
+  if (direct !== undefined) return direct;
+  return numberOrUndefined(eventData(event)[camelName]);
+}
+
+function collectRuntimeFingerprint(events) {
+  const turnEvents = events.filter((event) => event.event === "turn.start");
+  const sources = turnEvents.length > 0 ? turnEvents : events;
+  const selectedToolNames = [];
+
+  for (const event of sources) {
+    const names = eventData(event).selectedToolNames;
+    if (Array.isArray(names)) {
+      selectedToolNames.push(...names.map(String));
+    }
+  }
+
+  return {
+    protocolVersions: uniqueStrings(sources.map((event) => stringMetric(event, "protocolVersion", "protocol_version"))),
+    selectedToolNameHashes: uniqueStrings(
+      sources.map((event) => stringMetric(event, "selectedToolNamesHash", "selected_tool_names_hash")),
+    ),
+    selectedToolNames: uniqueStrings(selectedToolNames),
+    maxTools: uniqueNumbers(sources.map((event) => numberMetric(event, "maxTools", "max_tools"))),
+    maxToolResultChars: uniqueNumbers(
+      sources.map((event) => numberMetric(event, "maxToolResultChars", "max_tool_result_chars")),
+    ),
+    maxOutputTokens: uniqueNumbers(sources.map((event) => numberMetric(event, "maxOutputTokens", "max_output_tokens"))),
+    requestTimeoutMs: uniqueNumbers(
+      sources.map((event) => numberMetric(event, "requestTimeoutMs", "request_timeout_ms")),
+    ),
+    maxEmptyRetries: uniqueNumbers(
+      sources.map((event) => numberMetric(event, "maxEmptyRetries", "max_empty_retries")),
+    ),
+    maxRepairRetries: uniqueNumbers(
+      sources.map((event) => numberMetric(event, "maxRepairRetries", "max_repair_retries")),
+    ),
+    maxTotalRecoveries: uniqueNumbers(
+      sources.map((event) => numberMetric(event, "maxTotalRecoveries", "max_total_recoveries")),
+    ),
+  };
+}
+
 function summarizeCase(debugFileName) {
   const debugPath = path.join(outDir, debugFileName);
   const mainPath = path.join(outDir, debugFileName.replace(/\.debug\.jsonl$/, ".jsonl"));
+  const lifecyclePath = path.join(outDir, debugFileName.replace(/\.debug\.jsonl$/, ".lifecycle.json"));
   const debug = readJsonl(debugPath);
   const main = readJsonl(mainPath);
+  const lifecycleParsed = fs.existsSync(lifecyclePath) ? readJsonFile(lifecyclePath) : undefined;
+  const lifecycle = lifecycleParsed?.ok ? objectOrUndefined(lifecycleParsed.value) : undefined;
 
   const recoveryByEvent = {};
   const eventByName = {};
@@ -662,11 +765,28 @@ function summarizeCase(debugFileName) {
   const finalText = finalAssistantText(main.events);
   const rawToolMarkupFinalAnswer = isRawToolMarkupFinalAnswer(finalText);
   const toolEnvelopeFinalAnswer = isToolEnvelopeOnlyFinalAnswer(finalText);
+  const finalAnswerQualityOk = finalText.trim().length > 0 && !rawToolMarkupFinalAnswer;
+  const hasAgentEnd = main.events.some((event) => event.type === "agent_end");
+  const semanticFlowOk = hasAgentEnd && errors.length === 0 && finalAnswerQualityOk;
+  const lifecyclePresent = lifecycle !== undefined;
+  const exitStatus = lifecyclePresent ? numberOrUndefined(lifecycle.exitStatus) : undefined;
+  const processLifecycleOk = lifecyclePresent ? exitStatus === 0 : undefined;
+  const elapsedSeconds = lifecyclePresent ? numberOrUndefined(lifecycle.elapsedSeconds) : undefined;
+  const caseTimeoutSeconds = lifecyclePresent ? numberOrUndefined(lifecycle.caseTimeoutSeconds) : undefined;
+  const timedOutByWatchdog = lifecycle?.timedOutByWatchdog === true;
+  const timedOutAfterAgentEnd = timedOutByWatchdog && hasAgentEnd;
+  const agentEndElapsedSeconds = lifecyclePresent ? numberOrUndefined(lifecycle.agentEndElapsedSeconds) : undefined;
+  const postAgentEndLingerSeconds =
+    elapsedSeconds !== undefined && agentEndElapsedSeconds !== undefined
+      ? Math.max(0, elapsedSeconds - agentEndElapsedSeconds)
+      : undefined;
+  const runtimeFingerprint = collectRuntimeFingerprint(debug.events);
 
   return {
     ...inferCaseParts(debugFileName),
     debugFile: debugPath,
     mainFile: fs.existsSync(mainPath) ? mainPath : undefined,
+    lifecycleFile: fs.existsSync(lifecyclePath) ? lifecyclePath : undefined,
     debugEvents: debug.events.length,
     debugParseErrors: debug.parseErrors,
     mainEvents: main.events.length,
@@ -681,6 +801,19 @@ function summarizeCase(debugFileName) {
     rawToolMarkupFinalAnswer,
     toolEnvelopeFinalAnswer,
     finalTextChars: finalText.length,
+    hasAgentEnd,
+    finalAnswerQualityOk,
+    semanticFlowOk,
+    lifecyclePresent,
+    exitStatus,
+    processLifecycleOk,
+    elapsedSeconds,
+    caseTimeoutSeconds,
+    timedOutByWatchdog,
+    timedOutAfterAgentEnd,
+    agentEndElapsedSeconds,
+    postAgentEndLingerSeconds,
+    runtimeFingerprint,
     selectedToolCountMin: selectedToolCounts.length ? Math.min(...selectedToolCounts) : undefined,
     selectedToolCountMax: selectedToolCounts.length ? Math.max(...selectedToolCounts) : undefined,
   };
@@ -697,6 +830,15 @@ function readJsonFile(file) {
 function numberOrZero(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
+}
+
+function numberOrUndefined(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
+}
+
+function objectOrUndefined(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : undefined;
 }
 
 function summarizeSmokeSummaryFile(fileName) {
@@ -719,6 +861,12 @@ function summarizeSmokeSummaryFile(fileName) {
       emptyAssistantEnds: 0,
       toolEnvelopeFinalAnswers: 0,
       errors: 0,
+      lifecycleArtifacts: 0,
+      processLifecycleFailures: 0,
+      watchdogTimeouts: 0,
+      timedOutAfterAgentEnd: 0,
+      semanticFlowOkProcessFailures: 0,
+      postAgentEndLingerMaxSeconds: 0,
       recoveryCaseNames: [],
       caseRecoveries: [],
       gateFailures: ["summary_parse_error"],
@@ -755,6 +903,12 @@ function summarizeSmokeSummaryFile(fileName) {
     emptyAssistantEnds: numberOrZero(totals.emptyAssistantEnds),
     toolEnvelopeFinalAnswers: numberOrZero(totals.toolEnvelopeFinalAnswers),
     errors: numberOrZero(totals.errors),
+    lifecycleArtifacts: numberOrZero(totals.lifecycleArtifacts),
+    processLifecycleFailures: numberOrZero(totals.processLifecycleFailures),
+    watchdogTimeouts: numberOrZero(totals.watchdogTimeouts),
+    timedOutAfterAgentEnd: numberOrZero(totals.timedOutAfterAgentEnd),
+    semanticFlowOkProcessFailures: numberOrZero(totals.semanticFlowOkProcessFailures),
+    postAgentEndLingerMaxSeconds: numberOrZero(totals.postAgentEndLingerMaxSeconds),
     recoveryCaseNames: caseRecoveries.map((item) => item.caseName),
     caseRecoveries,
     gateFailures,
@@ -805,6 +959,14 @@ function normalizeCaseForCompare(item) {
     toolEnvelopeFinalAnswer: boolValue(item?.toolEnvelopeFinalAnswer),
     errors: numberOrZero(item?.errors),
     finalTextChars: numberOrZero(item?.finalTextChars),
+    processLifecycleOk: item?.processLifecycleOk === undefined ? undefined : boolValue(item?.processLifecycleOk),
+    timedOutByWatchdog: boolValue(item?.timedOutByWatchdog),
+    timedOutAfterAgentEnd: boolValue(item?.timedOutAfterAgentEnd),
+    semanticFlowOk: boolValue(item?.semanticFlowOk),
+    elapsedSeconds: item?.elapsedSeconds === undefined ? undefined : numberOrZero(item?.elapsedSeconds),
+    postAgentEndLingerSeconds: item?.postAgentEndLingerSeconds === undefined
+      ? undefined
+      : numberOrZero(item?.postAgentEndLingerSeconds),
     piToolStarts: Array.isArray(item?.piToolStarts) ? item.piToolStarts.map(String) : [],
   };
 }
@@ -834,6 +996,14 @@ function deltaSummary(base, head) {
     emptyAssistantEnds: deltaNumber(base.emptyAssistantEnds, head.emptyAssistantEnds),
     toolEnvelopeFinalAnswers: deltaNumber(base.toolEnvelopeFinalAnswers, head.toolEnvelopeFinalAnswers),
     errors: deltaNumber(base.errors, head.errors),
+    processLifecycleFailures: deltaNumber(base.processLifecycleFailures, head.processLifecycleFailures),
+    watchdogTimeouts: deltaNumber(base.watchdogTimeouts, head.watchdogTimeouts),
+    timedOutAfterAgentEnd: deltaNumber(base.timedOutAfterAgentEnd, head.timedOutAfterAgentEnd),
+    semanticFlowOkProcessFailures: deltaNumber(
+      base.semanticFlowOkProcessFailures,
+      head.semanticFlowOkProcessFailures,
+    ),
+    postAgentEndLingerMaxSeconds: deltaNumber(base.postAgentEndLingerMaxSeconds, head.postAgentEndLingerMaxSeconds),
   };
 }
 
@@ -880,10 +1050,16 @@ function buildCaseDeltas(baseArtifact, headArtifact) {
       "recoveries",
       "emptyAssistantEnds",
       "errors",
+      "elapsedSeconds",
+      "postAgentEndLingerSeconds",
     ]);
     const booleanDelta = changedBooleanMap(baseCase, headCase, [
       "rawToolMarkupFinalAnswer",
       "toolEnvelopeFinalAnswer",
+      "processLifecycleOk",
+      "timedOutByWatchdog",
+      "timedOutAfterAgentEnd",
+      "semanticFlowOk",
     ]);
     const baseTools = baseCase.piToolStarts.join(",");
     const headTools = headCase.piToolStarts.join(",");
@@ -931,7 +1107,10 @@ function printCompare(baseRunId, headRunId) {
         `raw_tool_markup_final_answers_delta=${delta.rawToolMarkupFinalAnswers} ` +
         `empty_assistant_ends_delta=${delta.emptyAssistantEnds} ` +
         `tool_envelope_final_answers_delta=${delta.toolEnvelopeFinalAnswers} ` +
-        `errors_delta=${delta.errors} debug_summary_status_delta=${delta.debugSummaryStatus}`,
+        `errors_delta=${delta.errors} process_lifecycle_failures_delta=${delta.processLifecycleFailures} ` +
+        `watchdog_timeouts_delta=${delta.watchdogTimeouts} ` +
+        `timed_out_after_agent_end_delta=${delta.timedOutAfterAgentEnd} ` +
+        `debug_summary_status_delta=${delta.debugSummaryStatus}`,
     );
     if (caseDeltas.length === 0) {
       console.log("case_deltas=none");
@@ -999,7 +1178,9 @@ function printHistory(limit) {
           `raw_tool_markup_final_answers=${run.rawToolMarkupFinalAnswers} ` +
           `empty_assistant_ends=${run.emptyAssistantEnds} ` +
           `tool_envelope_final_answers=${run.toolEnvelopeFinalAnswers} ` +
-          `errors=${run.errors} debug_summary_status=${run.debugSummaryStatus}` +
+          `errors=${run.errors} process_lifecycle_failures=${run.processLifecycleFailures} ` +
+          `watchdog_timeouts=${run.watchdogTimeouts} timed_out_after_agent_end=${run.timedOutAfterAgentEnd} ` +
+          `debug_summary_status=${run.debugSummaryStatus}` +
           `${providerText}${modelText}${gateText}${parseText}`,
       );
     }
@@ -1068,6 +1249,9 @@ function evaluateTrendGate(history) {
     }
     if (run.errors > hardLimits.maxErrors) {
       gateFailures.push(`${run.runId}: expected errors<=${hardLimits.maxErrors}, got ${run.errors}`);
+    }
+    if (run.processLifecycleFailures > 0) {
+      gateFailures.push(`${run.runId}: expected process_lifecycle_failures=0, got ${run.processLifecycleFailures}`);
     }
     if (run.emptyAssistantEnds > hardLimits.maxEmptyAssistantEnds) {
       gateFailures.push(
@@ -1230,6 +1414,12 @@ const totals = {
   toolEnvelopeFinalAnswers: 0,
   piToolStarts: 0,
   errors: 0,
+  lifecycleArtifacts: 0,
+  processLifecycleFailures: 0,
+  watchdogTimeouts: 0,
+  timedOutAfterAgentEnd: 0,
+  semanticFlowOkProcessFailures: 0,
+  postAgentEndLingerMaxSeconds: 0,
   recoveryByEvent: {},
 };
 
@@ -1245,6 +1435,14 @@ for (const item of cases) {
   totals.toolEnvelopeFinalAnswers += item.toolEnvelopeFinalAnswer ? 1 : 0;
   totals.piToolStarts += item.piToolStarts.length;
   totals.errors += item.errors;
+  totals.lifecycleArtifacts += item.lifecyclePresent ? 1 : 0;
+  totals.processLifecycleFailures += item.processLifecycleOk === false ? 1 : 0;
+  totals.watchdogTimeouts += item.timedOutByWatchdog ? 1 : 0;
+  totals.timedOutAfterAgentEnd += item.timedOutAfterAgentEnd ? 1 : 0;
+  totals.semanticFlowOkProcessFailures += item.semanticFlowOk && item.processLifecycleOk === false ? 1 : 0;
+  if (typeof item.postAgentEndLingerSeconds === "number") {
+    totals.postAgentEndLingerMaxSeconds = Math.max(totals.postAgentEndLingerMaxSeconds, item.postAgentEndLingerSeconds);
+  }
   for (const [event, count] of Object.entries(item.recoveryByEvent)) {
     increment(totals.recoveryByEvent, event, count);
   }
@@ -1261,6 +1459,9 @@ if (gates.maxErrors !== undefined && totals.errors > gates.maxErrors) {
 }
 if (totals.debugParseErrors > 0 || totals.mainParseErrors > 0) {
   gateFailures.push(`expected parse_errors=0, got debug=${totals.debugParseErrors} main=${totals.mainParseErrors}`);
+}
+if (totals.processLifecycleFailures > 0) {
+  gateFailures.push(`expected process_lifecycle_failures=0, got ${totals.processLifecycleFailures}`);
 }
 if (gates.maxEmptyAssistantEnds !== undefined && totals.emptyAssistantEnds > gates.maxEmptyAssistantEnds) {
   gateFailures.push(`expected empty_assistant_ends<=${gates.maxEmptyAssistantEnds}, got ${totals.emptyAssistantEnds}`);
@@ -1292,7 +1493,11 @@ if (format === "json") {
       `tool_calls=${totals.toolCalls} recoveries=${totals.recoveries} recovery_rate=${totals.recoveryRate.toFixed(4)} ` +
       `empty_assistant_ends=${totals.emptyAssistantEnds} raw_tool_markup_final_answers=${totals.rawToolMarkupFinalAnswers} ` +
       `tool_envelope_final_answers=${totals.toolEnvelopeFinalAnswers} ` +
-      `pi_tool_starts=${totals.piToolStarts} errors=${totals.errors}`,
+      `pi_tool_starts=${totals.piToolStarts} errors=${totals.errors} ` +
+      `lifecycle_artifacts=${totals.lifecycleArtifacts} process_lifecycle_failures=${totals.processLifecycleFailures} ` +
+      `watchdog_timeouts=${totals.watchdogTimeouts} timed_out_after_agent_end=${totals.timedOutAfterAgentEnd} ` +
+      `semantic_flow_ok_process_failures=${totals.semanticFlowOkProcessFailures} ` +
+      `post_agent_end_linger_max_seconds=${totals.postAgentEndLingerMaxSeconds}`,
   );
   if (Object.keys(totals.recoveryByEvent).length > 0) {
     console.log(`recovery_by_event=${JSON.stringify(totals.recoveryByEvent)}`);
@@ -1305,11 +1510,19 @@ if (format === "json") {
     const selectedText = item.selectedToolCountMax !== undefined
       ? ` selected_tools=${item.selectedToolCountMin}-${item.selectedToolCountMax}`
       : "";
+    const lifecycleText = item.lifecyclePresent
+      ? ` process_lifecycle_ok=${item.processLifecycleOk}` +
+        ` timed_out_by_watchdog=${item.timedOutByWatchdog}` +
+        ` timed_out_after_agent_end=${item.timedOutAfterAgentEnd}` +
+        ` semantic_flow_ok=${item.semanticFlowOk}` +
+        ` elapsed_seconds=${item.elapsedSeconds ?? "(unknown)"}` +
+        ` post_agent_end_linger_seconds=${item.postAgentEndLingerSeconds ?? "(unknown)"}`
+      : "";
     console.log(
       `- ${item.runId}/${item.caseName}: debug_events=${item.debugEvents} turns=${item.turns} tool_calls=${item.toolCalls}` +
         ` recoveries=${item.recoveries} empty_assistant_ends=${item.emptyAssistantEnds}` +
         ` raw_tool_markup_final_answer=${item.rawToolMarkupFinalAnswer}` +
-        ` tool_envelope_final_answer=${item.toolEnvelopeFinalAnswer}${recoveryText}${toolText}${selectedText}` +
+        ` tool_envelope_final_answer=${item.toolEnvelopeFinalAnswer}${recoveryText}${toolText}${selectedText}${lifecycleText}` +
         ` final_text_chars=${item.finalTextChars}`,
     );
   }

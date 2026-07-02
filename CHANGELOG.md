@@ -43,6 +43,8 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - Untrusted tool output, tool metadata, and repair excerpts now neutralize `[previous_pi_tool_call]` bracket markers before they are sent back to xtalpi, closing the remaining internal-history marker injection gap.
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh` now applies explicit smoke request/output bounds (`XTALPI_PI_TOOLS_SMOKE_REQUEST_TIMEOUT_MS`, default `180000`; `XTALPI_PI_TOOLS_SMOKE_MAX_OUTPUT_TOKENS`, default `1024`) and records them in summary artifacts, so provider stalls and over-generation are bounded independently of Pi's global runtime settings.
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh` now supports targeted live smoke runs with `--case`, `--list-cases`, and `XTALPI_PI_TOOLS_SMOKE_CASES`, while keeping debug-summary gates and summary artifacts scoped to the selected cases.
+- `scripts/pi67-xtalpi-pi-tools-smoke.sh` now writes per-case lifecycle artifacts and reports `semanticFlowOk`, `processLifecycleOk`, `timedOutAfterAgentEnd`, and post-agent-end linger seconds, so live smoke failures distinguish protocol/semantic regressions from child-process exit or external-runtime stalls.
+- xtalpi debug telemetry now records the protocol version, selected-tool fingerprint, effective runtime bounds, and recovery limits for each turn; debug summary JSON exposes the same fingerprint per case for drift diagnosis.
 
 ### Removed
 

@@ -116,10 +116,11 @@ summarize_jsonl() {
   local status="$3"
   local expected_tools="${4:-any}"
   local debug_file="${5:-}"
+  local lifecycle_file="${6:-}"
 
-  node - "$file" "$stderr_file" "$status" "$expected_tools" "$debug_file" <<'NODE'
+  node - "$file" "$stderr_file" "$status" "$expected_tools" "$debug_file" "$lifecycle_file" <<'NODE'
 const fs = require("fs");
-const [file, stderrFile, status, expectedToolsRaw, debugFile] = process.argv.slice(2);
+const [file, stderrFile, status, expectedToolsRaw, debugFile, lifecycleFile] = process.argv.slice(2);
 function readJsonl(path) {
   const raw = path && fs.existsSync(path) ? fs.readFileSync(path, "utf8").trim() : "";
   if (!raw) return [];
@@ -131,9 +132,23 @@ function readJsonl(path) {
     }
   });
 }
+function readJsonFile(path) {
+  if (!path || !fs.existsSync(path)) return {};
+  try {
+    const value = JSON.parse(fs.readFileSync(path, "utf8"));
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  } catch {
+    return {};
+  }
+}
+function optionalNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
+}
 const stderr = fs.existsSync(stderrFile) ? fs.readFileSync(stderrFile, "utf8").trim() : "";
 const events = readJsonl(file);
 const debugEvents = readJsonl(debugFile);
+const lifecycle = readJsonFile(lifecycleFile);
 const debugTelemetryOk =
   debugEvents.length > 0 &&
   debugEvents.every(
@@ -246,13 +261,33 @@ function evaluateToolExpectation(rawExpectation, actualNames) {
   return { ok, label: labels.join(";"), mode: modes.join("+"), unexpectedTools };
 }
 const toolExpectation = evaluateToolExpectation(expectedToolsRaw, actualToolNames);
-const ok = processExitedCleanly && hasUsableFinalAnswer && toolExpectation.ok && debugTelemetryOk;
+const elapsedSeconds = optionalNumber(lifecycle.elapsedSeconds);
+const agentEndElapsedSeconds = optionalNumber(lifecycle.agentEndElapsedSeconds);
+const postAgentEndLingerSeconds =
+  elapsedSeconds !== undefined && agentEndElapsedSeconds !== undefined
+    ? Math.max(0, elapsedSeconds - agentEndElapsedSeconds)
+    : undefined;
+const timedOutByWatchdog = lifecycle.timedOutByWatchdog === true;
+const processLifecycleOk = processExitedCleanly;
+const protocolFlowOk = hasUsableFinalAnswer && toolExpectation.ok;
+const semanticFlowOk = protocolFlowOk && debugTelemetryOk;
+const timedOutAfterAgentEnd = timedOutByWatchdog && !!agent;
+const ok = processLifecycleOk && semanticFlowOk;
 console.log(JSON.stringify({
   file,
   debugFile,
+  lifecycleFile: lifecycleFile || undefined,
   ok,
   exitStatus: Number(status),
   processExitedCleanly,
+  processLifecycleOk,
+  timedOutByWatchdog,
+  timedOutAfterAgentEnd,
+  semanticFlowOk,
+  protocolFlowOk,
+  elapsedSeconds,
+  agentEndElapsedSeconds,
+  postAgentEndLingerSeconds,
   hasAgentEnd: !!agent,
   debugTelemetryOk,
   debugEventCount: debugEvents.length,
@@ -322,6 +357,17 @@ function writeFixture(name, { tools = [], finalText = "final answer", debugEvent
     },
   ]);
   fs.writeFileSync(path.join(dir, `${name}.stderr`), "");
+  fs.writeFileSync(path.join(dir, `${name}.lifecycle.json`), `${JSON.stringify({
+    schema: "xtalpi-pi-tools.smoke-lifecycle.v1",
+    caseName: name,
+    exitStatus: 0,
+    elapsedSeconds: 1,
+    caseTimeoutSeconds: 30,
+    timedOutByWatchdog: false,
+    agentEndSeenDuringRun: true,
+    agentEndElapsedSeconds: 1,
+    postAgentEndLingerSeconds: 0,
+  }, null, 2)}\n`);
 }
 
 writeFixture("good", { tools: ["web_fetch", "read"], finalText: "normal final answer" });
@@ -340,31 +386,61 @@ writeFixture("neutral-history-record", {
 });
 NODE
 
-  if ! output="$(summarize_jsonl "$tmp_dir/good.jsonl" "$tmp_dir/good.stderr" 0 "all:web_fetch,read;only:web_fetch,read" "$tmp_dir/good.debug.jsonl" 2>&1)"; then
+  if ! output="$(summarize_jsonl "$tmp_dir/good.jsonl" "$tmp_dir/good.stderr" 0 "all:web_fetch,read;only:web_fetch,read" "$tmp_dir/good.debug.jsonl" "$tmp_dir/good.lifecycle.json" 2>&1)"; then
     echo "$output"
     return 1
   fi
 
-  if output="$(summarize_jsonl "$tmp_dir/unexpected-tool.jsonl" "$tmp_dir/unexpected-tool.stderr" 0 "all:web_fetch,read;only:web_fetch,read" "$tmp_dir/unexpected-tool.debug.jsonl" 2>&1)"; then
+  if output="$(summarize_jsonl "$tmp_dir/unexpected-tool.jsonl" "$tmp_dir/unexpected-tool.stderr" 0 "all:web_fetch,read;only:web_fetch,read" "$tmp_dir/unexpected-tool.debug.jsonl" "$tmp_dir/unexpected-tool.lifecycle.json" 2>&1)"; then
     echo "expected unexpected-tool fixture to fail"
     echo "$output"
     return 1
   fi
 
-  if output="$(summarize_jsonl "$tmp_dir/raw-markup.jsonl" "$tmp_dir/raw-markup.stderr" 0 "read" "$tmp_dir/raw-markup.debug.jsonl" 2>&1)"; then
+  if output="$(summarize_jsonl "$tmp_dir/raw-markup.jsonl" "$tmp_dir/raw-markup.stderr" 0 "read" "$tmp_dir/raw-markup.debug.jsonl" "$tmp_dir/raw-markup.lifecycle.json" 2>&1)"; then
     echo "expected raw-markup fixture to fail"
     echo "$output"
     return 1
   fi
 
-  if output="$(summarize_jsonl "$tmp_dir/malformed-markup.jsonl" "$tmp_dir/malformed-markup.stderr" 0 "read" "$tmp_dir/malformed-markup.debug.jsonl" 2>&1)"; then
+  if output="$(summarize_jsonl "$tmp_dir/malformed-markup.jsonl" "$tmp_dir/malformed-markup.stderr" 0 "read" "$tmp_dir/malformed-markup.debug.jsonl" "$tmp_dir/malformed-markup.lifecycle.json" 2>&1)"; then
     echo "expected malformed-markup fixture to fail"
     echo "$output"
     return 1
   fi
 
-  if output="$(summarize_jsonl "$tmp_dir/neutral-history-record.jsonl" "$tmp_dir/neutral-history-record.stderr" 0 "read" "$tmp_dir/neutral-history-record.debug.jsonl" 2>&1)"; then
+  if output="$(summarize_jsonl "$tmp_dir/neutral-history-record.jsonl" "$tmp_dir/neutral-history-record.stderr" 0 "read" "$tmp_dir/neutral-history-record.debug.jsonl" "$tmp_dir/neutral-history-record.lifecycle.json" 2>&1)"; then
     echo "expected neutral-history-record fixture to fail"
+    echo "$output"
+    return 1
+  fi
+
+  node - "$tmp_dir/good.lifecycle.json" <<'NODE'
+const fs = require("fs");
+const file = process.argv[2];
+const lifecycle = JSON.parse(fs.readFileSync(file, "utf8"));
+lifecycle.exitStatus = 124;
+lifecycle.elapsedSeconds = 42;
+lifecycle.caseTimeoutSeconds = 40;
+lifecycle.timedOutByWatchdog = true;
+lifecycle.agentEndSeenDuringRun = true;
+lifecycle.agentEndElapsedSeconds = 12;
+lifecycle.postAgentEndLingerSeconds = 30;
+fs.writeFileSync(file, `${JSON.stringify(lifecycle, null, 2)}\n`);
+NODE
+  if output="$(summarize_jsonl "$tmp_dir/good.jsonl" "$tmp_dir/good.stderr" 124 "all:web_fetch,read;only:web_fetch,read" "$tmp_dir/good.debug.jsonl" "$tmp_dir/good.lifecycle.json" 2>&1)"; then
+    echo "expected timed-out-after-agent-end fixture to fail process lifecycle"
+    echo "$output"
+    return 1
+  fi
+  if ! printf '%s\n' "$output" | node -e '
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(0, "utf8"));
+if (data.semanticFlowOk !== true) throw new Error("semanticFlowOk should remain true");
+if (data.processLifecycleOk !== false) throw new Error("processLifecycleOk should be false");
+if (data.timedOutAfterAgentEnd !== true) throw new Error("timedOutAfterAgentEnd should be true");
+if (data.postAgentEndLingerSeconds !== 30) throw new Error("unexpected postAgentEndLingerSeconds");
+'; then
     echo "$output"
     return 1
   fi
@@ -445,14 +521,27 @@ run_case() {
   local out="$OUT_DIR/${STAMP}-${name}.jsonl"
   local err="$OUT_DIR/${STAMP}-${name}.stderr"
   local debug="$OUT_DIR/${STAMP}-${name}.debug.jsonl"
+  local lifecycle="$OUT_DIR/${STAMP}-${name}.lifecycle.json"
   local status=0
   local elapsed=0
+  local elapsed_seconds=0
+  local start_epoch=0
+  local end_epoch=0
+  local timed_out_by_watchdog=0
+  local agent_end_seen=0
+  local agent_end_elapsed=""
   local pid
 
+  start_epoch="$(date +%s)"
   XTALPI_PI_TOOLS_TIMEOUT_MS="$SMOKE_REQUEST_TIMEOUT_MS" XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS="$SMOKE_MAX_OUTPUT_TOKENS" XTALPI_PI_TOOLS_DEBUG=1 XTALPI_PI_TOOLS_DEBUG_PATH="$debug" "$PI_BIN" "${COMMON_ARGS[@]}" "$@" -p "$prompt" >"$out" 2>"$err" &
   pid=$!
   while kill -0 "$pid" 2>/dev/null; do
+    if [ "$agent_end_seen" -eq 0 ] && [ -f "$out" ] && grep -q '"type":"agent_end"' "$out" 2>/dev/null; then
+      agent_end_seen=1
+      agent_end_elapsed="$elapsed"
+    fi
     if [ "$elapsed" -ge "$CASE_TIMEOUT_SECONDS" ]; then
+      timed_out_by_watchdog=1
       kill "$pid" 2>/dev/null || true
       sleep 2
       kill -9 "$pid" 2>/dev/null || true
@@ -468,9 +557,47 @@ run_case() {
   else
     wait "$pid" 2>/dev/null || true
   fi
+  if [ "$agent_end_seen" -eq 0 ] && [ -f "$out" ] && grep -q '"type":"agent_end"' "$out" 2>/dev/null; then
+    agent_end_seen=1
+    agent_end_elapsed="$elapsed"
+  fi
+  end_epoch="$(date +%s)"
+  elapsed_seconds=$((end_epoch - start_epoch))
+  node - "$lifecycle" "$name" "$status" "$elapsed_seconds" "$CASE_TIMEOUT_SECONDS" "$timed_out_by_watchdog" "$agent_end_seen" "$agent_end_elapsed" <<'NODE'
+const fs = require("fs");
+const [
+  file,
+  caseName,
+  exitStatusRaw,
+  elapsedSecondsRaw,
+  caseTimeoutSecondsRaw,
+  timedOutByWatchdogRaw,
+  agentEndSeenRaw,
+  agentEndElapsedSecondsRaw,
+] = process.argv.slice(2);
+const optionalNumber = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
+};
+const artifact = {
+  schema: "xtalpi-pi-tools.smoke-lifecycle.v1",
+  caseName,
+  exitStatus: Number(exitStatusRaw),
+  elapsedSeconds: Number(elapsedSecondsRaw),
+  caseTimeoutSeconds: Number(caseTimeoutSecondsRaw),
+  timedOutByWatchdog: timedOutByWatchdogRaw === "1",
+  agentEndSeenDuringRun: agentEndSeenRaw === "1",
+};
+const agentEndElapsedSeconds = optionalNumber(agentEndElapsedSecondsRaw);
+if (agentEndElapsedSeconds !== undefined) {
+  artifact.agentEndElapsedSeconds = agentEndElapsedSeconds;
+  artifact.postAgentEndLingerSeconds = Math.max(0, artifact.elapsedSeconds - agentEndElapsedSeconds);
+}
+fs.writeFileSync(file, `${JSON.stringify(artifact, null, 2)}\n`);
+NODE
 
   echo "===== $name ====="
-  summarize_jsonl "$out" "$err" "$status" "$expected_tools" "$debug" || return 1
+  summarize_jsonl "$out" "$err" "$status" "$expected_tools" "$debug" "$lifecycle" || return 1
 }
 
 run_selected_case() {

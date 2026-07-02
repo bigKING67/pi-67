@@ -16,6 +16,7 @@ const { pathToFileURL } = require("node:url");
 
   const parser = await import(ext("parser.ts"));
   const protocol = await import(ext("protocol.ts"));
+  const diagnostics = await import(ext("diagnostics.ts"));
   const retry = await import(ext("retry.ts"));
   const serializer = await import(ext("serializer.ts"));
   const textSafety = await import(ext("text-safety.ts"));
@@ -182,6 +183,74 @@ const { pathToFileURL } = require("node:url");
     } else {
       process.env.XTALPI_PI_TOOLS_TIMEOUT_MS = previousTimeoutEnv;
     }
+  }
+
+  const previousMaxOutputEnv = process.env.XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS;
+  try {
+    delete process.env.XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS;
+    assert.equal(provider.resolveMaxOutputTokens({ maxTokens: 32768 }, { maxTokens: 4096 }), 4096);
+    assert.equal(provider.resolveMaxOutputTokens({ maxTokens: 2048 }, { maxTokens: 4096 }), 2048);
+    assert.equal(provider.resolveMaxOutputTokens({ maxTokens: 32768 }, {}), protocol.DEFAULT_MAX_OUTPUT_TOKENS);
+    process.env.XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS = "1024";
+    assert.equal(provider.resolveMaxOutputTokens({ maxTokens: 32768 }, { maxTokens: 4096 }), 1024);
+    process.env.XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS = "invalid";
+    assert.equal(provider.resolveMaxOutputTokens({ maxTokens: 32768 }, { maxTokens: 4096 }), 4096);
+  } finally {
+    if (previousMaxOutputEnv === undefined) {
+      delete process.env.XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS;
+    } else {
+      process.env.XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS = previousMaxOutputEnv;
+    }
+  }
+
+  const debugDir = fs.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", "xtalpi-pi-tools-debug-test."));
+  const debugFile = path.join(debugDir, "debug.jsonl");
+  const previousDebugFlag = process.env.XTALPI_PI_TOOLS_DEBUG;
+  const previousDebugPath = process.env.XTALPI_PI_TOOLS_DEBUG_PATH;
+  try {
+    process.env.XTALPI_PI_TOOLS_DEBUG = "1";
+    process.env.XTALPI_PI_TOOLS_DEBUG_PATH = debugFile;
+    diagnostics.debugLog("turn.start", {
+      provider: "xtalpi-pi-tools",
+      model: "deepseek-v4-pro",
+      protocolVersion: protocol.PROTOCOL_VERSION,
+      selectedToolCount: 2,
+      selectedToolNames: ["bash", "read"],
+      selectedToolNamesHash: "abc123fingerprint",
+      availableToolCount: 5,
+      maxTools: 24,
+      maxToolResultChars: 20000,
+      maxOutputTokens: 1024,
+      requestTimeoutMs: 180000,
+      maxEmptyRetries: 2,
+      maxRepairRetries: 2,
+      maxTotalRecoveries: 4,
+    });
+    const debugEvent = JSON.parse(fs.readFileSync(debugFile, "utf8").trim());
+    assert.equal(debugEvent.schema, "xtalpi-pi-tools.debug.v1");
+    assert.equal(debugEvent.protocol_version, protocol.PROTOCOL_VERSION);
+    assert.equal(debugEvent.selected_tool_names_hash, "abc123fingerprint");
+    assert.equal(debugEvent.available_tool_count, 5);
+    assert.equal(debugEvent.max_tools, 24);
+    assert.equal(debugEvent.max_tool_result_chars, 20000);
+    assert.equal(debugEvent.max_output_tokens, 1024);
+    assert.equal(debugEvent.request_timeout_ms, 180000);
+    assert.equal(debugEvent.max_empty_retries, 2);
+    assert.equal(debugEvent.max_repair_retries, 2);
+    assert.equal(debugEvent.max_total_recoveries, 4);
+    assert.deepEqual(debugEvent.data.selectedToolNames, ["bash", "read"]);
+  } finally {
+    if (previousDebugFlag === undefined) {
+      delete process.env.XTALPI_PI_TOOLS_DEBUG;
+    } else {
+      process.env.XTALPI_PI_TOOLS_DEBUG = previousDebugFlag;
+    }
+    if (previousDebugPath === undefined) {
+      delete process.env.XTALPI_PI_TOOLS_DEBUG_PATH;
+    } else {
+      process.env.XTALPI_PI_TOOLS_DEBUG_PATH = previousDebugPath;
+    }
+    fs.rmSync(debugDir, { recursive: true, force: true });
   }
 
   const context = {

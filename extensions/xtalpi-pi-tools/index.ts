@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,6 +27,7 @@ import {
   EMPTY_USAGE,
   PROVIDER_ID,
   PROVIDER_NAME,
+  PROTOCOL_VERSION,
   TOOL_CALL_CLOSE,
   TOOL_CALL_OPEN,
   type UsageSummary,
@@ -278,13 +280,24 @@ export function resolveRequestTimeoutMs(options?: Pick<SimpleStreamOptions, "tim
   return envInt("XTALPI_PI_TOOLS_TIMEOUT_MS", optionTimeoutMs, 1000);
 }
 
+export function resolveMaxOutputTokens(
+  model: Pick<Model<Api>, "maxTokens">,
+  options?: Pick<SimpleStreamOptions, "maxTokens">,
+): number {
+  const optionMaxTokens =
+    typeof options?.maxTokens === "number" && Number.isFinite(options.maxTokens) && options.maxTokens >= 1
+      ? Math.floor(options.maxTokens)
+      : DEFAULT_MAX_OUTPUT_TOKENS;
+  const configuredMax = envInt("XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS", optionMaxTokens, 1);
+  return Math.min(configuredMax, model.maxTokens || 32768);
+}
+
 export function buildChatCompletionPayload(
   model: Pick<Model<Api>, "id" | "maxTokens">,
   messages: XtalpiChatMessage[],
   options?: Pick<SimpleStreamOptions, "temperature" | "maxTokens">,
 ): XtalpiChatPayload {
-  const configuredMax = envInt("XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS", DEFAULT_MAX_OUTPUT_TOKENS, 1);
-  const maxTokens = Math.min(options?.maxTokens || configuredMax, model.maxTokens || 32768);
+  const maxTokens = resolveMaxOutputTokens(model, options);
   const payload: XtalpiChatPayload = {
     model: model.id,
     messages,
@@ -454,6 +467,10 @@ function makeToolCallId(name: string): string {
   return `pi_tool_${safeName}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function hashSelectedToolNames(names: string[]): string {
+  return createHash("sha256").update(names.join("\n")).digest("hex").slice(0, 16);
+}
+
 async function runProviderTurn(
   model: Model<Api>,
   context: Context,
@@ -468,14 +485,25 @@ async function runProviderTurn(
   const contextLike = context as unknown as ContextLike;
   const serializedContext = serializeContextForXtalpi(contextLike, { maxTools, maxToolResultChars });
   const names = serializedContext.selectedToolNames;
+  const selectedToolNames = [...names].sort();
   const selectedToolByName = new Map(serializedContext.selectedTools.map((tool) => [tool.name, tool]));
   const messages = serializedContext.messages;
   const lastCompletedCall = latestToolCallWithResult(contextLike);
   const debugContext = {
     provider: PROVIDER_ID,
     model: model.id,
+    protocolVersion: PROTOCOL_VERSION,
     selectedToolCount: serializedContext.selectedTools.length,
+    selectedToolNames,
+    selectedToolNamesHash: hashSelectedToolNames(selectedToolNames),
     availableToolCount: contextLike.tools?.length ?? 0,
+    maxTools,
+    maxToolResultChars,
+    maxOutputTokens: resolveMaxOutputTokens(model, options),
+    requestTimeoutMs: resolveRequestTimeoutMs(options),
+    maxEmptyRetries: maxEmptyRetries(),
+    maxRepairRetries: maxRepairRetries(),
+    maxTotalRecoveries: maxTotalRecoveries(),
   };
   debugLog("turn.start", debugContext);
 

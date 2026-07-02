@@ -1,6 +1,7 @@
 export const PROVIDER_ID = "xtalpi-pi-tools";
 export const API_ID = "xtalpi-pi-tools";
 export const PROVIDER_NAME = "XtalPi Pi Tools";
+export const PROTOCOL_VERSION = "xtalpi-pi-tools.text.v1";
 
 export const DEFAULT_BASE_URL = "https://sciencetoken-api.xtalpi.xyz/proxy/openai/v1";
 
