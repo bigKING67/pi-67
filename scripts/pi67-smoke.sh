@@ -196,6 +196,9 @@ fi
 if [ -f "$REPO_ROOT/scripts/pi67-uninstall.sh" ]; then
   bash -n "$REPO_ROOT/scripts/pi67-uninstall.sh"
 fi
+if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-safe.sh" ]; then
+  bash -n "$REPO_ROOT/scripts/pi67-xtalpi-safe.sh"
+fi
 bash -n "$REPO_ROOT/scripts/xtalpi-tool-smoke.sh"
 pass "shell scripts parse"
 

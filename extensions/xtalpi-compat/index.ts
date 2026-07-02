@@ -17,14 +17,24 @@ type AgentMessage = AssistantMessage & {
 };
 
 const RECOVERY_CUSTOM_TYPE = "xtalpi-compat.recovery";
+const RECOVERY_PROMPT_MARKER = "[xtalpi-compat-recovery]";
 const MAX_HIDDEN_RECOVERIES = 2;
 const MAX_HIDDEN_RECOVERIES_PER_TURN = 4;
 
-const RECOVERY_PROMPT =
-  "上一轮 xtalpi 返回了空 assistant 内容。请基于上面的工具结果或用户问题继续，必须输出非空内容：如果还没有工具结果且原问题需要工具，请发起必要的一个工具调用；如果已有工具结果，请直接阅读工具结果并给出最终回复，不要重复调用无关工具。";
+const RECOVERY_PROMPT = `${RECOVERY_PROMPT_MARKER}
+上一轮 xtalpi 返回了空 assistant 内容。请基于上面的工具结果或用户问题继续，必须输出非空内容：如果已有工具结果，请直接阅读工具结果并给出最终回复，不要重复调用工具；如果还没有工具结果且确实需要工具，只发起必要的一个工具调用。`;
+
+const XTALPI_RECOVERY_NO_TOOLS_POLICY_MARKER = "[xtalpi-compat-recovery-no-tools]";
+const XTALPI_RECOVERY_NO_TOOLS_POLICY = `${XTALPI_RECOVERY_NO_TOOLS_POLICY_MARKER}
+XTALPI EMPTY ASSISTANT RESCUE MODE:
+- The previous xtalpi response had no assistant content.
+- Do not call tools in this recovery request.
+- Read the prior conversation and any [xtalpi-compat-tool-result] blocks directly.
+- Produce a concise final answer in normal assistant text.
+- If there is not enough information to finish, say exactly what is missing and give the next command or next user action.`;
 
 const FINAL_FAILURE_TEXT =
-  "xtalpi 连续返回空 assistant 内容，我已停止自动续问以避免无限循环。请重发上一句，或临时切换到 DeepSeek 官方 provider 后继续。";
+  "xtalpi 连续返回空 assistant 内容，我已停止自动续问以避免无限循环。pi-67 已尝试本地 anti-stall 恢复；请重发上一句，或使用 `bash ~/.pi/agent/scripts/pi67-xtalpi-safe.sh` 以更保守模式继续。";
 
 const XTALPI_MODEL_IDS = new Set([
   "deepseek-v4-flash",
@@ -50,8 +60,8 @@ const XTALPI_READ_RESULT_POLICY = `${XTALPI_READ_RESULT_POLICY_MARKER}
 The previous read tool result is successful and non-empty. Do not say the file is missing or empty. Do not call more tools for this read-only summary question. Answer from the tool result now.`;
 
 const XTALPI_TOOL_RESULT_MIRROR_MARKER = "[xtalpi-compat-tool-result]";
-const DEFAULT_MAX_MIRRORED_TOOL_RESULT_CHARS = 20000;
-const DEFAULT_MAX_XTALPI_TOOLS = 24;
+const DEFAULT_MAX_MIRRORED_TOOL_RESULT_CHARS = 12000;
+const DEFAULT_MAX_XTALPI_TOOLS = 12;
 const XTALPI_COMPAT_DEBUG_PATH = "$HOME/tmp/xtalpi-compat-debug.jsonl";
 
 const READ_ONLY_SUMMARY_RE =
@@ -64,11 +74,14 @@ type ProviderPayload = Record<string, unknown> & {
   messages?: unknown;
   tools?: unknown;
   tool_choice?: unknown;
+  stream?: unknown;
   stream_options?: unknown;
   parallel_tool_calls?: unknown;
   reasoning_effort?: unknown;
   thinking?: unknown;
 };
+
+type EmptyAssistantStrategy = "rescue_no_tools" | "hidden_recovery" | "fail_fast";
 
 const CORE_READ_TOOLS = new Set(["read", "grep", "find", "ls", "ffgrep", "fffind"]);
 const CORE_WRITE_TOOLS = new Set(["edit", "write"]);
@@ -181,12 +194,17 @@ function isRecoveryMessage(message: unknown): boolean {
   return msg.role === "custom" && msg.customType === RECOVERY_CUSTOM_TYPE;
 }
 
-function recoveryFallbackMessage(message: AssistantMessage): AssistantMessage {
+function recoveryFallbackMessage(message: AssistantMessage, latestToolExcerpt?: string): AssistantMessage {
+  const safeExcerpt = latestToolExcerpt ? formatFallbackToolExcerpt(latestToolExcerpt) : undefined;
+  const text = safeExcerpt
+    ? `${FINAL_FAILURE_TEXT}\n\n最近一次工具结果摘录如下；如果这已经足够，请基于它继续处理：\n\n\`\`\`text\n${safeExcerpt}\n\`\`\``
+    : FINAL_FAILURE_TEXT;
+
   return {
     ...message,
     stopReason: "stop",
     errorMessage: undefined,
-    content: [{ type: "text", text: FINAL_FAILURE_TEXT }],
+    content: [{ type: "text", text }],
   };
 }
 
@@ -227,6 +245,17 @@ function isXtalpiPayload(payload: unknown, provider: unknown): payload is Provid
 
 function envValue(name: string): string | undefined {
   return typeof process !== "undefined" ? process.env[name] : undefined;
+}
+
+function emptyAssistantStrategy(): EmptyAssistantStrategy {
+  const raw = envValue("XTALPI_EMPTY_ASSISTANT_STRATEGY")?.trim().toLowerCase();
+  if (raw === "fail_fast" || raw === "fail-fast" || raw === "fail") {
+    return "fail_fast";
+  }
+  if (raw === "hidden_recovery" || raw === "hidden-recovery" || raw === "retry") {
+    return "hidden_recovery";
+  }
+  return "rescue_no_tools";
 }
 
 function toolResultMirrorMode(): "always" | "auto" | "off" {
@@ -274,6 +303,11 @@ function maxXtalpiTools(): number {
   return DEFAULT_MAX_XTALPI_TOOLS;
 }
 
+function includeFallbackToolExcerpt(): boolean {
+  const raw = envValue("XTALPI_FALLBACK_INCLUDE_TOOL_EXCERPT")?.trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
+}
+
 function debugEnabled(): boolean {
   const raw = envValue("XTALPI_COMPAT_DEBUG")?.trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes";
@@ -285,7 +319,7 @@ function debugLog(event: string, data: Record<string, unknown>): void {
   }
 
   try {
-    const path = envValue("XTALPI_COMPAT_DEBUG_PATH") || XTALPI_COMPAT_DEBUG_PATH;
+    const path = expandHomePath(envValue("XTALPI_COMPAT_DEBUG_PATH") || XTALPI_COMPAT_DEBUG_PATH);
     mkdirSync(dirname(path), { recursive: true });
     appendFileSync(
       path,
@@ -298,6 +332,26 @@ function debugLog(event: string, data: Record<string, unknown>): void {
   } catch {
     // Debug logging must never break normal agent execution.
   }
+}
+
+function expandHomePath(path: string): string {
+  const home = envValue("HOME");
+  if (!home) {
+    return path;
+  }
+  if (path === "$HOME") {
+    return home;
+  }
+  if (path.startsWith("$HOME/")) {
+    return `${home}${path.slice("$HOME".length)}`;
+  }
+  if (path === "~") {
+    return home;
+  }
+  if (path.startsWith("~/")) {
+    return `${home}${path.slice(1)}`;
+  }
+  return path;
 }
 
 function summarizeRoles(messages: unknown): string[] {
@@ -661,6 +715,98 @@ function payloadContentText(content: unknown): string {
     .join("\n");
 }
 
+function hasRecoveryPrompt(messages: unknown): boolean {
+  if (!Array.isArray(messages)) {
+    return false;
+  }
+
+  return messages.some((message) => {
+    if (typeof message !== "object" || message === null) {
+      return false;
+    }
+
+    const text = payloadContentText((message as { content?: unknown }).content);
+    return (
+      text.includes(RECOVERY_PROMPT_MARKER) ||
+      text.includes("上一轮 xtalpi 返回了空 assistant 内容")
+    );
+  });
+}
+
+function injectXtalpiRecoveryNoToolsPolicy(messages: unknown): unknown {
+  if (!Array.isArray(messages)) {
+    return messages;
+  }
+
+  const policyTargetIndex = messages.findIndex((message) => {
+    if (typeof message !== "object" || message === null || !("role" in message)) {
+      return false;
+    }
+    const role = (message as { role?: unknown }).role;
+    return role === "system" || role === "developer";
+  });
+
+  if (policyTargetIndex < 0) {
+    return [{ role: "system", content: XTALPI_RECOVERY_NO_TOOLS_POLICY }, ...messages];
+  }
+
+  return messages.map((message, index) => {
+    if (index !== policyTargetIndex || typeof message !== "object" || message === null) {
+      return message;
+    }
+
+    const content = (message as { content?: unknown }).content;
+    const contentText = payloadContentText(content);
+    return contentText.includes(XTALPI_RECOVERY_NO_TOOLS_POLICY_MARKER)
+      ? message
+      : {
+          ...message,
+          content:
+            typeof content === "string"
+              ? `${XTALPI_RECOVERY_NO_TOOLS_POLICY}\n\n${content}`
+              : [{ type: "text", text: XTALPI_RECOVERY_NO_TOOLS_POLICY }, ...(Array.isArray(content) ? content : [])],
+        };
+  });
+}
+
+function latestToolResultMirrorExcerpt(messages: unknown, maxChars = 1800): string | undefined {
+  if (!Array.isArray(messages)) {
+    return undefined;
+  }
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (typeof message !== "object" || message === null) {
+      continue;
+    }
+    const text = payloadContentText((message as { content?: unknown }).content);
+    const markerIndex = text.lastIndexOf(XTALPI_TOOL_RESULT_MIRROR_MARKER);
+    if (markerIndex < 0) {
+      continue;
+    }
+    const excerpt = text.slice(markerIndex).trim();
+    return excerpt.length > maxChars
+      ? `${excerpt.slice(0, maxChars)}\n[truncated by xtalpi-compat fallback]`
+      : excerpt;
+  }
+
+  return undefined;
+}
+
+function looksSensitiveForFallback(text: string): boolean {
+  return /(api[_-]?key|authorization|bearer\s+[a-z0-9._-]+|password|passwd|secret|access[_-]?token|refresh[_-]?token|private[_-]?key|BEGIN [A-Z ]*PRIVATE KEY)/i.test(
+    text,
+  );
+}
+
+function formatFallbackToolExcerpt(excerpt: string): string | undefined {
+  if (!includeFallbackToolExcerpt() || looksSensitiveForFallback(excerpt)) {
+    return undefined;
+  }
+
+  return excerpt.replace(/```/g, "'''");
+}
+
 function collectToolCallNames(messages: unknown[]): Map<string, string> {
   const toolNamesById = new Map<string, string>();
 
@@ -933,14 +1079,28 @@ function sanitizeXtalpiPayload(payload: unknown, latestUserPrompt: string, provi
   if (shouldMirrorToolResults(messages)) {
     messages = mirrorToolResultsAsUserMessages(messages);
   }
+  const recoveryRequest = hasRecoveryPrompt(messages);
+  const strategy = emptyAssistantStrategy();
 
   const nextPayload: ProviderPayload = {
     ...payload,
     messages,
   };
 
-  const filteredTools = filterXtalpiTools(payload.tools, messages, latestUserPrompt);
-  nextPayload.tools = filteredTools.tools;
+  let filteredTools = filterXtalpiTools(payload.tools, messages, latestUserPrompt);
+  if (strategy === "rescue_no_tools" && recoveryRequest) {
+    nextPayload.messages = injectXtalpiRecoveryNoToolsPolicy(nextPayload.messages);
+
+    // After xtalpi has already returned an empty assistant, retrying with tools
+    // often repeats the same stalled continuation. The rescue turn is text-only.
+    delete nextPayload.tools;
+    delete nextPayload.tool_choice;
+    delete nextPayload.parallel_tool_calls;
+    nextPayload.stream = false;
+    filteredTools = { ...filteredTools, tools: undefined, keptNames: [] };
+  } else {
+    nextPayload.tools = filteredTools.tools;
+  }
 
   const hasTools = Array.isArray(nextPayload.tools) && nextPayload.tools.length > 0;
   if (hasTools) {
@@ -960,8 +1120,14 @@ function sanitizeXtalpiPayload(payload: unknown, latestUserPrompt: string, provi
     delete nextPayload.reasoning_effort;
   }
 
+  if (recoveryRequest) {
+    delete nextPayload.stream_options;
+    delete nextPayload.thinking;
+    delete nextPayload.reasoning_effort;
+  }
+
   if (hasSuccessfulReadResult(messages) && isReadOnlySummaryPrompt(latestUserPrompt)) {
-    nextPayload.messages = injectXtalpiReadResultPolicy(messages);
+    nextPayload.messages = injectXtalpiReadResultPolicy(nextPayload.messages);
   }
 
   debugLog("before_provider_request", {
@@ -972,9 +1138,13 @@ function sanitizeXtalpiPayload(payload: unknown, latestUserPrompt: string, provi
     keptTools: filteredTools.keptNames,
     toolFilterMode: toolFilterMode(),
     maxTools: maxXtalpiTools(),
+    emptyAssistantStrategy: strategy,
+    recoveryRequest,
+    rescueNoTools: strategy === "rescue_no_tools" && recoveryRequest,
     hasToolHistory: hasToolHistory(messages),
     mirrorMode: toolResultMirrorMode(),
     mirrorCount: countToolResultMirrors(nextPayload.messages),
+    stream: nextPayload.stream,
     parallelToolCalls: nextPayload.parallel_tool_calls,
     hasStreamOptions: "stream_options" in nextPayload,
     hasThinking: "thinking" in nextPayload,
@@ -1045,6 +1215,7 @@ export default function xtalpiCompat(pi: ExtensionAPI) {
   let hiddenRecoveryCount = 0;
   let turnHiddenRecoveryCount = 0;
   let latestUserPrompt = "";
+  let latestToolExcerpt: string | undefined;
 
   pi.on("before_agent_start", async (event, ctx) => {
     activeProvider = ctx.model?.provider;
@@ -1056,14 +1227,17 @@ export default function xtalpiCompat(pi: ExtensionAPI) {
     lastQueuedEmptyAssistantKey = undefined;
     hiddenRecoveryCount = 0;
     turnHiddenRecoveryCount = 0;
+    latestToolExcerpt = undefined;
 
     debugLog("before_agent_start", {
       provider: activeProvider ?? "unknown",
       model: ctx.model?.id ?? "unknown",
       selectedToolCount: activeToolNames.length,
       selectedTools: activeToolNames,
+      emptyAssistantStrategy: emptyAssistantStrategy(),
       mirrorMode: toolResultMirrorMode(),
       maxMirroredToolResultChars: maxMirroredToolResultChars(),
+      maxTools: maxXtalpiTools(),
     });
   });
 
@@ -1071,6 +1245,8 @@ export default function xtalpiCompat(pi: ExtensionAPI) {
     const sanitized = sanitizeXtalpiPayload(event.payload, latestUserPrompt, ctx.model?.provider ?? activeProvider);
     if (sanitized && typeof sanitized === "object") {
       lastProviderToolNames = payloadToolNames((sanitized as ProviderPayload).tools);
+      latestToolExcerpt =
+        latestToolResultMirrorExcerpt((sanitized as ProviderPayload).messages) ?? latestToolExcerpt;
     }
     return sanitized;
   });
@@ -1111,6 +1287,7 @@ export default function xtalpiCompat(pi: ExtensionAPI) {
         lastQueuedEmptyAssistantKey = undefined;
         hiddenRecoveryCount = 0;
         turnHiddenRecoveryCount = 0;
+        latestToolExcerpt = undefined;
       }
       return;
     }
@@ -1154,8 +1331,10 @@ export default function xtalpiCompat(pi: ExtensionAPI) {
         stopReason: "stop",
         errorMessage: undefined,
       };
+      const strategy = emptyAssistantStrategy();
 
       if (
+        strategy !== "fail_fast" &&
         emptyAssistantKey !== lastQueuedEmptyAssistantKey &&
         hiddenRecoveryCount < MAX_HIDDEN_RECOVERIES &&
         turnHiddenRecoveryCount < MAX_HIDDEN_RECOVERIES_PER_TURN
@@ -1177,6 +1356,7 @@ export default function xtalpiCompat(pi: ExtensionAPI) {
           model: message.model ?? "unknown",
           attempt: hiddenRecoveryCount,
           turnAttempt: turnHiddenRecoveryCount,
+          emptyAssistantStrategy: strategy,
           stopReason: nextMessage.stopReason,
         });
         return { message: recoverableMessage };
@@ -1185,9 +1365,10 @@ export default function xtalpiCompat(pi: ExtensionAPI) {
       debugLog("hidden_recovery_exhausted", {
         provider: message.provider ?? "unknown",
         model: message.model ?? "unknown",
+        emptyAssistantStrategy: strategy,
         stopReason: nextMessage.stopReason,
       });
-      return { message: recoveryFallbackMessage(recoverableMessage) };
+      return { message: recoveryFallbackMessage(recoverableMessage, latestToolExcerpt) };
     }
 
     return rewritten ? { message: nextMessage } : undefined;

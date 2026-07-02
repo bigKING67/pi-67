@@ -117,6 +117,49 @@ The pair in `settings.json` must exist inside `models.json`:
 
 If you do not use xtalpi, change both fields to a provider/model that exists in `models.json`.
 
+## xtalpi returns empty assistant content repeatedly
+
+This is usually an xtalpi OpenAI-compatible proxy/tool-continuation issue, not a local API key format issue. It often appears after a tool result is returned: the request reaches xtalpi, but the streamed response ends without assistant text or a finish reason.
+
+pi-67 enables local anti-stall protection by default:
+
+- tool calls are serialized;
+- reasoning parameters are removed on tool continuations;
+- tool results are mirrored into normal text;
+- only the most relevant tools are sent when the tool list is large;
+- after an empty assistant response, the recovery request uses `rescue_no_tools`: no tools, no reasoning, and a non-streaming payload when supported.
+
+For important tasks or on a newly installed Windows laptop, start Pi in the more conservative xtalpi mode:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-safe.sh
+```
+
+The script sets:
+
+```bash
+XTALPI_EMPTY_ASSISTANT_STRATEGY=rescue_no_tools
+XTALPI_TOOL_RESULT_MIRROR=always
+XTALPI_TOOL_FILTER=auto
+XTALPI_MAX_TOOLS=8
+XTALPI_MAX_MIRRORED_TOOL_RESULT_CHARS=8000
+```
+
+It does not change your `models.json`, API key, or xtalpi URL. It only makes the current Pi process more conservative.
+
+If you still see the fallback message after updating, run:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-update.sh
+bash ~/.pi/agent/scripts/pi67-xtalpi-safe.sh
+```
+
+If the task is time-critical and xtalpi continues returning empty content, temporarily switch to another configured provider:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-configure.sh --provider codex --model gpt-5.4 --prompt-secrets
+```
+
 ## MCP path warnings
 
 Warnings like these mean the full MCP config is installed, but the local dependency is not present yet:

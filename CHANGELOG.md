@@ -4,6 +4,20 @@ All notable changes to pi-67 are documented here.
 
 The format is based on Keep a Changelog, and this project uses semantic versioning for the pi-67 distribution itself. Pi package dependency versions are managed separately in `package.json`.
 
+## [0.9.3] - 2026-07-02
+
+### Added
+
+- `scripts/pi67-xtalpi-safe.sh` as a conservative xtalpi launcher for machines where the company OpenAI-compatible proxy sometimes returns empty assistant content after tool use.
+- `XTALPI_EMPTY_ASSISTANT_STRATEGY` with default `rescue_no_tools`, plus optional `hidden_recovery` and `fail_fast` modes.
+- Troubleshooting and install documentation for xtalpi empty-assistant recovery and safe-mode startup.
+
+### Changed
+
+- `xtalpi-compat` now hardens recovery turns after an empty assistant response by removing tools, tool choice, reasoning parameters, and streaming options where supported.
+- Default xtalpi tool filtering is more conservative: at most 12 tool definitions by default, and tool-result mirrors default to 12000 characters.
+- xtalpi debug path expansion now resolves `$HOME` / `~` before writing debug JSONL.
+
 ## [0.9.2] - 2026-07-01
 
 ### Changed

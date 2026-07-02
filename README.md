@@ -4,7 +4,7 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
-当前发行版版本：`0.9.2`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.9.3`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 这是什么
 
@@ -36,7 +36,7 @@
 | **Skill 治理** | `docs/skill-governance.md` | skill 公开发行 / 个人 overlay / 过期治理规则 |
 | **文档** | `docs/` | 全量安装、doctor/report/status schema、排障、发布流程、MCP 优化、爬虫指南、工具速查、xtalpi 配置 |
 | **Prompts** | `prompts/` (5 个) | debug、deliver、frontend-kickoff、review、scoped-commit |
-| **脚本** | `scripts/` | configure、doctor、report、status、skill-audit、skill migration/sync/check、release artifact smoke、release、release-check、smoke、update、restore、uninstall、xtalpi 工具冒烟测试 |
+| **脚本** | `scripts/` | configure、doctor、report、status、skill-audit、skill migration/sync/check、release artifact smoke、release、release-check、smoke、update、restore、uninstall、xtalpi safe 启动和工具冒烟测试 |
 | **模板** | `templates/scrapers/` | 采集/合并/轮询相关脚本模板 |
 
 ## Shared skill registry
@@ -369,6 +369,7 @@ pi-67/
 │   ├── pi67-test-skill-governance.sh
 │   ├── pi67-update.sh
 │   ├── pi67-uninstall.sh
+│   ├── pi67-xtalpi-safe.sh
 │   └── xtalpi-tool-smoke.sh
 └── templates/
     └── scrapers/
@@ -377,6 +378,14 @@ pi-67/
 ## 关于 xtalpi
 
 xtalpi 是晶泰科技内部 API。`models.example.json` 中包含 xtalpi / xtalpi-tools 两个 provider 配置，`extensions/xtalpi-compat/` 是对应兼容层。
+
+如果晶泰代理在工具调用后偶发“连续返回空 assistant 内容”，pi-67 默认会启用 anti-stall：空回后隐藏续问，并把恢复请求降级为无工具、无 reasoning、尽量非流式的文本恢复。重要任务推荐用保守启动脚本：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-safe.sh
+```
+
+它不会改你的 `models.json`、API key 或 URL，只影响当前 Pi 进程的 xtalpi 稳定性参数。详细说明见 `docs/xtalpi-tools.md` 和 `docs/troubleshooting.md`。
 
 **xtalpi 外部用户**：完整配置仍会安装 xtalpi provider 模板；如果没有 xtalpi key，可以在 `~/.pi/agent/settings.json` / `models.json` 改用其他 provider。doctor 会把缺 key 或 provider 不匹配报告为 warning/fail。
 

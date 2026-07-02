@@ -29,6 +29,18 @@ pi --provider xtalpi-tools --model deepseek-v4-pro
 $HOME/.pi/agent/scripts/xtalpi-tool-smoke.sh
 ```
 
+如果你的任务经常在工具调用后卡在“连续返回空 assistant 内容”，优先用保守启动脚本：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-safe.sh
+```
+
+这个脚本不修改你的 key 或晶泰服务端，只是在本机启动 Pi 时设置更保守的 xtalpi 参数：
+
+- 最多发送 8 个相关工具定义，降低 90+ tools 场景下的代理压力。
+- tool result 仍镜像成普通文本，但单条最多 8000 字符。
+- 连续空 assistant 后进入 `rescue_no_tools`：下一轮强制不带 tools、不带 reasoning，并尽量用非流式请求让模型直接基于已有工具结果输出最终文本。
+
 兼容层文件：
 
 ```text
@@ -45,6 +57,7 @@ $HOME/.pi/agent/extensions/xtalpi-compat/index.ts
 - 处理 `litellm_unnamed_tool_0`，按请求参数、已发送工具集或单工具上下文改回真实工具名。
 - 自动隐藏重试空 assistant / 空 stream；连续最多 2 次、单轮最多 4 次，防止 UI 卡在无回复或进入无限循环。
 - 默认按当前 prompt 从大量工具中保留最相关的一组，减少公司代理在 90+ tools 下的空回复概率。
+- 默认空 assistant 策略是 `rescue_no_tools`：第一次空回后隐藏续问，恢复请求强制无工具、无 reasoning、非流式，优先让任务产出可见文本。
 
 可调环境变量：
 
@@ -52,14 +65,23 @@ $HOME/.pi/agent/extensions/xtalpi-compat/index.ts
 # always: 总是镜像工具结果；off: 关闭；auto: 目前等同有工具历史时镜像
 export XTALPI_TOOL_RESULT_MIRROR=always
 
-# 单个 tool result 镜像最大字符数，默认 20000
-export XTALPI_MAX_MIRRORED_TOOL_RESULT_CHARS=20000
+# 单个 tool result 镜像最大字符数，默认 12000；safe 脚本默认 8000
+export XTALPI_MAX_MIRRORED_TOOL_RESULT_CHARS=12000
 
 # auto: 大量工具时按 prompt 过滤；off: 不过滤
 export XTALPI_TOOL_FILTER=auto
 
-# 大量工具时最多发送多少个工具定义，默认 24
-export XTALPI_MAX_TOOLS=24
+# 大量工具时最多发送多少个工具定义，默认 12；safe 脚本默认 8
+export XTALPI_MAX_TOOLS=12
+
+# rescue_no_tools: 默认，空回后下一轮强制无工具恢复；
+# hidden_recovery: 只做旧版隐藏续问；
+# fail_fast: 不隐藏续问，直接给出失败提示。
+export XTALPI_EMPTY_ASSISTANT_STRATEGY=rescue_no_tools
+
+# 默认不把工具结果摘录显示在最终兜底消息里，避免误露敏感内容。
+# 如明确需要“哪怕模型不答也展示工具结果”，可临时开启。
+export XTALPI_FALLBACK_INCLUDE_TOOL_EXCERPT=0
 
 # 写脱敏 debug 摘要到 $HOME/tmp/xtalpi-compat-debug.jsonl
 export XTALPI_COMPAT_DEBUG=1

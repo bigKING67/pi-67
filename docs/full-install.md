@@ -271,6 +271,20 @@ To switch provider/model:
 bash ~/.pi/agent/scripts/pi67-configure.sh --provider codex --model gpt-5.4 --prompt-secrets
 ```
 
+If you use `xtalpi-tools` and the company proxy occasionally returns empty assistant content after tool calls, use the conservative launcher for important tasks:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-safe.sh
+```
+
+It keeps your existing `models.json` URL/API key unchanged and only sets safer runtime variables for the current Pi process:
+
+```bash
+XTALPI_EMPTY_ASSISTANT_STRATEGY=rescue_no_tools
+XTALPI_MAX_TOOLS=8
+XTALPI_MAX_MIRRORED_TOOL_RESULT_CHARS=8000
+```
+
 In linked mode, `settings.json` is symlinked by default so updates from pi-67 continue to apply. If you request a provider/model change that differs from the repository default, the configure helper detaches `settings.json` into a local file before writing, so personal defaults do not dirty the repo. In in-place mode, `settings.json` is tracked by the current checkout; keep personal secrets and machine paths in the ignored local config files instead.
 
 ## Readiness levels
