@@ -205,6 +205,7 @@ extensions/xtalpi-pi-tools/fixtures/replay-cases.json
 - smoke summarizer self-test：`all:` / `only:` 工具边界、low-`maxTools` tool-selection clipping telemetry、raw markup final answer 和 tool-result-injection canary 缺失负向样例
 - debug-summary self-test：case 数、recovery 阈值和 raw markup final answer threshold gate 负向样例
 - provider error contract validator self-test：已知坏 contract 的 manifest、code 集合、category、retryability、HTTP 映射和 range 顺序负向样例
+- provider-level body-read timeout regression：即使 `response.text()` 不响应 `AbortSignal`，也必须在 `XTALPI_PI_TOOLS_TIMEOUT_MS` 内归类为 `request_timeout`
 
 只验证 smoke/debug-summary gate 本身，不调用真实模型：
 

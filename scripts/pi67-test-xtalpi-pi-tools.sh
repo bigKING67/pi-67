@@ -682,6 +682,75 @@ const { pathToFileURL } = require("node:url");
     fs.rmSync(abortDebugDir, { recursive: true, force: true });
   }
 
+  const bodyTimeoutDebugDir = fs.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", "xtalpi-pi-tools-body-timeout-test."));
+  const bodyTimeoutDebugFile = path.join(bodyTimeoutDebugDir, "debug.jsonl");
+  const previousBodyTimeoutDebugFlag = process.env.XTALPI_PI_TOOLS_DEBUG;
+  const previousBodyTimeoutDebugPath = process.env.XTALPI_PI_TOOLS_DEBUG_PATH;
+  const previousBodyTimeoutMs = process.env.XTALPI_PI_TOOLS_TIMEOUT_MS;
+  process.env.XTALPI_PI_TOOLS_DEBUG = "1";
+  process.env.XTALPI_PI_TOOLS_DEBUG_PATH = bodyTimeoutDebugFile;
+  process.env.XTALPI_PI_TOOLS_TIMEOUT_MS = "1000";
+  try {
+    let bodyTimeoutFetchCount = 0;
+    global.fetch = async () => {
+      bodyTimeoutFetchCount += 1;
+      return {
+        ok: true,
+        status: 200,
+        text: () => new Promise(() => {}),
+      };
+    };
+
+    const startedAt = Date.now();
+    const bodyTimeoutStream = registeredProvider.streamSimple(
+      {
+        id: "deepseek-v4-pro",
+        maxTokens: 32768,
+        api: "xtalpi-pi-tools",
+        provider: "xtalpi-pi-tools",
+        baseUrl: "https://example.invalid/v1",
+      },
+      {
+        systemPrompt: "system base",
+        tools: [],
+        messages: [{ role: "user", content: "hello" }],
+      },
+      {},
+    );
+    const bodyTimeoutFinal = await bodyTimeoutStream.result();
+    const elapsedMs = Date.now() - startedAt;
+    assert.equal(bodyTimeoutFetchCount, 1);
+    assert.equal(bodyTimeoutFinal.stopReason, "error");
+    assert.match(bodyTimeoutFinal.errorMessage, /request timeout after 1000ms/);
+    assert.ok(elapsedMs < 5000, `body read timeout took too long: ${elapsedMs}ms`);
+
+    const bodyTimeoutDebugEvents = fs.readFileSync(bodyTimeoutDebugFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    const bodyTimeoutErrorEvent = bodyTimeoutDebugEvents.find((event) => event.event === "error.provider");
+    assert.ok(bodyTimeoutErrorEvent);
+    assert.equal(bodyTimeoutErrorEvent.error_code, "request_timeout");
+    assert.equal(bodyTimeoutErrorEvent.error_category, "timeout");
+    assert.equal(bodyTimeoutErrorEvent.retryable, true);
+    assert.equal(bodyTimeoutErrorEvent.data.timeoutMs, 1000);
+  } finally {
+    global.fetch = originalFetch;
+    if (previousBodyTimeoutDebugFlag === undefined) {
+      delete process.env.XTALPI_PI_TOOLS_DEBUG;
+    } else {
+      process.env.XTALPI_PI_TOOLS_DEBUG = previousBodyTimeoutDebugFlag;
+    }
+    if (previousBodyTimeoutDebugPath === undefined) {
+      delete process.env.XTALPI_PI_TOOLS_DEBUG_PATH;
+    } else {
+      process.env.XTALPI_PI_TOOLS_DEBUG_PATH = previousBodyTimeoutDebugPath;
+    }
+    if (previousBodyTimeoutMs === undefined) {
+      delete process.env.XTALPI_PI_TOOLS_TIMEOUT_MS;
+    } else {
+      process.env.XTALPI_PI_TOOLS_TIMEOUT_MS = previousBodyTimeoutMs;
+    }
+    fs.rmSync(bodyTimeoutDebugDir, { recursive: true, force: true });
+  }
+
   for (const fixture of replayFixtures.providerReplay ?? []) {
     await assertProviderReplayFixture(fixture, registeredProvider, originalFetch);
   }

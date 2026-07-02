@@ -335,6 +335,23 @@ type FetchTextResult = {
   body: string;
 };
 
+async function readResponseTextWithAbort(response: Response, signal: AbortSignal): Promise<string> {
+  if (signal.aborted) throw abortReason(signal);
+
+  let removeAbortListener: (() => void) | undefined;
+  const abortPromise = new Promise<never>((_resolve, reject) => {
+    const abortHandler = () => reject(abortReason(signal));
+    removeAbortListener = () => signal.removeEventListener("abort", abortHandler);
+    signal.addEventListener("abort", abortHandler, { once: true });
+  });
+
+  try {
+    return await Promise.race([response.text(), abortPromise]);
+  } finally {
+    removeAbortListener?.();
+  }
+}
+
 async function fetchTextWithTimeout(
   url: string,
   init: RequestInit,
@@ -350,7 +367,7 @@ async function fetchTextWithTimeout(
 
   try {
     const response = await fetch(url, { ...init, signal: controller.signal });
-    const body = await response.text();
+    const body = await readResponseTextWithAbort(response, controller.signal);
     return { response, body };
   } finally {
     clearTimeout(timeout);
