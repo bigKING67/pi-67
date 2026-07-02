@@ -13,6 +13,7 @@ import type {
   ToolCall,
   Usage,
 } from "@earendil-works/pi-ai";
+import { validateToolArguments } from "./argument-validator.ts";
 import { debugLog, safeErrorMessage } from "./diagnostics.ts";
 import { parseToolCall } from "./parser.ts";
 import {
@@ -34,6 +35,7 @@ import {
 import {
   buildEmptyResponseRepairPrompt,
   buildFunctionStyleToolRepairPrompt,
+  buildInvalidToolArgumentsRepairPrompt,
   buildInvalidToolJsonRepairPrompt,
   buildRepeatedToolRepairPrompt,
   buildUnknownToolRepairPrompt,
@@ -455,6 +457,7 @@ async function runProviderTurn(
   const contextLike = context as unknown as ContextLike;
   const serializedContext = serializeContextForXtalpi(contextLike, { maxTools, maxToolResultChars });
   const names = serializedContext.selectedToolNames;
+  const selectedToolByName = new Map(serializedContext.selectedTools.map((tool) => [tool.name, tool]));
   const messages = serializedContext.messages;
   const lastCompletedCall = latestToolCallWithResult(contextLike);
 
@@ -549,6 +552,35 @@ async function runProviderTurn(
       return {
         kind: "final",
         text: `xtalpi-pi-tools 请求了不可用工具：${requestedCall.name}。本轮可用工具：${[...names].sort().join(", ") || "(none)"}`,
+        usage: accumulatedUsage,
+        responseModel,
+      };
+    }
+
+    const argumentValidation = validateToolArguments(selectedToolByName.get(requestedCall.name), requestedCall.arguments);
+    if (!argumentValidation.ok) {
+      if (repairRetries < maxRepairRetries() && totalRecoveries < maxTotalRecoveries()) {
+        repairRetries += 1;
+        totalRecoveries += 1;
+        messages.push({ role: "assistant", content: raw.slice(0, 4000) });
+        messages.push({
+          role: "user",
+          content: buildInvalidToolArgumentsRepairPrompt(requestedCall.name, argumentValidation.errors),
+        });
+        debugLog("recovery.invalid_tool_arguments", {
+          toolName: requestedCall.name,
+          errors: argumentValidation.errors,
+          repairRetries,
+          totalRecoveries,
+        });
+        continue;
+      }
+
+      return {
+        kind: "final",
+        text:
+          `xtalpi-pi-tools 请求了参数不符合 schema 的工具调用：${requestedCall.name}。\n\n` +
+          `参数错误：${argumentValidation.errors.join("; ")}`,
         usage: accumulatedUsage,
         responseModel,
       };

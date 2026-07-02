@@ -77,6 +77,20 @@ ${names}
 Return a normal final answer if no available tool fits. Otherwise return exactly one valid <pi_tool_call> envelope using one available name.`;
 }
 
+export function buildInvalidToolArgumentsRepairPrompt(toolName: string, errors: string[]): string {
+  const details = errors.slice(0, 8).map((error) => `- ${error}`).join("\n") || "- arguments did not match the tool schema";
+  return `[xtalpi-pi-tools-invalid-tool-arguments-repair]
+The tool "${toolName}" was available, but its arguments did not match the schema Pi showed you:
+${details}
+
+Return either a normal final answer without a tool, or exactly one corrected Pi tool envelope:
+${TOOL_CALL_OPEN}
+{"name":"${toolName}","arguments":{}}
+${TOOL_CALL_CLOSE}
+
+Do not repeat invalid arguments. Keep "arguments" as a JSON object.`;
+}
+
 export function buildRepeatedToolRepairPrompt(toolName: string): string {
   return `[xtalpi-pi-tools-repeated-tool-repair]
 You already received the result for the same "${toolName}" tool call.

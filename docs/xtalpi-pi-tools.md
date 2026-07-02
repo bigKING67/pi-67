@@ -41,6 +41,8 @@ content:
 
 每轮只允许执行实际展示给模型的 selected tools。即使 `context.tools` 里存在更多工具，模型猜中未展示工具名也会被拒绝；unknown-tool 修复提示同样只列出 selected tools。
 
+工具参数在交给 Pi 执行前会做轻量 schema 校验。当前校验覆盖 JSON Schema 常用子集：`required`、`properties`、基础 `type`、`enum`、`array.items`、`anyOf` / `oneOf` 和 `additionalProperties:false`。如果参数明显不匹配，会先要求模型修复为正确的 `<pi_tool_call>`，而不是把坏参数直接交给工具层。
+
 这样晶泰侧不需要稳定支持 OpenAI tool calling，只需要稳定支持普通 chat completion。
 
 ## 默认配置
@@ -177,6 +179,7 @@ bash ~/.pi/agent/scripts/pi67-test-xtalpi-pi-tools.sh
 - 多工具调用拒绝
 - unknown top-level field 拒绝
 - selected tools 执行白名单
+- tool arguments 轻量 schema 校验与修复
 - tool result 作为普通 user 文本序列化
 - tool result prompt-injection / 协议边界中和
 - payload 不包含 `tools`、`tool_choice`、`parallel_tool_calls`、`thinking`、`reasoning_effort`

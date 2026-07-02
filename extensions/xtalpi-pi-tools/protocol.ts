@@ -69,7 +69,7 @@ Tool protocol rules:
 - Emit at most one ${TOOL_CALL_OPEN} envelope per assistant turn.
 - The envelope JSON must have exactly two top-level fields: "name" and "arguments".
 - "name" must match one available tool name exactly.
-- "arguments" must be a JSON object.
+- "arguments" must be a JSON object and must match the shown argument schema for that tool.
 - Do not invent tools. Do not use OpenAI tool_calls, function_call, role=tool, or markdown tables for tool invocation.
 - Do not write function-style tool calls such as tool_name({...}); Pi only executes the ${TOOL_CALL_OPEN} JSON envelope above.
 - After Pi returns ${TOOL_RESULT_OPEN}, read that result directly and produce a normal final answer unless another single tool call is strictly necessary.

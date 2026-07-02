@@ -23,6 +23,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - Release and smoke checks now validate `xtalpi-pi-tools` artifacts and no-native-tools payload invariants.
 - `xtalpi-pi-tools` now executes only the selected tools shown to the model and marks tool results as untrusted data to reduce prompt-injection and protocol-boundary confusion.
 - `xtalpi-pi-tools` now repairs function-style pseudo tool calls such as `fetch_content({...})`, and live smoke checks require expected tool execution events instead of accepting any final text.
+- `xtalpi-pi-tools` now validates tool arguments against a lightweight JSON Schema subset before execution and repairs obvious schema mismatches locally.
 
 ### Removed
 

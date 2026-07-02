@@ -39,6 +39,7 @@ export type SerializeOptions = {
 
 export type SerializedXtalpiContext = {
   messages: XtalpiChatMessage[];
+  selectedTools: ToolLike[];
   selectedToolNames: Set<string>;
 };
 
@@ -242,7 +243,7 @@ export function serializeContextForXtalpi(
     }
   }
 
-  return { messages: output, selectedToolNames };
+  return { messages: output, selectedTools, selectedToolNames };
 }
 
 export function serializeContextToXtalpiMessages(

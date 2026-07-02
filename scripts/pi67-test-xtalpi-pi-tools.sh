@@ -15,6 +15,7 @@ const { pathToFileURL } = require("node:url");
 
   const parser = await import(ext("parser.ts"));
   const serializer = await import(ext("serializer.ts"));
+  const validator = await import(ext("argument-validator.ts"));
   const provider = await import(ext("index.ts"));
 
   const valid = parser.parseToolCall('<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>');
@@ -37,6 +38,26 @@ const { pathToFileURL } = require("node:url");
   const functionStyle = parser.parseToolCall('fetch_content({"url":"https://example.invalid"})');
   assert.equal(functionStyle.kind, "error");
   assert.equal(functionStyle.code, "function_style_tool_call");
+
+  const validArgs = validator.validateToolArguments(
+    { name: "read", parameters: { type: "object", required: ["path"], properties: { path: { type: "string" } } } },
+    { path: "package.json" },
+  );
+  assert.equal(validArgs.ok, true);
+
+  const invalidArgs = validator.validateToolArguments(
+    { name: "read", parameters: { type: "object", required: ["path"], properties: { path: { type: "string" } } } },
+    { path: 42 },
+  );
+  assert.equal(invalidArgs.ok, false);
+  assert.match(invalidArgs.errors.join("\n"), /arguments\.path expected string/);
+
+  const missingArgs = validator.validateToolArguments(
+    { name: "read", parameters: { type: "object", required: ["path"], properties: { path: { type: "string" } } } },
+    {},
+  );
+  assert.equal(missingArgs.ok, false);
+  assert.match(missingArgs.errors.join("\n"), /arguments\.path is required/);
 
   const context = {
     systemPrompt: "system base",
@@ -193,6 +214,75 @@ const { pathToFileURL } = require("node:url");
     const toolCallBlocks = functionStyleFinal.content.filter((block) => block.type === "toolCall");
     assert.equal(toolCallBlocks.length, 1);
     assert.equal(toolCallBlocks[0].name, "fetch_content");
+  } finally {
+    global.fetch = originalFetch;
+  }
+
+  process.env.XTALPI_PI_TOOLS_MAX_TOOLS = "8";
+  process.env.XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES = "2";
+  process.env.XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES = "4";
+
+  const invalidArgsThenEnvelope = [
+    {
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: '<pi_tool_call>\n{"name":"read","arguments":{"path":42}}\n</pi_tool_call>',
+          },
+          finish_reason: "stop",
+        },
+      ],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    },
+    {
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: '<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>',
+          },
+          finish_reason: "stop",
+        },
+      ],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    },
+  ];
+  let invalidArgsFetchCount = 0;
+  global.fetch = async () => {
+    const envelope = invalidArgsThenEnvelope[Math.min(invalidArgsFetchCount, invalidArgsThenEnvelope.length - 1)];
+    invalidArgsFetchCount += 1;
+    return new Response(JSON.stringify(envelope), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const invalidArgsContext = {
+      systemPrompt: "system base",
+      tools: [
+        { name: "read", description: "Read a file", parameters: { type: "object", required: ["path"], properties: { path: { type: "string" } } } },
+      ],
+      messages: [{ role: "user", content: "read package.json" }],
+    };
+    const invalidArgsStream = registeredProvider.streamSimple(
+      {
+        id: "deepseek-v4-pro",
+        maxTokens: 32768,
+        api: "xtalpi-pi-tools",
+        provider: "xtalpi-pi-tools",
+        baseUrl: "https://example.invalid/v1",
+      },
+      invalidArgsContext,
+      {},
+    );
+    const invalidArgsFinal = await invalidArgsStream.result();
+    assert.equal(invalidArgsFetchCount, 2);
+    assert.equal(invalidArgsFinal.stopReason, "toolUse");
+    const toolCallBlocks = invalidArgsFinal.content.filter((block) => block.type === "toolCall");
+    assert.equal(toolCallBlocks.length, 1);
+    assert.equal(toolCallBlocks[0].name, "read");
+    assert.deepEqual(toolCallBlocks[0].arguments, { path: "package.json" });
   } finally {
     global.fetch = originalFetch;
   }
