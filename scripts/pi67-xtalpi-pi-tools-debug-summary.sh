@@ -7,6 +7,7 @@ LATEST_ONLY="0"
 EXPECT_CASES=""
 MAX_ERRORS="0"
 MAX_EMPTY_ASSISTANT_ENDS=""
+MAX_RAW_TOOL_MARKUP_FINAL_ANSWERS=""
 MAX_RECOVERIES=""
 MAX_RECOVERY_RATE=""
 
@@ -22,6 +23,8 @@ Gate options:
   --expect-cases N
   --max-errors N                  default: 0
   --max-empty-assistant-ends N
+  --max-raw-tool-markup-final-answers N
+  --max-tool-envelope-final-answers N       alias for --max-raw-tool-markup-final-answers
   --max-recoveries N
   --max-recovery-rate N           recoveries / turns
 
@@ -52,6 +55,10 @@ while [ "$#" -gt 0 ]; do
       MAX_EMPTY_ASSISTANT_ENDS="${2:-}"
       shift 2
       ;;
+    --max-raw-tool-markup-final-answers|--max-tool-envelope-final-answers)
+      MAX_RAW_TOOL_MARKUP_FINAL_ANSWERS="${2:-}"
+      shift 2
+      ;;
     --max-recoveries)
       MAX_RECOVERIES="${2:-}"
       shift 2
@@ -78,6 +85,7 @@ node - \
   "$EXPECT_CASES" \
   "$MAX_ERRORS" \
   "$MAX_EMPTY_ASSISTANT_ENDS" \
+  "$MAX_RAW_TOOL_MARKUP_FINAL_ANSWERS" \
   "$MAX_RECOVERIES" \
   "$MAX_RECOVERY_RATE" <<'NODE'
 const fs = require("node:fs");
@@ -90,6 +98,7 @@ const [
   expectCasesRaw,
   maxErrorsRaw,
   maxEmptyAssistantEndsRaw,
+  maxRawToolMarkupFinalAnswersRaw,
   maxRecoveriesRaw,
   maxRecoveryRateRaw,
 ] = process.argv.slice(2);
@@ -109,6 +118,10 @@ const gates = {
   expectCases: optionalNumber(expectCasesRaw, "--expect-cases"),
   maxErrors: optionalNumber(maxErrorsRaw, "--max-errors"),
   maxEmptyAssistantEnds: optionalNumber(maxEmptyAssistantEndsRaw, "--max-empty-assistant-ends"),
+  maxRawToolMarkupFinalAnswers: optionalNumber(
+    maxRawToolMarkupFinalAnswersRaw,
+    "--max-raw-tool-markup-final-answers",
+  ),
   maxRecoveries: optionalNumber(maxRecoveriesRaw, "--max-recoveries"),
   maxRecoveryRate: optionalNumber(maxRecoveryRateRaw, "--max-recovery-rate"),
 };
@@ -149,6 +162,28 @@ function finalAssistantText(events) {
     .join("\n");
 }
 
+function stripPiToolEnvelopes(text) {
+  return String(text || "")
+    .replace(/<pi_tool_call_history\b[^>]*>[\s\S]*?<\/pi_tool_call_history>/g, "")
+    .replace(/<pi_tool_call\b[^>]*>[\s\S]*?<\/pi_tool_call>/g, "")
+    .replace(/<pi_tool_result\b[^>]*>[\s\S]*?<\/pi_tool_result>/g, "")
+    .trim();
+}
+
+function containsRawPiToolMarkup(text) {
+  return /<\/?pi_tool_(?:call_history|call|result)\b[^>]*>/.test(String(text || ""));
+}
+
+function isRawToolMarkupFinalAnswer(text) {
+  const trimmed = String(text || "").trim();
+  return containsRawPiToolMarkup(trimmed);
+}
+
+function isToolEnvelopeOnlyFinalAnswer(text) {
+  const trimmed = String(text || "").trim();
+  return containsRawPiToolMarkup(trimmed) && stripPiToolEnvelopes(trimmed).length === 0;
+}
+
 function summarizeCase(debugFileName) {
   const debugPath = path.join(outDir, debugFileName);
   const mainPath = path.join(outDir, debugFileName.replace(/\.debug\.jsonl$/, ".jsonl"));
@@ -180,6 +215,8 @@ function summarizeCase(debugFileName) {
       event.message.content.length === 0,
   ).length;
   const finalText = finalAssistantText(main.events);
+  const rawToolMarkupFinalAnswer = isRawToolMarkupFinalAnswer(finalText);
+  const toolEnvelopeFinalAnswer = isToolEnvelopeOnlyFinalAnswer(finalText);
 
   return {
     ...inferCaseParts(debugFileName),
@@ -196,6 +233,8 @@ function summarizeCase(debugFileName) {
     piToolStarts: toolStartEvents.map((event) => String(event.toolName || "")),
     errors: errors.length,
     emptyAssistantEnds,
+    rawToolMarkupFinalAnswer,
+    toolEnvelopeFinalAnswer,
     finalTextChars: finalText.length,
     selectedToolCountMin: selectedToolCounts.length ? Math.min(...selectedToolCounts) : undefined,
     selectedToolCountMax: selectedToolCounts.length ? Math.max(...selectedToolCounts) : undefined,
@@ -237,6 +276,8 @@ const totals = {
   toolCalls: 0,
   recoveries: 0,
   emptyAssistantEnds: 0,
+  rawToolMarkupFinalAnswers: 0,
+  toolEnvelopeFinalAnswers: 0,
   piToolStarts: 0,
   errors: 0,
   recoveryByEvent: {},
@@ -250,6 +291,8 @@ for (const item of cases) {
   totals.toolCalls += item.toolCalls;
   totals.recoveries += item.recoveries;
   totals.emptyAssistantEnds += item.emptyAssistantEnds;
+  totals.rawToolMarkupFinalAnswers += item.rawToolMarkupFinalAnswer ? 1 : 0;
+  totals.toolEnvelopeFinalAnswers += item.toolEnvelopeFinalAnswer ? 1 : 0;
   totals.piToolStarts += item.piToolStarts.length;
   totals.errors += item.errors;
   for (const [event, count] of Object.entries(item.recoveryByEvent)) {
@@ -272,6 +315,14 @@ if (totals.debugParseErrors > 0 || totals.mainParseErrors > 0) {
 if (gates.maxEmptyAssistantEnds !== undefined && totals.emptyAssistantEnds > gates.maxEmptyAssistantEnds) {
   gateFailures.push(`expected empty_assistant_ends<=${gates.maxEmptyAssistantEnds}, got ${totals.emptyAssistantEnds}`);
 }
+if (
+  gates.maxRawToolMarkupFinalAnswers !== undefined &&
+  totals.rawToolMarkupFinalAnswers > gates.maxRawToolMarkupFinalAnswers
+) {
+  gateFailures.push(
+    `expected raw_tool_markup_final_answers<=${gates.maxRawToolMarkupFinalAnswers}, got ${totals.rawToolMarkupFinalAnswers}`,
+  );
+}
 if (gates.maxRecoveries !== undefined && totals.recoveries > gates.maxRecoveries) {
   gateFailures.push(`expected recoveries<=${gates.maxRecoveries}, got ${totals.recoveries}`);
 }
@@ -289,7 +340,9 @@ if (format === "json") {
   console.log(
     `cases=${totals.cases} debug_events=${totals.debugEvents} turns=${totals.turns} ` +
       `tool_calls=${totals.toolCalls} recoveries=${totals.recoveries} recovery_rate=${totals.recoveryRate.toFixed(4)} ` +
-      `empty_assistant_ends=${totals.emptyAssistantEnds} pi_tool_starts=${totals.piToolStarts} errors=${totals.errors}`,
+      `empty_assistant_ends=${totals.emptyAssistantEnds} raw_tool_markup_final_answers=${totals.rawToolMarkupFinalAnswers} ` +
+      `tool_envelope_final_answers=${totals.toolEnvelopeFinalAnswers} ` +
+      `pi_tool_starts=${totals.piToolStarts} errors=${totals.errors}`,
   );
   if (Object.keys(totals.recoveryByEvent).length > 0) {
     console.log(`recovery_by_event=${JSON.stringify(totals.recoveryByEvent)}`);
@@ -304,7 +357,9 @@ if (format === "json") {
       : "";
     console.log(
       `- ${item.runId}/${item.caseName}: debug_events=${item.debugEvents} turns=${item.turns} tool_calls=${item.toolCalls}` +
-        ` recoveries=${item.recoveries} empty_assistant_ends=${item.emptyAssistantEnds}${recoveryText}${toolText}${selectedText}` +
+        ` recoveries=${item.recoveries} empty_assistant_ends=${item.emptyAssistantEnds}` +
+        ` raw_tool_markup_final_answer=${item.rawToolMarkupFinalAnswer}` +
+        ` tool_envelope_final_answer=${item.toolEnvelopeFinalAnswer}${recoveryText}${toolText}${selectedText}` +
         ` final_text_chars=${item.finalTextChars}`,
     );
   }

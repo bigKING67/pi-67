@@ -68,6 +68,20 @@ const final = agent?.messages?.filter((message) => message.role === "assistant")
 const finalText = Array.isArray(final?.content)
   ? final.content.filter((block) => block.type === "text").map((block) => block.text).join("\n")
   : "";
+function stripPiToolEnvelopes(text) {
+  return String(text || "")
+    .replace(/<pi_tool_call_history\b[^>]*>[\s\S]*?<\/pi_tool_call_history>/g, "")
+    .replace(/<pi_tool_call\b[^>]*>[\s\S]*?<\/pi_tool_call>/g, "")
+    .replace(/<pi_tool_result\b[^>]*>[\s\S]*?<\/pi_tool_result>/g, "")
+    .trim();
+}
+function containsRawPiToolMarkup(text) {
+  return /<\/?pi_tool_(?:call_history|call|result)\b[^>]*>/.test(String(text || ""));
+}
+function isToolEnvelopeOnlyFinalAnswer(text) {
+  const trimmed = String(text || "").trim();
+  return containsRawPiToolMarkup(trimmed) && stripPiToolEnvelopes(trimmed).length === 0;
+}
 const emptyAssistantEnds = events.filter(
   (event) =>
     event.type === "message_end" &&
@@ -77,35 +91,75 @@ const emptyAssistantEnds = events.filter(
 ).length;
 const recoveries = recoveryEvents.length;
 const processExitedCleanly = Number(status) === 0;
-const hasUsableFinalAnswer = !!agent && errors.length === 0 && finalText.trim().length > 0;
-const expectedTools = String(expectedToolsRaw || "any")
-  .split(",")
-  .map((tool) => tool.trim())
-  .filter(Boolean);
-let toolExpectationOk = true;
-let toolExpectation = "any";
-let expectationMode = "any";
-if (expectedTools.length === 1 && expectedTools[0] === "none") {
-  expectationMode = "none";
-  toolExpectation = "none";
-  toolExpectationOk = actualToolNames.length === 0;
-} else if (expectedTools.length > 0 && expectedTools[0].startsWith("all:")) {
-  expectationMode = "all";
-  expectedTools[0] = expectedTools[0].slice("all:".length);
-  const requiredTools = expectedTools.filter(Boolean);
-  toolExpectation = `all:${requiredTools.join(",")}`;
-  toolExpectationOk = requiredTools.every((tool) => actualToolNames.includes(tool));
-} else if (expectedTools.length > 0 && expectedTools[0].startsWith("any:")) {
-  expectationMode = "any";
-  expectedTools[0] = expectedTools[0].slice("any:".length);
-  const allowedTools = expectedTools.filter(Boolean);
-  toolExpectation = `any:${allowedTools.join(",")}`;
-  toolExpectationOk = allowedTools.some((tool) => actualToolNames.includes(tool));
-} else if (expectedTools.length > 0 && expectedTools[0] !== "any") {
-  toolExpectation = expectedTools.join(",");
-  toolExpectationOk = expectedTools.some((tool) => actualToolNames.includes(tool));
+const finalAnswerRawToolMarkup = containsRawPiToolMarkup(finalText);
+const finalAnswerEnvelopeOnly = isToolEnvelopeOnlyFinalAnswer(finalText);
+const finalAnswerQualityOk = finalText.trim().length > 0 && !finalAnswerRawToolMarkup;
+const hasUsableFinalAnswer = !!agent && errors.length === 0 && finalAnswerQualityOk;
+function parseToolList(raw) {
+  return String(raw || "")
+    .split(",")
+    .map((tool) => tool.trim())
+    .filter(Boolean);
 }
-const ok = processExitedCleanly && hasUsableFinalAnswer && toolExpectationOk && debugTelemetryOk;
+function evaluateToolExpectation(rawExpectation, actualNames) {
+  const raw = String(rawExpectation || "any").trim() || "any";
+  if (raw === "any") return { ok: true, label: "any", mode: "any", unexpectedTools: [] };
+
+  const clauses = raw.includes(";") ? raw.split(";") : [raw];
+  const labels = [];
+  const modes = [];
+  const unexpectedTools = [];
+  let ok = true;
+
+  for (const rawClause of clauses) {
+    const clause = rawClause.trim();
+    if (!clause || clause === "any") {
+      labels.push("any");
+      modes.push("any");
+      continue;
+    }
+    if (clause === "none") {
+      labels.push("none");
+      modes.push("none");
+      ok = ok && actualNames.length === 0;
+      continue;
+    }
+    if (clause.startsWith("all:")) {
+      const requiredTools = parseToolList(clause.slice("all:".length));
+      labels.push(`all:${requiredTools.join(",")}`);
+      modes.push("all");
+      ok = ok && requiredTools.every((tool) => actualNames.includes(tool));
+      continue;
+    }
+    if (clause.startsWith("any:")) {
+      const allowedTools = parseToolList(clause.slice("any:".length));
+      labels.push(`any:${allowedTools.join(",")}`);
+      modes.push("any");
+      ok = ok && allowedTools.some((tool) => actualNames.includes(tool));
+      continue;
+    }
+    if (clause.startsWith("only:")) {
+      const allowedTools = new Set(parseToolList(clause.slice("only:".length)));
+      const extras = actualNames.filter((tool) => !allowedTools.has(tool));
+      labels.push(`only:${[...allowedTools].join(",")}`);
+      modes.push("only");
+      for (const tool of extras) {
+        if (!unexpectedTools.includes(tool)) unexpectedTools.push(tool);
+      }
+      ok = ok && extras.length === 0;
+      continue;
+    }
+
+    const legacyAnyTools = parseToolList(clause);
+    labels.push(legacyAnyTools.join(","));
+    modes.push("any");
+    ok = ok && legacyAnyTools.some((tool) => actualNames.includes(tool));
+  }
+
+  return { ok, label: labels.join(";"), mode: modes.join("+"), unexpectedTools };
+}
+const toolExpectation = evaluateToolExpectation(expectedToolsRaw, actualToolNames);
+const ok = processExitedCleanly && hasUsableFinalAnswer && toolExpectation.ok && debugTelemetryOk;
 console.log(JSON.stringify({
   file,
   debugFile,
@@ -115,12 +169,16 @@ console.log(JSON.stringify({
   hasAgentEnd: !!agent,
   debugTelemetryOk,
   debugEventCount: debugEvents.length,
-  expectedTools: toolExpectation,
-  expectationMode,
-  toolExpectationOk,
+  expectedTools: toolExpectation.label,
+  expectationMode: toolExpectation.mode,
+  toolExpectationOk: toolExpectation.ok,
+  unexpectedTools: toolExpectation.unexpectedTools,
   toolStarts,
   errors,
   stderr: stderr.slice(0, 500),
+  finalAnswerQualityOk,
+  finalAnswerRawToolMarkup,
+  finalAnswerEnvelopeOnly,
   emptyAssistantEnds,
   recoveries,
   recoveryEvents: recoveryEvents.map((event) => ({
@@ -184,7 +242,7 @@ run_case "read" "请读取 $HOME/.pi/agent/package.json，然后用一句话说�
 
 run_case "bash-read" "这是严格工具顺序 smoke：第一步必须使用 bash 工具且 command 必须是 pwd；第二步必须使用 read 工具读取 $HOME/.pi/agent/package.json。禁止用 bash 执行 cat/ls/grep/读取文件。最后用两句话分别说明当前目录、包名和版本。" "all:bash,read" --tools bash,read || failures=$((failures + 1))
 
-run_case "web-read" "请检查 https://github.com/ff-labs/pi-fff 是否能访问；如果是 404，请读取 $HOME/.pi/agent/npm/node_modules/@ff-labs/pi-fff/README.md 和 package.json，用三句话总结结论。不要搜索本机目录。" "fetch_content,web_fetch,read" || failures=$((failures + 1))
+run_case "web-read" "请使用 web_fetch 检查 https://github.com/ff-labs/pi-fff 是否能访问；无论 web_fetch 返回什么结果，都继续使用 read 读取 $HOME/.pi/agent/npm/node_modules/@ff-labs/pi-fff/README.md 和 package.json，用三句话总结结论。不要搜索本机目录。" "all:web_fetch,read;only:web_fetch,read" --tools web_fetch,read || failures=$((failures + 1))
 
 if [ -x "$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh" ]; then
   echo "===== debug-summary ====="
@@ -193,6 +251,7 @@ if [ -x "$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh" ]; then
     --expect-cases 5 \
     --max-errors 0 \
     --max-empty-assistant-ends 0 \
+    --max-raw-tool-markup-final-answers 0 \
     --max-recoveries 8 \
     "$OUT_DIR" || failures=$((failures + 1))
 fi

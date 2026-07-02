@@ -27,6 +27,7 @@ export type ToolCallParseResult =
         | "invalid_envelope"
         | "invalid_name"
         | "invalid_arguments"
+        | "raw_protocol_markup"
         | "unknown_top_level_field";
       message: string;
       raw: string;
@@ -53,6 +54,10 @@ function detectFunctionStyleToolCall(value: string): { name: string; raw: string
   if (!args.startsWith("{") || !args.endsWith("}")) return undefined;
 
   return { name, raw: `${name}(${args})` };
+}
+
+function containsRawProtocolMarkup(value: string): boolean {
+  return /<\/?pi_tool_(?:call_history|call|result)\b[^>]*>/.test(value);
 }
 
 function parseEnvelope(raw: string, originalText: string): ToolCallParseResult {
@@ -137,22 +142,75 @@ function parseEnvelope(raw: string, originalText: string): ToolCallParseResult {
   };
 }
 
-function findTaggedToolCalls(text: string): Array<{ start: number; end: number; body: string }> {
-  const results: Array<{ start: number; end: number; body: string }> = [];
-  let searchFrom = 0;
+function parseAttributedEnvelope(openTag: string, raw: string, originalText: string): ToolCallParseResult {
+  const nameMatch = openTag.match(/\sname=(["'])([^"']+)\1/);
+  if (!nameMatch) return parseEnvelope(raw, originalText);
 
-  while (searchFrom < text.length) {
-    const start = text.indexOf(TOOL_CALL_OPEN, searchFrom);
-    if (start === -1) break;
-    const bodyStart = start + TOOL_CALL_OPEN.length;
+  const cleaned = stripMarkdownFence(raw);
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch (error) {
+    return {
+      kind: "error",
+      code: "invalid_json",
+      message: error instanceof Error ? error.message : String(error),
+      raw: cleaned,
+      text: originalText,
+    };
+  }
+
+  if (!isPlainObject(parsed)) {
+    return {
+      kind: "error",
+      code: "invalid_arguments",
+      message: "attributed tool-call tag body must be a JSON object of arguments",
+      raw: cleaned,
+      text: originalText,
+    };
+  }
+
+  const name = nameMatch[2].trim();
+  if (!name) {
+    return {
+      kind: "error",
+      code: "invalid_name",
+      message: 'tool-call tag attribute "name" must be a non-empty string',
+      raw: cleaned,
+      text: originalText,
+    };
+  }
+
+  return {
+    kind: "tool_call",
+    call: {
+      name,
+      arguments: parsed,
+    },
+    before: "",
+    after: "",
+    rawJson: cleaned,
+    warnings: ["accepted attributed pi_tool_call tag"],
+  };
+}
+
+function findTaggedToolCalls(text: string): Array<{ start: number; end: number; body: string; openTag: string }> {
+  const results: Array<{ start: number; end: number; body: string; openTag: string }> = [];
+  const openTagPattern = /<pi_tool_call(?:\s+[^>]*)?>/g;
+
+  for (let match = openTagPattern.exec(text); match; match = openTagPattern.exec(text)) {
+    const start = match.index;
+    const openTag = match[0];
+    const bodyStart = start + openTag.length;
     const close = text.indexOf(TOOL_CALL_CLOSE, bodyStart);
     if (close === -1) {
-      results.push({ start, end: text.length, body: text.slice(bodyStart) });
+      results.push({ start, end: text.length, body: text.slice(bodyStart), openTag });
       break;
     }
     const end = close + TOOL_CALL_CLOSE.length;
-    results.push({ start, end, body: text.slice(bodyStart, close) });
-    searchFrom = end;
+    results.push({ start, end, body: text.slice(bodyStart, close), openTag });
+    openTagPattern.lastIndex = end;
   }
 
   return results;
@@ -174,7 +232,7 @@ export function parseToolCall(text: string): ToolCallParseResult {
 
   if (taggedCalls.length === 1) {
     const tagged = taggedCalls[0];
-    const parsed = parseEnvelope(tagged.body, source);
+    const parsed = parseAttributedEnvelope(tagged.openTag, tagged.body, source);
     if (parsed.kind !== "tool_call") return parsed;
 
     const before = source.slice(0, tagged.start).trim();
@@ -210,6 +268,16 @@ export function parseToolCall(text: string): ToolCallParseResult {
       code: "function_style_tool_call",
       message: `function-style tool calls like ${functionStyle.name}(...) are not valid Pi tool protocol`,
       raw: functionStyle.raw,
+      text: source,
+    };
+  }
+
+  if (containsRawProtocolMarkup(source)) {
+    return {
+      kind: "error",
+      code: "raw_protocol_markup",
+      message: "assistant final answer must not contain raw Pi tool protocol markup",
+      raw: source,
       text: source,
     };
   }

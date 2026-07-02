@@ -37,6 +37,7 @@ import {
   buildFunctionStyleToolRepairPrompt,
   buildInvalidToolArgumentsRepairPrompt,
   buildInvalidToolJsonRepairPrompt,
+  buildRawProtocolMarkupRepairPrompt,
   buildRepeatedToolRepairPrompt,
   buildUnknownToolRepairPrompt,
   envInt,
@@ -507,10 +508,17 @@ async function runProviderTurn(
         totalRecoveries += 1;
         const repairPrompt = parsed.code === "function_style_tool_call"
           ? buildFunctionStyleToolRepairPrompt(parsed.raw, [...names].sort())
-          : buildInvalidToolJsonRepairPrompt(parsed.message, parsed.raw);
+          : parsed.code === "raw_protocol_markup"
+            ? buildRawProtocolMarkupRepairPrompt(parsed.raw, [...names].sort())
+            : buildInvalidToolJsonRepairPrompt(parsed.message, parsed.raw);
         messages.push({ role: "assistant", content: raw.slice(0, 4000) });
         messages.push({ role: "user", content: repairPrompt });
-        debugLog(parsed.code === "function_style_tool_call" ? "recovery.function_style_tool_call" : "recovery.invalid_tool_json", {
+        const recoveryEvent = parsed.code === "function_style_tool_call"
+          ? "recovery.function_style_tool_call"
+          : parsed.code === "raw_protocol_markup"
+            ? "recovery.raw_protocol_markup"
+            : "recovery.invalid_tool_json";
+        debugLog(recoveryEvent, {
           ...debugContext,
           code: parsed.code,
           repairRetries,

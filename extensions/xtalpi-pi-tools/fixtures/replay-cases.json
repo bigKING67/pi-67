@@ -12,6 +12,20 @@
       }
     },
     {
+      "name": "attributed-tag-read-call",
+      "input": "<pi_tool_call name=\"read\">\n{\"path\":\"package.json\"}\n</pi_tool_call>",
+      "expect": {
+        "kind": "tool_call",
+        "name": "read",
+        "arguments": {
+          "path": "package.json"
+        },
+        "warningsContain": [
+          "attributed pi_tool_call"
+        ]
+      }
+    },
+    {
       "name": "bare-json-call",
       "input": "{\"name\":\"bash\",\"arguments\":{\"command\":\"pwd\"}}",
       "expect": {
@@ -47,6 +61,14 @@
       "expect": {
         "kind": "error",
         "code": "function_style_tool_call"
+      }
+    },
+    {
+      "name": "raw-tool-history-markup",
+      "input": "<pi_tool_call_history>\nid: call_1\nname: read\narguments: {\"path\":\"package.json\"}\n</pi_tool_call_history>",
+      "expect": {
+        "kind": "error",
+        "code": "raw_protocol_markup"
       }
     },
     {
@@ -158,6 +180,98 @@
             }
           }
         ]
+      }
+    },
+    {
+      "name": "attributed-tag-tool-call",
+      "maxTools": 8,
+      "context": {
+        "systemPrompt": "system base",
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a file",
+            "parameters": {
+              "type": "object",
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": "read package.json"
+          }
+        ]
+      },
+      "responses": [
+        {
+          "content": "<pi_tool_call name=\"read\">\n{\"path\":\"package.json\"}\n</pi_tool_call>"
+        }
+      ],
+      "expect": {
+        "fetchCount": 1,
+        "stopReason": "toolUse",
+        "toolCalls": [
+          {
+            "name": "read",
+            "arguments": {
+              "path": "package.json"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "raw-tool-history-then-final",
+      "maxTools": 8,
+      "maxRepairRetries": 2,
+      "maxTotalRecoveries": 4,
+      "context": {
+        "systemPrompt": "system base",
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a file",
+            "parameters": {
+              "type": "object",
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": "read package.json"
+          }
+        ]
+      },
+      "responses": [
+        {
+          "content": "<pi_tool_call_history>\nid: call_1\nname: read\narguments: {\"path\":\"package.json\"}\n</pi_tool_call_history>"
+        },
+        {
+          "content": "Package summary is available without raw protocol markup."
+        }
+      ],
+      "expect": {
+        "fetchCount": 2,
+        "stopReason": "stop",
+        "leadingTextIncludes": "Package summary"
       }
     },
     {

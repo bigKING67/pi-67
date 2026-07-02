@@ -190,6 +190,8 @@ extensions/xtalpi-pi-tools/fixtures/replay-cases.json
 - unknown top-level field 拒绝
 - selected tools 执行白名单
 - tool arguments 轻量 schema 校验与修复
+- `<pi_tool_call name="...">{"arg":...}</pi_tool_call>` 变体解析
+- raw Pi protocol markup final answer repair
 - tool result 作为普通 user 文本序列化
 - tool result prompt-injection / 协议边界中和
 - tool metadata / repair prompt 协议边界中和
@@ -210,11 +212,13 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
 4. `bash pwd` + `read package.json` 本地多工具链路
 5. web/read 混合任务
 
-冒烟脚本会校验预期工具是否真的执行：无工具 case 必须没有 `tool_execution_start`；`bash` / `read` / web-read case 必须出现对应工具执行事件，避免把函数式伪调用文本或空工具路径误判为成功。
+冒烟脚本会校验预期工具是否真的执行：无工具 case 必须没有 `tool_execution_start`；`bash` / `read` / web-read case 必须出现对应工具执行事件，避免把函数式伪调用文本或空工具路径误判为成功。web-read case 还会通过 `--tools web_fetch,read` 和 `only:web_fetch,read` gate 限制实际工具边界，防止模型混入未授权的本地/MCP 工具。
+
+最终回答也会被检查：如果 assistant final text 残留裸 `<pi_tool_call_history>` / `<pi_tool_call>` / `<pi_tool_result>` raw markup（包括 `<pi_tool_call name="...">` 这类变体），provider 会先触发 repair；如果最终 artifact 仍残留 raw markup，冒烟会失败，避免把未执行的伪工具调用误判为正常结论。
 
 冒烟脚本还会为每个 case 开启 `XTALPI_PI_TOOLS_DEBUG=1`，校验 debug JSONL schema，并汇总 `recovery.*` 事件，便于判断是否发生了本地修复重试。
 
-冒烟结束时会调用 debug summary 对最新一轮 artifact 做门禁：case 数必须匹配、Pi 事件不能有 error、不能出现空 assistant 结束，recovery 次数不能超过脚本设定阈值。
+冒烟结束时会调用 debug summary 对最新一轮 artifact 做门禁：case 数必须匹配、Pi 事件不能有 error、不能出现空 assistant 结束、不能出现 raw Pi tool markup final answer，recovery 次数不能超过脚本设定阈值。
 
 输出 JSONL artifact 默认在：
 
@@ -242,6 +246,7 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   --expect-cases 5 \
   --max-errors 0 \
   --max-empty-assistant-ends 0 \
+  --max-raw-tool-markup-final-answers 0 \
   --max-recoveries 8
 ```
 
