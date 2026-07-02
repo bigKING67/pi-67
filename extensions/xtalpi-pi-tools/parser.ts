@@ -56,7 +56,8 @@ function detectFunctionStyleToolCall(value: string): { name: string; raw: string
   return { name, raw: `${name}(${args})` };
 }
 
-const RAW_PROTOCOL_MARKUP_PATTERN = /<\/?pi_tool_(?:call_history|call|result)\b(?:[^<>\r\n]*>|[^<>\r\n]*(?:$|\r?\n))/i;
+const RAW_PROTOCOL_MARKUP_PATTERN =
+  /(?:<\/?pi_tool_(?:call_history|call|result)\b(?:[^<>\r\n]*>|[^<>\r\n]*(?:$|\r?\n))|\[\/?previous_pi_tool_call\])/i;
 
 function containsRawProtocolMarkup(value: string): boolean {
   return RAW_PROTOCOL_MARKUP_PATTERN.test(value);
@@ -278,7 +279,7 @@ export function parseToolCall(text: string): ToolCallParseResult {
     return {
       kind: "error",
       code: "raw_protocol_markup",
-      message: "assistant final answer must not contain raw Pi tool protocol markup",
+      message: "assistant final answer must not contain raw or internal Pi tool protocol markup",
       raw: source,
       text: source,
     };

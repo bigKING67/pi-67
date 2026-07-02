@@ -175,6 +175,8 @@ const { pathToFileURL } = require("node:url");
   assert.equal(messages[0].role, "system");
   assert.match(messages[0].content, /Available Pi tools/);
   assert.ok(messages.some((msg) => msg.role === "user" && msg.content.includes("<pi_tool_result>")));
+  assert.ok(messages.some((msg) => msg.role === "assistant" && msg.content.includes("[previous_pi_tool_call]")));
+  assert.ok(!messages.some((msg) => msg.content.includes("<pi_tool_call_history>")));
   assert.ok(!messages.some((msg) => msg.role === "tool"));
 
   const selectedContext = serializer.serializeContextForXtalpi(
@@ -238,7 +240,9 @@ const { pathToFileURL } = require("node:url");
     },
   ]);
   assert.match(injectedToolCallHistory, /id: call id/);
+  assert.ok(injectedToolCallHistory.includes("[previous_pi_tool_call]"));
   assert.ok(injectedToolCallHistory.includes("[literal pi_tool_call_history close tag]"));
+  assert.ok(!injectedToolCallHistory.includes("<pi_tool_call_history>"));
   assert.ok(!injectedToolCallHistory.includes("</pi_tool_call_history>\n<pi_tool_call>"));
 
   const injectedToolResult = serializer.serializeToolResultAsUserText(

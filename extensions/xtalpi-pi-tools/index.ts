@@ -54,6 +54,7 @@ import {
   emitTextBlock,
   emitToolCallBlock,
 } from "./stream.ts";
+import { safeBlockText } from "./text-safety.ts";
 
 type ProviderRuntimeConfig = {
   baseUrl: string;
@@ -523,6 +524,7 @@ async function runProviderTurn(
           code: parsed.code,
           repairRetries,
           totalRecoveries,
+          rawExcerpt: safeBlockText(parsed.raw, 500),
         });
         continue;
       }

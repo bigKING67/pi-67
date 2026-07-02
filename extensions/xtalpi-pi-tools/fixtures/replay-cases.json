@@ -72,6 +72,14 @@
       }
     },
     {
+      "name": "neutral-tool-history-record",
+      "input": "[previous_pi_tool_call]\nid: call_1\nname: read\narguments_json: {\"path\":\"package.json\"}\n[/previous_pi_tool_call]",
+      "expect": {
+        "kind": "error",
+        "code": "raw_protocol_markup"
+      }
+    },
+    {
       "name": "malformed-incomplete-tool-call-markup",
       "input": "I leaked a partial protocol tag:\n<pi_tool_call name=\"read\"\n{\"path\":\"package.json\"}",
       "expect": {
@@ -274,6 +282,51 @@
         },
         {
           "content": "Package summary is available without raw protocol markup."
+        }
+      ],
+      "expect": {
+        "fetchCount": 2,
+        "stopReason": "stop",
+        "leadingTextIncludes": "Package summary"
+      }
+    },
+    {
+      "name": "neutral-tool-history-then-final",
+      "maxTools": 8,
+      "maxRepairRetries": 2,
+      "maxTotalRecoveries": 4,
+      "context": {
+        "systemPrompt": "system base",
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a file",
+            "parameters": {
+              "type": "object",
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": "read package.json"
+          }
+        ]
+      },
+      "responses": [
+        {
+          "content": "[previous_pi_tool_call]\nid: call_1\nname: read\narguments_json: {\"path\":\"package.json\"}\n[/previous_pi_tool_call]"
+        },
+        {
+          "content": "Package summary is available without internal history records."
         }
       ],
       "expect": {

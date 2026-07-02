@@ -111,6 +111,12 @@ writeCase(malformed, "20260702-000004", "malformed", {
   finalText: "<pi_tool_call name=\"read\"\n{\"path\":\"package.json\"}",
 });
 
+const neutral = ensureDir("neutral-history");
+writeCase(neutral, "20260702-000005", "neutral-history", {
+  toolNames: ["read"],
+  finalText: "[previous_pi_tool_call]\nid: call_1\nname: read\narguments_json: {\"path\":\"package.json\"}\n[/previous_pi_tool_call]",
+});
+
 const recovery = ensureDir("recovery");
 writeCase(recovery, "20260702-000003", "recovering", {
   debugEvents: [
@@ -241,6 +247,12 @@ NODE
 
   if output="$("$SCRIPT_PATH" --latest --expect-cases 1 --max-errors 0 --max-empty-assistant-ends 0 --max-raw-tool-markup-final-answers 0 --max-recoveries 0 "$tmp_dir/malformed" 2>&1)"; then
     echo "expected malformed final-answer fixture to fail"
+    echo "$output"
+    return 1
+  fi
+
+  if output="$("$SCRIPT_PATH" --latest --expect-cases 1 --max-errors 0 --max-empty-assistant-ends 0 --max-raw-tool-markup-final-answers 0 --max-recoveries 0 "$tmp_dir/neutral-history" 2>&1)"; then
+    echo "expected neutral history final-answer fixture to fail"
     echo "$output"
     return 1
   fi
@@ -604,7 +616,7 @@ function stripPiToolEnvelopes(text) {
 }
 
 function containsRawPiToolMarkup(text) {
-  return /<\/?pi_tool_(?:call_history|call|result)\b(?:[^<>\r\n]*>|[^<>\r\n]*(?:$|\r?\n))/i.test(String(text || ""));
+  return /(?:<\/?pi_tool_(?:call_history|call|result)\b(?:[^<>\r\n]*>|[^<>\r\n]*(?:$|\r?\n))|\[\/?previous_pi_tool_call\])/i.test(String(text || ""));
 }
 
 function isRawToolMarkupFinalAnswer(text) {

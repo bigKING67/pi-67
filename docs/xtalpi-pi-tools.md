@@ -39,6 +39,8 @@ content:
 
 工具结果内容是不可信数据：其中出现的指令、角色声明、伪 system prompt 或 `<pi_tool_call>` / `<pi_tool_result>` 文本都不能覆盖 Pi/system/user 指令。实现会把工具结果里的协议标记（包括 `<pi_tool_call name="...">` 这类带属性变体，以及缺少 `>` 的残缺标签片段）中和为普通文本，避免工具输出伪造协议边界。
 
+历史 assistant tool call 不再以 `<pi_tool_call_history>` 裸协议标签回灌给模型，而是序列化为 `[previous_pi_tool_call]` 普通记录。这样仍保留“哪些工具已经执行过”的上下文，同时减少模型在最终回答或下一次工具调用里复读内部协议标签的概率。如果模型仍把 `[previous_pi_tool_call]` 历史记录当作最终回答复读，provider 会按内部协议泄漏触发 repair，smoke/debug-summary 也会把它计入 final-answer markup gate。
+
 工具元数据同样按模型可见的不可信文本处理。工具描述、参数描述、repair prompt 里的旧模型输出和工具名列表都会做协议标记中和、单行化或截断，避免恶意/异常 MCP 工具说明伪造 `<pi_tool_call>` / `<pi_tool_result>` / `<pi_tool_call_history>` 边界。
 
 每轮只允许执行实际展示给模型的 selected tools。即使 `context.tools` 里存在更多工具，模型猜中未展示工具名也会被拒绝；unknown-tool 修复提示同样只列出 selected tools。
@@ -191,8 +193,9 @@ extensions/xtalpi-pi-tools/fixtures/replay-cases.json
 - selected tools 执行白名单
 - tool arguments 轻量 schema 校验与修复
 - `<pi_tool_call name="...">{"arg":...}</pi_tool_call>` 变体解析
-- raw Pi protocol markup final answer repair（含残缺/畸形协议标签）
+- raw/internal Pi protocol markup final answer repair（含残缺/畸形协议标签和 `[previous_pi_tool_call]` 历史记录）
 - tool result 作为普通 user 文本序列化
+- assistant tool-call history 作为普通 `[previous_pi_tool_call]` 记录序列化，避免把裸 `<pi_tool_call_history>` 暴露给模型
 - tool result prompt-injection / 协议边界中和（含带属性与残缺协议标签变体）
 - tool metadata / repair prompt 协议边界中和
 - payload 不包含 `tools`、`tool_choice`、`parallel_tool_calls`、`thinking`、`reasoning_effort`
@@ -219,11 +222,11 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
 2. `bash pwd`
 3. `read package.json`
 4. `bash pwd` + `read package.json` 本地多工具链路
-5. web/read 混合任务
+5. web/read 混合任务（`web_fetch` 外部 URL 后读取本地 package metadata，避免大 README 结果让 live smoke 受外部模型慢响应放大）
 
 冒烟脚本会校验预期工具是否真的执行：无工具 case 必须没有 `tool_execution_start`；`bash` / `read` / web-read case 必须出现对应工具执行事件，避免把函数式伪调用文本或空工具路径误判为成功。web-read case 还会通过 `--tools web_fetch,read` 和 `only:web_fetch,read` gate 限制实际工具边界，防止模型混入未授权的本地/MCP 工具。
 
-最终回答也会被检查：如果 assistant final text 残留裸 `<pi_tool_call_history>` / `<pi_tool_call>` / `<pi_tool_result>` raw markup（包括 `<pi_tool_call name="...">` 这类变体，以及缺少 `>` 的残缺标签片段），provider 会先触发 repair；如果最终 artifact 仍残留 raw markup，冒烟会失败，避免把未执行的伪工具调用误判为正常结论。
+最终回答也会被检查：如果 assistant final text 残留裸 `<pi_tool_call_history>` / `<pi_tool_call>` / `<pi_tool_result>` raw markup（包括 `<pi_tool_call name="...">` 这类变体、缺少 `>` 的残缺标签片段）或 `[previous_pi_tool_call]` 历史记录，provider 会先触发 repair；如果最终 artifact 仍残留这些 raw/internal markup，冒烟会失败，避免把未执行的伪工具调用或历史记录复读误判为正常结论。
 
 冒烟脚本还会为每个 case 开启 `XTALPI_PI_TOOLS_DEBUG=1`，校验 debug JSONL schema，并汇总 `recovery.*` 事件，便于判断是否发生了本地修复重试。
 

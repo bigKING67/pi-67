@@ -1,7 +1,5 @@
 import {
   PROTOCOL_SYSTEM_PROMPT,
-  TOOL_CALL_HISTORY_CLOSE,
-  TOOL_CALL_HISTORY_OPEN,
   TOOL_RESULT_CLOSE,
   TOOL_RESULT_OPEN,
   type PiToolCallEnvelope,
@@ -47,6 +45,12 @@ export type SerializedXtalpiContext = {
 };
 
 const MAX_TOOL_CALL_HISTORY_ARGUMENTS_CHARS = 4000;
+const TOOL_CALL_HISTORY_OPEN = "[previous_pi_tool_call]";
+const TOOL_CALL_HISTORY_CLOSE = "[/previous_pi_tool_call]";
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 export function contentToText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -60,10 +64,13 @@ export function contentToText(content: unknown): string {
       if (item.type === "image") return "[image omitted: xtalpi-pi-tools is text-only]";
       if (item.type === "thinking") return "";
       if (item.type === "toolCall") {
-        const name = safeInlineText(typeof item.name === "string" ? item.name : "unknown", 160);
-        const id = safeInlineText(typeof item.id === "string" ? item.id : "", 160);
-        const args = safeBlockText(safeJsonStringify(item.arguments ?? {}), MAX_TOOL_CALL_HISTORY_ARGUMENTS_CHARS);
-        return `${TOOL_CALL_HISTORY_OPEN}\nid: ${id}\nname: ${name}\narguments: ${args}\n${TOOL_CALL_HISTORY_CLOSE}`;
+        return serializeToolCallHistory(
+          {
+            name: typeof item.name === "string" ? item.name : "unknown",
+            arguments: isJsonObject(item.arguments) ? item.arguments : {},
+          },
+          typeof item.id === "string" ? item.id : "",
+        );
       }
       return "";
     })
@@ -210,7 +217,7 @@ export function serializeToolCallHistory(call: PiToolCallEnvelope, id = ""): str
   return `${TOOL_CALL_HISTORY_OPEN}
 id: ${safeId}
 name: ${safeName}
-arguments: ${safeArguments}
+arguments_json: ${safeArguments}
 ${TOOL_CALL_HISTORY_CLOSE}`;
 }
 
