@@ -297,7 +297,7 @@ $HOME/tmp/xtalpi-pi-tools-smoke
 $HOME/tmp/xtalpi-pi-tools-smoke/<stamp>-summary.json
 ```
 
-摘要 schema 为 `xtalpi-pi-tools.smoke-summary.v1`，包含 provider、model、stamp、selected cases、case timeout、request timeout、max output tokens、failure count、provider-health preflight 状态、preflight timeout / attempts / retry delay、provider-error stop 策略和 stop reason、debug-summary gate 状态、总体 recoveries / recovery rate / raw markup final answer / process lifecycle failure / watchdog timeout 计数，以及逐 case telemetry。debug summary JSON 的逐 case telemetry 还包含 `runtimeFingerprint`，用于确认当轮实际协议版本、selected-tool hash、展示工具名、请求超时、输出上限、工具结果截断上限和 recovery limits。
+摘要 schema 为 `xtalpi-pi-tools.smoke-summary.v1`，包含 provider、model、stamp、selected cases、稳定 `caseSet` 指纹（排序去重后的 canonical case 名称和 SHA-256）、case timeout、request timeout、max output tokens、failure count、provider-health preflight 状态、preflight timeout / attempts / retry delay、provider-error stop 策略和 stop reason、debug-summary gate 状态、总体 recoveries / recovery rate / raw markup final answer / process lifecycle failure / watchdog timeout 计数，以及逐 case telemetry。debug summary JSON 的逐 case telemetry 还包含 `runtimeFingerprint`，用于确认当轮实际协议版本、selected-tool hash、展示工具名、请求超时、输出上限、工具结果截断上限和 recovery limits。
 
 provider 调用失败会写入结构化 debug telemetry：`errorCode`、`errorCategory`、`retryable` 和可选 `httpStatus`。常见代码包括 `api_key_missing`、`config_error`、`request_timeout`、`request_aborted`、`network_error`、`http_401`、`http_403`、`http_408`、`http_429`、`http_5xx`、`http_error`、`non_json_response` 和 `malformed_response`。debug summary 会汇总 `provider_errors`、`retryable_provider_errors`、`provider_error_codes` 和 `provider_error_categories`，且默认要求 `provider_errors=0`。这样可以把晶泰限流/鉴权/上游错误和 Pi 工具协议质量回归分开判断。
 
@@ -315,7 +315,7 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   "$HOME/tmp/xtalpi-pi-tools-smoke"
 ```
 
-`--history` 读取 `<stamp>-summary.json`，按最新优先输出每轮 `ok`、`failures`、`cases`、`recoveries`、`recovery_rate`、raw markup final answer、empty assistant end、error、provider error、process lifecycle failure 和 watchdog timeout 计数；它会忽略同目录下的 `<stamp>-debug-summary.json` 中间产物，避免把 debug-summary 自身误当成 smoke run。
+`--history` 读取 `<stamp>-summary.json`，按最新优先输出每轮 `ok`、`failures`、`cases`、`selected_cases`、`case_set_sha256`、`recoveries`、`recovery_rate`、raw markup final answer、empty assistant end、error、provider error、process lifecycle failure 和 watchdog timeout 计数；它会忽略同目录下的 `<stamp>-debug-summary.json` 中间产物，避免把 debug-summary 自身误当成 smoke run。
 
 也可以精确汇总某一次 smoke run，避免并发或历史 artifact 干扰：
 

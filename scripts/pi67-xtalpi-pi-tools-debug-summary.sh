@@ -60,6 +60,7 @@ run_self_test() {
 
   node - "$tmp_dir" <<'NODE'
 const fs = require("node:fs");
+const crypto = require("node:crypto");
 const path = require("node:path");
 
 const root = process.argv[2];
@@ -208,6 +209,16 @@ function writeSummary(
     },
   ];
   const selectedCaseNames = selectedCases || caseItems.map((item) => item.caseName);
+  const normalizedCases = [...new Set(selectedCaseNames)].sort();
+  const canonical = normalizedCases.join(",");
+  const caseSet = {
+    schema: "xtalpi-pi-tools.case-set.v1",
+    selectedCases: selectedCaseNames,
+    normalizedCases,
+    count: normalizedCases.length,
+    canonical,
+    sha256: crypto.createHash("sha256").update(canonical).digest("hex"),
+  };
   fs.writeFileSync(path.join(dir, `${runId}-summary.json`), `${JSON.stringify({
     schema: "xtalpi-pi-tools.smoke-summary.v1",
     createdAt: "2026-07-02T00:00:00.000Z",
@@ -217,6 +228,7 @@ function writeSummary(
     runId,
     outDir: dir,
     selectedCases: selectedCaseNames,
+    caseSet,
     caseTimeoutSeconds: 180,
     failures,
     debugSummaryStatus: 0,
@@ -392,6 +404,9 @@ assert(data.runs[1].runId === "20260702-000002", "second newest run should be se
 assert(data.runs[0].ok === false && data.runs[0].failures === 1, "failed run was not visible");
 assert(data.runs[0].rawToolMarkupFinalAnswers === 1, "raw final-answer count was not preserved");
 assert(data.runs[1].recoveries === 2, "recovery run was not visible");
+assert(data.runs[1].caseSet.schema === "xtalpi-pi-tools.case-set.v1", "case set schema missing");
+assert(data.runs[1].caseSet.canonical === "read", "case set canonical should use stable case names");
+assert(/^[a-f0-9]{64}$/.test(data.runs[1].caseSet.sha256), "case set hash missing");
 NODE
     return 1
   fi
@@ -400,7 +415,7 @@ NODE
     echo "$output"
     return 1
   fi
-  if [[ "$output" != *"20260702-000003"* || "$output" != *"20260702-000002"* || "$output" == *"20260702-000001"* ]]; then
+  if [[ "$output" != *"20260702-000003"* || "$output" != *"20260702-000002"* || "$output" != *"case_set_sha256="* || "$output" == *"20260702-000001"* ]]; then
     echo "history text output did not show only the newest two runs"
     echo "$output"
     return 1
@@ -425,6 +440,7 @@ assert(data.delta.failures === 1, "failure delta should show regression");
 assert(data.delta.rawToolMarkupFinalAnswers === 1, "raw markup delta should show regression");
 assert(data.delta.recoveries === -1, "recovery delta should be head-base");
 assert(data.okChanged === true, "ok change should be visible");
+assert(data.caseSetChanged === false, "case set should be stable for read-only history fixtures");
 assert(data.caseDeltas.some((item) => item.caseName === "read" && item.delta.rawToolMarkupFinalAnswer === true), "case-level raw markup change missing");
 NODE
     return 1
@@ -434,7 +450,7 @@ NODE
     echo "$output"
     return 1
   fi
-  if [[ "$output" != *"xtalpi-pi-tools smoke compare"* || "$output" != *"failures_delta=1"* || "$output" != *"raw_tool_markup_final_answers_delta=1"* ]]; then
+  if [[ "$output" != *"xtalpi-pi-tools smoke compare"* || "$output" != *"failures_delta=1"* || "$output" != *"raw_tool_markup_final_answers_delta=1"* || "$output" != *"case_set_changed=false"* ]]; then
     echo "compare text output did not expose expected regression deltas"
     echo "$output"
     return 1
@@ -607,6 +623,7 @@ node - \
   "$MAX_RAW_TOOL_MARKUP_FINAL_ANSWERS" \
   "$MAX_RECOVERIES" \
   "$MAX_RECOVERY_RATE" <<'NODE'
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -668,6 +685,39 @@ function caseNameListsEqual(actual, expected) {
 
 function formatCaseNames(values) {
   return sortedUniqueStrings(values).join(",");
+}
+
+function buildCaseSet(values) {
+  const selectedCases = (Array.isArray(values) ? values : []).map(String).filter(Boolean);
+  const normalizedCases = sortedUniqueStrings(selectedCases);
+  const canonical = normalizedCases.join(",");
+  return {
+    schema: "xtalpi-pi-tools.case-set.v1",
+    selectedCases,
+    normalizedCases,
+    count: normalizedCases.length,
+    canonical,
+    sha256: crypto.createHash("sha256").update(canonical).digest("hex"),
+  };
+}
+
+function normalizeCaseSet(value, fallbackCases) {
+  const fallback = buildCaseSet(fallbackCases);
+  const raw = objectOrUndefined(value);
+  if (!raw) return fallback;
+  const normalizedCases = Array.isArray(raw.normalizedCases)
+    ? sortedUniqueStrings(raw.normalizedCases)
+    : fallback.normalizedCases;
+  const canonical = normalizedCases.join(",");
+  const sha256 = crypto.createHash("sha256").update(canonical).digest("hex");
+  return {
+    schema: typeof raw.schema === "string" ? raw.schema : "xtalpi-pi-tools.case-set.v1",
+    selectedCases: Array.isArray(raw.selectedCases) ? raw.selectedCases.map(String).filter(Boolean) : fallback.selectedCases,
+    normalizedCases,
+    count: normalizedCases.length,
+    canonical,
+    sha256,
+  };
 }
 
 const gates = {
@@ -1012,6 +1062,7 @@ function summarizeSmokeSummaryFile(fileName) {
       providerErrorCategories: {},
       selectedCases: [],
       caseNames: [],
+      caseSet: buildCaseSet([]),
       recoveryCaseNames: [],
       caseRecoveries: [],
       gateFailures: ["summary_parse_error"],
@@ -1025,6 +1076,7 @@ function summarizeSmokeSummaryFile(fileName) {
   const selectedCases = Array.isArray(artifact?.selectedCases)
     ? sortedUniqueStrings(artifact.selectedCases)
     : caseNames;
+  const caseSet = normalizeCaseSet(artifact?.caseSet, selectedCases);
   const caseRecoveries = cases
     .map((item) => ({
       caseName: String(item?.caseName || "unknown"),
@@ -1062,8 +1114,9 @@ function summarizeSmokeSummaryFile(fileName) {
     retryableProviderErrors: numberOrZero(totals.retryableProviderErrors),
     providerErrorCodes: objectOrUndefined(totals.providerErrorCodes) || {},
     providerErrorCategories: objectOrUndefined(totals.providerErrorCategories) || {},
-    selectedCases,
+    selectedCases: caseSet.normalizedCases,
     caseNames,
+    caseSet,
     recoveryCaseNames: caseRecoveries.map((item) => item.caseName),
     caseRecoveries,
     gateFailures,
@@ -1250,6 +1303,7 @@ function printCompare(baseRunId, headRunId) {
     okChanged: base.summary.ok !== head.summary.ok,
     providerChanged: base.summary.provider !== head.summary.provider,
     modelChanged: base.summary.model !== head.summary.model,
+    caseSetChanged: base.summary.caseSet?.sha256 !== head.summary.caseSet?.sha256,
     caseDeltas,
   };
 
@@ -1260,7 +1314,8 @@ function printCompare(baseRunId, headRunId) {
     console.log(`out_dir=${outDir} base=${baseRunId} head=${headRunId}`);
     console.log(
       `base_ok=${base.summary.ok} head_ok=${head.summary.ok} ok_changed=${compare.okChanged} ` +
-        `provider_changed=${compare.providerChanged} model_changed=${compare.modelChanged}`,
+        `provider_changed=${compare.providerChanged} model_changed=${compare.modelChanged} ` +
+        `case_set_changed=${compare.caseSetChanged}`,
     );
     console.log(
       `failures_delta=${delta.failures} cases_delta=${delta.cases} recoveries_delta=${delta.recoveries} ` +
@@ -1335,6 +1390,7 @@ function printHistory(limit) {
       const providerText = run.provider ? ` provider=${run.provider}` : "";
       const modelText = run.model ? ` model=${run.model}` : "";
       const selectedText = run.selectedCases?.length ? ` selected_cases=${run.selectedCases.join(",")}` : "";
+      const caseSetText = run.caseSet?.sha256 ? ` case_set_sha256=${run.caseSet.sha256}` : "";
       console.log(
         `- ${run.runId}: ok=${run.ok} failures=${run.failures} cases=${run.cases} ` +
           `recoveries=${run.recoveries} recovery_rate=${run.recoveryRate.toFixed(4)} ` +
@@ -1345,7 +1401,7 @@ function printHistory(limit) {
           `watchdog_timeouts=${run.watchdogTimeouts} timed_out_after_agent_end=${run.timedOutAfterAgentEnd} ` +
           `provider_errors=${run.providerErrors} retryable_provider_errors=${run.retryableProviderErrors} ` +
           `debug_summary_status=${run.debugSummaryStatus}` +
-          `${providerText}${modelText}${selectedText}${gateText}${parseText}`,
+          `${providerText}${modelText}${selectedText}${caseSetText}${gateText}${parseText}`,
       );
     }
   }

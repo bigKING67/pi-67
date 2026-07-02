@@ -747,6 +747,7 @@ write_run_summary_artifact() {
   local stop_reason="$4"
 
   node - "$DEBUG_SUMMARY_JSON_FILE" "$SUMMARY_FILE" "$PROVIDER_HEALTH_FILE" "$PROVIDER" "$MODEL" "$STAMP" "$CASE_TIMEOUT_SECONDS" "$SMOKE_REQUEST_TIMEOUT_MS" "$SMOKE_MAX_OUTPUT_TOKENS" "$selected_cases_csv" "$failure_count" "$debug_summary_status" "$SMOKE_STOP_ON_PROVIDER_ERROR" "$SMOKE_PREFLIGHT" "$SMOKE_PREFLIGHT_TIMEOUT_MS" "$SMOKE_PREFLIGHT_ATTEMPTS" "$SMOKE_PREFLIGHT_RETRY_DELAY_MS" "$stop_reason" <<'NODE'
+const crypto = require("node:crypto");
 const fs = require("fs");
 const [
   debugSummaryFile,
@@ -775,6 +776,20 @@ const providerHealth = providerHealthFile && fs.existsSync(providerHealthFile)
   : undefined;
 const failures = Number(failuresRaw);
 const debugSummaryStatus = Number(debugSummaryStatusRaw);
+function buildCaseSet(selectedCasesRaw) {
+  const selectedCases = String(selectedCasesRaw || "").split(",").filter(Boolean);
+  const normalizedCases = [...new Set(selectedCases)].sort();
+  const canonical = normalizedCases.join(",");
+  return {
+    schema: "xtalpi-pi-tools.case-set.v1",
+    selectedCases,
+    normalizedCases,
+    count: normalizedCases.length,
+    canonical,
+    sha256: crypto.createHash("sha256").update(canonical).digest("hex"),
+  };
+}
+const caseSet = buildCaseSet(selectedCasesRaw);
 const artifact = {
   schema: "xtalpi-pi-tools.smoke-summary.v1",
   createdAt: new Date().toISOString(),
@@ -786,7 +801,8 @@ const artifact = {
   caseTimeoutSeconds: Number(caseTimeoutSecondsRaw),
   requestTimeoutMs: Number(requestTimeoutMsRaw),
   maxOutputTokens: Number(maxOutputTokensRaw),
-  selectedCases: String(selectedCasesRaw || "").split(",").filter(Boolean),
+  selectedCases: caseSet.selectedCases,
+  caseSet,
   stopOnProviderError: /^(1|true|yes|on)$/i.test(String(stopOnProviderErrorRaw || "")),
   providerHealthPreflight: /^(1|true|yes|on)$/i.test(String(preflightRaw || "")),
   providerHealthPreflightTimeoutMs: Number(preflightTimeoutMsRaw),
@@ -809,6 +825,7 @@ write_preflight_failure_summary_artifact() {
   local stop_reason="$2"
 
   node - "$SUMMARY_FILE" "$PROVIDER_HEALTH_FILE" "$PROVIDER" "$MODEL" "$STAMP" "$CASE_TIMEOUT_SECONDS" "$SMOKE_REQUEST_TIMEOUT_MS" "$SMOKE_MAX_OUTPUT_TOKENS" "$failure_count" "$SMOKE_STOP_ON_PROVIDER_ERROR" "$SMOKE_PREFLIGHT" "$SMOKE_PREFLIGHT_TIMEOUT_MS" "$SMOKE_PREFLIGHT_ATTEMPTS" "$SMOKE_PREFLIGHT_RETRY_DELAY_MS" "$stop_reason" <<'NODE'
+const crypto = require("node:crypto");
 const fs = require("fs");
 const [
   summaryFile,
@@ -833,6 +850,14 @@ const providerHealth = providerHealthFile && fs.existsSync(providerHealthFile)
   : { ok: false, errorCode: "provider_health_missing", errorCategory: "configuration", retryable: false };
 const providerErrorCode = String(providerHealth.errorCode || "unknown_error");
 const providerErrorCategory = String(providerHealth.errorCategory || "unknown");
+const emptyCaseSet = {
+  schema: "xtalpi-pi-tools.case-set.v1",
+  selectedCases: [],
+  normalizedCases: [],
+  count: 0,
+  canonical: "",
+  sha256: crypto.createHash("sha256").update("").digest("hex"),
+};
 const debugSummary = {
   outDir: require("path").dirname(summaryFile),
   latestOnly: false,
@@ -881,7 +906,8 @@ const artifact = {
   caseTimeoutSeconds: Number(caseTimeoutSecondsRaw),
   requestTimeoutMs: Number(requestTimeoutMsRaw),
   maxOutputTokens: Number(maxOutputTokensRaw),
-  selectedCases: [],
+  selectedCases: emptyCaseSet.selectedCases,
+  caseSet: emptyCaseSet,
   stopOnProviderError: /^(1|true|yes|on)$/i.test(String(stopOnProviderErrorRaw || "")),
   providerHealthPreflight: /^(1|true|yes|on)$/i.test(String(preflightRaw || "")),
   providerHealthPreflightTimeoutMs: Number(preflightTimeoutMsRaw),
