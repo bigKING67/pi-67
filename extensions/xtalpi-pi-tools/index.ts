@@ -42,10 +42,8 @@ import {
   maxTotalRecoveries,
 } from "./retry.ts";
 import {
-  availableToolNames,
-  serializeContextToXtalpiMessages,
+  serializeContextForXtalpi,
   type ContextLike,
-  type ToolLike,
 } from "./serializer.ts";
 import {
   createLocalAssistantMessageEventStream,
@@ -454,8 +452,9 @@ async function runProviderTurn(
     0,
   );
   const contextLike = context as unknown as ContextLike;
-  const names = availableToolNames(contextLike.tools as ToolLike[] | undefined);
-  const messages = serializeContextToXtalpiMessages(contextLike, { maxTools, maxToolResultChars });
+  const serializedContext = serializeContextForXtalpi(contextLike, { maxTools, maxToolResultChars });
+  const names = serializedContext.selectedToolNames;
+  const messages = serializedContext.messages;
   const lastCompletedCall = latestToolCallWithResult(contextLike);
 
   let emptyRetries = 0;

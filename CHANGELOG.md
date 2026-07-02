@@ -21,6 +21,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `scripts/pi67-configure.sh` migrates old `xtalpi` / `xtalpi-tools` keys and baseUrl into `xtalpi-pi-tools`, then removes old xtalpi provider entries by default.
 - `scripts/pi67-update.sh` now runs a no-prompt config migration step after updates, so existing installs converge to `xtalpi-pi-tools` without a separate manual command.
 - Release and smoke checks now validate `xtalpi-pi-tools` artifacts and no-native-tools payload invariants.
+- `xtalpi-pi-tools` now executes only the selected tools shown to the model and marks tool results as untrusted data to reduce prompt-injection and protocol-boundary confusion.
 
 ### Removed
 
