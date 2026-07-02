@@ -381,6 +381,81 @@
       }
     },
     {
+      "name": "bounded-schema-args-then-fixed",
+      "maxTools": 8,
+      "maxRepairRetries": 2,
+      "maxTotalRecoveries": 4,
+      "context": {
+        "systemPrompt": "system base",
+        "tools": [
+          {
+            "name": "bounded_read",
+            "description": "Read one bounded file",
+            "parameters": {
+              "type": "object",
+              "required": [
+                "path",
+                "limit"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 16,
+                  "pattern": "^package\\.json$"
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 5
+                },
+                "tags": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 2,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": "bounded read package.json"
+          }
+        ]
+      },
+      "responses": [
+        {
+          "content": "<pi_tool_call>\n{\"name\":\"bounded_read\",\"arguments\":{\"path\":\"\",\"limit\":9,\"tags\":[],\"extra\":true}}\n</pi_tool_call>"
+        },
+        {
+          "content": "<pi_tool_call>\n{\"name\":\"bounded_read\",\"arguments\":{\"path\":\"package.json\",\"limit\":5,\"tags\":[\"pkg\"]}}\n</pi_tool_call>"
+        }
+      ],
+      "expect": {
+        "fetchCount": 2,
+        "stopReason": "toolUse",
+        "toolCalls": [
+          {
+            "name": "bounded_read",
+            "arguments": {
+              "path": "package.json",
+              "limit": 5,
+              "tags": [
+                "pkg"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "unknown-hidden-tool-then-selected-tool",
       "maxTools": 1,
       "maxRepairRetries": 2,

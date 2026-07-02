@@ -45,6 +45,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh` now supports targeted live smoke runs with `--case`, `--list-cases`, and `XTALPI_PI_TOOLS_SMOKE_CASES`, while keeping debug-summary gates and summary artifacts scoped to the selected cases.
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh` now writes per-case lifecycle artifacts and reports `semanticFlowOk`, `processLifecycleOk`, `timedOutAfterAgentEnd`, and post-agent-end linger seconds, so live smoke failures distinguish protocol/semantic regressions from child-process exit or external-runtime stalls.
 - xtalpi debug telemetry now records the protocol version, selected-tool fingerprint, effective runtime bounds, and recovery limits for each turn; debug summary JSON exposes the same fingerprint per case for drift diagnosis.
+- xtalpi tool argument validation now covers common JSON Schema bounds for strings, numbers, arrays, and objects before Pi executes a requested tool, with replay coverage for invalid bounded arguments followed by model repair.
 
 ### Removed
 
