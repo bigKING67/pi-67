@@ -32,7 +32,7 @@ COMMON_ARGS=(
   --mode json
 )
 
-AVAILABLE_CASES=(no-tool bash read bash-read web-read tool-result-injection)
+AVAILABLE_CASES=(no-tool bash read bash-read web-read tool-selection-clipping tool-result-injection)
 REQUESTED_CASES=()
 SELECTED_CASES=()
 EXPECTED_CASES=0
@@ -68,7 +68,7 @@ print_cases() {
 
 case_name_is_valid() {
   case "$1" in
-    no-tool | bash | read | bash-read | web-read | tool-result-injection) return 0 ;;
+    no-tool | bash | read | bash-read | web-read | tool-selection-clipping | tool-result-injection) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -204,6 +204,7 @@ const stderr = fs.existsSync(stderrFile) ? fs.readFileSync(stderrFile, "utf8").t
 const events = readJsonl(file);
 const debugEvents = readJsonl(debugFile);
 const lifecycle = readJsonFile(lifecycleFile);
+const turnEvents = debugEvents.filter((event) => event.event === "turn.start");
 const debugTelemetryOk =
   debugEvents.length > 0 &&
   debugEvents.every(
@@ -213,6 +214,62 @@ const debugTelemetryOk =
       typeof event.event_category === "string",
   );
 const recoveryEvents = debugEvents.filter((event) => event.event_category === "recovery");
+function objectOrUndefined(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : undefined;
+}
+function numberOrUndefined(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
+}
+function boolOrUndefined(value) {
+  return typeof value === "boolean" ? value : undefined;
+}
+function toolSelectionNames(items) {
+  return Array.isArray(items) ? items.map((item) => String(item?.name || "")).filter(Boolean) : [];
+}
+const toolSelectionTelemetry = turnEvents.map((event) => {
+  const data = objectOrUndefined(event.data) || {};
+  const summary = objectOrUndefined(data.toolSelectionSummary) || {};
+  return {
+    clipped: boolOrUndefined(event.tool_selection_clipped) ?? boolOrUndefined(data.toolSelectionClipped),
+    omittedCount: numberOrUndefined(event.tool_selection_omitted_count) ?? numberOrUndefined(data.toolSelectionOmittedCount),
+    validCount: numberOrUndefined(event.tool_selection_valid_count) ?? numberOrUndefined(data.toolSelectionValidCount),
+    selectedNames: toolSelectionNames(summary.selected),
+    omittedNames: toolSelectionNames(summary.omitted),
+  };
+});
+const toolSelectionRequirementsByCase = {
+  "tool-selection-clipping": {
+    clipped: true,
+    minOmittedCount: 2,
+    minValidCount: 3,
+    selectedIncludes: ["read"],
+    omittedIncludes: ["bash", "web_fetch"],
+  },
+};
+const toolSelectionRequirement = toolSelectionRequirementsByCase[String(lifecycle.caseName || "")];
+function evaluateToolSelectionRequirement(requirement, telemetry) {
+  if (!requirement) return { ok: true, failures: [] };
+  const failures = [];
+  const matched = telemetry.some((item) => {
+    if (requirement.clipped !== undefined && item.clipped !== requirement.clipped) return false;
+    if (requirement.minOmittedCount !== undefined && !(item.omittedCount >= requirement.minOmittedCount)) return false;
+    if (requirement.minValidCount !== undefined && !(item.validCount >= requirement.minValidCount)) return false;
+    if ((requirement.selectedIncludes || []).some((name) => !item.selectedNames.includes(name))) return false;
+    if ((requirement.omittedIncludes || []).some((name) => !item.omittedNames.includes(name))) return false;
+    return true;
+  });
+  if (!matched) {
+    failures.push(
+      `missing tool-selection telemetry matching ${JSON.stringify(requirement)}; actual=${JSON.stringify(telemetry)}`,
+    );
+  }
+  return { ok: failures.length === 0, failures };
+}
+const toolSelectionRequirementResult = evaluateToolSelectionRequirement(
+  toolSelectionRequirement,
+  toolSelectionTelemetry,
+);
 const agent = events.findLast?.((event) => event.type === "agent_end");
 const toolStartEvents = events.filter((event) => event.type === "tool_execution_start");
 const actualToolNames = toolStartEvents.map((event) => String(event.toolName || ""));
@@ -330,7 +387,7 @@ const postAgentEndLingerSeconds =
 const timedOutByWatchdog = lifecycle.timedOutByWatchdog === true;
 const processLifecycleOk = processExitedCleanly;
 const protocolFlowOk = hasUsableFinalAnswer && toolExpectation.ok;
-const semanticFlowOk = protocolFlowOk && debugTelemetryOk;
+const semanticFlowOk = protocolFlowOk && debugTelemetryOk && toolSelectionRequirementResult.ok;
 const timedOutAfterAgentEnd = timedOutByWatchdog && !!agent;
 const ok = processLifecycleOk && semanticFlowOk;
 console.log(JSON.stringify({
@@ -365,6 +422,10 @@ console.log(JSON.stringify({
   missingFinalText,
   emptyAssistantEnds,
   recoveries,
+  toolSelectionRequirement: toolSelectionRequirement || undefined,
+  toolSelectionRequirementOk: toolSelectionRequirementResult.ok,
+  toolSelectionFailures: toolSelectionRequirementResult.failures,
+  toolSelectionTelemetry,
   recoveryEvents: recoveryEvents.map((event) => ({
     event: event.event,
     eventKind: event.event_kind,
@@ -450,6 +511,55 @@ writeFixture("tool-result-injection", {
   tools: ["read"],
   finalText: "PI_TOOL_RESULT_INJECTION_CANARY confirmed without raw protocol markup",
 });
+writeFixture("tool-selection-clipping", {
+  tools: ["read"],
+  finalText: "normal final answer",
+  caseName: "tool-selection-clipping",
+  debugEvents: [
+    {
+      schema: "xtalpi-pi-tools.debug.v1",
+      event: "turn.start",
+      event_category: "turn",
+      selected_tool_count: 1,
+      tool_selection_clipped: true,
+      tool_selection_omitted_count: 2,
+      tool_selection_valid_count: 3,
+      data: {
+        toolSelectionSummary: {
+          schema: "xtalpi-pi-tools.tool-selection.v1",
+          selected: [{ name: "read", index: 0, score: 160, selected: true, reasonCodes: ["prompt_path_file"] }],
+          omitted: [
+            { name: "bash", index: 1, score: 60, selected: false, reasonCodes: ["core_tool"] },
+            { name: "web_fetch", index: 2, score: 25, selected: false, reasonCodes: ["core_tool"] },
+          ],
+        },
+      },
+    },
+  ],
+});
+writeFixture("tool-selection-clipping-missing", {
+  tools: ["read"],
+  finalText: "normal final answer",
+  caseName: "tool-selection-clipping",
+  debugEvents: [
+    {
+      schema: "xtalpi-pi-tools.debug.v1",
+      event: "turn.start",
+      event_category: "turn",
+      selected_tool_count: 1,
+      tool_selection_clipped: false,
+      tool_selection_omitted_count: 0,
+      tool_selection_valid_count: 1,
+      data: {
+        toolSelectionSummary: {
+          schema: "xtalpi-pi-tools.tool-selection.v1",
+          selected: [{ name: "read", index: 0, score: 160, selected: true, reasonCodes: ["prompt_path_file"] }],
+          omitted: [],
+        },
+      },
+    },
+  ],
+});
 writeFixture("tool-result-injection-missing-canary", {
   tools: ["read"],
   finalText: "confirmed without naming the required canary",
@@ -500,6 +610,15 @@ NODE
     return 1
   fi
   if ! output="$(summarize_jsonl "$tmp_dir/tool-result-injection.jsonl" "$tmp_dir/tool-result-injection.stderr" 0 "all:read;only:read" "$tmp_dir/tool-result-injection.debug.jsonl" "$tmp_dir/tool-result-injection.lifecycle.json" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+  if ! output="$(summarize_jsonl "$tmp_dir/tool-selection-clipping.jsonl" "$tmp_dir/tool-selection-clipping.stderr" 0 "all:read;only:read" "$tmp_dir/tool-selection-clipping.debug.jsonl" "$tmp_dir/tool-selection-clipping.lifecycle.json" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+  if output="$(summarize_jsonl "$tmp_dir/tool-selection-clipping-missing.jsonl" "$tmp_dir/tool-selection-clipping-missing.stderr" 0 "all:read;only:read" "$tmp_dir/tool-selection-clipping-missing.debug.jsonl" "$tmp_dir/tool-selection-clipping-missing.lifecycle.json" 2>&1)"; then
+    echo "expected tool-selection-clipping-missing fixture to fail"
     echo "$output"
     return 1
   fi
@@ -647,9 +766,19 @@ run_case() {
   local agent_end_seen=0
   local agent_end_elapsed=""
   local pid
+  local case_env=(
+    "XTALPI_PI_TOOLS_TIMEOUT_MS=$SMOKE_REQUEST_TIMEOUT_MS"
+    "XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS=$SMOKE_MAX_OUTPUT_TOKENS"
+    "XTALPI_PI_TOOLS_DEBUG=1"
+    "XTALPI_PI_TOOLS_DEBUG_PATH=$debug"
+  )
+
+  if [ -n "${XTALPI_PI_TOOLS_CASE_MAX_TOOLS:-}" ]; then
+    case_env+=("XTALPI_PI_TOOLS_MAX_TOOLS=$XTALPI_PI_TOOLS_CASE_MAX_TOOLS")
+  fi
 
   start_epoch="$(date +%s)"
-  XTALPI_PI_TOOLS_TIMEOUT_MS="$SMOKE_REQUEST_TIMEOUT_MS" XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS="$SMOKE_MAX_OUTPUT_TOKENS" XTALPI_PI_TOOLS_DEBUG=1 XTALPI_PI_TOOLS_DEBUG_PATH="$debug" "$PI_BIN" "${COMMON_ARGS[@]}" "$@" -p "$prompt" >"$out" 2>"$err" &
+  env "${case_env[@]}" "$PI_BIN" "${COMMON_ARGS[@]}" "$@" -p "$prompt" >"$out" 2>"$err" &
   pid=$!
   while kill -0 "$pid" 2>/dev/null; do
     if [ "$agent_end_seen" -eq 0 ] && [ -f "$out" ] && grep -q '"type":"agent_end"' "$out" 2>/dev/null; then
@@ -717,6 +846,30 @@ NODE
   summarize_jsonl "$out" "$err" "$status" "$expected_tools" "$debug" "$lifecycle" || summary_status=$?
   LAST_CASE_PROVIDER_ERRORS="$(provider_error_count "$debug")"
   return "$summary_status"
+}
+
+run_selected_case_with_max_tools() {
+  local max_tools="$1"
+  shift
+  local had_previous=0
+  local previous=""
+
+  if [ "${XTALPI_PI_TOOLS_CASE_MAX_TOOLS+x}" ]; then
+    had_previous=1
+    previous="$XTALPI_PI_TOOLS_CASE_MAX_TOOLS"
+  fi
+
+  XTALPI_PI_TOOLS_CASE_MAX_TOOLS="$max_tools"
+  run_selected_case "$@"
+  local status=$?
+
+  if [ "$had_previous" -eq 1 ]; then
+    XTALPI_PI_TOOLS_CASE_MAX_TOOLS="$previous"
+  else
+    unset XTALPI_PI_TOOLS_CASE_MAX_TOOLS
+  fi
+
+  return "$status"
 }
 
 run_selected_case() {
@@ -955,6 +1108,8 @@ run_selected_case "read" "请读取 $HOME/.pi/agent/package.json，然后用一�
 run_selected_case "bash-read" "这是严格工具顺序 smoke：第一步必须使用 bash 工具且 command 必须是 pwd；第二步必须使用 read 工具读取 $HOME/.pi/agent/package.json。禁止用 bash 执行 cat/ls/grep/读取文件。最后用两句话分别说明当前目录、包名和版本。" "all:bash,read" --tools bash,read || failures=$((failures + 1))
 
 run_selected_case "web-read" "请使用 web_fetch 检查 https://github.com/ff-labs/pi-fff 是否能访问；无论 web_fetch 返回什么结果，都继续使用 read 读取 $HOME/.pi/agent/npm/node_modules/@ff-labs/pi-fff/package.json。最后只用两句话总结访问结果和本地包名版本。不要搜索本机目录，不要读取 README.md；最终回答不要复述工具调用历史、previous_pi_tool_call 记录或任何 Pi 协议标记。" "all:web_fetch,read;only:web_fetch,read" --tools web_fetch,read || failures=$((failures + 1))
+
+run_selected_case_with_max_tools 1 "tool-selection-clipping" "请读取 $HOME/.pi/agent/package.json，然后用一句话说出包名和版本。本 case 用于验证本地工具选择截断遥测；只根据可用工具完成任务。" "all:read;only:read" --tools read,bash,web_fetch || failures=$((failures + 1))
 
 if case_is_requested "tool-result-injection"; then
   write_adversarial_tool_result_fixture
