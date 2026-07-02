@@ -241,6 +241,14 @@ XTALPI_PI_TOOLS_SMOKE_CASES=web-read bash ~/.pi/agent/scripts/pi67-xtalpi-pi-too
 
 live smoke 会为子进程显式设置 `XTALPI_PI_TOOLS_TIMEOUT_MS` 和 `XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS`，默认来自 `XTALPI_PI_TOOLS_SMOKE_REQUEST_TIMEOUT_MS=180000` 与 `XTALPI_PI_TOOLS_SMOKE_MAX_OUTPUT_TOKENS=1024`。这只影响 smoke 子进程，不改变日常 `xtalpi-pi-tools` 运行时默认；作用是把晶泰 provider stall 和过度生成收敛成可观察的 smoke 边界，而不是被 Pi 全局 HTTP idle timeout、日常输出上限或 case watchdog 混在一起。
 
+当某个 case 出现 provider error（例如 `network_error`、`http_429`、`http_5xx`）时，live smoke 默认停止剩余 case，避免上游不可达时继续消耗整套工具流时间；已执行的 case 仍会进入 debug summary 和 `<stamp>-summary.json`。需要一次性收集所有 case 的失败形态时，可以显式关闭：
+
+```bash
+XTALPI_PI_TOOLS_SMOKE_STOP_ON_PROVIDER_ERROR=0 \
+  CASE_TIMEOUT_SECONDS=180 \
+  bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
+```
+
 每个 case 还会写入 `<stamp>-<case>.lifecycle.json`，记录 `exitStatus`、`elapsedSeconds`、`caseTimeoutSeconds`、`timedOutByWatchdog`、`agentEndElapsedSeconds` 和 `postAgentEndLingerSeconds`。这把两类失败分开：
 
 - **协议/语义失败**：没有 `agent_end`、工具序列不符合预期、最终回答残留 raw protocol markup、debug telemetry 异常等。
@@ -262,7 +270,7 @@ $HOME/tmp/xtalpi-pi-tools-smoke
 $HOME/tmp/xtalpi-pi-tools-smoke/<stamp>-summary.json
 ```
 
-摘要 schema 为 `xtalpi-pi-tools.smoke-summary.v1`，包含 provider、model、stamp、selected cases、case timeout、request timeout、max output tokens、failure count、debug-summary gate 状态、总体 recoveries / recovery rate / raw markup final answer / process lifecycle failure / watchdog timeout 计数，以及逐 case telemetry。debug summary JSON 的逐 case telemetry 还包含 `runtimeFingerprint`，用于确认当轮实际协议版本、selected-tool hash、展示工具名、请求超时、输出上限、工具结果截断上限和 recovery limits。
+摘要 schema 为 `xtalpi-pi-tools.smoke-summary.v1`，包含 provider、model、stamp、selected cases、case timeout、request timeout、max output tokens、failure count、provider-error stop 策略和 stop reason、debug-summary gate 状态、总体 recoveries / recovery rate / raw markup final answer / process lifecycle failure / watchdog timeout 计数，以及逐 case telemetry。debug summary JSON 的逐 case telemetry 还包含 `runtimeFingerprint`，用于确认当轮实际协议版本、selected-tool hash、展示工具名、请求超时、输出上限、工具结果截断上限和 recovery limits。
 
 provider 调用失败会写入结构化 debug telemetry：`errorCode`、`errorCategory`、`retryable` 和可选 `httpStatus`。常见代码包括 `api_key_missing`、`request_timeout`、`request_aborted`、`network_error`、`http_401`、`http_403`、`http_408`、`http_429`、`http_5xx`、`http_error`、`non_json_response` 和 `malformed_response`。debug summary 会汇总 `provider_errors`、`retryable_provider_errors`、`provider_error_codes` 和 `provider_error_categories`，且默认要求 `provider_errors=0`。这样可以把晶泰限流/鉴权/上游错误和 Pi 工具协议质量回归分开判断。
 

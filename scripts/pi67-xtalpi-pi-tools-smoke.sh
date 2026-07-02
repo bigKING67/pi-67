@@ -9,6 +9,7 @@ OUT_DIR="${OUT_DIR:-$HOME/tmp/xtalpi-pi-tools-smoke}"
 CASE_TIMEOUT_SECONDS="${CASE_TIMEOUT_SECONDS:-240}"
 SMOKE_REQUEST_TIMEOUT_MS="${XTALPI_PI_TOOLS_SMOKE_REQUEST_TIMEOUT_MS:-${XTALPI_PI_TOOLS_TIMEOUT_MS:-180000}}"
 SMOKE_MAX_OUTPUT_TOKENS="${XTALPI_PI_TOOLS_SMOKE_MAX_OUTPUT_TOKENS:-${XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS:-1024}}"
+SMOKE_STOP_ON_PROVIDER_ERROR="${XTALPI_PI_TOOLS_SMOKE_STOP_ON_PROVIDER_ERROR:-1}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 SUMMARY_FILE="${XTALPI_PI_TOOLS_SMOKE_SUMMARY_FILE:-$OUT_DIR/${STAMP}-summary.json}"
 DEBUG_SUMMARY_JSON_FILE="$OUT_DIR/${STAMP}-debug-summary.json"
@@ -31,6 +32,9 @@ SELECTED_CASES=()
 EXPECTED_CASES=0
 REQUESTED_CASE_FILTER_ACTIVE=0
 RUN_SELF_TEST=0
+STOP_REMAINING=0
+STOP_REASON=""
+LAST_CASE_PROVIDER_ERRORS=0
 
 print_usage() {
   cat <<'EOF'
@@ -43,6 +47,7 @@ Environment:
   CASE_TIMEOUT_SECONDS                         Per-case watchdog seconds. Default: 240.
   XTALPI_PI_TOOLS_SMOKE_REQUEST_TIMEOUT_MS     Provider request timeout for smoke child processes. Default: 180000.
   XTALPI_PI_TOOLS_SMOKE_MAX_OUTPUT_TOKENS      Provider max output tokens for smoke child processes. Default: 1024.
+  XTALPI_PI_TOOLS_SMOKE_STOP_ON_PROVIDER_ERROR Stop remaining cases after a provider error. Default: 1.
   XTALPI_PI_TOOLS_SMOKE_CASES                  Comma-separated case filter, same values as --case.
 EOF
 }
@@ -108,6 +113,35 @@ case_is_requested() {
 join_by_comma() {
   local IFS=","
   echo "$*"
+}
+
+flag_enabled() {
+  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+    1 | true | yes | on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+provider_error_count() {
+  local debug_file="$1"
+  node - "$debug_file" <<'NODE'
+const fs = require("fs");
+const file = process.argv[2];
+if (!file || !fs.existsSync(file)) {
+  console.log(0);
+  process.exit(0);
+}
+let count = 0;
+for (const line of fs.readFileSync(file, "utf8").split(/\n/).filter(Boolean)) {
+  try {
+    const event = JSON.parse(line);
+    if (event && event.event === "error.provider") count += 1;
+  } catch {
+    // The debug summary gate remains authoritative for parse errors.
+  }
+}
+console.log(count);
+NODE
 }
 
 summarize_jsonl() {
@@ -384,6 +418,20 @@ writeFixture("neutral-history-record", {
   tools: ["read"],
   finalText: "[previous_pi_tool_call]\nid: call_1\nname: read\narguments_json: {\"path\":\"package.json\"}\n[/previous_pi_tool_call]",
 });
+writeFixture("provider-error", {
+  finalText: "provider failed",
+  debugEvents: [
+    {
+      schema: "xtalpi-pi-tools.debug.v1",
+      event: "error.provider",
+      event_category: "error",
+      event_kind: "provider",
+      error_code: "network_error",
+      error_category: "network",
+      retryable: true,
+    },
+  ],
+});
 NODE
 
   if ! output="$(summarize_jsonl "$tmp_dir/good.jsonl" "$tmp_dir/good.stderr" 0 "all:web_fetch,read;only:web_fetch,read" "$tmp_dir/good.debug.jsonl" "$tmp_dir/good.lifecycle.json" 2>&1)"; then
@@ -412,6 +460,10 @@ NODE
   if output="$(summarize_jsonl "$tmp_dir/neutral-history-record.jsonl" "$tmp_dir/neutral-history-record.stderr" 0 "read" "$tmp_dir/neutral-history-record.debug.jsonl" "$tmp_dir/neutral-history-record.lifecycle.json" 2>&1)"; then
     echo "expected neutral-history-record fixture to fail"
     echo "$output"
+    return 1
+  fi
+  if [ "$(provider_error_count "$tmp_dir/provider-error.debug.jsonl")" -ne 1 ]; then
+    echo "provider error counter did not detect the provider-error fixture"
     return 1
   fi
 
@@ -597,26 +649,40 @@ fs.writeFileSync(file, `${JSON.stringify(artifact, null, 2)}\n`);
 NODE
 
   echo "===== $name ====="
-  summarize_jsonl "$out" "$err" "$status" "$expected_tools" "$debug" "$lifecycle" || return 1
+  local summary_status=0
+  summarize_jsonl "$out" "$err" "$status" "$expected_tools" "$debug" "$lifecycle" || summary_status=$?
+  LAST_CASE_PROVIDER_ERRORS="$(provider_error_count "$debug")"
+  return "$summary_status"
 }
 
 run_selected_case() {
   local name="$1"
   shift
+  if [ "$STOP_REMAINING" -eq 1 ]; then
+    return 0
+  fi
   if ! case_is_requested "$name"; then
     return 0
   fi
   SELECTED_CASES+=("$name")
   EXPECTED_CASES=$((EXPECTED_CASES + 1))
-  run_case "$name" "$@"
+  local case_status=0
+  run_case "$name" "$@" || case_status=$?
+  if [ "$case_status" -ne 0 ] && flag_enabled "$SMOKE_STOP_ON_PROVIDER_ERROR" && [ "${LAST_CASE_PROVIDER_ERRORS:-0}" -gt 0 ]; then
+    STOP_REMAINING=1
+    STOP_REASON="provider_errors_after_${name}"
+    echo "xtalpi-pi-tools smoke: stopping remaining cases after provider_errors=${LAST_CASE_PROVIDER_ERRORS} in case=$name (set XTALPI_PI_TOOLS_SMOKE_STOP_ON_PROVIDER_ERROR=0 to run all cases)" >&2
+  fi
+  return "$case_status"
 }
 
 write_run_summary_artifact() {
   local debug_summary_status="$1"
   local failure_count="$2"
   local selected_cases_csv="$3"
+  local stop_reason="$4"
 
-  node - "$DEBUG_SUMMARY_JSON_FILE" "$SUMMARY_FILE" "$PROVIDER" "$MODEL" "$STAMP" "$CASE_TIMEOUT_SECONDS" "$SMOKE_REQUEST_TIMEOUT_MS" "$SMOKE_MAX_OUTPUT_TOKENS" "$selected_cases_csv" "$failure_count" "$debug_summary_status" <<'NODE'
+  node - "$DEBUG_SUMMARY_JSON_FILE" "$SUMMARY_FILE" "$PROVIDER" "$MODEL" "$STAMP" "$CASE_TIMEOUT_SECONDS" "$SMOKE_REQUEST_TIMEOUT_MS" "$SMOKE_MAX_OUTPUT_TOKENS" "$selected_cases_csv" "$failure_count" "$debug_summary_status" "$SMOKE_STOP_ON_PROVIDER_ERROR" "$stop_reason" <<'NODE'
 const fs = require("fs");
 const [
   debugSummaryFile,
@@ -630,6 +696,8 @@ const [
   selectedCasesRaw,
   failuresRaw,
   debugSummaryStatusRaw,
+  stopOnProviderErrorRaw,
+  stopReasonRaw,
 ] = process.argv.slice(2);
 
 const debugSummary = JSON.parse(fs.readFileSync(debugSummaryFile, "utf8"));
@@ -647,6 +715,8 @@ const artifact = {
   requestTimeoutMs: Number(requestTimeoutMsRaw),
   maxOutputTokens: Number(maxOutputTokensRaw),
   selectedCases: String(selectedCasesRaw || "").split(",").filter(Boolean),
+  stopOnProviderError: /^(1|true|yes|on)$/i.test(String(stopOnProviderErrorRaw || "")),
+  stopReason: stopReasonRaw || undefined,
   failures,
   debugSummaryStatus,
   ok: failures === 0 && debugSummaryStatus === 0 && Array.isArray(debugSummary.gateFailures) && debugSummary.gateFailures.length === 0,
@@ -707,14 +777,14 @@ if [ -x "$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh" ]; then
   if [ ! -s "$DEBUG_SUMMARY_JSON_FILE" ]; then
     echo "xtalpi-pi-tools smoke: debug summary JSON artifact was not written: $DEBUG_SUMMARY_JSON_FILE" >&2
     failures=$((failures + 1))
-  elif ! write_run_summary_artifact "$debug_summary_json_status" "$failures" "$SELECTED_CASES_CSV"; then
+  elif ! write_run_summary_artifact "$debug_summary_json_status" "$failures" "$SELECTED_CASES_CSV" "$STOP_REASON"; then
     echo "xtalpi-pi-tools smoke: failed to write summary artifact: $SUMMARY_FILE" >&2
     failures=$((failures + 1))
   fi
 fi
 
 echo "===== summary ====="
-echo "provider=$PROVIDER model=$MODEL out_dir=$OUT_DIR stamp=$STAMP selected_cases=$SELECTED_CASES_CSV case_timeout_seconds=$CASE_TIMEOUT_SECONDS request_timeout_ms=$SMOKE_REQUEST_TIMEOUT_MS max_output_tokens=$SMOKE_MAX_OUTPUT_TOKENS failures=$failures"
+echo "provider=$PROVIDER model=$MODEL out_dir=$OUT_DIR stamp=$STAMP selected_cases=$SELECTED_CASES_CSV case_timeout_seconds=$CASE_TIMEOUT_SECONDS request_timeout_ms=$SMOKE_REQUEST_TIMEOUT_MS max_output_tokens=$SMOKE_MAX_OUTPUT_TOKENS stop_on_provider_error=$SMOKE_STOP_ON_PROVIDER_ERROR stop_reason=${STOP_REASON:-none} failures=$failures"
 if [ -f "$SUMMARY_FILE" ]; then
   echo "summary_json=$SUMMARY_FILE"
 fi
