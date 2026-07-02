@@ -96,6 +96,7 @@ cleanup() {
     /tmp/pi67-smoke-release-artifact.log \
     /tmp/pi67-smoke-xtalpi-pi-tools-test.log \
     /tmp/pi67-smoke-xtalpi-provider-health-test.log \
+    /tmp/pi67-smoke-xtalpi-provider-error-contract.log \
     /tmp/pi67-smoke-migrate-skills-dry.log \
     /tmp/pi67-smoke-migrate-skills-apply.log \
     /tmp/pi67-smoke-migrate-skills-conflict.log \
@@ -212,6 +213,9 @@ if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-pi-tools-debug-summary.sh" ]; then
 fi
 if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-provider-health.mjs" ]; then
   node --check "$REPO_ROOT/scripts/pi67-xtalpi-provider-health.mjs" >/dev/null
+fi
+if [ -f "$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs" ]; then
+  node --check "$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs" >/dev/null
 fi
 pass "shell scripts parse"
 
@@ -569,6 +573,9 @@ section "xtalpi-pi-tools unit tests"
 "$REPO_ROOT/scripts/pi67-test-xtalpi-pi-tools.sh" >/tmp/pi67-smoke-xtalpi-pi-tools-test.log
 if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-provider-health.mjs" ]; then
   node "$REPO_ROOT/scripts/pi67-xtalpi-provider-health.mjs" --self-test >/tmp/pi67-smoke-xtalpi-provider-health-test.log
+fi
+if [ -f "$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs" ]; then
+  node "$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs" >/tmp/pi67-smoke-xtalpi-provider-error-contract.log
 fi
 pass "xtalpi-pi-tools protocol tests completed"
 

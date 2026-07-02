@@ -13,6 +13,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `scripts/pi67-test-xtalpi-pi-tools.sh` protocol/unit coverage for parser, serializer, and no-native-tools payload invariants.
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh` live smoke coverage for no-tool, bash, read, and web/read tasks.
 - `scripts/pi67-xtalpi-pi-tools-debug-summary.sh` for summarizing live smoke debug telemetry and recovery events.
+- `scripts/pi67-validate-xtalpi-provider-error-contract.mjs` for standalone provider error contract validation.
 - `extensions/xtalpi-pi-tools/fixtures/replay-cases.json` for parser/provider replay regression cases.
 - `extensions/xtalpi-pi-tools/provider-error-contract.json` as the shared provider error classification and health-retry contract.
 - `docs/xtalpi-pi-tools.md` documenting the local tool protocol, runtime knobs, migration, and validation flow.
@@ -53,6 +54,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - Provider-health preflight now records per-attempt telemetry and retries bounded transient failures by default while suppressing immediate `http_429` retries to avoid burning rate-limit windows.
 - Provider runtime and provider-health preflight now read the same provider error contract, so error codes, categories, retryability, and immediate retry policy cannot drift across TS runtime and `.mjs` health checks.
 - Provider runtime now constructs local `XtalpiProviderError` instances through a contract-backed helper, removing remaining hardcoded category/retryability fields from chat error paths.
+- Release/smoke gates now run standalone provider error contract validation, including error code coverage, category/retryability semantics, immediate retry policy, and HTTP status range ordering.
 
 ### Removed
 
