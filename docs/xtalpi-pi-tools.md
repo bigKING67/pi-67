@@ -163,7 +163,7 @@ debug 文件默认写入：
 $HOME/tmp/xtalpi-pi-tools-debug.jsonl
 ```
 
-不会记录 Authorization、API key 或完整敏感工具结果。
+debug JSONL 使用 `xtalpi-pi-tools.debug.v1` schema，包含事件类别、恢复次数、工具名、selected tool 数量等脱敏摘要。不会记录 Authorization、API key 或完整敏感工具结果。
 
 ## 静态测试
 
@@ -199,6 +199,8 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
 4. web/read 混合任务
 
 冒烟脚本会校验预期工具是否真的执行：无工具 case 必须没有 `tool_execution_start`；`bash` / `read` / web-read case 必须出现对应工具执行事件，避免把函数式伪调用文本或空工具路径误判为成功。
+
+冒烟脚本还会为每个 case 开启 `XTALPI_PI_TOOLS_DEBUG=1`，校验 debug JSONL schema，并汇总 `recovery.*` 事件，便于判断是否发生了本地修复重试。
 
 输出 JSONL artifact 默认在：
 

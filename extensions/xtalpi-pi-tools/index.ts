@@ -460,6 +460,13 @@ async function runProviderTurn(
   const selectedToolByName = new Map(serializedContext.selectedTools.map((tool) => [tool.name, tool]));
   const messages = serializedContext.messages;
   const lastCompletedCall = latestToolCallWithResult(contextLike);
+  const debugContext = {
+    provider: PROVIDER_ID,
+    model: model.id,
+    selectedToolCount: serializedContext.selectedTools.length,
+    availableToolCount: contextLike.tools?.length ?? 0,
+  };
+  debugLog("turn.start", debugContext);
 
   let emptyRetries = 0;
   let repairRetries = 0;
@@ -480,7 +487,7 @@ async function runProviderTurn(
         emptyRetries += 1;
         totalRecoveries += 1;
         messages.push({ role: "user", content: buildEmptyResponseRepairPrompt() });
-        debugLog("recovery.empty_response", { emptyRetries, totalRecoveries });
+        debugLog("recovery.empty_response", { ...debugContext, emptyRetries, totalRecoveries });
         continue;
       }
 
@@ -504,6 +511,7 @@ async function runProviderTurn(
         messages.push({ role: "assistant", content: raw.slice(0, 4000) });
         messages.push({ role: "user", content: repairPrompt });
         debugLog(parsed.code === "function_style_tool_call" ? "recovery.function_style_tool_call" : "recovery.invalid_tool_json", {
+          ...debugContext,
           code: parsed.code,
           repairRetries,
           totalRecoveries,
@@ -542,6 +550,7 @@ async function runProviderTurn(
         messages.push({ role: "assistant", content: raw.slice(0, 4000) });
         messages.push({ role: "user", content: buildUnknownToolRepairPrompt(requestedCall.name, [...names].sort()) });
         debugLog("recovery.unknown_tool", {
+          ...debugContext,
           toolName: requestedCall.name,
           repairRetries,
           totalRecoveries,
@@ -568,6 +577,7 @@ async function runProviderTurn(
           content: buildInvalidToolArgumentsRepairPrompt(requestedCall.name, argumentValidation.errors),
         });
         debugLog("recovery.invalid_tool_arguments", {
+          ...debugContext,
           toolName: requestedCall.name,
           errors: argumentValidation.errors,
           repairRetries,
@@ -593,6 +603,7 @@ async function runProviderTurn(
         messages.push({ role: "assistant", content: raw.slice(0, 4000) });
         messages.push({ role: "user", content: buildRepeatedToolRepairPrompt(requestedCall.name) });
         debugLog("recovery.repeated_tool", {
+          ...debugContext,
           toolName: requestedCall.name,
           repairRetries,
           totalRecoveries,
@@ -611,6 +622,7 @@ async function runProviderTurn(
     }
 
     debugLog("tool_call", {
+      ...debugContext,
       toolName: requestedCall.name,
       argsKeys: Object.keys(requestedCall.arguments),
       warnings: parsed.warnings,

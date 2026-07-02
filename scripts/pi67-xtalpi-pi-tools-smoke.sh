@@ -27,21 +27,34 @@ summarize_jsonl() {
   local stderr_file="$2"
   local status="$3"
   local expected_tools="${4:-any}"
+  local debug_file="${5:-}"
 
-  node - "$file" "$stderr_file" "$status" "$expected_tools" <<'NODE'
+  node - "$file" "$stderr_file" "$status" "$expected_tools" "$debug_file" <<'NODE'
 const fs = require("fs");
-const [file, stderrFile, status, expectedToolsRaw] = process.argv.slice(2);
-const text = fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim() : "";
+const [file, stderrFile, status, expectedToolsRaw, debugFile] = process.argv.slice(2);
+function readJsonl(path) {
+  const raw = path && fs.existsSync(path) ? fs.readFileSync(path, "utf8").trim() : "";
+  if (!raw) return [];
+  return raw.split(/\n/).filter(Boolean).map((line) => {
+    try {
+      return JSON.parse(line);
+    } catch {
+      return { type: "parse_error", raw: line.slice(0, 200) };
+    }
+  });
+}
 const stderr = fs.existsSync(stderrFile) ? fs.readFileSync(stderrFile, "utf8").trim() : "";
-const events = text
-  ? text.split(/\n/).filter(Boolean).map((line) => {
-      try {
-        return JSON.parse(line);
-      } catch {
-        return { type: "parse_error", raw: line.slice(0, 200) };
-      }
-    })
-  : [];
+const events = readJsonl(file);
+const debugEvents = readJsonl(debugFile);
+const debugTelemetryOk =
+  debugEvents.length > 0 &&
+  debugEvents.every(
+    (event) =>
+      event.schema === "xtalpi-pi-tools.debug.v1" &&
+      typeof event.event === "string" &&
+      typeof event.event_category === "string",
+  );
+const recoveryEvents = debugEvents.filter((event) => event.event_category === "recovery");
 const agent = events.findLast?.((event) => event.type === "agent_end");
 const toolStartEvents = events.filter((event) => event.type === "tool_execution_start");
 const actualToolNames = toolStartEvents.map((event) => String(event.toolName || ""));
@@ -61,7 +74,7 @@ const emptyAssistantEnds = events.filter(
     Array.isArray(event.message.content) &&
     event.message.content.length === 0,
 ).length;
-const recoveries = events.filter((event) => JSON.stringify(event).includes("xtalpi-pi-tools")).length;
+const recoveries = recoveryEvents.length;
 const processExitedCleanly = Number(status) === 0;
 const hasUsableFinalAnswer = !!agent && errors.length === 0 && finalText.trim().length > 0;
 const expectedTools = String(expectedToolsRaw || "any")
@@ -77,13 +90,16 @@ if (expectedTools.length === 1 && expectedTools[0] === "none") {
   toolExpectation = expectedTools.join(",");
   toolExpectationOk = expectedTools.some((tool) => actualToolNames.includes(tool));
 }
-const ok = processExitedCleanly && hasUsableFinalAnswer && toolExpectationOk;
+const ok = processExitedCleanly && hasUsableFinalAnswer && toolExpectationOk && debugTelemetryOk;
 console.log(JSON.stringify({
   file,
+  debugFile,
   ok,
   exitStatus: Number(status),
   processExitedCleanly,
   hasAgentEnd: !!agent,
+  debugTelemetryOk,
+  debugEventCount: debugEvents.length,
   expectedTools: toolExpectation,
   toolExpectationOk,
   toolStarts,
@@ -91,6 +107,14 @@ console.log(JSON.stringify({
   stderr: stderr.slice(0, 500),
   emptyAssistantEnds,
   recoveries,
+  recoveryEvents: recoveryEvents.map((event) => ({
+    event: event.event,
+    eventKind: event.event_kind,
+    toolName: event.tool_name,
+    repairRetries: event.repair_retries,
+    totalRecoveries: event.total_recoveries,
+    selectedToolCount: event.selected_tool_count,
+  })),
   finalStop: final?.stopReason,
   finalText: finalText.slice(0, 500),
 }, null, 2));
@@ -105,11 +129,12 @@ run_case() {
   shift 3
   local out="$OUT_DIR/${STAMP}-${name}.jsonl"
   local err="$OUT_DIR/${STAMP}-${name}.stderr"
+  local debug="$OUT_DIR/${STAMP}-${name}.debug.jsonl"
   local status=0
   local elapsed=0
   local pid
 
-  "$PI_BIN" "${COMMON_ARGS[@]}" "$@" -p "$prompt" >"$out" 2>"$err" &
+  XTALPI_PI_TOOLS_DEBUG=1 XTALPI_PI_TOOLS_DEBUG_PATH="$debug" "$PI_BIN" "${COMMON_ARGS[@]}" "$@" -p "$prompt" >"$out" 2>"$err" &
   pid=$!
   while kill -0 "$pid" 2>/dev/null; do
     if [ "$elapsed" -ge "$CASE_TIMEOUT_SECONDS" ]; then
@@ -130,7 +155,7 @@ run_case() {
   fi
 
   echo "===== $name ====="
-  summarize_jsonl "$out" "$err" "$status" "$expected_tools" || return 1
+  summarize_jsonl "$out" "$err" "$status" "$expected_tools" "$debug" || return 1
 }
 
 failures=0
