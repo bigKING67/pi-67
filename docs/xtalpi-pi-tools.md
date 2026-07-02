@@ -167,7 +167,7 @@ debug 文件默认写入：
 $HOME/tmp/xtalpi-pi-tools-debug.jsonl
 ```
 
-debug JSONL 使用 `xtalpi-pi-tools.debug.v1` schema，包含事件类别、恢复次数、工具名、selected tool 数量等脱敏摘要。不会记录 Authorization、API key 或完整敏感工具结果。
+debug JSONL 使用 `xtalpi-pi-tools.debug.v1` schema，包含事件类别、恢复次数、工具名、selected tool 数量等脱敏摘要。常见凭据字段（Authorization、API key、x-api-key、token、password、cookie/session 等）会脱敏；不会记录完整敏感工具结果。
 
 ## 静态测试
 

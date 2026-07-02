@@ -188,8 +188,10 @@ export function redactSensitiveString(value) {
   return String(value || "")
     .replace(/Bearer\s+[A-Za-z0-9._~+\-/=]+/gi, "Bearer [REDACTED]")
     .replace(/sk-[A-Za-z0-9._~+\-/=]{8,}/g, "sk-[REDACTED]")
-    .replace(/(api[_-]?key["'\s:=]+)[A-Za-z0-9._~+\-/=]{8,}/gi, "$1[REDACTED]")
-    .replace(/(authorization["'\s:=]+)[A-Za-z0-9._~+\-/=]{8,}/gi, "$1[REDACTED]");
+    .replace(
+      /(^|[^A-Za-z0-9_])((?:x[_-]?api[_-]?key|api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|token|password|passwd|cookie|session(?:[_-]?id)?)(?:["'\s]*[:=]\s*|["'\s]+))([A-Za-z0-9._~+\-/=:%;,@]+)/gi,
+      "$1$2[REDACTED]",
+    );
 }
 
 export function providerErrorMetadata(code) {
@@ -560,8 +562,22 @@ function selfTest() {
       throw new Error(`provider error contract metadata self-test failed for ${code}`);
     }
   }
-  const redacted = redactSensitiveString("rate limited for Bearer short and sk-testvalue1234567890");
-  if (redacted.includes("Bearer short") || redacted.includes("sk-testvalue1234567890")) {
+  const redacted = redactSensitiveString(
+    "rate limited for Bearer short and sk-testvalue1234567890 token=tok_secret123 password: pass_secret cookie=sessionid=abc123 x-api-key: xkey_secret",
+  );
+  for (const leaked of [
+    "Bearer short",
+    "sk-testvalue1234567890",
+    "tok_secret123",
+    "pass_secret",
+    "sessionid=abc123",
+    "xkey_secret",
+  ]) {
+    if (redacted.includes(leaked)) {
+      throw new Error(`redaction self-test failed for ${leaked}`);
+    }
+  }
+  if (!redacted.includes("token=[REDACTED]") || !redacted.includes("x-api-key: [REDACTED]")) {
     throw new Error("redaction self-test failed");
   }
   const rateLimit = classifyHttpStatus(429);

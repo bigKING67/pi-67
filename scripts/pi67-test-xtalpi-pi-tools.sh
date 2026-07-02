@@ -301,6 +301,22 @@ const { pathToFileURL } = require("node:url");
   assert.equal(apiKeyError.category, contractMetadata("api_key_missing").category);
   assert.equal(apiKeyError.retryable, contractMetadata("api_key_missing").retryable);
   assert.ok(!apiKeyError.message.includes("sk-testvalue1234567890"));
+  const redactionProbe = diagnostics.redactSensitiveString(
+    "Bearer short sk-testvalue1234567890 token=tok_secret123 password: pass_secret cookie=sessionid=abc123 x-api-key: xkey_secret totalTokens: 42",
+  );
+  for (const leaked of [
+    "Bearer short",
+    "sk-testvalue1234567890",
+    "tok_secret123",
+    "pass_secret",
+    "sessionid=abc123",
+    "xkey_secret",
+  ]) {
+    assert.ok(!redactionProbe.includes(leaked), leaked);
+  }
+  assert.match(redactionProbe, /token=\[REDACTED\]/);
+  assert.match(redactionProbe, /x-api-key: \[REDACTED\]/);
+  assert.match(redactionProbe, /totalTokens: 42/);
   assert.ok(providerSource.includes("buildProviderError("));
   assert.ok(!providerSource.includes("new XtalpiProviderError("));
   const timeoutError = errors.classifyTransportError(new Error("xtalpi-pi-tools timeout after 1000ms"), 1000, false);

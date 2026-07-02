@@ -12,8 +12,10 @@ export function redactSensitiveString(value: string): string {
   return value
     .replace(/Bearer\s+[A-Za-z0-9._~+\-/=]+/gi, "Bearer [REDACTED]")
     .replace(/sk-[A-Za-z0-9._~+\-/=]{8,}/g, "sk-[REDACTED]")
-    .replace(/(api[_-]?key["'\s:=]+)[A-Za-z0-9._~+\-/=]{8,}/gi, "$1[REDACTED]")
-    .replace(/(authorization["'\s:=]+)[A-Za-z0-9._~+\-/=]{8,}/gi, "$1[REDACTED]");
+    .replace(
+      /(^|[^A-Za-z0-9_])((?:x[_-]?api[_-]?key|api[_-]?key|authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|token|password|passwd|cookie|session(?:[_-]?id)?)(?:["'\s]*[:=]\s*|["'\s]+))([A-Za-z0-9._~+\-/=:%;,@]+)/gi,
+      "$1$2[REDACTED]",
+    );
 }
 
 export function safeErrorMessage(error: unknown): string {
