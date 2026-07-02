@@ -65,6 +65,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - xtalpi debug telemetry now includes a bounded local-only selected-tool ranking/clipping summary, so low `XTALPI_PI_TOOLS_MAX_TOOLS` runs can explain which tools were omitted without logging tool descriptions, parameters, or prompt text.
 - Live xtalpi smoke now includes a low-`maxTools` `tool-selection-clipping` case that puts `read,bash,web_fetch` in context, forces `XTALPI_PI_TOOLS_MAX_TOOLS=1`, requires only selected `read` to execute, and gates clipped/omitted telemetry end to end.
 - xtalpi runtime and provider-health diagnostics now redact common credential fields beyond Authorization/API keys, including token, password, cookie/session, and x-api-key shapes.
+- xtalpi runtime now short-circuits already-aborted caller signals without sending HTTP requests, classifies mid-flight caller cancellation as `request_aborted`, and keeps timeout coverage active through response body reads.
 
 ### Removed
 

@@ -305,6 +305,8 @@ $HOME/tmp/xtalpi-pi-tools-smoke/<stamp>-summary.json
 
 provider 调用失败会写入结构化 debug telemetry：`errorCode`、`errorCategory`、`retryable` 和可选 `httpStatus`。常见代码包括 `api_key_missing`、`config_error`、`request_timeout`、`request_aborted`、`network_error`、`http_401`、`http_403`、`http_408`、`http_429`、`http_5xx`、`http_error`、`non_json_response` 和 `malformed_response`。debug summary 会汇总 `provider_errors`、`retryable_provider_errors`、`provider_error_codes` 和 `provider_error_categories`，且默认要求 `provider_errors=0`。这样可以把晶泰限流/鉴权/上游错误和 Pi 工具协议质量回归分开判断。
 
+如果 Pi 上层在请求开始前或请求中途取消 `AbortSignal`，provider 会归类为 `request_aborted` 并停止本轮；请求开始前已取消的 signal 会在本地短路，不会继续发起晶泰 HTTP 请求。HTTP timeout 覆盖完整 fetch 与 response body 读取阶段，避免只收到 headers 但 body 卡住时绕过 `XTALPI_PI_TOOLS_TIMEOUT_MS`。
+
 汇总最近的冒烟 telemetry：
 
 ```bash

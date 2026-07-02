@@ -17,6 +17,7 @@ import type {
 import { validateToolArguments } from "./argument-validator.ts";
 import { debugLog, safeErrorMessage } from "./diagnostics.ts";
 import {
+  XtalpiProviderError,
   buildHttpError,
   buildProviderError,
   classifyTransportError,
@@ -318,14 +319,39 @@ export function buildChatCompletionPayload(
   return payload;
 }
 
-async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number, signal?: AbortSignal): Promise<Response> {
+function abortReason(signal: AbortSignal | undefined): unknown {
+  return signal?.reason || new Error("aborted");
+}
+
+function throwIfCallerAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  throw buildProviderError("request_aborted", "xtalpi-pi-tools request aborted by caller", {
+    cause: abortReason(signal),
+  });
+}
+
+type FetchTextResult = {
+  response: Response;
+  body: string;
+};
+
+async function fetchTextWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<FetchTextResult> {
+  throwIfCallerAborted(signal);
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(new Error(`xtalpi-pi-tools timeout after ${timeoutMs}ms`)), timeoutMs);
-  const abortHandler = () => controller.abort(signal?.reason || new Error("aborted"));
+  const abortHandler = () => controller.abort(abortReason(signal));
   if (signal) signal.addEventListener("abort", abortHandler, { once: true });
 
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    const body = await response.text();
+    return { response, body };
   } finally {
     clearTimeout(timeout);
     if (signal) signal.removeEventListener("abort", abortHandler);
@@ -371,6 +397,8 @@ async function callXtalpiChat(
   messages: XtalpiChatMessage[],
   options?: SimpleStreamOptions,
 ): Promise<ChatResponse> {
+  throwIfCallerAborted(options?.signal);
+
   const apiKey = options?.apiKey || runtimeConfig?.apiKey || "";
   if (isPlaceholderKey(apiKey)) {
     throw buildProviderError(
@@ -391,8 +419,9 @@ async function callXtalpiChat(
   });
 
   let response: Response;
+  let body: string;
   try {
-    response = await fetchWithTimeout(
+    ({ response, body } = await fetchTextWithTimeout(
       endpointFor(model),
       {
         method: "POST",
@@ -407,12 +436,12 @@ async function callXtalpiChat(
       },
       timeoutMs,
       options?.signal,
-    );
+    ));
   } catch (error) {
+    if (error instanceof XtalpiProviderError) throw error;
     throw classifyTransportError(error, timeoutMs, options?.signal?.aborted === true);
   }
 
-  const body = await response.text();
   if (!response.ok) {
     throw buildHttpError(response.status, body);
   }

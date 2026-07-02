@@ -594,6 +594,94 @@ const { pathToFileURL } = require("node:url");
 
   const originalFetch = global.fetch;
 
+  const abortDebugDir = fs.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", "xtalpi-pi-tools-abort-test."));
+  const abortDebugFile = path.join(abortDebugDir, "debug.jsonl");
+  const previousAbortDebugFlag = process.env.XTALPI_PI_TOOLS_DEBUG;
+  const previousAbortDebugPath = process.env.XTALPI_PI_TOOLS_DEBUG_PATH;
+  process.env.XTALPI_PI_TOOLS_DEBUG = "1";
+  process.env.XTALPI_PI_TOOLS_DEBUG_PATH = abortDebugFile;
+  try {
+    let preAbortedFetchCount = 0;
+    global.fetch = async () => {
+      preAbortedFetchCount += 1;
+      return new Response(JSON.stringify(chatResponse("should not be called")), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const preAbortedController = new AbortController();
+    preAbortedController.abort(new Error("pre-cancelled token=secret_abort_token"));
+    const preAbortedStream = registeredProvider.streamSimple(
+      {
+        id: "deepseek-v4-pro",
+        maxTokens: 32768,
+        api: "xtalpi-pi-tools",
+        provider: "xtalpi-pi-tools",
+        baseUrl: "https://example.invalid/v1",
+      },
+      {
+        systemPrompt: "system base",
+        tools: [],
+        messages: [{ role: "user", content: "hello" }],
+      },
+      { signal: preAbortedController.signal },
+    );
+    const preAbortedFinal = await preAbortedStream.result();
+    assert.equal(preAbortedFetchCount, 0);
+    assert.equal(preAbortedFinal.stopReason, "aborted");
+    assert.match(preAbortedFinal.errorMessage, /request aborted by caller/);
+
+    let midFlightFetchCount = 0;
+    const midFlightController = new AbortController();
+    global.fetch = async (_input, init) => {
+      midFlightFetchCount += 1;
+      setTimeout(() => midFlightController.abort(new Error("mid-flight cancelled token=secret_midflight_token")), 0);
+      return await new Promise((_resolve, reject) => {
+        init.signal.addEventListener("abort", () => reject(init.signal.reason || new Error("aborted")), { once: true });
+      });
+    };
+    const midFlightStream = registeredProvider.streamSimple(
+      {
+        id: "deepseek-v4-pro",
+        maxTokens: 32768,
+        api: "xtalpi-pi-tools",
+        provider: "xtalpi-pi-tools",
+        baseUrl: "https://example.invalid/v1",
+      },
+      {
+        systemPrompt: "system base",
+        tools: [],
+        messages: [{ role: "user", content: "hello" }],
+      },
+      { signal: midFlightController.signal },
+    );
+    const midFlightFinal = await midFlightStream.result();
+    assert.equal(midFlightFetchCount, 1);
+    assert.equal(midFlightFinal.stopReason, "aborted");
+    assert.match(midFlightFinal.errorMessage, /request aborted by caller/);
+
+    const abortDebugEvents = fs.readFileSync(abortDebugFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    const abortErrorEvents = abortDebugEvents.filter((event) => event.event === "error.provider");
+    assert.equal(abortErrorEvents.length, 2);
+    assert.ok(abortErrorEvents.every((event) => event.error_code === "request_aborted"));
+    assert.ok(abortErrorEvents.every((event) => event.error_category === "aborted"));
+    assert.ok(!JSON.stringify(abortErrorEvents).includes("secret_abort_token"));
+    assert.ok(!JSON.stringify(abortErrorEvents).includes("secret_midflight_token"));
+  } finally {
+    global.fetch = originalFetch;
+    if (previousAbortDebugFlag === undefined) {
+      delete process.env.XTALPI_PI_TOOLS_DEBUG;
+    } else {
+      process.env.XTALPI_PI_TOOLS_DEBUG = previousAbortDebugFlag;
+    }
+    if (previousAbortDebugPath === undefined) {
+      delete process.env.XTALPI_PI_TOOLS_DEBUG_PATH;
+    } else {
+      process.env.XTALPI_PI_TOOLS_DEBUG_PATH = previousAbortDebugPath;
+    }
+    fs.rmSync(abortDebugDir, { recursive: true, force: true });
+  }
+
   for (const fixture of replayFixtures.providerReplay ?? []) {
     await assertProviderReplayFixture(fixture, registeredProvider, originalFetch);
   }
