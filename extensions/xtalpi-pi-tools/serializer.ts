@@ -38,13 +38,35 @@ export type SerializeOptions = {
   maxToolResultChars: number;
 };
 
+export type ToolSelectionItem = {
+  name: string;
+  index: number;
+  score: number;
+  selected: boolean;
+  reasonCodes: string[];
+};
+
+export type ToolSelectionSummary = {
+  schema: "xtalpi-pi-tools.tool-selection.v1";
+  totalToolCount: number;
+  validToolCount: number;
+  maxTools: number;
+  clipped: boolean;
+  omittedToolCount: number;
+  selected: ToolSelectionItem[];
+  omitted: ToolSelectionItem[];
+};
+
 export type SerializedXtalpiContext = {
   messages: XtalpiChatMessage[];
   selectedTools: ToolLike[];
   selectedToolNames: Set<string>;
+  toolSelectionSummary: ToolSelectionSummary;
 };
 
 const MAX_TOOL_CALL_HISTORY_ARGUMENTS_CHARS = 4000;
+const MAX_TOOL_SELECTION_SUMMARY_ITEMS = 12;
+const MAX_TOOL_SELECTION_REASON_CODES = 8;
 const TOOL_CALL_HISTORY_OPEN = "[previous_pi_tool_call]";
 const TOOL_CALL_HISTORY_CLOSE = "[/previous_pi_tool_call]";
 
@@ -133,45 +155,122 @@ const CORE_TOOL_NAMES = new Set([
   "web_search",
 ]);
 
-function scoreTool(tool: ToolLike, prompt: string): number {
+type ToolScore = {
+  score: number;
+  reasonCodes: string[];
+};
+
+type RankedTool = ToolScore & {
+  tool: ToolLike;
+  index: number;
+};
+
+export type ToolSelectionResult = {
+  selectedTools: ToolLike[];
+  selectedToolNames: Set<string>;
+  summary: ToolSelectionSummary;
+};
+
+function scoreTool(tool: ToolLike, prompt: string): ToolScore {
   const description = typeof tool.description === "string" ? tool.description.slice(0, 1000) : "";
   const haystack = `${tool.name} ${description}`.toLowerCase();
   const promptLower = prompt.toLowerCase();
-  let score = CORE_TOOL_NAMES.has(tool.name) ? 25 : 0;
-  if (promptLower.includes(tool.name.toLowerCase())) score += 100;
+  const reasonCodes = new Set<string>();
+  let score = 0;
+  const addScore = (points: number, reasonCode: string) => {
+    score += points;
+    reasonCodes.add(reasonCode);
+  };
+
+  if (CORE_TOOL_NAMES.has(tool.name)) addScore(25, "core_tool");
+  if (promptLower.includes(tool.name.toLowerCase())) addScore(100, "prompt_tool_name");
 
   for (const token of promptLower.split(/[^a-z0-9_\-\u4e00-\u9fff/.]+/i)) {
     if (token.length < 2) continue;
-    if (haystack.includes(token)) score += token.length > 4 ? 8 : 3;
+    if (haystack.includes(token)) addScore(token.length > 4 ? 8 : 3, "prompt_token_match");
   }
 
-  if (/https?:\/\//i.test(prompt) && /web|fetch|http|url/i.test(haystack)) score += 60;
-  if (/[~/./][^\s]*/.test(prompt) && /read|file|path|grep|find|ls|bash/i.test(haystack)) score += 35;
+  if (/https?:\/\//i.test(prompt) && /web|fetch|http|url/i.test(haystack)) addScore(60, "prompt_url_web");
+  if (/[~/./][^\s]*/.test(prompt) && /read|file|path|grep|find|ls|bash/i.test(haystack)) {
+    addScore(35, "prompt_path_file");
+  }
   if (/(修改|编辑|修复|实现|patch|edit|write|create|delete|commit|push)/i.test(prompt) && /edit|write|bash/i.test(haystack)) {
-    score += 35;
+    addScore(35, "prompt_edit_intent");
   }
-  if (/(搜索|查找|grep|find|search|rg)/i.test(prompt) && /grep|find|search/i.test(haystack)) score += 35;
+  if (/(搜索|查找|grep|find|search|rg)/i.test(prompt) && /grep|find|search/i.test(haystack)) {
+    addScore(35, "prompt_search_intent");
+  }
 
-  return score;
+  return { score, reasonCodes: [...reasonCodes].slice(0, MAX_TOOL_SELECTION_REASON_CODES).sort() };
 }
 
-export function selectTools(tools: ToolLike[] | undefined, prompt: string, maxTools: number): ToolLike[] {
-  const validTools: ToolLike[] = [];
+function normalizeMaxTools(maxTools: number): number {
+  if (!Number.isFinite(maxTools)) return 0;
+  return Math.max(0, Math.floor(maxTools));
+}
+
+function collectValidTools(tools: ToolLike[] | undefined): ToolLike[] {
+  const result: ToolLike[] = [];
   const seenNames = new Set<string>();
   for (const tool of tools ?? []) {
     if (!tool || typeof tool.name !== "string") continue;
     const name = tool.name.trim();
     if (!name || seenNames.has(name)) continue;
     seenNames.add(name);
-    validTools.push(name === tool.name ? tool : { ...tool, name });
+    result.push(name === tool.name ? tool : { ...tool, name });
   }
-  if (validTools.length <= maxTools) return validTools;
+  return result;
+}
 
-  return validTools
-    .map((tool, index) => ({ tool, index, score: scoreTool(tool, prompt) }))
-    .sort((a, b) => b.score - a.score || a.index - b.index)
-    .slice(0, maxTools)
-    .map((item) => item.tool);
+function summarizeRankedTool(item: RankedTool, selected: boolean): ToolSelectionItem {
+  return {
+    name: safeInlineText(item.tool.name, 160),
+    index: item.index,
+    score: item.score,
+    selected,
+    reasonCodes: item.reasonCodes,
+  };
+}
+
+function boundedSelectionItems(items: RankedTool[], selected: boolean): ToolSelectionItem[] {
+  return items
+    .slice(0, MAX_TOOL_SELECTION_SUMMARY_ITEMS)
+    .map((item) => summarizeRankedTool(item, selected));
+}
+
+export function selectToolsWithSummary(
+  tools: ToolLike[] | undefined,
+  prompt: string,
+  maxTools: number,
+): ToolSelectionResult {
+  const totalToolCount = tools?.length ?? 0;
+  const limit = normalizeMaxTools(maxTools);
+  const available = collectValidTools(tools);
+  const scored = available.map((tool, index) => ({ tool, index, ...scoreTool(tool, prompt) }));
+  const clipped = scored.length > limit;
+  const ranked = clipped
+    ? [...scored].sort((a, b) => b.score - a.score || a.index - b.index)
+    : scored;
+  const selectedRanked = clipped ? ranked.slice(0, limit) : ranked;
+  const omittedRanked = clipped ? ranked.slice(limit) : [];
+  const selectedTools = selectedRanked.map((item) => item.tool);
+  const selectedToolNames = availableToolNames(selectedTools);
+  const summary: ToolSelectionSummary = {
+    schema: "xtalpi-pi-tools.tool-selection.v1",
+    totalToolCount,
+    validToolCount: available.length,
+    maxTools: limit,
+    clipped,
+    omittedToolCount: omittedRanked.length,
+    selected: boundedSelectionItems(selectedRanked, true),
+    omitted: boundedSelectionItems(omittedRanked, false),
+  };
+
+  return { selectedTools, selectedToolNames, summary };
+}
+
+export function selectTools(tools: ToolLike[] | undefined, prompt: string, maxTools: number): ToolLike[] {
+  return selectToolsWithSummary(tools, prompt, maxTools).selectedTools;
 }
 
 function serializeSelectedTools(selected: ToolLike[], totalToolCount: number): string {
@@ -226,8 +325,9 @@ export function serializeContextForXtalpi(
   options: SerializeOptions,
 ): SerializedXtalpiContext {
   const prompt = latestUserText(context.messages);
-  const selectedTools = selectTools(context.tools, prompt, options.maxTools);
-  const selectedToolNames = availableToolNames(selectedTools);
+  const toolSelection = selectToolsWithSummary(context.tools, prompt, options.maxTools);
+  const selectedTools = toolSelection.selectedTools;
+  const selectedToolNames = toolSelection.selectedToolNames;
   const systemParts = [
     context.systemPrompt?.trim() || "",
     PROTOCOL_SYSTEM_PROMPT,
@@ -257,7 +357,7 @@ export function serializeContextForXtalpi(
     }
   }
 
-  return { messages: output, selectedTools, selectedToolNames };
+  return { messages: output, selectedTools, selectedToolNames, toolSelectionSummary: toolSelection.summary };
 }
 
 export function serializeContextToXtalpiMessages(

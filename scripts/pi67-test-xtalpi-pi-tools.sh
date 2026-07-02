@@ -324,6 +324,24 @@ const { pathToFileURL } = require("node:url");
       selectedToolNamesHash: "abc123fingerprint",
       availableToolCount: 5,
       maxTools: 24,
+      toolSelectionClipped: true,
+      toolSelectionOmittedCount: 2,
+      toolSelectionValidCount: 4,
+      toolSelectionSummary: {
+        schema: "xtalpi-pi-tools.tool-selection.v1",
+        totalToolCount: 5,
+        validToolCount: 4,
+        maxTools: 2,
+        clipped: true,
+        omittedToolCount: 2,
+        selected: [
+          { name: "bash", index: 0, score: 60, selected: true, reasonCodes: ["core_tool"] },
+          { name: "read", index: 1, score: 160, selected: true, reasonCodes: ["core_tool", "prompt_tool_name"] },
+        ],
+        omitted: [
+          { name: "hidden_admin", index: 2, score: 0, selected: false, reasonCodes: [] },
+        ],
+      },
       maxToolResultChars: 20000,
       maxOutputTokens: 1024,
       requestTimeoutMs: 180000,
@@ -337,6 +355,9 @@ const { pathToFileURL } = require("node:url");
     assert.equal(debugEvent.selected_tool_names_hash, "abc123fingerprint");
     assert.equal(debugEvent.available_tool_count, 5);
     assert.equal(debugEvent.max_tools, 24);
+    assert.equal(debugEvent.tool_selection_clipped, true);
+    assert.equal(debugEvent.tool_selection_omitted_count, 2);
+    assert.equal(debugEvent.tool_selection_valid_count, 4);
     assert.equal(debugEvent.max_tool_result_chars, 20000);
     assert.equal(debugEvent.max_output_tokens, 1024);
     assert.equal(debugEvent.request_timeout_ms, 180000);
@@ -344,6 +365,8 @@ const { pathToFileURL } = require("node:url");
     assert.equal(debugEvent.max_repair_retries, 2);
     assert.equal(debugEvent.max_total_recoveries, 4);
     assert.deepEqual(debugEvent.data.selectedToolNames, ["bash", "read"]);
+    assert.equal(debugEvent.data.toolSelectionSummary.schema, "xtalpi-pi-tools.tool-selection.v1");
+    assert.equal(debugEvent.data.toolSelectionSummary.omittedToolCount, 2);
 
     diagnostics.debugLog("error.provider", {
       provider: "xtalpi-pi-tools",
@@ -416,6 +439,22 @@ const { pathToFileURL } = require("node:url");
   assert.deepEqual([...selectedContext.selectedToolNames], ["read"]);
   assert.ok(selectedContext.messages[0].content.includes("- read:"));
   assert.ok(!selectedContext.messages[0].content.includes("hidden_admin"));
+  assert.equal(selectedContext.toolSelectionSummary.schema, "xtalpi-pi-tools.tool-selection.v1");
+  assert.equal(selectedContext.toolSelectionSummary.clipped, true);
+  assert.equal(selectedContext.toolSelectionSummary.totalToolCount, 3);
+  assert.equal(selectedContext.toolSelectionSummary.validToolCount, 3);
+  assert.equal(selectedContext.toolSelectionSummary.maxTools, 1);
+  assert.equal(selectedContext.toolSelectionSummary.omittedToolCount, 2);
+  assert.deepEqual(selectedContext.toolSelectionSummary.selected.map((item) => item.name), ["read"]);
+  assert.equal(selectedContext.toolSelectionSummary.selected[0].selected, true);
+  assert.ok(selectedContext.toolSelectionSummary.selected[0].score > 0);
+  assert.ok(selectedContext.toolSelectionSummary.selected[0].reasonCodes.includes("prompt_tool_name"));
+  assert.ok(selectedContext.toolSelectionSummary.omitted.some((item) => item.name === "hidden_admin" && item.selected === false));
+  const selectedSummaryJson = JSON.stringify(selectedContext.toolSelectionSummary);
+  assert.ok(selectedSummaryJson.includes("hidden_admin"));
+  assert.ok(!selectedSummaryJson.includes("Hidden admin tool"));
+  assert.ok(!selectedSummaryJson.includes("Run a shell command"));
+  assert.ok(!selectedContext.toolSelectionSummary.omitted.some((item) => Object.prototype.hasOwnProperty.call(item, "description")));
 
   const metadataInjectionContext = serializer.serializeContextForXtalpi(
     {

@@ -62,6 +62,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - xtalpi smoke trend-gate now applies `--expect-cases` to every persisted summary it evaluates, so targeted/subset smoke runs cannot be mistaken for full-suite trend evidence.
 - xtalpi smoke debug summary now supports `--expect-case-names` / `--expect-selected-cases`, allowing trend gates to require the exact full smoke case set instead of relying on case count alone.
 - xtalpi smoke summaries now include a stable `caseSet` fingerprint, and history/compare output exposes case-set drift for long-running smoke trend audits.
+- xtalpi debug telemetry now includes a bounded local-only selected-tool ranking/clipping summary, so low `XTALPI_PI_TOOLS_MAX_TOOLS` runs can explain which tools were omitted without logging tool descriptions, parameters, or prompt text.
 
 ### Removed
 

@@ -112,7 +112,32 @@ function writeCase(
 }
 
 const clean = ensureDir("clean");
-writeCase(clean, "20260702-000001", "clean", { toolNames: ["read"] });
+writeCase(clean, "20260702-000001", "clean", {
+  toolNames: ["read"],
+  debugEvents: [
+    {
+      schema: "xtalpi-pi-tools.debug.v1",
+      event: "turn.start",
+      event_category: "turn",
+      selected_tool_count: 1,
+      tool_selection_clipped: true,
+      tool_selection_omitted_count: 2,
+      tool_selection_valid_count: 3,
+      data: {
+        toolSelectionClipped: true,
+        toolSelectionOmittedCount: 2,
+        toolSelectionValidCount: 3,
+        toolSelectionSummary: {
+          schema: "xtalpi-pi-tools.tool-selection.v1",
+          validToolCount: 3,
+          omittedToolCount: 2,
+          selected: [{ name: "read", index: 0, score: 160, selected: true, reasonCodes: ["prompt_tool_name"] }],
+          omitted: [{ name: "hidden_admin", index: 1, score: 0, selected: false, reasonCodes: [] }],
+        },
+      },
+    },
+  ],
+});
 
 const raw = ensureDir("raw");
 writeCase(raw, "20260702-000002", "raw", {
@@ -322,6 +347,11 @@ writeSummary("20260702-000002", {
 NODE
 
   if ! output="$("$SCRIPT_PATH" --run-id 20260702-000001 --expect-cases 1 --expect-case-names clean --max-errors 0 --max-empty-assistant-ends 0 --max-raw-tool-markup-final-answers 0 --max-recoveries 0 "$tmp_dir/clean" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+  if [[ "$output" != *"tool_selection_clipped=true"* || "$output" != *"tool_selection_omitted=2-2"* || "$output" != *"tool_selection_valid=3-3"* ]]; then
+    echo "clean fixture output did not expose bounded tool-selection diagnostics"
     echo "$output"
     return 1
   fi
@@ -839,6 +869,10 @@ function uniqueNumbers(values) {
   return [...new Set(values.filter((value) => typeof value === "number" && Number.isFinite(value)))].sort((a, b) => a - b);
 }
 
+function uniqueBooleans(values) {
+  return [...new Set(values.filter((value) => typeof value === "boolean"))].sort((a, b) => Number(a) - Number(b));
+}
+
 function eventData(event) {
   return objectOrUndefined(event?.data) || {};
 }
@@ -882,6 +916,15 @@ function collectRuntimeFingerprint(events) {
     ),
     selectedToolNames: uniqueStrings(selectedToolNames),
     maxTools: uniqueNumbers(sources.map((event) => numberMetric(event, "maxTools", "max_tools"))),
+    toolSelectionClipped: uniqueBooleans(
+      sources.map((event) => booleanMetric(event, "toolSelectionClipped", "tool_selection_clipped")),
+    ),
+    toolSelectionOmittedCount: uniqueNumbers(
+      sources.map((event) => numberMetric(event, "toolSelectionOmittedCount", "tool_selection_omitted_count")),
+    ),
+    toolSelectionValidCount: uniqueNumbers(
+      sources.map((event) => numberMetric(event, "toolSelectionValidCount", "tool_selection_valid_count")),
+    ),
     maxToolResultChars: uniqueNumbers(
       sources.map((event) => numberMetric(event, "maxToolResultChars", "max_tool_result_chars")),
     ),
@@ -913,6 +956,9 @@ function summarizeCase(debugFileName) {
   const recoveryByEvent = {};
   const eventByName = {};
   const selectedToolCounts = [];
+  const toolSelectionClippedValues = [];
+  const toolSelectionOmittedCounts = [];
+  const toolSelectionValidCounts = [];
   for (const event of debug.events) {
     if (typeof event.event === "string") increment(eventByName, event.event);
     if (event.event_category === "recovery" && typeof event.event === "string") {
@@ -921,6 +967,12 @@ function summarizeCase(debugFileName) {
     if (typeof event.selected_tool_count === "number") {
       selectedToolCounts.push(event.selected_tool_count);
     }
+    const selectionClipped = booleanMetric(event, "toolSelectionClipped", "tool_selection_clipped");
+    if (selectionClipped !== undefined) toolSelectionClippedValues.push(selectionClipped);
+    const selectionOmittedCount = numberMetric(event, "toolSelectionOmittedCount", "tool_selection_omitted_count");
+    if (selectionOmittedCount !== undefined) toolSelectionOmittedCounts.push(selectionOmittedCount);
+    const selectionValidCount = numberMetric(event, "toolSelectionValidCount", "tool_selection_valid_count");
+    if (selectionValidCount !== undefined) toolSelectionValidCounts.push(selectionValidCount);
   }
 
   const toolStartEvents = main.events.filter((event) => event.type === "tool_execution_start");
@@ -1005,6 +1057,11 @@ function summarizeCase(debugFileName) {
     providerHttpStatuses: uniqueNumbers(providerHttpStatuses),
     selectedToolCountMin: selectedToolCounts.length ? Math.min(...selectedToolCounts) : undefined,
     selectedToolCountMax: selectedToolCounts.length ? Math.max(...selectedToolCounts) : undefined,
+    toolSelectionClipped: toolSelectionClippedValues.length ? toolSelectionClippedValues.includes(true) : undefined,
+    toolSelectionOmittedCountMin: toolSelectionOmittedCounts.length ? Math.min(...toolSelectionOmittedCounts) : undefined,
+    toolSelectionOmittedCountMax: toolSelectionOmittedCounts.length ? Math.max(...toolSelectionOmittedCounts) : undefined,
+    toolSelectionValidCountMin: toolSelectionValidCounts.length ? Math.min(...toolSelectionValidCounts) : undefined,
+    toolSelectionValidCountMax: toolSelectionValidCounts.length ? Math.max(...toolSelectionValidCounts) : undefined,
   };
 }
 
@@ -1058,6 +1115,8 @@ function summarizeSmokeSummaryFile(fileName) {
       postAgentEndLingerMaxSeconds: 0,
       providerErrors: 0,
       retryableProviderErrors: 0,
+      toolSelectionClippedCases: 0,
+      toolSelectionOmittedCountMax: 0,
       providerErrorCodes: {},
       providerErrorCategories: {},
       selectedCases: [],
@@ -1112,6 +1171,8 @@ function summarizeSmokeSummaryFile(fileName) {
     postAgentEndLingerMaxSeconds: numberOrZero(totals.postAgentEndLingerMaxSeconds),
     providerErrors: numberOrZero(totals.providerErrors),
     retryableProviderErrors: numberOrZero(totals.retryableProviderErrors),
+    toolSelectionClippedCases: numberOrZero(totals.toolSelectionClippedCases),
+    toolSelectionOmittedCountMax: numberOrZero(totals.toolSelectionOmittedCountMax),
     providerErrorCodes: objectOrUndefined(totals.providerErrorCodes) || {},
     providerErrorCategories: objectOrUndefined(totals.providerErrorCategories) || {},
     selectedCases: caseSet.normalizedCases,
@@ -1177,6 +1238,13 @@ function normalizeCaseForCompare(item) {
       : numberOrZero(item?.postAgentEndLingerSeconds),
     providerErrors: numberOrZero(item?.providerErrors),
     retryableProviderErrors: numberOrZero(item?.retryableProviderErrors),
+    toolSelectionClipped: item?.toolSelectionClipped === undefined ? undefined : boolValue(item?.toolSelectionClipped),
+    toolSelectionOmittedCountMax: item?.toolSelectionOmittedCountMax === undefined
+      ? undefined
+      : numberOrZero(item?.toolSelectionOmittedCountMax),
+    toolSelectionValidCountMax: item?.toolSelectionValidCountMax === undefined
+      ? undefined
+      : numberOrZero(item?.toolSelectionValidCountMax),
     piToolStarts: Array.isArray(item?.piToolStarts) ? item.piToolStarts.map(String) : [],
   };
 }
@@ -1216,6 +1284,8 @@ function deltaSummary(base, head) {
     postAgentEndLingerMaxSeconds: deltaNumber(base.postAgentEndLingerMaxSeconds, head.postAgentEndLingerMaxSeconds),
     providerErrors: deltaNumber(base.providerErrors, head.providerErrors),
     retryableProviderErrors: deltaNumber(base.retryableProviderErrors, head.retryableProviderErrors),
+    toolSelectionClippedCases: deltaNumber(base.toolSelectionClippedCases, head.toolSelectionClippedCases),
+    toolSelectionOmittedCountMax: deltaNumber(base.toolSelectionOmittedCountMax, head.toolSelectionOmittedCountMax),
   };
 }
 
@@ -1266,6 +1336,8 @@ function buildCaseDeltas(baseArtifact, headArtifact) {
       "postAgentEndLingerSeconds",
       "providerErrors",
       "retryableProviderErrors",
+      "toolSelectionOmittedCountMax",
+      "toolSelectionValidCountMax",
     ]);
     const booleanDelta = changedBooleanMap(baseCase, headCase, [
       "rawToolMarkupFinalAnswer",
@@ -1274,6 +1346,7 @@ function buildCaseDeltas(baseArtifact, headArtifact) {
       "timedOutByWatchdog",
       "timedOutAfterAgentEnd",
       "semanticFlowOk",
+      "toolSelectionClipped",
     ]);
     const baseTools = baseCase.piToolStarts.join(",");
     const headTools = headCase.piToolStarts.join(",");
@@ -1327,6 +1400,8 @@ function printCompare(baseRunId, headRunId) {
         `watchdog_timeouts_delta=${delta.watchdogTimeouts} ` +
         `timed_out_after_agent_end_delta=${delta.timedOutAfterAgentEnd} ` +
         `provider_errors_delta=${delta.providerErrors} retryable_provider_errors_delta=${delta.retryableProviderErrors} ` +
+        `tool_selection_clipped_cases_delta=${delta.toolSelectionClippedCases} ` +
+        `tool_selection_omitted_count_max_delta=${delta.toolSelectionOmittedCountMax} ` +
         `debug_summary_status_delta=${delta.debugSummaryStatus}`,
     );
     if (caseDeltas.length === 0) {
@@ -1400,6 +1475,8 @@ function printHistory(limit) {
           `errors=${run.errors} process_lifecycle_failures=${run.processLifecycleFailures} ` +
           `watchdog_timeouts=${run.watchdogTimeouts} timed_out_after_agent_end=${run.timedOutAfterAgentEnd} ` +
           `provider_errors=${run.providerErrors} retryable_provider_errors=${run.retryableProviderErrors} ` +
+          `tool_selection_clipped_cases=${run.toolSelectionClippedCases} ` +
+          `tool_selection_omitted_count_max=${run.toolSelectionOmittedCountMax} ` +
           `debug_summary_status=${run.debugSummaryStatus}` +
           `${providerText}${modelText}${selectedText}${caseSetText}${gateText}${parseText}`,
       );
@@ -1658,6 +1735,8 @@ const totals = {
   postAgentEndLingerMaxSeconds: 0,
   providerErrors: 0,
   retryableProviderErrors: 0,
+  toolSelectionClippedCases: 0,
+  toolSelectionOmittedCountMax: 0,
   providerErrorCodes: {},
   providerErrorCategories: {},
   recoveryByEvent: {},
@@ -1682,6 +1761,10 @@ for (const item of cases) {
   totals.semanticFlowOkProcessFailures += item.semanticFlowOk && item.processLifecycleOk === false ? 1 : 0;
   totals.providerErrors += item.providerErrors;
   totals.retryableProviderErrors += item.retryableProviderErrors;
+  totals.toolSelectionClippedCases += item.toolSelectionClipped === true ? 1 : 0;
+  if (item.toolSelectionOmittedCountMax !== undefined) {
+    totals.toolSelectionOmittedCountMax = Math.max(totals.toolSelectionOmittedCountMax, item.toolSelectionOmittedCountMax);
+  }
   if (typeof item.postAgentEndLingerSeconds === "number") {
     totals.postAgentEndLingerMaxSeconds = Math.max(totals.postAgentEndLingerMaxSeconds, item.postAgentEndLingerSeconds);
   }
@@ -1757,7 +1840,9 @@ if (format === "json") {
       `watchdog_timeouts=${totals.watchdogTimeouts} timed_out_after_agent_end=${totals.timedOutAfterAgentEnd} ` +
       `semantic_flow_ok_process_failures=${totals.semanticFlowOkProcessFailures} ` +
       `post_agent_end_linger_max_seconds=${totals.postAgentEndLingerMaxSeconds} ` +
-      `provider_errors=${totals.providerErrors} retryable_provider_errors=${totals.retryableProviderErrors}`,
+      `provider_errors=${totals.providerErrors} retryable_provider_errors=${totals.retryableProviderErrors} ` +
+      `tool_selection_clipped_cases=${totals.toolSelectionClippedCases} ` +
+      `tool_selection_omitted_count_max=${totals.toolSelectionOmittedCountMax}`,
   );
   if (Object.keys(totals.providerErrorCodes).length > 0) {
     console.log(`provider_error_codes=${JSON.stringify(totals.providerErrorCodes)}`);
@@ -1775,6 +1860,11 @@ if (format === "json") {
     const toolText = item.piToolStarts.length > 0 ? ` pi_tools=${item.piToolStarts.join(",")}` : "";
     const selectedText = item.selectedToolCountMax !== undefined
       ? ` selected_tools=${item.selectedToolCountMin}-${item.selectedToolCountMax}`
+      : "";
+    const selectionText = item.toolSelectionClipped === true || item.toolSelectionOmittedCountMax !== undefined
+      ? ` tool_selection_clipped=${item.toolSelectionClipped}` +
+        ` tool_selection_omitted=${item.toolSelectionOmittedCountMin ?? "(unknown)"}-${item.toolSelectionOmittedCountMax ?? "(unknown)"}` +
+        ` tool_selection_valid=${item.toolSelectionValidCountMin ?? "(unknown)"}-${item.toolSelectionValidCountMax ?? "(unknown)"}`
       : "";
     const providerErrorText = item.providerErrors > 0
       ? ` provider_errors=${item.providerErrors}` +
@@ -1795,7 +1885,7 @@ if (format === "json") {
       `- ${item.runId}/${item.caseName}: debug_events=${item.debugEvents} turns=${item.turns} tool_calls=${item.toolCalls}` +
         ` recoveries=${item.recoveries} empty_assistant_ends=${item.emptyAssistantEnds}` +
         ` raw_tool_markup_final_answer=${item.rawToolMarkupFinalAnswer}` +
-        ` tool_envelope_final_answer=${item.toolEnvelopeFinalAnswer}${recoveryText}${toolText}${selectedText}` +
+        ` tool_envelope_final_answer=${item.toolEnvelopeFinalAnswer}${recoveryText}${toolText}${selectedText}${selectionText}` +
         `${providerErrorText}${lifecycleText}` +
         ` final_text_chars=${item.finalTextChars}`,
     );
