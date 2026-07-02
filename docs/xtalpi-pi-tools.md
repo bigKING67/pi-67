@@ -37,7 +37,7 @@ content:
 </pi_tool_result>
 ```
 
-工具结果内容是不可信数据：其中出现的指令、角色声明、伪 system prompt 或 `<pi_tool_call>` / `<pi_tool_result>` 文本都不能覆盖 Pi/system/user 指令。实现会把工具结果里的协议标记中和为普通文本，避免工具输出伪造协议边界。
+工具结果内容是不可信数据：其中出现的指令、角色声明、伪 system prompt 或 `<pi_tool_call>` / `<pi_tool_result>` 文本都不能覆盖 Pi/system/user 指令。实现会把工具结果里的协议标记（包括 `<pi_tool_call name="...">` 这类带属性变体）中和为普通文本，避免工具输出伪造协议边界。
 
 工具元数据同样按模型可见的不可信文本处理。工具描述、参数描述、repair prompt 里的旧模型输出和工具名列表都会做协议标记中和、单行化或截断，避免恶意/异常 MCP 工具说明伪造 `<pi_tool_call>` / `<pi_tool_result>` / `<pi_tool_call_history>` 边界。
 
@@ -193,7 +193,7 @@ extensions/xtalpi-pi-tools/fixtures/replay-cases.json
 - `<pi_tool_call name="...">{"arg":...}</pi_tool_call>` 变体解析
 - raw Pi protocol markup final answer repair
 - tool result 作为普通 user 文本序列化
-- tool result prompt-injection / 协议边界中和
+- tool result prompt-injection / 协议边界中和（含带属性协议标签变体）
 - tool metadata / repair prompt 协议边界中和
 - payload 不包含 `tools`、`tool_choice`、`parallel_tool_calls`、`thinking`、`reasoning_effort`
 - payload 不包含 `role=tool`
