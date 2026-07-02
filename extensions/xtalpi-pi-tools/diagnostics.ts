@@ -31,6 +31,11 @@ function numberField(data: Record<string, unknown>, name: string): number | unde
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function booleanField(data: Record<string, unknown>, name: string): boolean | undefined {
+  const value = data[name];
+  return typeof value === "boolean" ? value : undefined;
+}
+
 function sanitizeData(data: Record<string, unknown>): Record<string, unknown> {
   try {
     const raw = JSON.stringify(data);
@@ -74,6 +79,10 @@ export function debugLog(event: string, data: Record<string, unknown>): void {
         max_empty_retries: numberField(safeData, "maxEmptyRetries"),
         max_repair_retries: numberField(safeData, "maxRepairRetries"),
         max_total_recoveries: numberField(safeData, "maxTotalRecoveries"),
+        error_code: stringField(safeData, "errorCode"),
+        error_category: stringField(safeData, "errorCategory"),
+        retryable: booleanField(safeData, "retryable"),
+        http_status: numberField(safeData, "httpStatus"),
         data: safeData,
       })}\n`,
       "utf8",

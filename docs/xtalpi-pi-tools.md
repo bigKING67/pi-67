@@ -264,6 +264,8 @@ $HOME/tmp/xtalpi-pi-tools-smoke/<stamp>-summary.json
 
 摘要 schema 为 `xtalpi-pi-tools.smoke-summary.v1`，包含 provider、model、stamp、selected cases、case timeout、request timeout、max output tokens、failure count、debug-summary gate 状态、总体 recoveries / recovery rate / raw markup final answer / process lifecycle failure / watchdog timeout 计数，以及逐 case telemetry。debug summary JSON 的逐 case telemetry 还包含 `runtimeFingerprint`，用于确认当轮实际协议版本、selected-tool hash、展示工具名、请求超时、输出上限、工具结果截断上限和 recovery limits。
 
+provider 调用失败会写入结构化 debug telemetry：`errorCode`、`errorCategory`、`retryable` 和可选 `httpStatus`。常见代码包括 `api_key_missing`、`request_timeout`、`request_aborted`、`network_error`、`http_401`、`http_403`、`http_408`、`http_429`、`http_5xx`、`http_error`、`non_json_response` 和 `malformed_response`。debug summary 会汇总 `provider_errors`、`retryable_provider_errors`、`provider_error_codes` 和 `provider_error_categories`，且默认要求 `provider_errors=0`。这样可以把晶泰限流/鉴权/上游错误和 Pi 工具协议质量回归分开判断。
+
 汇总最近的冒烟 telemetry：
 
 ```bash
@@ -278,7 +280,7 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   "$HOME/tmp/xtalpi-pi-tools-smoke"
 ```
 
-`--history` 读取 `<stamp>-summary.json`，按最新优先输出每轮 `ok`、`failures`、`cases`、`recoveries`、`recovery_rate`、raw markup final answer、empty assistant end、error、process lifecycle failure 和 watchdog timeout 计数；它会忽略同目录下的 `<stamp>-debug-summary.json` 中间产物，避免把 debug-summary 自身误当成 smoke run。
+`--history` 读取 `<stamp>-summary.json`，按最新优先输出每轮 `ok`、`failures`、`cases`、`recoveries`、`recovery_rate`、raw markup final answer、empty assistant end、error、provider error、process lifecycle failure 和 watchdog timeout 计数；它会忽略同目录下的 `<stamp>-debug-summary.json` 中间产物，避免把 debug-summary 自身误当成 smoke run。
 
 也可以精确汇总某一次 smoke run，避免并发或历史 artifact 干扰：
 
@@ -309,7 +311,7 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   "$HOME/tmp/xtalpi-pi-tools-smoke"
 ```
 
-compare 模式会读取两个 `<stamp>-summary.json`，输出总体 delta 和 case-level delta；总体 delta 覆盖 failures、cases、recoveries、recovery rate、raw markup final answer、empty assistant end、tool envelope final answer、errors、process lifecycle failures、watchdog timeouts 和 debug-summary status。case-level delta 只比较会影响协议质量判断的稳定字段（turns、tool calls、recoveries、error/raw-markup/empty-assistant/tool-envelope、实际工具序列和生命周期状态），不会因为 final answer 文本长度的自然漂移制造噪音。
+compare 模式会读取两个 `<stamp>-summary.json`，输出总体 delta 和 case-level delta；总体 delta 覆盖 failures、cases、recoveries、recovery rate、raw markup final answer、empty assistant end、tool envelope final answer、errors、provider errors、process lifecycle failures、watchdog timeouts 和 debug-summary status。case-level delta 只比较会影响协议质量判断的稳定字段（turns、tool calls、recoveries、error/raw-markup/empty-assistant/tool-envelope、provider error、实际工具序列和生命周期状态），不会因为 final answer 文本长度的自然漂移制造噪音。
 
 compare 模式也支持 JSON，schema 为 `xtalpi-pi-tools.smoke-compare.v1`：
 
@@ -328,7 +330,7 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   "$HOME/tmp/xtalpi-pi-tools-smoke"
 ```
 
-trend-gate 模式会复用 `<stamp>-summary.json`，默认要求最近 N 次都满足：`ok=true`、`failures=0`、`debug_summary_status=0`、`errors=0`、`empty_assistant_ends=0`、`raw_tool_markup_final_answers=0`、`tool_envelope_final_answers=0`、`process_lifecycle_failures=0`。可选地用现有阈值限制 recovery：
+trend-gate 模式会复用 `<stamp>-summary.json`，默认要求最近 N 次都满足：`ok=true`、`failures=0`、`debug_summary_status=0`、`errors=0`、`provider_errors=0`、`empty_assistant_ends=0`、`raw_tool_markup_final_answers=0`、`tool_envelope_final_answers=0`、`process_lifecycle_failures=0`。可选地用现有阈值限制 recovery：
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \

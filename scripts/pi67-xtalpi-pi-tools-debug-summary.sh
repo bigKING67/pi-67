@@ -161,6 +161,30 @@ writeCase(lifecycle, "20260702-000006", "timed-out-after-agent-end", {
   },
 });
 
+const providerError = ensureDir("provider-error");
+writeCase(providerError, "20260702-000007", "http-429", {
+  debugEvents: [
+    {
+      schema: "xtalpi-pi-tools.debug.v1",
+      event: "error.provider",
+      event_category: "error",
+      event_kind: "provider",
+      provider: "xtalpi-pi-tools",
+      model: "deepseek-v4-pro",
+      error_code: "http_429",
+      error_category: "rate_limit",
+      retryable: true,
+      http_status: 429,
+      data: {
+        errorCode: "http_429",
+        errorCategory: "rate_limit",
+        retryable: true,
+        httpStatus: 429,
+      },
+    },
+  ],
+});
+
 const history = ensureDir("history");
 function writeSummary(runId, { dir = history, ok = true, failures = 0, recoveries = 0, raw = 0, errors = 0, cases } = {}) {
   const caseItems = cases || [
@@ -296,6 +320,17 @@ NODE
   fi
   if [[ "$output" != *"process_lifecycle_failures"* || "$output" != *"timed_out_after_agent_end"* ]]; then
     echo "lifecycle timeout output did not expose process lifecycle diagnostics"
+    echo "$output"
+    return 1
+  fi
+
+  if output="$("$SCRIPT_PATH" --latest --expect-cases 1 --max-errors 0 --max-empty-assistant-ends 0 --max-raw-tool-markup-final-answers 0 --max-recoveries 0 "$tmp_dir/provider-error" 2>&1)"; then
+    echo "expected provider error fixture to fail"
+    echo "$output"
+    return 1
+  fi
+  if [[ "$output" != *"provider_errors"* || "$output" != *"provider_error_codes"* || "$output" != *"http_429"* ]]; then
+    echo "provider error output did not expose structured provider diagnostics"
     echo "$output"
     return 1
   fi
@@ -691,6 +726,13 @@ function numberMetric(event, camelName, snakeName) {
   return numberOrUndefined(eventData(event)[camelName]);
 }
 
+function booleanMetric(event, camelName, snakeName) {
+  const direct = event?.[snakeName];
+  if (typeof direct === "boolean") return direct;
+  const fromData = eventData(event)[camelName];
+  return typeof fromData === "boolean" ? fromData : undefined;
+}
+
 function collectRuntimeFingerprint(events) {
   const turnEvents = events.filter((event) => event.event === "turn.start");
   const sources = turnEvents.length > 0 ? turnEvents : events;
@@ -781,6 +823,18 @@ function summarizeCase(debugFileName) {
       ? Math.max(0, elapsedSeconds - agentEndElapsedSeconds)
       : undefined;
   const runtimeFingerprint = collectRuntimeFingerprint(debug.events);
+  const providerErrorEvents = debug.events.filter((event) => event.event === "error.provider");
+  const providerErrorCodes = {};
+  const providerErrorCategories = {};
+  const providerHttpStatuses = [];
+  let retryableProviderErrors = 0;
+  for (const event of providerErrorEvents) {
+    increment(providerErrorCodes, stringMetric(event, "errorCode", "error_code") || "unknown_error");
+    increment(providerErrorCategories, stringMetric(event, "errorCategory", "error_category") || "unknown");
+    const httpStatus = numberMetric(event, "httpStatus", "http_status");
+    if (httpStatus !== undefined) providerHttpStatuses.push(httpStatus);
+    if (booleanMetric(event, "retryable", "retryable") === true) retryableProviderErrors += 1;
+  }
 
   return {
     ...inferCaseParts(debugFileName),
@@ -814,6 +868,11 @@ function summarizeCase(debugFileName) {
     agentEndElapsedSeconds,
     postAgentEndLingerSeconds,
     runtimeFingerprint,
+    providerErrors: providerErrorEvents.length,
+    providerErrorCodes,
+    providerErrorCategories,
+    retryableProviderErrors,
+    providerHttpStatuses: uniqueNumbers(providerHttpStatuses),
     selectedToolCountMin: selectedToolCounts.length ? Math.min(...selectedToolCounts) : undefined,
     selectedToolCountMax: selectedToolCounts.length ? Math.max(...selectedToolCounts) : undefined,
   };
@@ -867,6 +926,10 @@ function summarizeSmokeSummaryFile(fileName) {
       timedOutAfterAgentEnd: 0,
       semanticFlowOkProcessFailures: 0,
       postAgentEndLingerMaxSeconds: 0,
+      providerErrors: 0,
+      retryableProviderErrors: 0,
+      providerErrorCodes: {},
+      providerErrorCategories: {},
       recoveryCaseNames: [],
       caseRecoveries: [],
       gateFailures: ["summary_parse_error"],
@@ -909,6 +972,10 @@ function summarizeSmokeSummaryFile(fileName) {
     timedOutAfterAgentEnd: numberOrZero(totals.timedOutAfterAgentEnd),
     semanticFlowOkProcessFailures: numberOrZero(totals.semanticFlowOkProcessFailures),
     postAgentEndLingerMaxSeconds: numberOrZero(totals.postAgentEndLingerMaxSeconds),
+    providerErrors: numberOrZero(totals.providerErrors),
+    retryableProviderErrors: numberOrZero(totals.retryableProviderErrors),
+    providerErrorCodes: objectOrUndefined(totals.providerErrorCodes) || {},
+    providerErrorCategories: objectOrUndefined(totals.providerErrorCategories) || {},
     recoveryCaseNames: caseRecoveries.map((item) => item.caseName),
     caseRecoveries,
     gateFailures,
@@ -967,6 +1034,8 @@ function normalizeCaseForCompare(item) {
     postAgentEndLingerSeconds: item?.postAgentEndLingerSeconds === undefined
       ? undefined
       : numberOrZero(item?.postAgentEndLingerSeconds),
+    providerErrors: numberOrZero(item?.providerErrors),
+    retryableProviderErrors: numberOrZero(item?.retryableProviderErrors),
     piToolStarts: Array.isArray(item?.piToolStarts) ? item.piToolStarts.map(String) : [],
   };
 }
@@ -1004,6 +1073,8 @@ function deltaSummary(base, head) {
       head.semanticFlowOkProcessFailures,
     ),
     postAgentEndLingerMaxSeconds: deltaNumber(base.postAgentEndLingerMaxSeconds, head.postAgentEndLingerMaxSeconds),
+    providerErrors: deltaNumber(base.providerErrors, head.providerErrors),
+    retryableProviderErrors: deltaNumber(base.retryableProviderErrors, head.retryableProviderErrors),
   };
 }
 
@@ -1052,6 +1123,8 @@ function buildCaseDeltas(baseArtifact, headArtifact) {
       "errors",
       "elapsedSeconds",
       "postAgentEndLingerSeconds",
+      "providerErrors",
+      "retryableProviderErrors",
     ]);
     const booleanDelta = changedBooleanMap(baseCase, headCase, [
       "rawToolMarkupFinalAnswer",
@@ -1110,6 +1183,7 @@ function printCompare(baseRunId, headRunId) {
         `errors_delta=${delta.errors} process_lifecycle_failures_delta=${delta.processLifecycleFailures} ` +
         `watchdog_timeouts_delta=${delta.watchdogTimeouts} ` +
         `timed_out_after_agent_end_delta=${delta.timedOutAfterAgentEnd} ` +
+        `provider_errors_delta=${delta.providerErrors} retryable_provider_errors_delta=${delta.retryableProviderErrors} ` +
         `debug_summary_status_delta=${delta.debugSummaryStatus}`,
     );
     if (caseDeltas.length === 0) {
@@ -1180,6 +1254,7 @@ function printHistory(limit) {
           `tool_envelope_final_answers=${run.toolEnvelopeFinalAnswers} ` +
           `errors=${run.errors} process_lifecycle_failures=${run.processLifecycleFailures} ` +
           `watchdog_timeouts=${run.watchdogTimeouts} timed_out_after_agent_end=${run.timedOutAfterAgentEnd} ` +
+          `provider_errors=${run.providerErrors} retryable_provider_errors=${run.retryableProviderErrors} ` +
           `debug_summary_status=${run.debugSummaryStatus}` +
           `${providerText}${modelText}${gateText}${parseText}`,
       );
@@ -1252,6 +1327,9 @@ function evaluateTrendGate(history) {
     }
     if (run.processLifecycleFailures > 0) {
       gateFailures.push(`${run.runId}: expected process_lifecycle_failures=0, got ${run.processLifecycleFailures}`);
+    }
+    if (run.providerErrors > 0) {
+      gateFailures.push(`${run.runId}: expected provider_errors=0, got ${run.providerErrors}`);
     }
     if (run.emptyAssistantEnds > hardLimits.maxEmptyAssistantEnds) {
       gateFailures.push(
@@ -1420,6 +1498,10 @@ const totals = {
   timedOutAfterAgentEnd: 0,
   semanticFlowOkProcessFailures: 0,
   postAgentEndLingerMaxSeconds: 0,
+  providerErrors: 0,
+  retryableProviderErrors: 0,
+  providerErrorCodes: {},
+  providerErrorCategories: {},
   recoveryByEvent: {},
 };
 
@@ -1440,8 +1522,16 @@ for (const item of cases) {
   totals.watchdogTimeouts += item.timedOutByWatchdog ? 1 : 0;
   totals.timedOutAfterAgentEnd += item.timedOutAfterAgentEnd ? 1 : 0;
   totals.semanticFlowOkProcessFailures += item.semanticFlowOk && item.processLifecycleOk === false ? 1 : 0;
+  totals.providerErrors += item.providerErrors;
+  totals.retryableProviderErrors += item.retryableProviderErrors;
   if (typeof item.postAgentEndLingerSeconds === "number") {
     totals.postAgentEndLingerMaxSeconds = Math.max(totals.postAgentEndLingerMaxSeconds, item.postAgentEndLingerSeconds);
+  }
+  for (const [code, count] of Object.entries(item.providerErrorCodes)) {
+    increment(totals.providerErrorCodes, code, count);
+  }
+  for (const [category, count] of Object.entries(item.providerErrorCategories)) {
+    increment(totals.providerErrorCategories, category, count);
   }
   for (const [event, count] of Object.entries(item.recoveryByEvent)) {
     increment(totals.recoveryByEvent, event, count);
@@ -1462,6 +1552,9 @@ if (totals.debugParseErrors > 0 || totals.mainParseErrors > 0) {
 }
 if (totals.processLifecycleFailures > 0) {
   gateFailures.push(`expected process_lifecycle_failures=0, got ${totals.processLifecycleFailures}`);
+}
+if (totals.providerErrors > 0) {
+  gateFailures.push(`expected provider_errors=0, got ${totals.providerErrors}`);
 }
 if (gates.maxEmptyAssistantEnds !== undefined && totals.emptyAssistantEnds > gates.maxEmptyAssistantEnds) {
   gateFailures.push(`expected empty_assistant_ends<=${gates.maxEmptyAssistantEnds}, got ${totals.emptyAssistantEnds}`);
@@ -1497,8 +1590,15 @@ if (format === "json") {
       `lifecycle_artifacts=${totals.lifecycleArtifacts} process_lifecycle_failures=${totals.processLifecycleFailures} ` +
       `watchdog_timeouts=${totals.watchdogTimeouts} timed_out_after_agent_end=${totals.timedOutAfterAgentEnd} ` +
       `semantic_flow_ok_process_failures=${totals.semanticFlowOkProcessFailures} ` +
-      `post_agent_end_linger_max_seconds=${totals.postAgentEndLingerMaxSeconds}`,
+      `post_agent_end_linger_max_seconds=${totals.postAgentEndLingerMaxSeconds} ` +
+      `provider_errors=${totals.providerErrors} retryable_provider_errors=${totals.retryableProviderErrors}`,
   );
+  if (Object.keys(totals.providerErrorCodes).length > 0) {
+    console.log(`provider_error_codes=${JSON.stringify(totals.providerErrorCodes)}`);
+  }
+  if (Object.keys(totals.providerErrorCategories).length > 0) {
+    console.log(`provider_error_categories=${JSON.stringify(totals.providerErrorCategories)}`);
+  }
   if (Object.keys(totals.recoveryByEvent).length > 0) {
     console.log(`recovery_by_event=${JSON.stringify(totals.recoveryByEvent)}`);
   }
@@ -1509,6 +1609,13 @@ if (format === "json") {
     const toolText = item.piToolStarts.length > 0 ? ` pi_tools=${item.piToolStarts.join(",")}` : "";
     const selectedText = item.selectedToolCountMax !== undefined
       ? ` selected_tools=${item.selectedToolCountMin}-${item.selectedToolCountMax}`
+      : "";
+    const providerErrorText = item.providerErrors > 0
+      ? ` provider_errors=${item.providerErrors}` +
+        ` retryable_provider_errors=${item.retryableProviderErrors}` +
+        ` provider_error_codes=${JSON.stringify(item.providerErrorCodes)}` +
+        ` provider_error_categories=${JSON.stringify(item.providerErrorCategories)}` +
+        ` provider_http_statuses=${item.providerHttpStatuses.join(",") || "(none)"}`
       : "";
     const lifecycleText = item.lifecyclePresent
       ? ` process_lifecycle_ok=${item.processLifecycleOk}` +
@@ -1522,7 +1629,8 @@ if (format === "json") {
       `- ${item.runId}/${item.caseName}: debug_events=${item.debugEvents} turns=${item.turns} tool_calls=${item.toolCalls}` +
         ` recoveries=${item.recoveries} empty_assistant_ends=${item.emptyAssistantEnds}` +
         ` raw_tool_markup_final_answer=${item.rawToolMarkupFinalAnswer}` +
-        ` tool_envelope_final_answer=${item.toolEnvelopeFinalAnswer}${recoveryText}${toolText}${selectedText}${lifecycleText}` +
+        ` tool_envelope_final_answer=${item.toolEnvelopeFinalAnswer}${recoveryText}${toolText}${selectedText}` +
+        `${providerErrorText}${lifecycleText}` +
         ` final_text_chars=${item.finalTextChars}`,
     );
   }

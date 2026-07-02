@@ -16,6 +16,12 @@ import type {
 } from "@earendil-works/pi-ai";
 import { validateToolArguments } from "./argument-validator.ts";
 import { debugLog, safeErrorMessage } from "./diagnostics.ts";
+import {
+  buildHttpError,
+  classifyTransportError,
+  toErrorTelemetry,
+  XtalpiProviderError,
+} from "./errors.ts";
 import { parseToolCall } from "./parser.ts";
 import {
   API_ID,
@@ -367,8 +373,10 @@ async function callXtalpiChat(
 ): Promise<ChatResponse> {
   const apiKey = options?.apiKey || runtimeConfig?.apiKey || "";
   if (isPlaceholderKey(apiKey)) {
-    throw new Error(
+    throw new XtalpiProviderError(
+      "api_key_missing",
       "xtalpi-pi-tools API key is not configured. Set XTALPI_PI_TOOLS_API_KEY or configure models.json providers.xtalpi-pi-tools.apiKey.",
+      { category: "configuration", retryable: false },
     );
   }
 
@@ -383,39 +391,71 @@ async function callXtalpiChat(
     timeoutMs,
   });
 
-  const response = await fetchWithTimeout(
-    endpointFor(model),
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json",
-        authorization: `Bearer ${apiKey}`,
-        ...(model.headers || {}),
-        ...(options?.headers || {}),
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(
+      endpointFor(model),
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+          authorization: `Bearer ${apiKey}`,
+          ...(model.headers || {}),
+          ...(options?.headers || {}),
+        },
+        body: JSON.stringify(payload),
       },
-      body: JSON.stringify(payload),
-    },
-    timeoutMs,
-    options?.signal,
-  );
+      timeoutMs,
+      options?.signal,
+    );
+  } catch (error) {
+    throw classifyTransportError(error, timeoutMs, options?.signal?.aborted === true);
+  }
 
   const body = await response.text();
   if (!response.ok) {
-    throw new Error(`xtalpi-pi-tools HTTP ${response.status}: ${body.slice(0, 1000) || "(no body)"}`);
+    throw buildHttpError(response.status, body);
   }
 
   let json: unknown;
   try {
     json = JSON.parse(body);
   } catch (error) {
-    throw new Error(`xtalpi-pi-tools returned non-JSON response: ${error instanceof Error ? error.message : String(error)}`);
+    throw new XtalpiProviderError(
+      "non_json_response",
+      `xtalpi-pi-tools returned non-JSON response: ${error instanceof Error ? error.message : String(error)}`,
+      {
+        category: "protocol",
+        retryable: true,
+        details: {
+          bodyExcerpt: safeBlockText(body, 1000),
+          bodyChars: body.length,
+        },
+        cause: error,
+      },
+    );
   }
 
   const root = isObject(json) ? json : {};
   const choices = Array.isArray(root.choices) ? root.choices : [];
   const firstChoice = choices.find(isObject);
   const message = isObject(firstChoice?.message) ? firstChoice.message : undefined;
+  if (!message) {
+    throw new XtalpiProviderError(
+      "malformed_response",
+      "xtalpi-pi-tools returned JSON without choices[].message",
+      {
+        category: "protocol",
+        retryable: true,
+        details: {
+          bodyExcerpt: safeBlockText(body, 1000),
+          bodyChars: body.length,
+        },
+      },
+    );
+  }
+
   const content = extractTextFromMessage(message);
   const usage = usageFromResponse(root.usage);
   const responseModel = typeof root.model === "string" ? root.model : undefined;
@@ -731,6 +771,11 @@ function streamXtalpiPiTools(
     } catch (error) {
       output.stopReason = options?.signal?.aborted ? "aborted" : "error";
       output.errorMessage = safeErrorMessage(error);
+      debugLog("error.provider", {
+        provider: PROVIDER_ID,
+        model: model.id,
+        ...toErrorTelemetry(error),
+      });
       stream.push({ type: "error", reason: output.stopReason, error: output });
       stream.end(output);
     }

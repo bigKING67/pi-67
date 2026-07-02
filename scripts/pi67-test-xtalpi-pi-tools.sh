@@ -17,6 +17,7 @@ const { pathToFileURL } = require("node:url");
   const parser = await import(ext("parser.ts"));
   const protocol = await import(ext("protocol.ts"));
   const diagnostics = await import(ext("diagnostics.ts"));
+  const errors = await import(ext("errors.ts"));
   const retry = await import(ext("retry.ts"));
   const serializer = await import(ext("serializer.ts"));
   const textSafety = await import(ext("text-safety.ts"));
@@ -230,6 +231,26 @@ const { pathToFileURL } = require("node:url");
     }
   }
 
+  assert.deepEqual(errors.classifyHttpStatus(401), {
+    code: "http_401",
+    category: "authentication",
+    retryable: false,
+  });
+  assert.deepEqual(errors.classifyHttpStatus(429), {
+    code: "http_429",
+    category: "rate_limit",
+    retryable: true,
+  });
+  assert.deepEqual(errors.classifyHttpStatus(503), {
+    code: "http_5xx",
+    category: "upstream",
+    retryable: true,
+  });
+  const timeoutError = errors.classifyTransportError(new Error("xtalpi-pi-tools timeout after 1000ms"), 1000, false);
+  assert.equal(timeoutError.code, "request_timeout");
+  assert.equal(timeoutError.category, "timeout");
+  assert.equal(timeoutError.retryable, true);
+
   const debugDir = fs.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", "xtalpi-pi-tools-debug-test."));
   const debugFile = path.join(debugDir, "debug.jsonl");
   const previousDebugFlag = process.env.XTALPI_PI_TOOLS_DEBUG;
@@ -266,6 +287,22 @@ const { pathToFileURL } = require("node:url");
     assert.equal(debugEvent.max_repair_retries, 2);
     assert.equal(debugEvent.max_total_recoveries, 4);
     assert.deepEqual(debugEvent.data.selectedToolNames, ["bash", "read"]);
+
+    diagnostics.debugLog("error.provider", {
+      provider: "xtalpi-pi-tools",
+      model: "deepseek-v4-pro",
+      errorCode: "http_429",
+      errorCategory: "rate_limit",
+      retryable: true,
+      httpStatus: 429,
+    });
+    const debugEvents = fs.readFileSync(debugFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    const errorEvent = debugEvents.at(-1);
+    assert.equal(errorEvent.event, "error.provider");
+    assert.equal(errorEvent.error_code, "http_429");
+    assert.equal(errorEvent.error_category, "rate_limit");
+    assert.equal(errorEvent.retryable, true);
+    assert.equal(errorEvent.http_status, 429);
   } finally {
     if (previousDebugFlag === undefined) {
       delete process.env.XTALPI_PI_TOOLS_DEBUG;
@@ -447,6 +484,63 @@ const { pathToFileURL } = require("node:url");
 
   for (const fixture of replayFixtures.providerReplay ?? []) {
     await assertProviderReplayFixture(fixture, registeredProvider, originalFetch);
+  }
+
+  const providerErrorDebugDir = fs.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", "xtalpi-pi-tools-provider-error-test."));
+  const providerErrorDebugFile = path.join(providerErrorDebugDir, "debug.jsonl");
+  const previousProviderErrorDebugFlag = process.env.XTALPI_PI_TOOLS_DEBUG;
+  const previousProviderErrorDebugPath = process.env.XTALPI_PI_TOOLS_DEBUG_PATH;
+  process.env.XTALPI_PI_TOOLS_DEBUG = "1";
+  process.env.XTALPI_PI_TOOLS_DEBUG_PATH = providerErrorDebugFile;
+  global.fetch = async () =>
+    new Response("rate limited for Bearer short", {
+      status: 429,
+      headers: { "content-type": "text/plain" },
+    });
+  try {
+    const http429Stream = registeredProvider.streamSimple(
+      {
+        id: "deepseek-v4-pro",
+        maxTokens: 32768,
+        api: "xtalpi-pi-tools",
+        provider: "xtalpi-pi-tools",
+        baseUrl: "https://example.invalid/v1",
+      },
+      {
+        systemPrompt: "system base",
+        tools: [],
+        messages: [{ role: "user", content: "hello" }],
+      },
+      {},
+    );
+    const http429Final = await http429Stream.result();
+    assert.equal(http429Final.stopReason, "error");
+    assert.match(http429Final.errorMessage, /HTTP 429/);
+    assert.ok(!http429Final.errorMessage.includes("Bearer short"));
+    assert.ok(http429Final.errorMessage.includes("Bearer [REDACTED]"));
+
+    const debugEvents = fs.readFileSync(providerErrorDebugFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    const errorEvent = debugEvents.find((event) => event.event === "error.provider");
+    assert.ok(errorEvent);
+    assert.equal(errorEvent.error_code, "http_429");
+    assert.equal(errorEvent.error_category, "rate_limit");
+    assert.equal(errorEvent.retryable, true);
+    assert.equal(errorEvent.http_status, 429);
+    assert.ok(!JSON.stringify(errorEvent).includes("Bearer short"));
+    assert.ok(JSON.stringify(errorEvent).includes("Bearer [REDACTED]"));
+  } finally {
+    global.fetch = originalFetch;
+    if (previousProviderErrorDebugFlag === undefined) {
+      delete process.env.XTALPI_PI_TOOLS_DEBUG;
+    } else {
+      process.env.XTALPI_PI_TOOLS_DEBUG = previousProviderErrorDebugFlag;
+    }
+    if (previousProviderErrorDebugPath === undefined) {
+      delete process.env.XTALPI_PI_TOOLS_DEBUG_PATH;
+    } else {
+      process.env.XTALPI_PI_TOOLS_DEBUG_PATH = previousProviderErrorDebugPath;
+    }
+    fs.rmSync(providerErrorDebugDir, { recursive: true, force: true });
   }
 
   process.env.XTALPI_PI_TOOLS_MAX_TOOLS = "8";
