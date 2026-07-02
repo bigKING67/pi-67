@@ -31,6 +31,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `scripts/pi67-test-xtalpi-pi-tools.sh` now replays fixture-backed bad-output cases, so real parser/provider regressions are easier to extend without bloating test code.
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh` now includes a local bash/read multi-tool case and finishes with thresholded debug-summary gating for the latest smoke run.
 - `xtalpi-pi-tools` now accepts the common `<pi_tool_call name="...">{"arg":...}</pi_tool_call>` variant as a local tool call, repairs raw Pi protocol markup leaked into final answers, and the live smoke rejects any remaining raw markup.
+- `scripts/pi67-test-xtalpi-pi-tools.sh` now runs smoke/debug-summary self-tests, so tool-boundary and artifact-threshold gates have offline regression coverage.
 
 ### Removed
 

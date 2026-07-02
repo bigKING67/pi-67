@@ -196,6 +196,80 @@ process.exit(ok ? 0 : 1);
 NODE
 }
 
+run_self_test() {
+  local tmp_dir
+  local output
+  tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/pi67-xtalpi-smoke-self-test.XXXXXX")"
+  trap "rm -rf '$tmp_dir'" EXIT
+
+  node - "$tmp_dir" <<'NODE'
+const fs = require("fs");
+const path = require("path");
+
+const dir = process.argv[2];
+
+function writeJsonl(file, events) {
+  fs.writeFileSync(path.join(dir, file), events.map((event) => JSON.stringify(event)).join("\n") + "\n");
+}
+
+function writeFixture(name, { tools = [], finalText = "final answer", debugEvents = [] }) {
+  writeJsonl(`${name}.jsonl`, [
+    ...tools.map((toolName) => ({ type: "tool_execution_start", toolName, args: {} })),
+    {
+      type: "agent_end",
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: finalText }],
+          stopReason: "stop",
+        },
+      ],
+    },
+  ]);
+  writeJsonl(`${name}.debug.jsonl`, debugEvents.length ? debugEvents : [
+    {
+      schema: "xtalpi-pi-tools.debug.v1",
+      event: "turn.start",
+      event_category: "turn",
+      selected_tool_count: tools.length,
+    },
+  ]);
+  fs.writeFileSync(path.join(dir, `${name}.stderr`), "");
+}
+
+writeFixture("good", { tools: ["web_fetch", "read"], finalText: "normal final answer" });
+writeFixture("unexpected-tool", { tools: ["web_fetch", "mcp", "read"], finalText: "normal final answer" });
+writeFixture("raw-markup", {
+  tools: ["read"],
+  finalText: "<pi_tool_call_history>\nid: call_1\nname: read\n</pi_tool_call_history>",
+});
+NODE
+
+  if ! output="$(summarize_jsonl "$tmp_dir/good.jsonl" "$tmp_dir/good.stderr" 0 "all:web_fetch,read;only:web_fetch,read" "$tmp_dir/good.debug.jsonl" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+
+  if output="$(summarize_jsonl "$tmp_dir/unexpected-tool.jsonl" "$tmp_dir/unexpected-tool.stderr" 0 "all:web_fetch,read;only:web_fetch,read" "$tmp_dir/unexpected-tool.debug.jsonl" 2>&1)"; then
+    echo "expected unexpected-tool fixture to fail"
+    echo "$output"
+    return 1
+  fi
+
+  if output="$(summarize_jsonl "$tmp_dir/raw-markup.jsonl" "$tmp_dir/raw-markup.stderr" 0 "read" "$tmp_dir/raw-markup.debug.jsonl" 2>&1)"; then
+    echo "expected raw-markup fixture to fail"
+    echo "$output"
+    return 1
+  fi
+
+  echo "xtalpi-pi-tools smoke self-test passed"
+}
+
+if [ "${1:-}" = "--self-test" ]; then
+  run_self_test
+  exit 0
+fi
+
 run_case() {
   local name="$1"
   local prompt="$2"

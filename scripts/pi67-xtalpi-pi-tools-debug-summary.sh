@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 OUT_DIR="${OUT_DIR:-$HOME/tmp/xtalpi-pi-tools-smoke}"
 FORMAT="text"
 LATEST_ONLY="0"
@@ -32,6 +33,111 @@ Default OUT_DIR:
   $HOME/tmp/xtalpi-pi-tools-smoke
 EOF
 }
+
+run_self_test() {
+  local tmp_dir
+  local output
+  tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/pi67-xtalpi-debug-summary-self-test.XXXXXX")"
+  trap "rm -rf '$tmp_dir'" EXIT
+
+  node - "$tmp_dir" <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
+
+const root = process.argv[2];
+
+function ensureDir(name) {
+  const dir = path.join(root, name);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function writeJsonl(dir, file, events) {
+  fs.writeFileSync(path.join(dir, file), events.map((event) => JSON.stringify(event)).join("\n") + "\n");
+}
+
+function writeCase(dir, runId, name, { finalText = "normal final answer", debugEvents = [], toolNames = [] } = {}) {
+  writeJsonl(dir, `${runId}-${name}.jsonl`, [
+    ...toolNames.map((toolName) => ({ type: "tool_execution_start", toolName, args: {} })),
+    {
+      type: "agent_end",
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: finalText }],
+          stopReason: "stop",
+        },
+      ],
+    },
+  ]);
+  writeJsonl(dir, `${runId}-${name}.debug.jsonl`, debugEvents.length ? debugEvents : [
+    {
+      schema: "xtalpi-pi-tools.debug.v1",
+      event: "turn.start",
+      event_category: "turn",
+      selected_tool_count: toolNames.length,
+    },
+  ]);
+}
+
+const clean = ensureDir("clean");
+writeCase(clean, "20260702-000001", "clean", { toolNames: ["read"] });
+
+const raw = ensureDir("raw");
+writeCase(raw, "20260702-000002", "raw", {
+  toolNames: ["read"],
+  finalText: "<pi_tool_call_history>\nid: call_1\nname: read\n</pi_tool_call_history>",
+});
+
+const recovery = ensureDir("recovery");
+writeCase(recovery, "20260702-000003", "recovering", {
+  debugEvents: [
+    {
+      schema: "xtalpi-pi-tools.debug.v1",
+      event: "turn.start",
+      event_category: "turn",
+      selected_tool_count: 1,
+    },
+    {
+      schema: "xtalpi-pi-tools.debug.v1",
+      event: "recovery.raw_protocol_markup",
+      event_category: "recovery",
+      selected_tool_count: 1,
+    },
+  ],
+});
+NODE
+
+  if ! output="$("$SCRIPT_PATH" --latest --expect-cases 1 --max-errors 0 --max-empty-assistant-ends 0 --max-raw-tool-markup-final-answers 0 --max-recoveries 0 "$tmp_dir/clean" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+
+  if output="$("$SCRIPT_PATH" --latest --expect-cases 1 --max-errors 0 --max-empty-assistant-ends 0 --max-raw-tool-markup-final-answers 0 --max-recoveries 0 "$tmp_dir/raw" 2>&1)"; then
+    echo "expected raw final-answer fixture to fail"
+    echo "$output"
+    return 1
+  fi
+
+  if output="$("$SCRIPT_PATH" --latest --expect-cases 1 --max-errors 0 --max-empty-assistant-ends 0 --max-raw-tool-markup-final-answers 0 --max-recoveries 0 "$tmp_dir/recovery" 2>&1)"; then
+    echo "expected recovery-threshold fixture to fail"
+    echo "$output"
+    return 1
+  fi
+
+  if output="$("$SCRIPT_PATH" --latest --expect-cases 2 "$tmp_dir/clean" 2>&1)"; then
+    echo "expected case-count fixture to fail"
+    echo "$output"
+    return 1
+  fi
+
+  echo "xtalpi-pi-tools debug summary self-test passed"
+}
+
+if [ "${1:-}" = "--self-test" ]; then
+  run_self_test
+  exit 0
+fi
 
 while [ "$#" -gt 0 ]; do
   case "$1" in

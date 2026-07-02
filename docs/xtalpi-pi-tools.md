@@ -197,6 +197,15 @@ extensions/xtalpi-pi-tools/fixtures/replay-cases.json
 - tool metadata / repair prompt 协议边界中和
 - payload 不包含 `tools`、`tool_choice`、`parallel_tool_calls`、`thinking`、`reasoning_effort`
 - payload 不包含 `role=tool`
+- smoke summarizer self-test：`all:` / `only:` 工具边界和 raw markup final answer 负向样例
+- debug-summary self-test：case 数、recovery 阈值和 raw markup final answer threshold gate 负向样例
+
+只验证 smoke/debug-summary gate 本身，不调用真实模型：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --self-test
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --self-test
+```
 
 ## 真实冒烟测试
 

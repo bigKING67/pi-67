@@ -563,9 +563,14 @@ const { pathToFileURL } = require("node:url");
     global.fetch = originalFetch;
   }
 
-  console.log("xtalpi-pi-tools tests passed");
+  console.log("xtalpi-pi-tools protocol/provider tests passed");
 })().catch((error) => {
   console.error(error);
   process.exit(1);
 });
 NODE
+
+bash "$SCRIPT_DIR/pi67-xtalpi-pi-tools-smoke.sh" --self-test
+bash "$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh" --self-test
+
+echo "xtalpi-pi-tools tests passed"
