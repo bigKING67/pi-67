@@ -216,6 +216,15 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --self-test
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
 ```
 
+定位单个慢 case 或排查外部 provider 波动时，可以只跑目标 case：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --list-cases
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --case web-read
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --case no-tool,read
+XTALPI_PI_TOOLS_SMOKE_CASES=web-read bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
+```
+
 覆盖：
 
 1. 无工具普通回答
@@ -232,7 +241,7 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
 
 live smoke 会为子进程显式设置 `XTALPI_PI_TOOLS_TIMEOUT_MS` 和 `XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS`，默认来自 `XTALPI_PI_TOOLS_SMOKE_REQUEST_TIMEOUT_MS=180000` 与 `XTALPI_PI_TOOLS_SMOKE_MAX_OUTPUT_TOKENS=1024`。这只影响 smoke 子进程，不改变日常 `xtalpi-pi-tools` 运行时默认；作用是把晶泰 provider stall 和过度生成收敛成可观察的 smoke 边界，而不是被 Pi 全局 HTTP idle timeout、日常输出上限或 case watchdog 混在一起。
 
-冒烟结束时会调用 debug summary 对最新一轮 artifact 做门禁：case 数必须匹配、Pi 事件不能有 error、不能出现空 assistant 结束、不能出现 raw Pi tool markup final answer，recovery 次数不能超过脚本设定阈值。
+冒烟结束时会调用 debug summary 对最新一轮 artifact 做门禁：case 数必须匹配实际选择的 case 数，Pi 事件不能有 error，不能出现空 assistant 结束，不能出现 raw Pi tool markup final answer，recovery 次数不能超过脚本设定阈值。
 
 输出 JSONL artifact 默认在：
 
@@ -246,7 +255,7 @@ $HOME/tmp/xtalpi-pi-tools-smoke
 $HOME/tmp/xtalpi-pi-tools-smoke/<stamp>-summary.json
 ```
 
-摘要 schema 为 `xtalpi-pi-tools.smoke-summary.v1`，包含 provider、model、stamp、case timeout、request timeout、max output tokens、failure count、debug-summary gate 状态、总体 recoveries / recovery rate / raw markup final answer 计数，以及逐 case telemetry。
+摘要 schema 为 `xtalpi-pi-tools.smoke-summary.v1`，包含 provider、model、stamp、selected cases、case timeout、request timeout、max output tokens、failure count、debug-summary gate 状态、总体 recoveries / recovery rate / raw markup final answer 计数，以及逐 case telemetry。
 
 汇总最近的冒烟 telemetry：
 

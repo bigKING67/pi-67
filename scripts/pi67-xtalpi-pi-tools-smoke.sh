@@ -13,8 +13,6 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 SUMMARY_FILE="${XTALPI_PI_TOOLS_SMOKE_SUMMARY_FILE:-$OUT_DIR/${STAMP}-summary.json}"
 DEBUG_SUMMARY_JSON_FILE="$OUT_DIR/${STAMP}-debug-summary.json"
 
-mkdir -p "$OUT_DIR"
-
 COMMON_ARGS=(
   --provider "$PROVIDER"
   --model "$MODEL"
@@ -26,6 +24,91 @@ COMMON_ARGS=(
   --no-themes
   --mode json
 )
+
+AVAILABLE_CASES=(no-tool bash read bash-read web-read)
+REQUESTED_CASES=()
+SELECTED_CASES=()
+EXPECTED_CASES=0
+REQUESTED_CASE_FILTER_ACTIVE=0
+RUN_SELF_TEST=0
+
+print_usage() {
+  cat <<'EOF'
+Usage:
+  pi67-xtalpi-pi-tools-smoke.sh [--case NAME[,NAME...]]...
+  pi67-xtalpi-pi-tools-smoke.sh --list-cases
+  pi67-xtalpi-pi-tools-smoke.sh --self-test
+
+Environment:
+  CASE_TIMEOUT_SECONDS                         Per-case watchdog seconds. Default: 240.
+  XTALPI_PI_TOOLS_SMOKE_REQUEST_TIMEOUT_MS     Provider request timeout for smoke child processes. Default: 180000.
+  XTALPI_PI_TOOLS_SMOKE_MAX_OUTPUT_TOKENS      Provider max output tokens for smoke child processes. Default: 1024.
+  XTALPI_PI_TOOLS_SMOKE_CASES                  Comma-separated case filter, same values as --case.
+EOF
+}
+
+print_cases() {
+  printf '%s\n' "${AVAILABLE_CASES[@]}"
+}
+
+case_name_is_valid() {
+  case "$1" in
+    no-tool | bash | read | bash-read | web-read) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+case_filter_contains() {
+  local needle="$1"
+  local existing
+  for existing in "${REQUESTED_CASES[@]+"${REQUESTED_CASES[@]}"}"; do
+    if [ "$existing" = "$needle" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+add_case_filter() {
+  local raw="$1"
+  local old_ifs
+  local part
+
+  if [ -z "$raw" ]; then
+    echo "--case requires a non-empty case name" >&2
+    return 1
+  fi
+
+  old_ifs="$IFS"
+  IFS=","
+  set -- $raw
+  IFS="$old_ifs"
+
+  for part in "$@"; do
+    if ! case_name_is_valid "$part"; then
+      echo "unknown xtalpi-pi-tools smoke case: $part" >&2
+      echo "available cases: ${AVAILABLE_CASES[*]}" >&2
+      return 1
+    fi
+    if ! case_filter_contains "$part"; then
+      REQUESTED_CASES+=("$part")
+    fi
+    REQUESTED_CASE_FILTER_ACTIVE=1
+  done
+}
+
+case_is_requested() {
+  local name="$1"
+  if [ "$REQUESTED_CASE_FILTER_ACTIVE" -eq 0 ]; then
+    return 0
+  fi
+  case_filter_contains "$name"
+}
+
+join_by_comma() {
+  local IFS=","
+  echo "$*"
+}
 
 summarize_jsonl() {
   local file="$1"
@@ -286,13 +369,73 @@ NODE
     return 1
   fi
 
+  REQUESTED_CASES=()
+  REQUESTED_CASE_FILTER_ACTIVE=0
+  if ! add_case_filter "no-tool,web-read"; then
+    echo "expected comma-separated case filter to parse"
+    return 1
+  fi
+  if ! case_is_requested "no-tool" || ! case_is_requested "web-read" || case_is_requested "bash"; then
+    echo "case filter selection did not match expected cases"
+    return 1
+  fi
+  if add_case_filter "not-a-case" 2>/dev/null; then
+    echo "expected invalid case filter to fail"
+    return 1
+  fi
+  REQUESTED_CASES=()
+  REQUESTED_CASE_FILTER_ACTIVE=0
+
   echo "xtalpi-pi-tools smoke self-test passed"
 }
 
-if [ "${1:-}" = "--self-test" ]; then
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --self-test)
+      RUN_SELF_TEST=1
+      shift
+      ;;
+    --case)
+      shift
+      if ! add_case_filter "${1:-}"; then
+        exit 2
+      fi
+      shift
+      ;;
+    --case=*)
+      if ! add_case_filter "${1#--case=}"; then
+        exit 2
+      fi
+      shift
+      ;;
+    --list-cases)
+      print_cases
+      exit 0
+      ;;
+    -h | --help)
+      print_usage
+      exit 0
+      ;;
+    *)
+      echo "unknown argument: $1" >&2
+      print_usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [ "$RUN_SELF_TEST" -eq 1 ]; then
   run_self_test
   exit 0
 fi
+
+if [ -n "${XTALPI_PI_TOOLS_SMOKE_CASES:-}" ]; then
+  if ! add_case_filter "$XTALPI_PI_TOOLS_SMOKE_CASES"; then
+    exit 2
+  fi
+fi
+
+mkdir -p "$OUT_DIR"
 
 run_case() {
   local name="$1"
@@ -330,11 +473,23 @@ run_case() {
   summarize_jsonl "$out" "$err" "$status" "$expected_tools" "$debug" || return 1
 }
 
+run_selected_case() {
+  local name="$1"
+  shift
+  if ! case_is_requested "$name"; then
+    return 0
+  fi
+  SELECTED_CASES+=("$name")
+  EXPECTED_CASES=$((EXPECTED_CASES + 1))
+  run_case "$name" "$@"
+}
+
 write_run_summary_artifact() {
   local debug_summary_status="$1"
   local failure_count="$2"
+  local selected_cases_csv="$3"
 
-  node - "$DEBUG_SUMMARY_JSON_FILE" "$SUMMARY_FILE" "$PROVIDER" "$MODEL" "$STAMP" "$CASE_TIMEOUT_SECONDS" "$SMOKE_REQUEST_TIMEOUT_MS" "$SMOKE_MAX_OUTPUT_TOKENS" "$failure_count" "$debug_summary_status" <<'NODE'
+  node - "$DEBUG_SUMMARY_JSON_FILE" "$SUMMARY_FILE" "$PROVIDER" "$MODEL" "$STAMP" "$CASE_TIMEOUT_SECONDS" "$SMOKE_REQUEST_TIMEOUT_MS" "$SMOKE_MAX_OUTPUT_TOKENS" "$selected_cases_csv" "$failure_count" "$debug_summary_status" <<'NODE'
 const fs = require("fs");
 const [
   debugSummaryFile,
@@ -345,6 +500,7 @@ const [
   caseTimeoutSecondsRaw,
   requestTimeoutMsRaw,
   maxOutputTokensRaw,
+  selectedCasesRaw,
   failuresRaw,
   debugSummaryStatusRaw,
 ] = process.argv.slice(2);
@@ -363,6 +519,7 @@ const artifact = {
   caseTimeoutSeconds: Number(caseTimeoutSecondsRaw),
   requestTimeoutMs: Number(requestTimeoutMsRaw),
   maxOutputTokens: Number(maxOutputTokensRaw),
+  selectedCases: String(selectedCasesRaw || "").split(",").filter(Boolean),
   failures,
   debugSummaryStatus,
   ok: failures === 0 && debugSummaryStatus === 0 && Array.isArray(debugSummary.gateFailures) && debugSummary.gateFailures.length === 0,
@@ -375,22 +532,29 @@ NODE
 
 failures=0
 
-run_case "no-tool" "请不要调用工具，只用一句中文回复：xtalpi pi tools smoke ok。" "none" --no-tools || failures=$((failures + 1))
+run_selected_case "no-tool" "请不要调用工具，只用一句中文回复：xtalpi pi tools smoke ok。" "none" --no-tools || failures=$((failures + 1))
 
-run_case "bash" "请只执行一次 pwd，然后用一句中文总结结果。不要再调用第二个工具。" "bash" --tools bash || failures=$((failures + 1))
+run_selected_case "bash" "请只执行一次 pwd，然后用一句中文总结结果。不要再调用第二个工具。" "bash" --tools bash || failures=$((failures + 1))
 
-run_case "read" "请读取 $HOME/.pi/agent/package.json，然后用一句话说出包名和版本。" "read" --tools read || failures=$((failures + 1))
+run_selected_case "read" "请读取 $HOME/.pi/agent/package.json，然后用一句话说出包名和版本。" "read" --tools read || failures=$((failures + 1))
 
-run_case "bash-read" "这是严格工具顺序 smoke：第一步必须使用 bash 工具且 command 必须是 pwd；第二步必须使用 read 工具读取 $HOME/.pi/agent/package.json。禁止用 bash 执行 cat/ls/grep/读取文件。最后用两句话分别说明当前目录、包名和版本。" "all:bash,read" --tools bash,read || failures=$((failures + 1))
+run_selected_case "bash-read" "这是严格工具顺序 smoke：第一步必须使用 bash 工具且 command 必须是 pwd；第二步必须使用 read 工具读取 $HOME/.pi/agent/package.json。禁止用 bash 执行 cat/ls/grep/读取文件。最后用两句话分别说明当前目录、包名和版本。" "all:bash,read" --tools bash,read || failures=$((failures + 1))
 
-run_case "web-read" "请使用 web_fetch 检查 https://github.com/ff-labs/pi-fff 是否能访问；无论 web_fetch 返回什么结果，都继续使用 read 读取 $HOME/.pi/agent/npm/node_modules/@ff-labs/pi-fff/package.json。最后用两句话总结访问结果和本地包名版本。不要搜索本机目录，不要读取 README.md。" "all:web_fetch,read;only:web_fetch,read" --tools web_fetch,read || failures=$((failures + 1))
+run_selected_case "web-read" "请使用 web_fetch 检查 https://github.com/ff-labs/pi-fff 是否能访问；无论 web_fetch 返回什么结果，都继续使用 read 读取 $HOME/.pi/agent/npm/node_modules/@ff-labs/pi-fff/package.json。最后用两句话总结访问结果和本地包名版本。不要搜索本机目录，不要读取 README.md。" "all:web_fetch,read;only:web_fetch,read" --tools web_fetch,read || failures=$((failures + 1))
+
+if [ "$EXPECTED_CASES" -eq 0 ]; then
+  echo "xtalpi-pi-tools smoke: no cases selected" >&2
+  exit 2
+fi
+
+SELECTED_CASES_CSV="$(join_by_comma "${SELECTED_CASES[@]}")"
 
 if [ -x "$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh" ]; then
   echo "===== debug-summary ====="
   debug_summary_status=0
   "$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh" \
     --run-id "$STAMP" \
-    --expect-cases 5 \
+    --expect-cases "$EXPECTED_CASES" \
     --max-errors 0 \
     --max-empty-assistant-ends 0 \
     --max-raw-tool-markup-final-answers 0 \
@@ -404,7 +568,7 @@ if [ -x "$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh" ]; then
   "$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh" \
     --json \
     --run-id "$STAMP" \
-    --expect-cases 5 \
+    --expect-cases "$EXPECTED_CASES" \
     --max-errors 0 \
     --max-empty-assistant-ends 0 \
     --max-raw-tool-markup-final-answers 0 \
@@ -416,14 +580,14 @@ if [ -x "$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh" ]; then
   if [ ! -s "$DEBUG_SUMMARY_JSON_FILE" ]; then
     echo "xtalpi-pi-tools smoke: debug summary JSON artifact was not written: $DEBUG_SUMMARY_JSON_FILE" >&2
     failures=$((failures + 1))
-  elif ! write_run_summary_artifact "$debug_summary_json_status" "$failures"; then
+  elif ! write_run_summary_artifact "$debug_summary_json_status" "$failures" "$SELECTED_CASES_CSV"; then
     echo "xtalpi-pi-tools smoke: failed to write summary artifact: $SUMMARY_FILE" >&2
     failures=$((failures + 1))
   fi
 fi
 
 echo "===== summary ====="
-echo "provider=$PROVIDER model=$MODEL out_dir=$OUT_DIR stamp=$STAMP case_timeout_seconds=$CASE_TIMEOUT_SECONDS request_timeout_ms=$SMOKE_REQUEST_TIMEOUT_MS max_output_tokens=$SMOKE_MAX_OUTPUT_TOKENS failures=$failures"
+echo "provider=$PROVIDER model=$MODEL out_dir=$OUT_DIR stamp=$STAMP selected_cases=$SELECTED_CASES_CSV case_timeout_seconds=$CASE_TIMEOUT_SECONDS request_timeout_ms=$SMOKE_REQUEST_TIMEOUT_MS max_output_tokens=$SMOKE_MAX_OUTPUT_TOKENS failures=$failures"
 if [ -f "$SUMMARY_FILE" ]; then
   echo "summary_json=$SUMMARY_FILE"
 fi
