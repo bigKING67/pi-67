@@ -37,6 +37,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh` now writes a stable per-run JSON summary artifact, and debug-summary can target an exact `--run-id` for trend-safe telemetry.
 - `scripts/pi67-xtalpi-pi-tools-debug-summary.sh --history N` now reports the newest persisted smoke summary artifacts for trend-safe recovery/raw-markup/failure comparisons.
 - `scripts/pi67-xtalpi-pi-tools-debug-summary.sh --compare BASE_RUN HEAD_RUN` now reports run-to-run telemetry deltas and stable case-level protocol differences.
+- `scripts/pi67-xtalpi-pi-tools-debug-summary.sh --trend-gate N` now gates recent smoke summaries for hard failures, raw final-answer leaks, empty assistant ends, recovery thresholds, recovery increases, and repeated recovery cases.
 
 ### Removed
 

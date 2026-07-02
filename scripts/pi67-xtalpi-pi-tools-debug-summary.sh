@@ -7,8 +7,11 @@ FORMAT="text"
 LATEST_ONLY="0"
 RUN_ID=""
 HISTORY_LIMIT=""
+TREND_GATE_LIMIT=""
 COMPARE_BASE_RUN_ID=""
 COMPARE_HEAD_RUN_ID=""
+FAIL_ON_RECOVERY_INCREASE="0"
+MAX_RECOVERY_CASE_RUNS=""
 EXPECT_CASES=""
 MAX_ERRORS="0"
 MAX_EMPTY_ASSISTANT_ENDS=""
@@ -28,6 +31,7 @@ Selection:
   --latest                       summarize the newest run id
   --run-id RUN_ID                summarize one exact smoke run, e.g. 20260702-144643
   --history N                    show newest N persisted *-summary.json smoke runs
+  --trend-gate N                 gate newest N persisted smoke summaries
   --compare BASE_RUN HEAD_RUN    compare two persisted smoke summaries
 
 Gate options:
@@ -38,6 +42,8 @@ Gate options:
   --max-tool-envelope-final-answers N       alias for --max-raw-tool-markup-final-answers
   --max-recoveries N
   --max-recovery-rate N           recoveries / turns
+  --fail-on-recovery-increase     fail if the newest run has more recoveries or a higher recovery rate
+  --max-recovery-case-runs N      fail if one case has recoveries in more than N selected runs
 
 Default OUT_DIR:
   $HOME/tmp/xtalpi-pi-tools-smoke
@@ -124,7 +130,7 @@ writeCase(recovery, "20260702-000003", "recovering", {
 });
 
 const history = ensureDir("history");
-function writeSummary(runId, { ok = true, failures = 0, recoveries = 0, raw = 0, errors = 0, cases } = {}) {
+function writeSummary(runId, { dir = history, ok = true, failures = 0, recoveries = 0, raw = 0, errors = 0, cases } = {}) {
   const caseItems = cases || [
     {
       runId,
@@ -140,20 +146,20 @@ function writeSummary(runId, { ok = true, failures = 0, recoveries = 0, raw = 0,
       piToolStarts: ["read"],
     },
   ];
-  fs.writeFileSync(path.join(history, `${runId}-summary.json`), `${JSON.stringify({
+  fs.writeFileSync(path.join(dir, `${runId}-summary.json`), `${JSON.stringify({
     schema: "xtalpi-pi-tools.smoke-summary.v1",
     createdAt: "2026-07-02T00:00:00.000Z",
     provider: "xtalpi-pi-tools",
     model: "deepseek-v4-pro",
     stamp: runId,
     runId,
-    outDir: history,
+    outDir: dir,
     caseTimeoutSeconds: 180,
     failures,
     debugSummaryStatus: 0,
     ok,
     debugSummary: {
-      outDir: history,
+      outDir: dir,
       latestOnly: false,
       runId,
       gateFailures: ok ? [] : ["fixture failure"],
@@ -178,6 +184,48 @@ writeSummary("20260702-000001", { ok: true, failures: 0, recoveries: 0 });
 writeSummary("20260702-000002", { ok: true, failures: 0, recoveries: 2 });
 writeSummary("20260702-000003", { ok: false, failures: 1, recoveries: 1, raw: 1 });
 fs.writeFileSync(path.join(history, "20260702-000004-debug-summary.json"), "{}\n");
+
+const trend = ensureDir("trend");
+writeSummary("20260702-000001", {
+  dir: trend,
+  ok: true,
+  failures: 0,
+  recoveries: 0,
+  cases: [
+    {
+      runId: "20260702-000001",
+      caseName: "web-read",
+      turns: 4,
+      toolCalls: 3,
+      recoveries: 0,
+      emptyAssistantEnds: 0,
+      rawToolMarkupFinalAnswer: false,
+      toolEnvelopeFinalAnswer: false,
+      errors: 0,
+      piToolStarts: ["web_fetch", "read", "read"],
+    },
+  ],
+});
+writeSummary("20260702-000002", {
+  dir: trend,
+  ok: true,
+  failures: 0,
+  recoveries: 1,
+  cases: [
+    {
+      runId: "20260702-000002",
+      caseName: "web-read",
+      turns: 4,
+      toolCalls: 3,
+      recoveries: 1,
+      emptyAssistantEnds: 0,
+      rawToolMarkupFinalAnswer: false,
+      toolEnvelopeFinalAnswer: false,
+      errors: 0,
+      piToolStarts: ["web_fetch", "read", "read"],
+    },
+  ],
+});
 NODE
 
   if ! output="$("$SCRIPT_PATH" --run-id 20260702-000001 --expect-cases 1 --max-errors 0 --max-empty-assistant-ends 0 --max-raw-tool-markup-final-answers 0 --max-recoveries 0 "$tmp_dir/clean" 2>&1)"; then
@@ -277,6 +325,44 @@ NODE
     return 1
   fi
 
+  local trend_json="$tmp_dir/trend-output.json"
+  if ! output="$("$SCRIPT_PATH" --trend-gate 2 --json "$tmp_dir/trend" >"$trend_json" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+  if ! node - "$trend_json" <<'NODE'; then
+const fs = require("node:fs");
+const file = process.argv[2];
+const data = JSON.parse(fs.readFileSync(file, "utf8"));
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+assert(data.schema === "xtalpi-pi-tools.smoke-trend-gate.v1", "unexpected trend-gate schema");
+assert(data.gateFailures.length === 0, "clean trend gate should pass");
+assert(data.history.runs.length === 2, "trend gate should inspect two runs");
+assert(data.recoveryTrend.recoveryDelta === 1, "recovery trend should preserve the latest delta");
+NODE
+    return 1
+  fi
+
+  if output="$("$SCRIPT_PATH" --trend-gate 2 --max-recoveries 0 "$tmp_dir/trend" 2>&1)"; then
+    echo "expected recovery threshold trend gate to fail"
+    echo "$output"
+    return 1
+  fi
+
+  if output="$("$SCRIPT_PATH" --trend-gate 2 --fail-on-recovery-increase "$tmp_dir/trend" 2>&1)"; then
+    echo "expected recovery increase trend gate to fail"
+    echo "$output"
+    return 1
+  fi
+
+  if output="$("$SCRIPT_PATH" --trend-gate 2 "$tmp_dir/history" 2>&1)"; then
+    echo "expected failed/raw history trend gate to fail"
+    echo "$output"
+    return 1
+  fi
+
   echo "xtalpi-pi-tools debug summary self-test passed"
 }
 
@@ -301,6 +387,14 @@ while [ "$#" -gt 0 ]; do
       ;;
     --history)
       HISTORY_LIMIT="${2:-}"
+      shift 2
+      ;;
+    --trend-gate)
+      if [ "$#" -lt 2 ]; then
+        echo "xtalpi-pi-tools debug summary: --trend-gate requires N" >&2
+        exit 2
+      fi
+      TREND_GATE_LIMIT="${2:-}"
       shift 2
       ;;
     --compare)
@@ -336,6 +430,18 @@ while [ "$#" -gt 0 ]; do
       MAX_RECOVERY_RATE="${2:-}"
       shift 2
       ;;
+    --fail-on-recovery-increase)
+      FAIL_ON_RECOVERY_INCREASE="1"
+      shift
+      ;;
+    --max-recovery-case-runs)
+      if [ "$#" -lt 2 ]; then
+        echo "xtalpi-pi-tools debug summary: --max-recovery-case-runs requires N" >&2
+        exit 2
+      fi
+      MAX_RECOVERY_CASE_RUNS="${2:-}"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -353,8 +459,11 @@ node - \
   "$LATEST_ONLY" \
   "$RUN_ID" \
   "$HISTORY_LIMIT" \
+  "$TREND_GATE_LIMIT" \
   "$COMPARE_BASE_RUN_ID" \
   "$COMPARE_HEAD_RUN_ID" \
+  "$FAIL_ON_RECOVERY_INCREASE" \
+  "$MAX_RECOVERY_CASE_RUNS" \
   "$EXPECT_CASES" \
   "$MAX_ERRORS" \
   "$MAX_EMPTY_ASSISTANT_ENDS" \
@@ -370,8 +479,11 @@ const [
   latestOnlyRaw,
   runIdRaw,
   historyLimitRaw,
+  trendGateLimitRaw,
   compareBaseRunIdRaw,
   compareHeadRunIdRaw,
+  failOnRecoveryIncreaseRaw,
+  maxRecoveryCaseRunsRaw,
   expectCasesRaw,
   maxErrorsRaw,
   maxEmptyAssistantEndsRaw,
@@ -381,6 +493,7 @@ const [
 ] = process.argv.slice(2);
 const latestOnly = latestOnlyRaw === "1";
 const runIdFilter = String(runIdRaw || "").trim();
+const failOnRecoveryIncrease = failOnRecoveryIncreaseRaw === "1";
 const compareBaseRunId = String(compareBaseRunIdRaw || "").trim();
 const compareHeadRunId = String(compareHeadRunIdRaw || "").trim();
 
@@ -411,17 +524,38 @@ if (historyLimit !== undefined && (!Number.isInteger(historyLimit) || historyLim
   console.error("xtalpi-pi-tools debug summary: --history must be a positive integer");
   process.exit(2);
 }
+const trendGateLimit = optionalNumber(trendGateLimitRaw, "--trend-gate");
+if (trendGateLimit !== undefined && (!Number.isInteger(trendGateLimit) || trendGateLimit < 1)) {
+  console.error("xtalpi-pi-tools debug summary: --trend-gate must be a positive integer");
+  process.exit(2);
+}
+const maxRecoveryCaseRuns = optionalNumber(maxRecoveryCaseRunsRaw, "--max-recovery-case-runs");
+if (
+  maxRecoveryCaseRuns !== undefined &&
+  (!Number.isInteger(maxRecoveryCaseRuns) || maxRecoveryCaseRuns < 0)
+) {
+  console.error("xtalpi-pi-tools debug summary: --max-recovery-case-runs must be a non-negative integer");
+  process.exit(2);
+}
 const compareMode = compareBaseRunId !== "" || compareHeadRunId !== "";
 if (compareMode && (compareBaseRunId === "" || compareHeadRunId === "")) {
   console.error("xtalpi-pi-tools debug summary: --compare requires BASE_RUN and HEAD_RUN");
   process.exit(2);
 }
-if (compareMode && historyLimit !== undefined) {
-  console.error("xtalpi-pi-tools debug summary: --compare cannot be combined with --history");
+if (compareMode && (historyLimit !== undefined || trendGateLimit !== undefined)) {
+  console.error("xtalpi-pi-tools debug summary: --compare cannot be combined with --history or --trend-gate");
   process.exit(2);
 }
 if (compareMode && (latestOnly || runIdFilter !== "")) {
   console.error("xtalpi-pi-tools debug summary: --compare cannot be combined with --latest or --run-id");
+  process.exit(2);
+}
+if (historyLimit !== undefined && trendGateLimit !== undefined) {
+  console.error("xtalpi-pi-tools debug summary: --history cannot be combined with --trend-gate");
+  process.exit(2);
+}
+if (trendGateLimit !== undefined && (latestOnly || runIdFilter !== "")) {
+  console.error("xtalpi-pi-tools debug summary: --trend-gate cannot be combined with --latest or --run-id");
   process.exit(2);
 }
 
@@ -573,12 +707,21 @@ function summarizeSmokeSummaryFile(fileName) {
       emptyAssistantEnds: 0,
       toolEnvelopeFinalAnswers: 0,
       errors: 0,
+      recoveryCaseNames: [],
+      caseRecoveries: [],
       gateFailures: ["summary_parse_error"],
     };
   }
 
   const artifact = parsed.value;
   const totals = artifact?.debugSummary?.totals ?? {};
+  const cases = Array.isArray(artifact?.debugSummary?.cases) ? artifact.debugSummary.cases : [];
+  const caseRecoveries = cases
+    .map((item) => ({
+      caseName: String(item?.caseName || "unknown"),
+      recoveries: numberOrZero(item?.recoveries),
+    }))
+    .filter((item) => item.recoveries > 0);
   const gateFailures = Array.isArray(artifact?.debugSummary?.gateFailures)
     ? artifact.debugSummary.gateFailures
     : [];
@@ -600,6 +743,8 @@ function summarizeSmokeSummaryFile(fileName) {
     emptyAssistantEnds: numberOrZero(totals.emptyAssistantEnds),
     toolEnvelopeFinalAnswers: numberOrZero(totals.toolEnvelopeFinalAnswers),
     errors: numberOrZero(totals.errors),
+    recoveryCaseNames: caseRecoveries.map((item) => item.caseName),
+    caseRecoveries,
     gateFailures,
   };
 }
@@ -789,10 +934,14 @@ function printCompare(baseRunId, headRunId) {
   process.exit(0);
 }
 
-function printHistory(limit) {
-  const summaryFiles = fs.readdirSync(outDir)
+function listSmokeSummaryFiles() {
+  return fs.readdirSync(outDir)
     .filter((file) => /^\d{8}-\d{6}-summary\.json$/.test(file))
     .sort();
+}
+
+function buildHistory(limit) {
+  const summaryFiles = listSmokeSummaryFiles();
 
   if (summaryFiles.length === 0) {
     console.error(`xtalpi-pi-tools debug summary: no *-summary.json files found in ${outDir}`);
@@ -802,7 +951,8 @@ function printHistory(limit) {
   const selectedFiles = summaryFiles.slice(-limit).reverse();
   const runs = selectedFiles.map(summarizeSmokeSummaryFile);
   const parseErrorCount = runs.filter((run) => run.parseError).length;
-  const history = {
+
+  return {
     schema: "xtalpi-pi-tools.smoke-history.v1",
     outDir,
     requested: limit,
@@ -812,13 +962,18 @@ function printHistory(limit) {
     parseErrorCount,
     runs,
   };
+}
+
+function printHistory(limit) {
+  const history = buildHistory(limit);
+  const { runs } = history;
 
   if (format === "json") {
     console.log(JSON.stringify(history, null, 2));
   } else {
     console.log("xtalpi-pi-tools smoke history");
     console.log(
-      `out_dir=${outDir} requested=${limit} found=${runs.length} total_artifacts=${summaryFiles.length} ` +
+      `out_dir=${outDir} requested=${history.requested} found=${history.found} total_artifacts=${history.totalArtifacts} ` +
         "order=newest_first",
     );
     for (const run of runs) {
@@ -838,7 +993,168 @@ function printHistory(limit) {
     }
   }
 
-  process.exit(parseErrorCount > 0 ? 1 : 0);
+  process.exit(history.parseErrorCount > 0 ? 1 : 0);
+}
+
+function buildRecoveryTrend(runs) {
+  const latest = runs[0];
+  const previous = runs[1];
+  const latestRecoveries = numberOrZero(latest?.recoveries);
+  const previousRecoveries = numberOrZero(previous?.recoveries);
+  const latestRecoveryRate = numberOrZero(latest?.recoveryRate);
+  const previousRecoveryRate = numberOrZero(previous?.recoveryRate);
+
+  return {
+    latestRunId: latest?.runId,
+    previousRunId: previous?.runId,
+    latestRecoveries,
+    previousRecoveries,
+    recoveryDelta: previous ? latestRecoveries - previousRecoveries : 0,
+    latestRecoveryRate,
+    previousRecoveryRate,
+    recoveryRateDelta: previous ? latestRecoveryRate - previousRecoveryRate : 0,
+  };
+}
+
+function buildRecoveryCaseRunCounts(runs) {
+  const result = {};
+  for (const run of runs) {
+    const names = new Set(Array.isArray(run.recoveryCaseNames) ? run.recoveryCaseNames : []);
+    for (const name of names) {
+      result[name] = (result[name] ?? 0) + 1;
+    }
+  }
+  return result;
+}
+
+function evaluateTrendGate(history) {
+  const hardLimits = {
+    maxErrors: gates.maxErrors ?? 0,
+    maxEmptyAssistantEnds: gates.maxEmptyAssistantEnds ?? 0,
+    maxRawToolMarkupFinalAnswers: gates.maxRawToolMarkupFinalAnswers ?? 0,
+    maxToolEnvelopeFinalAnswers: gates.maxRawToolMarkupFinalAnswers ?? 0,
+    maxRecoveries: gates.maxRecoveries,
+    maxRecoveryRate: gates.maxRecoveryRate,
+    maxRecoveryCaseRuns,
+    failOnRecoveryIncrease,
+  };
+  const gateFailures = [];
+
+  for (const run of history.runs) {
+    if (run.parseError) {
+      gateFailures.push(`${run.runId}: summary parse error`);
+      continue;
+    }
+    if (run.ok !== true) {
+      gateFailures.push(`${run.runId}: expected ok=true, got ${run.ok}`);
+    }
+    if (run.failures > 0) {
+      gateFailures.push(`${run.runId}: expected failures=0, got ${run.failures}`);
+    }
+    if (run.debugSummaryStatus > 0) {
+      gateFailures.push(`${run.runId}: expected debug_summary_status=0, got ${run.debugSummaryStatus}`);
+    }
+    if (run.errors > hardLimits.maxErrors) {
+      gateFailures.push(`${run.runId}: expected errors<=${hardLimits.maxErrors}, got ${run.errors}`);
+    }
+    if (run.emptyAssistantEnds > hardLimits.maxEmptyAssistantEnds) {
+      gateFailures.push(
+        `${run.runId}: expected empty_assistant_ends<=${hardLimits.maxEmptyAssistantEnds}, got ${run.emptyAssistantEnds}`,
+      );
+    }
+    if (run.rawToolMarkupFinalAnswers > hardLimits.maxRawToolMarkupFinalAnswers) {
+      gateFailures.push(
+        `${run.runId}: expected raw_tool_markup_final_answers<=${hardLimits.maxRawToolMarkupFinalAnswers}, got ${run.rawToolMarkupFinalAnswers}`,
+      );
+    }
+    if (run.toolEnvelopeFinalAnswers > hardLimits.maxToolEnvelopeFinalAnswers) {
+      gateFailures.push(
+        `${run.runId}: expected tool_envelope_final_answers<=${hardLimits.maxToolEnvelopeFinalAnswers}, got ${run.toolEnvelopeFinalAnswers}`,
+      );
+    }
+    if (hardLimits.maxRecoveries !== undefined && run.recoveries > hardLimits.maxRecoveries) {
+      gateFailures.push(`${run.runId}: expected recoveries<=${hardLimits.maxRecoveries}, got ${run.recoveries}`);
+    }
+    if (hardLimits.maxRecoveryRate !== undefined && run.recoveryRate > hardLimits.maxRecoveryRate) {
+      gateFailures.push(
+        `${run.runId}: expected recovery_rate<=${hardLimits.maxRecoveryRate}, got ${run.recoveryRate.toFixed(4)}`,
+      );
+    }
+  }
+
+  const recoveryTrend = buildRecoveryTrend(history.runs);
+  if (
+    hardLimits.failOnRecoveryIncrease &&
+    recoveryTrend.previousRunId &&
+    (recoveryTrend.recoveryDelta > 0 || recoveryTrend.recoveryRateDelta > 0)
+  ) {
+    gateFailures.push(
+      `recovery increased: ${recoveryTrend.previousRunId}->${recoveryTrend.latestRunId} ` +
+        `recoveries_delta=${recoveryTrend.recoveryDelta} recovery_rate_delta=${recoveryTrend.recoveryRateDelta.toFixed(4)}`,
+    );
+  }
+
+  const recoveryCaseRunCounts = buildRecoveryCaseRunCounts(history.runs);
+  const repeatedRecoveryCases = Object.entries(recoveryCaseRunCounts)
+    .filter(([, count]) => count > 1)
+    .map(([caseName, runCount]) => ({ caseName, runCount }));
+  if (hardLimits.maxRecoveryCaseRuns !== undefined) {
+    for (const [caseName, runCount] of Object.entries(recoveryCaseRunCounts)) {
+      if (runCount > hardLimits.maxRecoveryCaseRuns) {
+        gateFailures.push(
+          `${caseName}: expected recovery_case_runs<=${hardLimits.maxRecoveryCaseRuns}, got ${runCount}`,
+        );
+      }
+    }
+  }
+
+  return {
+    limits: hardLimits,
+    recoveryTrend,
+    recoveryCaseRunCounts,
+    repeatedRecoveryCases,
+    gateFailures,
+  };
+}
+
+function printTrendGate(limit) {
+  const history = buildHistory(limit);
+  const evaluation = evaluateTrendGate(history);
+  const trendGate = {
+    schema: "xtalpi-pi-tools.smoke-trend-gate.v1",
+    outDir,
+    requested: history.requested,
+    totalArtifacts: history.totalArtifacts,
+    found: history.found,
+    order: history.order,
+    ok: evaluation.gateFailures.length === 0,
+    ...evaluation,
+    history,
+  };
+
+  if (format === "json") {
+    console.log(JSON.stringify(trendGate, null, 2));
+  } else {
+    console.log("xtalpi-pi-tools smoke trend gate");
+    console.log(
+      `out_dir=${outDir} requested=${history.requested} found=${history.found} ` +
+        `total_artifacts=${history.totalArtifacts} order=${history.order} ok=${trendGate.ok}`,
+    );
+    console.log(
+      `latest=${evaluation.recoveryTrend.latestRunId || "(none)"} ` +
+        `previous=${evaluation.recoveryTrend.previousRunId || "(none)"} ` +
+        `recoveries_delta=${evaluation.recoveryTrend.recoveryDelta} ` +
+        `recovery_rate_delta=${evaluation.recoveryTrend.recoveryRateDelta.toFixed(4)}`,
+    );
+    if (evaluation.repeatedRecoveryCases.length > 0) {
+      console.log(`repeated_recovery_cases=${JSON.stringify(evaluation.repeatedRecoveryCases)}`);
+    }
+    if (evaluation.gateFailures.length > 0) {
+      console.error(`gate_failures=${JSON.stringify(evaluation.gateFailures)}`);
+    }
+  }
+
+  process.exit(evaluation.gateFailures.length > 0 ? 1 : 0);
 }
 
 if (!fs.existsSync(outDir) || !fs.statSync(outDir).isDirectory()) {
@@ -848,6 +1164,10 @@ if (!fs.existsSync(outDir) || !fs.statSync(outDir).isDirectory()) {
 
 if (historyLimit !== undefined) {
   printHistory(historyLimit);
+}
+
+if (trendGateLimit !== undefined) {
+  printTrendGate(trendGateLimit);
 }
 
 if (compareMode) {

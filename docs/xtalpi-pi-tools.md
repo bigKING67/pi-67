@@ -299,6 +299,43 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   "$HOME/tmp/xtalpi-pi-tools-smoke"
 ```
 
+对最近 N 次 smoke 摘要执行趋势门禁：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
+  --trend-gate 5 \
+  "$HOME/tmp/xtalpi-pi-tools-smoke"
+```
+
+trend-gate 模式会复用 `<stamp>-summary.json`，默认要求最近 N 次都满足：`ok=true`、`failures=0`、`debug_summary_status=0`、`errors=0`、`empty_assistant_ends=0`、`raw_tool_markup_final_answers=0`、`tool_envelope_final_answers=0`。可选地用现有阈值限制 recovery：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
+  --trend-gate 5 \
+  --max-recoveries 1 \
+  --max-recovery-rate 0.1 \
+  --max-recovery-case-runs 1 \
+  "$HOME/tmp/xtalpi-pi-tools-smoke"
+```
+
+如果要把“最新 run 比上一 run 的 recovery 次数增加，或 recovery rate 变高”也作为失败条件，可以加：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
+  --trend-gate 5 \
+  --fail-on-recovery-increase \
+  "$HOME/tmp/xtalpi-pi-tools-smoke"
+```
+
+trend-gate 支持 JSON，schema 为 `xtalpi-pi-tools.smoke-trend-gate.v1`，包含 history、gate failures、latest-vs-previous recovery delta、重复 recovery case 统计和实际生效阈值：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
+  --trend-gate 5 \
+  --json \
+  "$HOME/tmp/xtalpi-pi-tools-smoke"
+```
+
 也可以给 summary 加发布阈值：
 
 ```bash
