@@ -3,6 +3,7 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PI_BIN="${PI_BIN:-$(which pi)}"
+PI_AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
 PROVIDER="${PROVIDER:-xtalpi-pi-tools}"
 MODEL="${MODEL:-deepseek-v4-pro}"
 OUT_DIR="${OUT_DIR:-$HOME/tmp/xtalpi-pi-tools-smoke}"
@@ -10,9 +11,12 @@ CASE_TIMEOUT_SECONDS="${CASE_TIMEOUT_SECONDS:-240}"
 SMOKE_REQUEST_TIMEOUT_MS="${XTALPI_PI_TOOLS_SMOKE_REQUEST_TIMEOUT_MS:-${XTALPI_PI_TOOLS_TIMEOUT_MS:-180000}}"
 SMOKE_MAX_OUTPUT_TOKENS="${XTALPI_PI_TOOLS_SMOKE_MAX_OUTPUT_TOKENS:-${XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS:-1024}}"
 SMOKE_STOP_ON_PROVIDER_ERROR="${XTALPI_PI_TOOLS_SMOKE_STOP_ON_PROVIDER_ERROR:-1}"
+SMOKE_PREFLIGHT="${XTALPI_PI_TOOLS_SMOKE_PREFLIGHT:-1}"
+SMOKE_PREFLIGHT_TIMEOUT_MS="${XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_TIMEOUT_MS:-10000}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 SUMMARY_FILE="${XTALPI_PI_TOOLS_SMOKE_SUMMARY_FILE:-$OUT_DIR/${STAMP}-summary.json}"
 DEBUG_SUMMARY_JSON_FILE="$OUT_DIR/${STAMP}-debug-summary.json"
+PROVIDER_HEALTH_FILE="$OUT_DIR/${STAMP}-provider-health.json"
 
 COMMON_ARGS=(
   --provider "$PROVIDER"
@@ -48,6 +52,8 @@ Environment:
   XTALPI_PI_TOOLS_SMOKE_REQUEST_TIMEOUT_MS     Provider request timeout for smoke child processes. Default: 180000.
   XTALPI_PI_TOOLS_SMOKE_MAX_OUTPUT_TOKENS      Provider max output tokens for smoke child processes. Default: 1024.
   XTALPI_PI_TOOLS_SMOKE_STOP_ON_PROVIDER_ERROR Stop remaining cases after a provider error. Default: 1.
+  XTALPI_PI_TOOLS_SMOKE_PREFLIGHT              Run provider health preflight before cases. Default: 1.
+  XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_TIMEOUT_MS   Provider health preflight timeout. Default: 10000.
   XTALPI_PI_TOOLS_SMOKE_CASES                  Comma-separated case filter, same values as --case.
 EOF
 }
@@ -142,6 +148,15 @@ for (const line of fs.readFileSync(file, "utf8").split(/\n/).filter(Boolean)) {
 }
 console.log(count);
 NODE
+}
+
+run_provider_preflight() {
+  node "$SCRIPT_DIR/pi67-xtalpi-provider-health.mjs" \
+    --agent-dir "$PI_AGENT_DIR" \
+    --provider "$PROVIDER" \
+    --model "$MODEL" \
+    --timeout-ms "$SMOKE_PREFLIGHT_TIMEOUT_MS" \
+    --output-file "$PROVIDER_HEALTH_FILE"
 }
 
 summarize_jsonl() {
@@ -682,11 +697,12 @@ write_run_summary_artifact() {
   local selected_cases_csv="$3"
   local stop_reason="$4"
 
-  node - "$DEBUG_SUMMARY_JSON_FILE" "$SUMMARY_FILE" "$PROVIDER" "$MODEL" "$STAMP" "$CASE_TIMEOUT_SECONDS" "$SMOKE_REQUEST_TIMEOUT_MS" "$SMOKE_MAX_OUTPUT_TOKENS" "$selected_cases_csv" "$failure_count" "$debug_summary_status" "$SMOKE_STOP_ON_PROVIDER_ERROR" "$stop_reason" <<'NODE'
+  node - "$DEBUG_SUMMARY_JSON_FILE" "$SUMMARY_FILE" "$PROVIDER_HEALTH_FILE" "$PROVIDER" "$MODEL" "$STAMP" "$CASE_TIMEOUT_SECONDS" "$SMOKE_REQUEST_TIMEOUT_MS" "$SMOKE_MAX_OUTPUT_TOKENS" "$selected_cases_csv" "$failure_count" "$debug_summary_status" "$SMOKE_STOP_ON_PROVIDER_ERROR" "$SMOKE_PREFLIGHT" "$SMOKE_PREFLIGHT_TIMEOUT_MS" "$stop_reason" <<'NODE'
 const fs = require("fs");
 const [
   debugSummaryFile,
   summaryFile,
+  providerHealthFile,
   provider,
   model,
   stamp,
@@ -697,10 +713,15 @@ const [
   failuresRaw,
   debugSummaryStatusRaw,
   stopOnProviderErrorRaw,
+  preflightRaw,
+  preflightTimeoutMsRaw,
   stopReasonRaw,
 ] = process.argv.slice(2);
 
 const debugSummary = JSON.parse(fs.readFileSync(debugSummaryFile, "utf8"));
+const providerHealth = providerHealthFile && fs.existsSync(providerHealthFile)
+  ? JSON.parse(fs.readFileSync(providerHealthFile, "utf8"))
+  : undefined;
 const failures = Number(failuresRaw);
 const debugSummaryStatus = Number(debugSummaryStatusRaw);
 const artifact = {
@@ -716,7 +737,10 @@ const artifact = {
   maxOutputTokens: Number(maxOutputTokensRaw),
   selectedCases: String(selectedCasesRaw || "").split(",").filter(Boolean),
   stopOnProviderError: /^(1|true|yes|on)$/i.test(String(stopOnProviderErrorRaw || "")),
+  providerHealthPreflight: /^(1|true|yes|on)$/i.test(String(preflightRaw || "")),
+  providerHealthPreflightTimeoutMs: Number(preflightTimeoutMsRaw),
   stopReason: stopReasonRaw || undefined,
+  providerHealth,
   failures,
   debugSummaryStatus,
   ok: failures === 0 && debugSummaryStatus === 0 && Array.isArray(debugSummary.gateFailures) && debugSummary.gateFailures.length === 0,
@@ -727,7 +751,117 @@ fs.writeFileSync(summaryFile, `${JSON.stringify(artifact, null, 2)}\n`);
 NODE
 }
 
+write_preflight_failure_summary_artifact() {
+  local failure_count="$1"
+  local stop_reason="$2"
+
+  node - "$SUMMARY_FILE" "$PROVIDER_HEALTH_FILE" "$PROVIDER" "$MODEL" "$STAMP" "$CASE_TIMEOUT_SECONDS" "$SMOKE_REQUEST_TIMEOUT_MS" "$SMOKE_MAX_OUTPUT_TOKENS" "$failure_count" "$SMOKE_STOP_ON_PROVIDER_ERROR" "$SMOKE_PREFLIGHT" "$SMOKE_PREFLIGHT_TIMEOUT_MS" "$stop_reason" <<'NODE'
+const fs = require("fs");
+const [
+  summaryFile,
+  providerHealthFile,
+  provider,
+  model,
+  stamp,
+  caseTimeoutSecondsRaw,
+  requestTimeoutMsRaw,
+  maxOutputTokensRaw,
+  failuresRaw,
+  stopOnProviderErrorRaw,
+  preflightRaw,
+  preflightTimeoutMsRaw,
+  stopReasonRaw,
+] = process.argv.slice(2);
+
+const providerHealth = providerHealthFile && fs.existsSync(providerHealthFile)
+  ? JSON.parse(fs.readFileSync(providerHealthFile, "utf8"))
+  : { ok: false, errorCode: "provider_health_missing", errorCategory: "configuration", retryable: false };
+const providerErrorCode = String(providerHealth.errorCode || "unknown_error");
+const providerErrorCategory = String(providerHealth.errorCategory || "unknown");
+const debugSummary = {
+  outDir: require("path").dirname(summaryFile),
+  latestOnly: false,
+  runId: stamp,
+  gates: {
+    providerHealthPreflight: true,
+  },
+  gateFailures: [`provider_health_failed:${providerErrorCode}`],
+  totals: {
+    cases: 0,
+    debugEvents: 0,
+    debugParseErrors: 0,
+    mainParseErrors: 0,
+    turns: 0,
+    toolCalls: 0,
+    recoveries: 0,
+    emptyAssistantEnds: 0,
+    rawToolMarkupFinalAnswers: 0,
+    toolEnvelopeFinalAnswers: 0,
+    piToolStarts: 0,
+    errors: 0,
+    lifecycleArtifacts: 0,
+    processLifecycleFailures: 0,
+    watchdogTimeouts: 0,
+    timedOutAfterAgentEnd: 0,
+    semanticFlowOkProcessFailures: 0,
+    postAgentEndLingerMaxSeconds: 0,
+    providerErrors: 1,
+    retryableProviderErrors: providerHealth.retryable === true ? 1 : 0,
+    providerErrorCodes: { [providerErrorCode]: 1 },
+    providerErrorCategories: { [providerErrorCategory]: 1 },
+    recoveryByEvent: {},
+    recoveryRate: 0,
+  },
+  cases: [],
+};
+
+const artifact = {
+  schema: "xtalpi-pi-tools.smoke-summary.v1",
+  createdAt: new Date().toISOString(),
+  provider,
+  model,
+  stamp,
+  runId: stamp,
+  outDir: debugSummary.outDir,
+  caseTimeoutSeconds: Number(caseTimeoutSecondsRaw),
+  requestTimeoutMs: Number(requestTimeoutMsRaw),
+  maxOutputTokens: Number(maxOutputTokensRaw),
+  selectedCases: [],
+  stopOnProviderError: /^(1|true|yes|on)$/i.test(String(stopOnProviderErrorRaw || "")),
+  providerHealthPreflight: /^(1|true|yes|on)$/i.test(String(preflightRaw || "")),
+  providerHealthPreflightTimeoutMs: Number(preflightTimeoutMsRaw),
+  stopReason: stopReasonRaw || undefined,
+  providerHealth,
+  failures: Number(failuresRaw),
+  debugSummaryStatus: 1,
+  ok: false,
+  debugSummary,
+};
+
+fs.writeFileSync(summaryFile, `${JSON.stringify(artifact, null, 2)}\n`);
+NODE
+}
+
 failures=0
+
+if flag_enabled "$SMOKE_PREFLIGHT"; then
+  echo "===== provider-health ====="
+  if ! run_provider_preflight; then
+    failures=$((failures + 1))
+    STOP_REMAINING=1
+    STOP_REASON="provider_health_failed"
+    if ! write_preflight_failure_summary_artifact "$failures" "$STOP_REASON"; then
+      echo "xtalpi-pi-tools smoke: failed to write preflight failure summary artifact: $SUMMARY_FILE" >&2
+      failures=$((failures + 1))
+    fi
+    echo "===== summary ====="
+    echo "provider=$PROVIDER model=$MODEL out_dir=$OUT_DIR stamp=$STAMP selected_cases= case_timeout_seconds=$CASE_TIMEOUT_SECONDS request_timeout_ms=$SMOKE_REQUEST_TIMEOUT_MS max_output_tokens=$SMOKE_MAX_OUTPUT_TOKENS preflight=$SMOKE_PREFLIGHT preflight_timeout_ms=$SMOKE_PREFLIGHT_TIMEOUT_MS stop_on_provider_error=$SMOKE_STOP_ON_PROVIDER_ERROR stop_reason=${STOP_REASON:-none} failures=$failures"
+    if [ -f "$SUMMARY_FILE" ]; then
+      echo "summary_json=$SUMMARY_FILE"
+    fi
+    exit 1
+  fi
+fi
 
 run_selected_case "no-tool" "请不要调用工具，只用一句中文回复：xtalpi pi tools smoke ok。" "none" --no-tools || failures=$((failures + 1))
 
@@ -784,7 +918,7 @@ if [ -x "$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh" ]; then
 fi
 
 echo "===== summary ====="
-echo "provider=$PROVIDER model=$MODEL out_dir=$OUT_DIR stamp=$STAMP selected_cases=$SELECTED_CASES_CSV case_timeout_seconds=$CASE_TIMEOUT_SECONDS request_timeout_ms=$SMOKE_REQUEST_TIMEOUT_MS max_output_tokens=$SMOKE_MAX_OUTPUT_TOKENS stop_on_provider_error=$SMOKE_STOP_ON_PROVIDER_ERROR stop_reason=${STOP_REASON:-none} failures=$failures"
+echo "provider=$PROVIDER model=$MODEL out_dir=$OUT_DIR stamp=$STAMP selected_cases=$SELECTED_CASES_CSV case_timeout_seconds=$CASE_TIMEOUT_SECONDS request_timeout_ms=$SMOKE_REQUEST_TIMEOUT_MS max_output_tokens=$SMOKE_MAX_OUTPUT_TOKENS preflight=$SMOKE_PREFLIGHT preflight_timeout_ms=$SMOKE_PREFLIGHT_TIMEOUT_MS stop_on_provider_error=$SMOKE_STOP_ON_PROVIDER_ERROR stop_reason=${STOP_REASON:-none} failures=$failures"
 if [ -f "$SUMMARY_FILE" ]; then
   echo "summary_json=$SUMMARY_FILE"
 fi

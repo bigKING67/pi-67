@@ -378,7 +378,8 @@ pi-67/
 │   ├── pi67-xtalpi-pi-tools.sh
 │   ├── pi67-test-xtalpi-pi-tools.sh
 │   ├── pi67-xtalpi-pi-tools-smoke.sh
-│   └── pi67-xtalpi-pi-tools-debug-summary.sh
+│   ├── pi67-xtalpi-pi-tools-debug-summary.sh
+│   └── pi67-xtalpi-provider-health.mjs
 └── templates/
     └── scrapers/
 ```
@@ -405,6 +406,12 @@ bash ~/.pi/agent/scripts/pi67-test-xtalpi-pi-tools.sh
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
+```
+
+provider health 快速预检：
+
+```bash
+node ~/.pi/agent/scripts/pi67-xtalpi-provider-health.mjs
 ```
 
 冒烟 telemetry 汇总：

@@ -209,6 +209,9 @@ fi
 if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-pi-tools-debug-summary.sh" ]; then
   bash -n "$REPO_ROOT/scripts/pi67-xtalpi-pi-tools-debug-summary.sh"
 fi
+if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-provider-health.mjs" ]; then
+  node --check "$REPO_ROOT/scripts/pi67-xtalpi-provider-health.mjs" >/dev/null
+fi
 pass "shell scripts parse"
 
 section "JSON"
@@ -559,6 +562,9 @@ pass "release artifact smoke completed"
 
 section "xtalpi-pi-tools unit tests"
 "$REPO_ROOT/scripts/pi67-test-xtalpi-pi-tools.sh" >/tmp/pi67-smoke-xtalpi-pi-tools-test.log
+if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-provider-health.mjs" ]; then
+  node "$REPO_ROOT/scripts/pi67-xtalpi-provider-health.mjs" --self-test >/tmp/pi67-smoke-xtalpi-provider-health-test.log
+fi
 pass "xtalpi-pi-tools protocol tests completed"
 
 section "Temp in-place install"

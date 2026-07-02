@@ -48,6 +48,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - xtalpi tool argument validation now covers common JSON Schema bounds for strings, numbers, arrays, and objects before Pi executes a requested tool, with replay coverage for invalid bounded arguments followed by model repair.
 - xtalpi provider failures are now classified into structured telemetry codes such as `api_key_missing`, `request_timeout`, `network_error`, `http_401`, `http_429`, `http_5xx`, `non_json_response`, and `malformed_response`; debug summary gates fail on provider errors and report provider error code/category counts.
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh` now stops remaining cases after the first provider error by default, while still writing a scoped summary artifact; set `XTALPI_PI_TOOLS_SMOKE_STOP_ON_PROVIDER_ERROR=0` for exhaustive failure collection.
+- `scripts/pi67-xtalpi-pi-tools-smoke.sh` now runs a bounded provider-health preflight before live cases, writes `<stamp>-provider-health.json`, and records preflight failures in the normal summary/history schema so upstream network/auth/rate-limit failures are diagnosed before the slower Pi tool loop.
 
 ### Removed
 

@@ -208,6 +208,7 @@ extensions/xtalpi-pi-tools/fixtures/replay-cases.json
 ```bash
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --self-test
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --self-test
+node ~/.pi/agent/scripts/pi67-xtalpi-provider-health.mjs --self-test
 ```
 
 ## 真实冒烟测试
@@ -239,7 +240,20 @@ XTALPI_PI_TOOLS_SMOKE_CASES=web-read bash ~/.pi/agent/scripts/pi67-xtalpi-pi-too
 
 冒烟脚本还会为每个 case 开启 `XTALPI_PI_TOOLS_DEBUG=1`，校验 debug JSONL schema，并汇总 `recovery.*` 事件，便于判断是否发生了本地修复重试。
 
-live smoke 会为子进程显式设置 `XTALPI_PI_TOOLS_TIMEOUT_MS` 和 `XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS`，默认来自 `XTALPI_PI_TOOLS_SMOKE_REQUEST_TIMEOUT_MS=180000` 与 `XTALPI_PI_TOOLS_SMOKE_MAX_OUTPUT_TOKENS=1024`。这只影响 smoke 子进程，不改变日常 `xtalpi-pi-tools` 运行时默认；作用是把晶泰 provider stall 和过度生成收敛成可观察的 smoke 边界，而不是被 Pi 全局 HTTP idle timeout、日常输出上限或 case watchdog 混在一起。
+live smoke 会先运行 provider-health preflight，然后为子进程显式设置 `XTALPI_PI_TOOLS_TIMEOUT_MS` 和 `XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS`，默认来自 `XTALPI_PI_TOOLS_SMOKE_REQUEST_TIMEOUT_MS=180000` 与 `XTALPI_PI_TOOLS_SMOKE_MAX_OUTPUT_TOKENS=1024`。这只影响 smoke 子进程，不改变日常 `xtalpi-pi-tools` 运行时默认；作用是把晶泰 provider stall 和过度生成收敛成可观察的 smoke 边界，而不是被 Pi 全局 HTTP idle timeout、日常输出上限或 case watchdog 混在一起。
+
+provider-health preflight 默认开启，超时默认 `XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_TIMEOUT_MS=10000`。它在正式 case 前发送一个最小 chat completion 请求（`max_tokens=1`，不带工具），并写入：
+
+```text
+$HOME/tmp/xtalpi-pi-tools-smoke/<stamp>-provider-health.json
+```
+
+如果 preflight 失败（例如 `api_key_missing`、`network_error`、`http_401`、`http_429`、`http_5xx`、`non_json_response`），smoke 会跳过正式 case，并仍写入 `<stamp>-summary.json`，其中 `debugSummary.totals.providerErrors=1`、`providerHealth` 包含脱敏后的结构化失败原因。这比等完整 Pi 工具 loop 在每个 case 里超时更快。需要绕过 preflight 直接跑 case 时：
+
+```bash
+XTALPI_PI_TOOLS_SMOKE_PREFLIGHT=0 \
+  bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
+```
 
 当某个 case 出现 provider error（例如 `network_error`、`http_429`、`http_5xx`）时，live smoke 默认停止剩余 case，避免上游不可达时继续消耗整套工具流时间；已执行的 case 仍会进入 debug summary 和 `<stamp>-summary.json`。需要一次性收集所有 case 的失败形态时，可以显式关闭：
 
@@ -270,7 +284,7 @@ $HOME/tmp/xtalpi-pi-tools-smoke
 $HOME/tmp/xtalpi-pi-tools-smoke/<stamp>-summary.json
 ```
 
-摘要 schema 为 `xtalpi-pi-tools.smoke-summary.v1`，包含 provider、model、stamp、selected cases、case timeout、request timeout、max output tokens、failure count、provider-error stop 策略和 stop reason、debug-summary gate 状态、总体 recoveries / recovery rate / raw markup final answer / process lifecycle failure / watchdog timeout 计数，以及逐 case telemetry。debug summary JSON 的逐 case telemetry 还包含 `runtimeFingerprint`，用于确认当轮实际协议版本、selected-tool hash、展示工具名、请求超时、输出上限、工具结果截断上限和 recovery limits。
+摘要 schema 为 `xtalpi-pi-tools.smoke-summary.v1`，包含 provider、model、stamp、selected cases、case timeout、request timeout、max output tokens、failure count、provider-health preflight 状态、provider-error stop 策略和 stop reason、debug-summary gate 状态、总体 recoveries / recovery rate / raw markup final answer / process lifecycle failure / watchdog timeout 计数，以及逐 case telemetry。debug summary JSON 的逐 case telemetry 还包含 `runtimeFingerprint`，用于确认当轮实际协议版本、selected-tool hash、展示工具名、请求超时、输出上限、工具结果截断上限和 recovery limits。
 
 provider 调用失败会写入结构化 debug telemetry：`errorCode`、`errorCategory`、`retryable` 和可选 `httpStatus`。常见代码包括 `api_key_missing`、`request_timeout`、`request_aborted`、`network_error`、`http_401`、`http_403`、`http_408`、`http_429`、`http_5xx`、`http_error`、`non_json_response` 和 `malformed_response`。debug summary 会汇总 `provider_errors`、`retryable_provider_errors`、`provider_error_codes` 和 `provider_error_categories`，且默认要求 `provider_errors=0`。这样可以把晶泰限流/鉴权/上游错误和 Pi 工具协议质量回归分开判断。
 
