@@ -29,6 +29,7 @@ const { pathToFileURL } = require("node:url");
   const providerErrorContract = JSON.parse(
     fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "provider-error-contract.json"), "utf8"),
   );
+  const providerSource = fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "index.ts"), "utf8");
 
   function contractMetadata(code) {
     const metadata = providerErrorContract.errors[code];
@@ -269,6 +270,13 @@ const { pathToFileURL } = require("node:url");
   assert.deepEqual(errors.providerErrorMetadata("config_error"), contractMetadata("config_error"));
   assert.equal(errors.providerHealthImmediateRetry("http_429"), false);
   assert.equal(errors.providerHealthImmediateRetry("request_timeout"), true);
+  const apiKeyError = errors.buildProviderError("api_key_missing", "missing sk-testvalue1234567890");
+  assert.equal(apiKeyError.code, "api_key_missing");
+  assert.equal(apiKeyError.category, contractMetadata("api_key_missing").category);
+  assert.equal(apiKeyError.retryable, contractMetadata("api_key_missing").retryable);
+  assert.ok(!apiKeyError.message.includes("sk-testvalue1234567890"));
+  assert.ok(providerSource.includes("buildProviderError("));
+  assert.ok(!providerSource.includes("new XtalpiProviderError("));
   const timeoutError = errors.classifyTransportError(new Error("xtalpi-pi-tools timeout after 1000ms"), 1000, false);
   assert.equal(timeoutError.code, "request_timeout");
   assert.equal(timeoutError.category, contractMetadata("request_timeout").category);

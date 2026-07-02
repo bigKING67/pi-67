@@ -119,6 +119,8 @@ export type ClassifiedErrorOptions = {
   cause?: unknown;
 };
 
+type ProviderErrorBuildOptions = Omit<ClassifiedErrorOptions, "category" | "retryable">;
+
 export class XtalpiProviderError extends Error {
   readonly code: XtalpiErrorCode;
   readonly category: XtalpiErrorCategory;
@@ -148,6 +150,19 @@ export function providerHealthImmediateRetry(code: XtalpiErrorCode): boolean {
   return providerErrorMetadata(code).healthImmediateRetry === true;
 }
 
+export function buildProviderError(
+  code: XtalpiErrorCode,
+  message: string,
+  options: ProviderErrorBuildOptions = {},
+): XtalpiProviderError {
+  const metadata = providerErrorMetadata(code);
+  return new XtalpiProviderError(code, message, {
+    ...options,
+    category: metadata.category,
+    retryable: metadata.retryable,
+  });
+}
+
 function httpStatusCode(status: number): XtalpiErrorCode {
   const exact = PROVIDER_ERROR_CONTRACT.httpStatus[String(status)];
   if (exact) return exact;
@@ -168,12 +183,10 @@ export function classifyHttpStatus(status: number): Pick<ClassifiedErrorOptions,
 export function buildHttpError(status: number, body: string): XtalpiProviderError {
   const classified = classifyHttpStatus(status);
   const bodyExcerpt = safeBlockText(body || "(no body)", 1000);
-  return new XtalpiProviderError(
+  return buildProviderError(
     classified.code,
     `xtalpi-pi-tools upstream HTTP ${status} (${classified.category}, retryable=${classified.retryable}): ${bodyExcerpt}`,
     {
-      category: classified.category,
-      retryable: classified.retryable,
       status,
       details: {
         bodyExcerpt,
@@ -188,32 +201,23 @@ export function classifyTransportError(error: unknown, timeoutMs: number, aborte
   const name = error instanceof Error ? error.name : "";
 
   if (aborted) {
-    const metadata = providerErrorMetadata("request_aborted");
-    return new XtalpiProviderError("request_aborted", "xtalpi-pi-tools request aborted by caller", {
-      category: metadata.category,
-      retryable: metadata.retryable,
+    return buildProviderError("request_aborted", "xtalpi-pi-tools request aborted by caller", {
       cause: error,
     });
   }
 
   if (rawMessage.includes("timeout after") || name === "AbortError") {
-    const metadata = providerErrorMetadata("request_timeout");
-    return new XtalpiProviderError(
+    return buildProviderError(
       "request_timeout",
       `xtalpi-pi-tools request timeout after ${timeoutMs}ms`,
       {
-        category: metadata.category,
-        retryable: metadata.retryable,
         details: { timeoutMs },
         cause: error,
       },
     );
   }
 
-  const metadata = providerErrorMetadata("network_error");
-  return new XtalpiProviderError("network_error", `xtalpi-pi-tools network error: ${rawMessage}`, {
-    category: metadata.category,
-    retryable: metadata.retryable,
+  return buildProviderError("network_error", `xtalpi-pi-tools network error: ${rawMessage}`, {
     cause: error,
   });
 }

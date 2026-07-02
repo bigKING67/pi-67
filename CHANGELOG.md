@@ -52,6 +52,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh` now runs a bounded provider-health preflight before live cases, writes `<stamp>-provider-health.json`, and records preflight failures in the normal summary/history schema so upstream network/auth/rate-limit failures are diagnosed before the slower Pi tool loop.
 - Provider-health preflight now records per-attempt telemetry and retries bounded transient failures by default while suppressing immediate `http_429` retries to avoid burning rate-limit windows.
 - Provider runtime and provider-health preflight now read the same provider error contract, so error codes, categories, retryability, and immediate retry policy cannot drift across TS runtime and `.mjs` health checks.
+- Provider runtime now constructs local `XtalpiProviderError` instances through a contract-backed helper, removing remaining hardcoded category/retryability fields from chat error paths.
 
 ### Removed
 

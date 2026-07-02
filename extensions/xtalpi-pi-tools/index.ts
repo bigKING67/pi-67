@@ -18,9 +18,9 @@ import { validateToolArguments } from "./argument-validator.ts";
 import { debugLog, safeErrorMessage } from "./diagnostics.ts";
 import {
   buildHttpError,
+  buildProviderError,
   classifyTransportError,
   toErrorTelemetry,
-  XtalpiProviderError,
 } from "./errors.ts";
 import { parseToolCall } from "./parser.ts";
 import {
@@ -373,10 +373,9 @@ async function callXtalpiChat(
 ): Promise<ChatResponse> {
   const apiKey = options?.apiKey || runtimeConfig?.apiKey || "";
   if (isPlaceholderKey(apiKey)) {
-    throw new XtalpiProviderError(
+    throw buildProviderError(
       "api_key_missing",
       "xtalpi-pi-tools API key is not configured. Set XTALPI_PI_TOOLS_API_KEY or configure models.json providers.xtalpi-pi-tools.apiKey.",
-      { category: "configuration", retryable: false },
     );
   }
 
@@ -422,12 +421,10 @@ async function callXtalpiChat(
   try {
     json = JSON.parse(body);
   } catch (error) {
-    throw new XtalpiProviderError(
+    throw buildProviderError(
       "non_json_response",
       `xtalpi-pi-tools returned non-JSON response: ${error instanceof Error ? error.message : String(error)}`,
       {
-        category: "protocol",
-        retryable: true,
         details: {
           bodyExcerpt: safeBlockText(body, 1000),
           bodyChars: body.length,
@@ -442,12 +439,10 @@ async function callXtalpiChat(
   const firstChoice = choices.find(isObject);
   const message = isObject(firstChoice?.message) ? firstChoice.message : undefined;
   if (!message) {
-    throw new XtalpiProviderError(
+    throw buildProviderError(
       "malformed_response",
       "xtalpi-pi-tools returned JSON without choices[].message",
       {
-        category: "protocol",
-        retryable: true,
         details: {
           bodyExcerpt: safeBlockText(body, 1000),
           bodyChars: body.length,
