@@ -29,6 +29,7 @@ const { pathToFileURL } = require("node:url");
   const providerErrorContract = JSON.parse(
     fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "provider-error-contract.json"), "utf8"),
   );
+  const errorsSource = fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "errors.ts"), "utf8");
   const providerSource = fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "index.ts"), "utf8");
 
   function contractMetadata(code) {
@@ -47,6 +48,12 @@ const { pathToFileURL } = require("node:url");
       category: metadata.category,
       retryable: metadata.retryable,
     };
+  }
+
+  function typeUnionValues(source, typeName) {
+    const match = source.match(new RegExp(`export type ${typeName} =([\\s\\S]*?);`));
+    assert.ok(match, `missing ${typeName} type union`);
+    return [...match[1].matchAll(/"([^"]+)"/g)].map((item) => item[1]).sort();
   }
 
   function chatResponse(content) {
@@ -254,6 +261,25 @@ const { pathToFileURL } = require("node:url");
   }
 
   assert.equal(providerErrorContract.schema, "xtalpi-pi-tools.provider-error-contract.v1");
+  assert.deepEqual(
+    Object.keys(providerErrorContract.errors).sort(),
+    [...providerErrorContract.requiredCodes].sort(),
+  );
+  assert.deepEqual(
+    typeUnionValues(errorsSource, "XtalpiErrorCode"),
+    [...providerErrorContract.requiredCodes].sort(),
+  );
+  assert.deepEqual(
+    typeUnionValues(errorsSource, "XtalpiErrorCategory"),
+    [...providerErrorContract.allowedCategories].sort(),
+  );
+  assert.deepEqual(
+    Object.values(providerErrorContract.httpStatus).sort(),
+    Object.values(providerErrorContract.requiredHttpStatus).sort(),
+  );
+  for (const category of Object.values(providerErrorContract.errors).map((metadata) => metadata.category)) {
+    assert.ok(providerErrorContract.allowedCategories.includes(category), category);
+  }
   for (const code of [
     "http_429",
     "request_timeout",

@@ -97,6 +97,18 @@ function isObject(value) {
   return value && typeof value === "object" && !Array.isArray(value);
 }
 
+function isStringArray(value) {
+  return Array.isArray(value) && value.every((item) => typeof item === "string" && item.length > 0);
+}
+
+function isStringRecord(value) {
+  return isObject(value) && Object.values(value).every((item) => typeof item === "string" && item.length > 0);
+}
+
+function sameSortedStrings(left, right) {
+  return JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
+}
+
 function providerErrorContractPath() {
   return path.join(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -113,13 +125,26 @@ function loadProviderErrorContract() {
   if (!isObject(parsed) || parsed.schema !== ERROR_CONTRACT_SCHEMA) {
     throw new Error(`invalid xtalpi provider error contract schema: ${file}`);
   }
-  if (!isObject(parsed.errors) || !isObject(parsed.httpStatus) || !Array.isArray(parsed.httpStatusRanges)) {
+  if (
+    !isStringArray(parsed.requiredCodes) ||
+    !isStringArray(parsed.allowedCategories) ||
+    !isStringRecord(parsed.requiredHttpStatus) ||
+    !isStringRecord(parsed.classificationSamples) ||
+    !isObject(parsed.errors) ||
+    !isObject(parsed.httpStatus) ||
+    !Array.isArray(parsed.httpStatusRanges)
+  ) {
     throw new Error(`invalid xtalpi provider error contract shape: ${file}`);
   }
-  for (const [code, metadata] of Object.entries(parsed.errors)) {
+  if (!sameSortedStrings(Object.keys(parsed.errors), parsed.requiredCodes)) {
+    throw new Error(`xtalpi provider error contract codes do not match requiredCodes: ${file}`);
+  }
+  const allowedCategories = new Set(parsed.allowedCategories);
+  for (const code of parsed.requiredCodes) {
+    const metadata = parsed.errors[code];
     if (
       !isObject(metadata) ||
-      typeof metadata.category !== "string" ||
+      !allowedCategories.has(metadata.category) ||
       typeof metadata.retryable !== "boolean" ||
       typeof metadata.healthImmediateRetry !== "boolean"
     ) {
@@ -131,15 +156,27 @@ function loadProviderErrorContract() {
       throw new Error(`invalid xtalpi provider error httpStatus mapping ${status}: ${file}`);
     }
   }
+  for (const [status, code] of Object.entries(parsed.requiredHttpStatus)) {
+    if (!/^[0-9]+$/.test(status) || parsed.httpStatus[status] !== code) {
+      throw new Error(`invalid xtalpi provider error requiredHttpStatus mapping ${status}: ${file}`);
+    }
+  }
   for (const range of parsed.httpStatusRanges) {
     if (
       !isObject(range) ||
       !Number.isInteger(range.min) ||
       !Number.isInteger(range.max) ||
+      range.min < 100 ||
+      range.max > 599 ||
       range.min > range.max ||
       !parsed.errors[range.code]
     ) {
       throw new Error(`invalid xtalpi provider error httpStatus range: ${file}`);
+    }
+  }
+  for (const [status, code] of Object.entries(parsed.classificationSamples)) {
+    if (!/^[0-9]+$/.test(status) || httpStatusCodeFromContract(parsed, Number(status)) !== code) {
+      throw new Error(`invalid xtalpi provider error classification sample ${status}: ${file}`);
     }
   }
   return parsed;
@@ -179,13 +216,17 @@ function providerHealthImmediateRetry(code) {
   return providerErrorMetadata(code).healthImmediateRetry === true;
 }
 
-function httpStatusCode(status) {
-  const exact = PROVIDER_ERROR_CONTRACT.httpStatus[String(status)];
+function httpStatusCodeFromContract(contract, status) {
+  const exact = contract.httpStatus[String(status)];
   if (exact) return exact;
-  for (const range of PROVIDER_ERROR_CONTRACT.httpStatusRanges) {
+  for (const range of contract.httpStatusRanges) {
     if (status >= range.min && status <= range.max) return range.code;
   }
   return "http_error";
+}
+
+function httpStatusCode(status) {
+  return httpStatusCodeFromContract(PROVIDER_ERROR_CONTRACT, status);
 }
 
 export function classifyHttpStatus(status) {

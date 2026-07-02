@@ -38,6 +38,10 @@ type ProviderErrorMetadata = {
 
 type ProviderErrorContract = {
   schema: string;
+  requiredCodes: XtalpiErrorCode[];
+  allowedCategories: XtalpiErrorCategory[];
+  requiredHttpStatus: Record<string, XtalpiErrorCode>;
+  classificationSamples: Record<string, XtalpiErrorCode>;
   errors: Record<string, ProviderErrorMetadata>;
   httpStatus: Record<string, XtalpiErrorCode>;
   httpStatusRanges: Array<{
@@ -51,8 +55,29 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string" && item.length > 0);
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return isObject(value) && Object.values(value).every((item) => typeof item === "string" && item.length > 0);
+}
+
+function sameSortedStrings(left: string[], right: string[]): boolean {
+  return JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
+}
+
 function contractFilePath(): string {
   return join(dirname(fileURLToPath(import.meta.url)), "provider-error-contract.json");
+}
+
+function contractHttpStatusCode(contract: ProviderErrorContract, status: number): XtalpiErrorCode {
+  const exact = contract.httpStatus[String(status)];
+  if (exact) return exact;
+  for (const range of contract.httpStatusRanges) {
+    if (status >= range.min && status <= range.max) return range.code;
+  }
+  return "http_error";
 }
 
 function loadProviderErrorContract(): ProviderErrorContract {
@@ -61,30 +86,28 @@ function loadProviderErrorContract(): ProviderErrorContract {
   if (!isObject(parsed) || parsed.schema !== "xtalpi-pi-tools.provider-error-contract.v1") {
     throw new Error(`invalid xtalpi provider error contract schema: ${file}`);
   }
-  if (!isObject(parsed.errors) || !isObject(parsed.httpStatus) || !Array.isArray(parsed.httpStatusRanges)) {
+  if (
+    !isStringArray(parsed.requiredCodes) ||
+    !isStringArray(parsed.allowedCategories) ||
+    !isStringRecord(parsed.requiredHttpStatus) ||
+    !isStringRecord(parsed.classificationSamples) ||
+    !isObject(parsed.errors) ||
+    !isObject(parsed.httpStatus) ||
+    !Array.isArray(parsed.httpStatusRanges)
+  ) {
     throw new Error(`invalid xtalpi provider error contract shape: ${file}`);
   }
   const contract = parsed as ProviderErrorContract;
-  for (const code of [
-    "api_key_missing",
-    "config_error",
-    "http_401",
-    "http_403",
-    "http_408",
-    "http_429",
-    "http_5xx",
-    "http_error",
-    "malformed_response",
-    "network_error",
-    "non_json_response",
-    "request_aborted",
-    "request_timeout",
-    "unknown_error",
-  ]) {
+  const actualCodes = Object.keys(contract.errors);
+  if (!sameSortedStrings(actualCodes, contract.requiredCodes)) {
+    throw new Error(`xtalpi provider error contract codes do not match requiredCodes: ${file}`);
+  }
+  const allowedCategories = new Set(contract.allowedCategories);
+  for (const code of contract.requiredCodes) {
     const metadata = contract.errors[code];
     if (
       !metadata ||
-      typeof metadata.category !== "string" ||
+      !allowedCategories.has(metadata.category) ||
       typeof metadata.retryable !== "boolean" ||
       typeof metadata.healthImmediateRetry !== "boolean"
     ) {
@@ -96,14 +119,26 @@ function loadProviderErrorContract(): ProviderErrorContract {
       throw new Error(`invalid xtalpi provider error httpStatus mapping ${status}: ${file}`);
     }
   }
+  for (const [status, code] of Object.entries(contract.requiredHttpStatus)) {
+    if (!/^[0-9]+$/.test(status) || contract.httpStatus[status] !== code) {
+      throw new Error(`invalid xtalpi provider error requiredHttpStatus mapping ${status}: ${file}`);
+    }
+  }
   for (const range of contract.httpStatusRanges) {
     if (
       !Number.isInteger(range.min) ||
       !Number.isInteger(range.max) ||
+      range.min < 100 ||
+      range.max > 599 ||
       range.min > range.max ||
       !contract.errors[range.code]
     ) {
       throw new Error(`invalid xtalpi provider error httpStatus range: ${file}`);
+    }
+  }
+  for (const [status, code] of Object.entries(contract.classificationSamples)) {
+    if (!/^[0-9]+$/.test(status) || contractHttpStatusCode(contract, Number(status)) !== code) {
+      throw new Error(`invalid xtalpi provider error classification sample ${status}: ${file}`);
     }
   }
   return contract;
@@ -164,12 +199,7 @@ export function buildProviderError(
 }
 
 function httpStatusCode(status: number): XtalpiErrorCode {
-  const exact = PROVIDER_ERROR_CONTRACT.httpStatus[String(status)];
-  if (exact) return exact;
-  for (const range of PROVIDER_ERROR_CONTRACT.httpStatusRanges) {
-    if (status >= range.min && status <= range.max) return range.code;
-  }
-  return "http_error";
+  return contractHttpStatusCode(PROVIDER_ERROR_CONTRACT, status);
 }
 
 export function classifyHttpStatus(status: number): Pick<ClassifiedErrorOptions, "category" | "retryable"> & {

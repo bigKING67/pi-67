@@ -7,49 +7,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const CONTRACT_SCHEMA = "xtalpi-pi-tools.provider-error-contract.v1";
 const VALIDATION_SCHEMA = "xtalpi-pi-tools.provider-error-contract-validation.v1";
 const SELF_TEST_SCHEMA = "xtalpi-pi-tools.provider-error-contract-self-test.v1";
-const ALLOWED_CATEGORIES = new Set([
-  "aborted",
-  "authentication",
-  "configuration",
-  "network",
-  "protocol",
-  "rate_limit",
-  "timeout",
-  "upstream",
-]);
-const EXPECTED_CODES = [
-  "api_key_missing",
-  "config_error",
-  "http_401",
-  "http_403",
-  "http_408",
-  "http_429",
-  "http_5xx",
-  "http_error",
-  "malformed_response",
-  "network_error",
-  "non_json_response",
-  "request_aborted",
-  "request_timeout",
-  "unknown_error",
-];
-const EXPECTED_HTTP_STATUS = {
-  401: "http_401",
-  403: "http_403",
-  408: "http_408",
-  429: "http_429",
-};
-const CLASSIFICATION_SAMPLES = {
-  400: "http_error",
-  401: "http_401",
-  403: "http_403",
-  408: "http_408",
-  429: "http_429",
-  451: "http_error",
-  500: "http_5xx",
-  503: "http_5xx",
-  599: "http_5xx",
-};
 
 function usage() {
   console.log(`Usage:
@@ -64,6 +21,24 @@ Options:
 
 function isObject(value) {
   return value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isStringArray(value) {
+  return Array.isArray(value) && value.every((item) => typeof item === "string" && item.length > 0);
+}
+
+function isStringRecord(value) {
+  return isObject(value) && Object.values(value).every((item) => typeof item === "string" && item.length > 0);
+}
+
+function duplicateStrings(values) {
+  const seen = new Set();
+  const duplicates = new Set();
+  for (const value of values) {
+    if (seen.has(value)) duplicates.add(value);
+    seen.add(value);
+  }
+  return [...duplicates].sort();
 }
 
 function defaultContractPath() {
@@ -121,6 +96,18 @@ export function validateProviderErrorContract(contract, file = "(memory)") {
   if (contract.schema !== CONTRACT_SCHEMA) {
     errors.push(error("unexpected contract schema", { file, expected: CONTRACT_SCHEMA, actual: contract.schema }));
   }
+  if (!isStringArray(contract.requiredCodes)) {
+    errors.push(error("contract.requiredCodes must be a non-empty string array", { file }));
+  }
+  if (!isStringArray(contract.allowedCategories)) {
+    errors.push(error("contract.allowedCategories must be a non-empty string array", { file }));
+  }
+  if (!isStringRecord(contract.requiredHttpStatus)) {
+    errors.push(error("contract.requiredHttpStatus must be an object of status-to-code strings", { file }));
+  }
+  if (!isStringRecord(contract.classificationSamples)) {
+    errors.push(error("contract.classificationSamples must be an object of status-to-code strings", { file }));
+  }
   if (!isObject(contract.errors)) {
     errors.push(error("contract.errors must be an object", { file }));
   }
@@ -133,11 +120,19 @@ export function validateProviderErrorContract(contract, file = "(memory)") {
   if (errors.length > 0) return { ok: false, errors };
 
   const actualCodes = Object.keys(contract.errors).sort();
-  const expectedCodes = [...EXPECTED_CODES].sort();
+  const expectedCodes = [...contract.requiredCodes].sort();
   const missingCodes = expectedCodes.filter((code) => !contract.errors[code]);
-  const extraCodes = actualCodes.filter((code) => !EXPECTED_CODES.includes(code));
+  const extraCodes = actualCodes.filter((code) => !contract.requiredCodes.includes(code));
+  const duplicateRequiredCodes = duplicateStrings(contract.requiredCodes);
+  const duplicateAllowedCategories = duplicateStrings(contract.allowedCategories);
   if (missingCodes.length > 0) errors.push(error("contract is missing expected error codes", { missingCodes }));
   if (extraCodes.length > 0) errors.push(error("contract has unrecognized error codes", { extraCodes }));
+  if (duplicateRequiredCodes.length > 0) errors.push(error("contract.requiredCodes has duplicate entries", { duplicateRequiredCodes }));
+  if (duplicateAllowedCategories.length > 0) {
+    errors.push(error("contract.allowedCategories has duplicate entries", { duplicateAllowedCategories }));
+  }
+
+  const allowedCategories = new Set(contract.allowedCategories);
 
   for (const code of actualCodes) {
     const metadata = contract.errors[code];
@@ -145,7 +140,7 @@ export function validateProviderErrorContract(contract, file = "(memory)") {
       errors.push(error("error metadata must be an object", { code }));
       continue;
     }
-    if (!ALLOWED_CATEGORIES.has(metadata.category)) {
+    if (!allowedCategories.has(metadata.category)) {
       errors.push(error("invalid error category", { code, category: metadata.category }));
     }
     if (typeof metadata.retryable !== "boolean") {
@@ -169,7 +164,7 @@ export function validateProviderErrorContract(contract, file = "(memory)") {
     errors.push(error("http_429 must be retryable without immediate health retry"));
   }
 
-  for (const [status, code] of Object.entries(EXPECTED_HTTP_STATUS)) {
+  for (const [status, code] of Object.entries(contract.requiredHttpStatus)) {
     if (contract.httpStatus[status] !== code) {
       errors.push(error("missing or wrong exact HTTP status mapping", { status, expected: code, actual: contract.httpStatus[status] }));
     }
@@ -180,6 +175,14 @@ export function validateProviderErrorContract(contract, file = "(memory)") {
     }
     if (!contract.errors[code]) {
       errors.push(error("HTTP status maps to an unknown error code", { status, code }));
+    }
+  }
+  for (const [status, code] of Object.entries(contract.requiredHttpStatus)) {
+    if (!/^[0-9]+$/.test(status) || Number(status) < 100 || Number(status) > 599) {
+      errors.push(error("required HTTP status key must be a 100-599 integer string", { status }));
+    }
+    if (!contract.errors[code]) {
+      errors.push(error("required HTTP status maps to an unknown error code", { status, code }));
     }
   }
 
@@ -211,8 +214,16 @@ export function validateProviderErrorContract(contract, file = "(memory)") {
     }
   }
 
-  for (const [statusText, expectedCode] of Object.entries(CLASSIFICATION_SAMPLES)) {
+  for (const [statusText, expectedCode] of Object.entries(contract.classificationSamples)) {
     const status = Number(statusText);
+    if (!/^[0-9]+$/.test(statusText) || status < 100 || status > 599) {
+      errors.push(error("classification sample key must be a 100-599 integer string", { status: statusText }));
+      continue;
+    }
+    if (!contract.errors[expectedCode]) {
+      errors.push(error("classification sample maps to an unknown error code", { status, expectedCode }));
+      continue;
+    }
     const actualCode = classifyHttpStatus(contract, status);
     if (actualCode !== expectedCode) {
       errors.push(error("HTTP status sample classified incorrectly", { status, expected: expectedCode, actual: actualCode }));
@@ -265,6 +276,22 @@ export function runSelfTest(contractFile = defaultContractPath()) {
       expectedMessage: null,
       actualMessages: baseResult.errors.map((item) => item.message),
     },
+    selfTestCase(
+      "missing_required_codes_manifest",
+      baseContract,
+      (contract) => {
+        delete contract.requiredCodes;
+      },
+      "contract.requiredCodes must be a non-empty string array",
+    ),
+    selfTestCase(
+      "duplicate_required_codes_manifest",
+      baseContract,
+      (contract) => {
+        contract.requiredCodes.push("request_timeout");
+      },
+      "contract.requiredCodes has duplicate entries",
+    ),
     selfTestCase(
       "missing_expected_code",
       baseContract,

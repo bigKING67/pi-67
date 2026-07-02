@@ -56,6 +56,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - Provider runtime now constructs local `XtalpiProviderError` instances through a contract-backed helper, removing remaining hardcoded category/retryability fields from chat error paths.
 - Release/smoke gates now run standalone provider error contract validation, including error code coverage, category/retryability semantics, immediate retry policy, and HTTP status range ordering.
 - The provider error contract validator now has a `--self-test` mode with known-bad contract samples, so release/smoke gates prove both the contract and the validator fail closed on drift.
+- `provider-error-contract.json` now carries the required code/category/status/sample manifest, and runtime, provider-health preflight, validator, and TypeScript union tests all read or check that manifest instead of maintaining separate unchecked classification lists.
 
 ### Removed
 

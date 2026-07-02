@@ -1,5 +1,48 @@
 {
   "schema": "xtalpi-pi-tools.provider-error-contract.v1",
+  "requiredCodes": [
+    "api_key_missing",
+    "config_error",
+    "http_401",
+    "http_403",
+    "http_408",
+    "http_429",
+    "http_5xx",
+    "http_error",
+    "malformed_response",
+    "network_error",
+    "non_json_response",
+    "request_aborted",
+    "request_timeout",
+    "unknown_error"
+  ],
+  "allowedCategories": [
+    "aborted",
+    "authentication",
+    "configuration",
+    "network",
+    "protocol",
+    "rate_limit",
+    "timeout",
+    "upstream"
+  ],
+  "requiredHttpStatus": {
+    "401": "http_401",
+    "403": "http_403",
+    "408": "http_408",
+    "429": "http_429"
+  },
+  "classificationSamples": {
+    "400": "http_error",
+    "401": "http_401",
+    "403": "http_403",
+    "408": "http_408",
+    "429": "http_429",
+    "451": "http_error",
+    "500": "http_5xx",
+    "503": "http_5xx",
+    "599": "http_5xx"
+  },
   "errors": {
     "api_key_missing": {
       "category": "configuration",
