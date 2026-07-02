@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const CONTRACT_SCHEMA = "xtalpi-pi-tools.provider-error-contract.v1";
 const VALIDATION_SCHEMA = "xtalpi-pi-tools.provider-error-contract-validation.v1";
+const SELF_TEST_SCHEMA = "xtalpi-pi-tools.provider-error-contract-self-test.v1";
 const ALLOWED_CATEGORIES = new Set([
   "aborted",
   "authentication",
@@ -56,6 +57,7 @@ function usage() {
 
 Options:
   --json        Print machine-readable validation result.
+  --self-test   Validate this validator against known-good and known-bad contracts.
   -h, --help    Show this help.
 `);
 }
@@ -78,11 +80,14 @@ function parseArgs(argv) {
   const args = {
     contractFile: defaultContractPath(),
     json: false,
+    selfTest: false,
     help: false,
   };
   for (const arg of argv) {
     if (arg === "--json") {
       args.json = true;
+    } else if (arg === "--self-test") {
+      args.selfTest = true;
     } else if (arg === "-h" || arg === "--help") {
       args.help = true;
     } else if (!args.contractFileExplicit) {
@@ -229,6 +234,159 @@ export function readAndValidateProviderErrorContract(file) {
   return validateProviderErrorContract(contract, file);
 }
 
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function hasValidationError(result, message) {
+  return result.errors.some((item) => item.message === message);
+}
+
+function selfTestCase(name, baseContract, mutate, expectedMessage) {
+  const contract = clone(baseContract);
+  mutate(contract);
+  const result = validateProviderErrorContract(contract, `self-test:${name}`);
+  const ok = !result.ok && hasValidationError(result, expectedMessage);
+  return {
+    name,
+    ok,
+    expectedMessage,
+    actualMessages: result.errors.map((item) => item.message),
+  };
+}
+
+export function runSelfTest(contractFile = defaultContractPath()) {
+  const baseContract = JSON.parse(fs.readFileSync(contractFile, "utf8"));
+  const baseResult = validateProviderErrorContract(baseContract, contractFile);
+  const cases = [
+    {
+      name: "current_contract_valid",
+      ok: baseResult.ok,
+      expectedMessage: null,
+      actualMessages: baseResult.errors.map((item) => item.message),
+    },
+    selfTestCase(
+      "missing_expected_code",
+      baseContract,
+      (contract) => {
+        delete contract.errors.request_timeout;
+      },
+      "contract is missing expected error codes",
+    ),
+    selfTestCase(
+      "extra_unrecognized_code",
+      baseContract,
+      (contract) => {
+        contract.errors.extra_transient = {
+          category: "network",
+          retryable: true,
+          healthImmediateRetry: true,
+        };
+      },
+      "contract has unrecognized error codes",
+    ),
+    selfTestCase(
+      "invalid_category",
+      baseContract,
+      (contract) => {
+        contract.errors.network_error.category = "transient";
+      },
+      "invalid error category",
+    ),
+    selfTestCase(
+      "non_boolean_retryable",
+      baseContract,
+      (contract) => {
+        contract.errors.http_5xx.retryable = "yes";
+      },
+      "retryable must be boolean",
+    ),
+    selfTestCase(
+      "immediate_retry_requires_retryable",
+      baseContract,
+      (contract) => {
+        contract.errors.http_401.healthImmediateRetry = true;
+      },
+      "healthImmediateRetry=true requires retryable=true",
+    ),
+    selfTestCase(
+      "http_429_no_immediate_retry",
+      baseContract,
+      (contract) => {
+        contract.errors.http_429.healthImmediateRetry = true;
+      },
+      "http_429 must be retryable without immediate health retry",
+    ),
+    selfTestCase(
+      "wrong_exact_http_status",
+      baseContract,
+      (contract) => {
+        contract.httpStatus["429"] = "http_error";
+      },
+      "missing or wrong exact HTTP status mapping",
+    ),
+    selfTestCase(
+      "unknown_http_status_code",
+      baseContract,
+      (contract) => {
+        contract.httpStatus["418"] = "teapot";
+      },
+      "HTTP status maps to an unknown error code",
+    ),
+    selfTestCase(
+      "invalid_http_range_bounds",
+      baseContract,
+      (contract) => {
+        contract.httpStatusRanges[0] = {
+          min: 600,
+          max: 599,
+          code: "http_5xx",
+        };
+      },
+      "HTTP status range bounds must be ordered within 100-599",
+    ),
+    selfTestCase(
+      "broader_range_before_narrower_range",
+      baseContract,
+      (contract) => {
+        contract.httpStatusRanges = [
+          {
+            min: 400,
+            max: 599,
+            code: "http_error",
+          },
+          {
+            min: 500,
+            max: 599,
+            code: "http_5xx",
+          },
+        ];
+      },
+      "broader HTTP status range must not appear before a narrower overlapping range",
+    ),
+    selfTestCase(
+      "classification_sample_drift",
+      baseContract,
+      (contract) => {
+        contract.httpStatusRanges = [
+          {
+            min: 500,
+            max: 599,
+            code: "http_error",
+          },
+        ];
+      },
+      "HTTP status sample classified incorrectly",
+    ),
+  ];
+
+  return {
+    ok: cases.every((item) => item.ok),
+    file: contractFile,
+    cases,
+  };
+}
+
 function printJson(result, file) {
   console.log(JSON.stringify({
     schema: VALIDATION_SCHEMA,
@@ -251,11 +409,38 @@ function printText(result, file) {
   }
 }
 
+function printSelfTestJson(result) {
+  console.log(JSON.stringify({
+    schema: SELF_TEST_SCHEMA,
+    ...result,
+  }, null, 2));
+}
+
+function printSelfTestText(result) {
+  if (result.ok) {
+    console.log(`xtalpi provider error contract validator self-test passed: ${result.file} (cases=${result.cases.length})`);
+    return;
+  }
+  console.error(`xtalpi provider error contract validator self-test failed: ${result.file}`);
+  for (const item of result.cases.filter((testCase) => !testCase.ok)) {
+    console.error(`- ${item.name}: expected ${item.expectedMessage || "valid contract"}, got ${JSON.stringify(item.actualMessages)}`);
+  }
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
     usage();
     return 0;
+  }
+  if (args.selfTest) {
+    const result = runSelfTest(args.contractFile);
+    if (args.json) {
+      printSelfTestJson(result);
+    } else {
+      printSelfTestText(result);
+    }
+    return result.ok ? 0 : 1;
   }
   const result = readAndValidateProviderErrorContract(args.contractFile);
   if (args.json) {

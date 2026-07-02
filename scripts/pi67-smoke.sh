@@ -575,7 +575,8 @@ if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-provider-health.mjs" ]; then
   node "$REPO_ROOT/scripts/pi67-xtalpi-provider-health.mjs" --self-test >/tmp/pi67-smoke-xtalpi-provider-health-test.log
 fi
 if [ -f "$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs" ]; then
-  node "$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs" >/tmp/pi67-smoke-xtalpi-provider-error-contract.log
+  node "$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs" --self-test >/tmp/pi67-smoke-xtalpi-provider-error-contract.log
+  node "$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs" >>/tmp/pi67-smoke-xtalpi-provider-error-contract.log
 fi
 pass "xtalpi-pi-tools protocol tests completed"
 

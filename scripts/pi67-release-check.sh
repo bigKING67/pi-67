@@ -185,8 +185,9 @@ else
 fi
 
 if command_exists node; then
+  node "$XTALPI_PI_TOOLS_ERROR_CONTRACT_CHECK" "$XTALPI_PI_TOOLS_ERROR_CONTRACT" --self-test >/dev/null
   node "$XTALPI_PI_TOOLS_ERROR_CONTRACT_CHECK" "$XTALPI_PI_TOOLS_ERROR_CONTRACT" >/dev/null
-  pass "xtalpi-pi-tools provider error contract validation passed"
+  pass "xtalpi-pi-tools provider error contract validation and self-test passed"
 else
   warn "node not found; skipped provider error contract validation"
 fi

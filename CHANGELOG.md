@@ -55,6 +55,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - Provider runtime and provider-health preflight now read the same provider error contract, so error codes, categories, retryability, and immediate retry policy cannot drift across TS runtime and `.mjs` health checks.
 - Provider runtime now constructs local `XtalpiProviderError` instances through a contract-backed helper, removing remaining hardcoded category/retryability fields from chat error paths.
 - Release/smoke gates now run standalone provider error contract validation, including error code coverage, category/retryability semantics, immediate retry policy, and HTTP status range ordering.
+- The provider error contract validator now has a `--self-test` mode with known-bad contract samples, so release/smoke gates prove both the contract and the validator fail closed on drift.
 
 ### Removed
 

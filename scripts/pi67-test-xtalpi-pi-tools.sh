@@ -836,6 +836,7 @@ NODE
 
 bash "$SCRIPT_DIR/pi67-xtalpi-pi-tools-smoke.sh" --self-test
 bash "$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh" --self-test
+node "$SCRIPT_DIR/pi67-validate-xtalpi-provider-error-contract.mjs" --self-test >/dev/null
 node "$SCRIPT_DIR/pi67-validate-xtalpi-provider-error-contract.mjs" >/dev/null
 
 echo "xtalpi-pi-tools tests passed"

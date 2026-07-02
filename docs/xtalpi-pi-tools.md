@@ -202,6 +202,7 @@ extensions/xtalpi-pi-tools/fixtures/replay-cases.json
 - payload 不包含 `role=tool`
 - smoke summarizer self-test：`all:` / `only:` 工具边界和 raw markup final answer 负向样例
 - debug-summary self-test：case 数、recovery 阈值和 raw markup final answer threshold gate 负向样例
+- provider error contract validator self-test：已知坏 contract 的 code 集合、category、retryability、HTTP 映射和 range 顺序负向样例
 
 只验证 smoke/debug-summary gate 本身，不调用真实模型：
 
@@ -209,6 +210,7 @@ extensions/xtalpi-pi-tools/fixtures/replay-cases.json
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --self-test
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --self-test
 node ~/.pi/agent/scripts/pi67-xtalpi-provider-health.mjs --self-test
+node ~/.pi/agent/scripts/pi67-validate-xtalpi-provider-error-contract.mjs --self-test
 node ~/.pi/agent/scripts/pi67-validate-xtalpi-provider-error-contract.mjs
 ```
 
@@ -251,7 +253,7 @@ $HOME/tmp/xtalpi-pi-tools-smoke/<stamp>-provider-health.json
 
 preflight 只会对瞬时可重试失败做立即重试，例如 `request_timeout`、`network_error`、`http_408`、`http_5xx`、`non_json_response` 或 `malformed_response`；`http_429` 会标记为 retryable，但不会立即重试，避免在限流窗口里继续消耗请求。
 
-provider 错误代码、分类、`retryable` 语义和 provider-health immediate retry 策略的真源是 `extensions/xtalpi-pi-tools/provider-error-contract.json`。运行时 `xtalpi-pi-tools` provider 和 `scripts/pi67-xtalpi-provider-health.mjs` 共同读取这份 contract，避免 `http_429`、timeout/network、protocol failure 等分类在 TS runtime 和 preflight 脚本之间漂移。修改这份 contract 后先运行 `node ~/.pi/agent/scripts/pi67-validate-xtalpi-provider-error-contract.mjs`；它会验证 error code 集合、category、retryability/immediate-retry 语义、HTTP exact/range 映射和 range 顺序。
+provider 错误代码、分类、`retryable` 语义和 provider-health immediate retry 策略的真源是 `extensions/xtalpi-pi-tools/provider-error-contract.json`。运行时 `xtalpi-pi-tools` provider 和 `scripts/pi67-xtalpi-provider-health.mjs` 共同读取这份 contract，避免 `http_429`、timeout/network、protocol failure 等分类在 TS runtime 和 preflight 脚本之间漂移。修改这份 contract 后先运行 `node ~/.pi/agent/scripts/pi67-validate-xtalpi-provider-error-contract.mjs --self-test` 和 `node ~/.pi/agent/scripts/pi67-validate-xtalpi-provider-error-contract.mjs`；它会验证 error code 集合、category、retryability/immediate-retry 语义、HTTP exact/range 映射和 range 顺序，并用已知坏 contract 样例证明 validator 本身会失败。
 
 如果 preflight 失败（例如 `api_key_missing`、`network_error`、`http_401`、`http_429`、`http_5xx`、`non_json_response`），smoke 会跳过正式 case，并仍写入 `<stamp>-summary.json`，其中 `debugSummary.totals.providerErrors=1`、`providerHealth` 包含脱敏后的结构化失败原因、`attempts` 尝试明细和 `retrySuppressedReason`。这比等完整 Pi 工具 loop 在每个 case 里超时更快。需要绕过 preflight 直接跑 case 时：
 
