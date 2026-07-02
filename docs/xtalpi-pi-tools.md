@@ -235,10 +235,24 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
 $HOME/tmp/xtalpi-pi-tools-smoke
 ```
 
+每次 smoke 还会写入稳定 JSON 摘要 artifact，便于归档和趋势对比：
+
+```text
+$HOME/tmp/xtalpi-pi-tools-smoke/<stamp>-summary.json
+```
+
+摘要 schema 为 `xtalpi-pi-tools.smoke-summary.v1`，包含 provider、model、stamp、case timeout、failure count、debug-summary gate 状态、总体 recoveries / recovery rate / raw markup final answer 计数，以及逐 case telemetry。
+
 汇总最近的冒烟 telemetry：
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --latest
+```
+
+也可以精确汇总某一次 smoke run，避免并发或历史 artifact 干扰：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --run-id 20260702-144643
 ```
 
 输出 JSON 方便归档或 CI 消费：

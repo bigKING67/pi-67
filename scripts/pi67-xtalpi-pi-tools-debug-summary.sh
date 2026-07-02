@@ -5,6 +5,7 @@ SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 OUT_DIR="${OUT_DIR:-$HOME/tmp/xtalpi-pi-tools-smoke}"
 FORMAT="text"
 LATEST_ONLY="0"
+RUN_ID=""
 EXPECT_CASES=""
 MAX_ERRORS="0"
 MAX_EMPTY_ASSISTANT_ENDS=""
@@ -14,11 +15,15 @@ MAX_RECOVERY_RATE=""
 
 usage() {
   cat <<'EOF'
-Usage: pi67-xtalpi-pi-tools-debug-summary.sh [--json] [--latest] [options] [OUT_DIR]
+Usage: pi67-xtalpi-pi-tools-debug-summary.sh [--json] [--latest|--run-id RUN_ID] [options] [OUT_DIR]
 
 Summarize xtalpi-pi-tools live smoke artifacts:
   - *.debug.jsonl provider telemetry
   - matching *.jsonl Pi event streams, when present
+
+Selection:
+  --latest                       summarize the newest run id
+  --run-id RUN_ID                summarize one exact smoke run, e.g. 20260702-144643
 
 Gate options:
   --expect-cases N
@@ -114,7 +119,7 @@ writeCase(recovery, "20260702-000003", "recovering", {
 });
 NODE
 
-  if ! output="$("$SCRIPT_PATH" --latest --expect-cases 1 --max-errors 0 --max-empty-assistant-ends 0 --max-raw-tool-markup-final-answers 0 --max-recoveries 0 "$tmp_dir/clean" 2>&1)"; then
+  if ! output="$("$SCRIPT_PATH" --run-id 20260702-000001 --expect-cases 1 --max-errors 0 --max-empty-assistant-ends 0 --max-raw-tool-markup-final-answers 0 --max-recoveries 0 "$tmp_dir/clean" 2>&1)"; then
     echo "$output"
     return 1
   fi
@@ -161,6 +166,10 @@ while [ "$#" -gt 0 ]; do
       LATEST_ONLY="1"
       shift
       ;;
+    --run-id)
+      RUN_ID="${2:-}"
+      shift 2
+      ;;
     --expect-cases)
       EXPECT_CASES="${2:-}"
       shift 2
@@ -200,6 +209,7 @@ node - \
   "$OUT_DIR" \
   "$FORMAT" \
   "$LATEST_ONLY" \
+  "$RUN_ID" \
   "$EXPECT_CASES" \
   "$MAX_ERRORS" \
   "$MAX_EMPTY_ASSISTANT_ENDS" \
@@ -213,6 +223,7 @@ const [
   outDir,
   format,
   latestOnlyRaw,
+  runIdRaw,
   expectCasesRaw,
   maxErrorsRaw,
   maxEmptyAssistantEndsRaw,
@@ -221,6 +232,7 @@ const [
   maxRecoveryRateRaw,
 ] = process.argv.slice(2);
 const latestOnly = latestOnlyRaw === "1";
+const runIdFilter = String(runIdRaw || "").trim();
 
 function optionalNumber(raw, name) {
   if (raw === undefined || raw === "") return undefined;
@@ -373,15 +385,25 @@ if (debugFiles.length === 0) {
   process.exit(1);
 }
 
-if (latestOnly) {
+let selectedRunId = runIdFilter || undefined;
+if (runIdFilter) {
+  debugFiles = debugFiles.filter((file) => file.startsWith(`${runIdFilter}-`));
+} else if (latestOnly) {
   const runIds = debugFiles
     .map((file) => file.match(/^(\d{8}-\d{6})-/)?.[1])
     .filter(Boolean)
     .sort();
   const latestRunId = runIds.at(-1);
   if (latestRunId) {
+    selectedRunId = latestRunId;
     debugFiles = debugFiles.filter((file) => file.startsWith(`${latestRunId}-`));
   }
+}
+
+if (debugFiles.length === 0) {
+  const selector = runIdFilter ? `run id ${runIdFilter}` : "selection";
+  console.error(`xtalpi-pi-tools debug summary: no *.debug.jsonl files matched ${selector} in ${outDir}`);
+  process.exit(1);
 }
 
 const cases = debugFiles.map(summarizeCase);
@@ -448,13 +470,13 @@ if (gates.maxRecoveryRate !== undefined && totals.recoveryRate > gates.maxRecove
   gateFailures.push(`expected recovery_rate<=${gates.maxRecoveryRate}, got ${totals.recoveryRate.toFixed(4)}`);
 }
 
-const summary = { outDir, latestOnly, gates, gateFailures, totals, cases };
+const summary = { outDir, latestOnly, runId: selectedRunId, gates, gateFailures, totals, cases };
 
 if (format === "json") {
   console.log(JSON.stringify(summary, null, 2));
 } else {
   console.log("xtalpi-pi-tools debug summary");
-  console.log(`out_dir=${outDir} latest_only=${latestOnly}`);
+  console.log(`out_dir=${outDir} latest_only=${latestOnly} run_id=${selectedRunId || "(all)"}`);
   console.log(
     `cases=${totals.cases} debug_events=${totals.debugEvents} turns=${totals.turns} ` +
       `tool_calls=${totals.toolCalls} recoveries=${totals.recoveries} recovery_rate=${totals.recoveryRate.toFixed(4)} ` +

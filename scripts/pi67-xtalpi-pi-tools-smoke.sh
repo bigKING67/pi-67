@@ -8,6 +8,8 @@ MODEL="${MODEL:-deepseek-v4-pro}"
 OUT_DIR="${OUT_DIR:-$HOME/tmp/xtalpi-pi-tools-smoke}"
 CASE_TIMEOUT_SECONDS="${CASE_TIMEOUT_SECONDS:-180}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
+SUMMARY_FILE="${XTALPI_PI_TOOLS_SMOKE_SUMMARY_FILE:-$OUT_DIR/${STAMP}-summary.json}"
+DEBUG_SUMMARY_JSON_FILE="$OUT_DIR/${STAMP}-debug-summary.json"
 
 mkdir -p "$OUT_DIR"
 
@@ -316,6 +318,45 @@ run_case() {
   summarize_jsonl "$out" "$err" "$status" "$expected_tools" "$debug" || return 1
 }
 
+write_run_summary_artifact() {
+  local debug_summary_status="$1"
+  local failure_count="$2"
+
+  node - "$DEBUG_SUMMARY_JSON_FILE" "$SUMMARY_FILE" "$PROVIDER" "$MODEL" "$STAMP" "$CASE_TIMEOUT_SECONDS" "$failure_count" "$debug_summary_status" <<'NODE'
+const fs = require("fs");
+const [
+  debugSummaryFile,
+  summaryFile,
+  provider,
+  model,
+  stamp,
+  caseTimeoutSecondsRaw,
+  failuresRaw,
+  debugSummaryStatusRaw,
+] = process.argv.slice(2);
+
+const debugSummary = JSON.parse(fs.readFileSync(debugSummaryFile, "utf8"));
+const failures = Number(failuresRaw);
+const debugSummaryStatus = Number(debugSummaryStatusRaw);
+const artifact = {
+  schema: "xtalpi-pi-tools.smoke-summary.v1",
+  createdAt: new Date().toISOString(),
+  provider,
+  model,
+  stamp,
+  runId: debugSummary.runId || stamp,
+  outDir: debugSummary.outDir,
+  caseTimeoutSeconds: Number(caseTimeoutSecondsRaw),
+  failures,
+  debugSummaryStatus,
+  ok: failures === 0 && debugSummaryStatus === 0 && Array.isArray(debugSummary.gateFailures) && debugSummary.gateFailures.length === 0,
+  debugSummary,
+};
+
+fs.writeFileSync(summaryFile, `${JSON.stringify(artifact, null, 2)}\n`);
+NODE
+}
+
 failures=0
 
 run_case "no-tool" "请不要调用工具，只用一句中文回复：xtalpi pi tools smoke ok。" "none" --no-tools || failures=$((failures + 1))
@@ -330,18 +371,46 @@ run_case "web-read" "请使用 web_fetch 检查 https://github.com/ff-labs/pi-ff
 
 if [ -x "$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh" ]; then
   echo "===== debug-summary ====="
+  debug_summary_status=0
   "$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh" \
-    --latest \
+    --run-id "$STAMP" \
     --expect-cases 5 \
     --max-errors 0 \
     --max-empty-assistant-ends 0 \
     --max-raw-tool-markup-final-answers 0 \
     --max-recoveries 8 \
-    "$OUT_DIR" || failures=$((failures + 1))
+    "$OUT_DIR" || debug_summary_status=$?
+  if [ "$debug_summary_status" -ne 0 ]; then
+    failures=$((failures + 1))
+  fi
+
+  debug_summary_json_status=0
+  "$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh" \
+    --json \
+    --run-id "$STAMP" \
+    --expect-cases 5 \
+    --max-errors 0 \
+    --max-empty-assistant-ends 0 \
+    --max-raw-tool-markup-final-answers 0 \
+    --max-recoveries 8 \
+    "$OUT_DIR" >"$DEBUG_SUMMARY_JSON_FILE" || debug_summary_json_status=$?
+  if [ "$debug_summary_json_status" -ne 0 ] && [ "$debug_summary_status" -eq 0 ]; then
+    failures=$((failures + 1))
+  fi
+  if [ ! -s "$DEBUG_SUMMARY_JSON_FILE" ]; then
+    echo "xtalpi-pi-tools smoke: debug summary JSON artifact was not written: $DEBUG_SUMMARY_JSON_FILE" >&2
+    failures=$((failures + 1))
+  elif ! write_run_summary_artifact "$debug_summary_json_status" "$failures"; then
+    echo "xtalpi-pi-tools smoke: failed to write summary artifact: $SUMMARY_FILE" >&2
+    failures=$((failures + 1))
+  fi
 fi
 
 echo "===== summary ====="
 echo "provider=$PROVIDER model=$MODEL out_dir=$OUT_DIR stamp=$STAMP case_timeout_seconds=$CASE_TIMEOUT_SECONDS failures=$failures"
+if [ -f "$SUMMARY_FILE" ]; then
+  echo "summary_json=$SUMMARY_FILE"
+fi
 
 if [ "$failures" -ne 0 ]; then
   exit 1
