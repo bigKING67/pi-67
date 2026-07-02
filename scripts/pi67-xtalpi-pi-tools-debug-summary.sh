@@ -35,7 +35,7 @@ Selection:
   --compare BASE_RUN HEAD_RUN    compare two persisted smoke summaries
 
 Gate options:
-  --expect-cases N
+  --expect-cases N                 require case count for --latest/--run-id and every --trend-gate run
   --max-errors N                  default: 0
   --max-empty-assistant-ends N
   --max-raw-tool-markup-final-answers N
@@ -186,7 +186,7 @@ writeCase(providerError, "20260702-000007", "http-429", {
 });
 
 const history = ensureDir("history");
-function writeSummary(runId, { dir = history, ok = true, failures = 0, recoveries = 0, raw = 0, errors = 0, cases } = {}) {
+function writeSummary(runId, { dir = history, ok = true, failures = 0, recoveries = 0, raw = 0, errors = 0, cases, totalCases = 5 } = {}) {
   const caseItems = cases || [
     {
       runId,
@@ -220,7 +220,7 @@ function writeSummary(runId, { dir = history, ok = true, failures = 0, recoverie
       runId,
       gateFailures: ok ? [] : ["fixture failure"],
       totals: {
-        cases: 5,
+        cases: totalCases,
         debugEvents: 20,
         turns: 10,
         toolCalls: 6,
@@ -281,6 +281,22 @@ writeSummary("20260702-000002", {
       piToolStarts: ["web_fetch", "read", "read"],
     },
   ],
+});
+
+const subsetTrend = ensureDir("subset-trend");
+writeSummary("20260702-000001", {
+  dir: subsetTrend,
+  ok: true,
+  failures: 0,
+  recoveries: 0,
+  totalCases: 1,
+});
+writeSummary("20260702-000002", {
+  dir: subsetTrend,
+  ok: true,
+  failures: 0,
+  recoveries: 0,
+  totalCases: 1,
 });
 NODE
 
@@ -426,6 +442,17 @@ assert(data.gateFailures.length === 0, "clean trend gate should pass");
 assert(data.history.runs.length === 2, "trend gate should inspect two runs");
 assert(data.recoveryTrend.recoveryDelta === 1, "recovery trend should preserve the latest delta");
 NODE
+    return 1
+  fi
+
+  if ! output="$("$SCRIPT_PATH" --trend-gate 2 --expect-cases 5 "$tmp_dir/trend" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+
+  if output="$("$SCRIPT_PATH" --trend-gate 2 --expect-cases 5 "$tmp_dir/subset-trend" 2>&1)"; then
+    echo "expected subset trend fixture to fail case-count gate"
+    echo "$output"
     return 1
   fi
 
@@ -1297,6 +1324,7 @@ function buildRecoveryCaseRunCounts(runs) {
 
 function evaluateTrendGate(history) {
   const hardLimits = {
+    expectCases: gates.expectCases,
     maxErrors: gates.maxErrors ?? 0,
     maxEmptyAssistantEnds: gates.maxEmptyAssistantEnds ?? 0,
     maxRawToolMarkupFinalAnswers: gates.maxRawToolMarkupFinalAnswers ?? 0,
@@ -1321,6 +1349,9 @@ function evaluateTrendGate(history) {
     }
     if (run.debugSummaryStatus > 0) {
       gateFailures.push(`${run.runId}: expected debug_summary_status=0, got ${run.debugSummaryStatus}`);
+    }
+    if (hardLimits.expectCases !== undefined && run.cases !== hardLimits.expectCases) {
+      gateFailures.push(`${run.runId}: expected cases=${hardLimits.expectCases}, got ${run.cases}`);
     }
     if (run.errors > hardLimits.maxErrors) {
       gateFailures.push(`${run.runId}: expected errors<=${hardLimits.maxErrors}, got ${run.errors}`);
