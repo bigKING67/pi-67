@@ -59,7 +59,9 @@ Supported env vars:
   PI67_PROVIDER
   PI67_MODEL
   PI67_XTALPI_API_KEY
-  PI67_XTALPI_TOOLS_API_KEY
+  PI67_XTALPI_PI_TOOLS_API_KEY
+  PI67_XTALPI_TOOLS_API_KEY     # legacy alias; migrated to xtalpi-pi-tools
+  PI67_KEEP_LEGACY_XTALPI_PROVIDERS=1  # optional escape hatch
   PI67_CODEX_API_KEY
   PI67_CODEX_BASE_URL
   PI67_DEEPSEEK_API_KEY
@@ -229,8 +231,8 @@ say ""
 
 if [ "$PROMPT_SECRETS" = true ]; then
   say "${CYAN}--- local inputs ---${NC}"
-  prompt_secret PI67_XTALPI_API_KEY "xtalpi API key for xtalpi and xtalpi-tools"
-  prompt_secret PI67_XTALPI_TOOLS_API_KEY "xtalpi-tools API key override"
+  prompt_secret PI67_XTALPI_API_KEY "xtalpi API key for xtalpi-pi-tools"
+  prompt_secret PI67_XTALPI_PI_TOOLS_API_KEY "xtalpi-pi-tools API key override"
   prompt_secret PI67_CODEX_API_KEY "local Codex proxy API key"
   prompt_secret PI67_DEEPSEEK_API_KEY "DeepSeek auth key"
   prompt_secret PI67_IMAGE_GEN_API_KEY "image generation API key"
@@ -378,6 +380,65 @@ function setProviderField(models, providerId, field, value) {
   noteChange(`configure ${providerId}.${field}`);
 }
 
+function isPlaceholderApiKey(value) {
+  return !value || String(value).includes("YOUR_") || String(value).includes("REPLACE_") || String(value) === "changeme";
+}
+
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function ensureProviderFromExample(models, examples, providerId) {
+  models.providers = models.providers || {};
+  if (models.providers[providerId]) return models.providers[providerId];
+
+  const provider = examples.providers?.[providerId];
+  if (!provider) {
+    fail(`provider ${providerId} missing from models.example.json`);
+    return null;
+  }
+
+  models.providers[providerId] = cloneJson(provider);
+  noteChange(`add provider ${providerId} from models.example.json`);
+  return models.providers[providerId];
+}
+
+function firstRealProviderKey(models, providerIds) {
+  for (const providerId of providerIds) {
+    const key = models.providers?.[providerId]?.apiKey;
+    if (!isPlaceholderApiKey(key)) return key;
+  }
+  return "";
+}
+
+function removeProviderIfPresent(models, providerId) {
+  if (!models.providers?.[providerId]) return;
+  delete models.providers[providerId];
+  noteChange(`remove legacy provider ${providerId}`);
+}
+
+function migrateXtalpiPiToolsProvider(models, examples) {
+  const provider = ensureProviderFromExample(models, examples, "xtalpi-pi-tools");
+  if (!provider) return;
+
+  const migratedKey = firstRealProviderKey(models, ["xtalpi-pi-tools", "xtalpi-tools", "xtalpi"]);
+  if (isPlaceholderApiKey(provider.apiKey) && migratedKey) {
+    provider.apiKey = migratedKey;
+    noteChange("migrate xtalpi API key to provider xtalpi-pi-tools");
+  }
+
+  const legacyBaseUrl = models.providers?.["xtalpi-tools"]?.baseUrl || models.providers?.xtalpi?.baseUrl;
+  if (legacyBaseUrl && provider.baseUrl !== legacyBaseUrl) {
+    provider.baseUrl = legacyBaseUrl;
+    noteChange("migrate xtalpi baseUrl to provider xtalpi-pi-tools");
+  }
+
+  if (env("PI67_KEEP_LEGACY_XTALPI_PROVIDERS") !== "1") {
+    removeProviderIfPresent(models, "xtalpi-tools");
+    removeProviderIfPresent(models, "xtalpi");
+  }
+}
+
 const files = {
   settings: path.join(agentDir, "settings.json"),
   models: path.join(agentDir, "models.json"),
@@ -406,15 +467,16 @@ if (!settingsState || !modelsState || !mcpState || !authState || !imageGenState)
 
 const settings = settingsState.data;
 const models = modelsState.data;
+const modelExamples = readJson(examples.models, null)?.data || {};
 const mcp = mcpState.data;
 const auth = authState.data;
 const imageGen = imageGenState.data;
 let settingsChanged = false;
 
-const xtalpiKey = env("PI67_XTALPI_API_KEY");
-const xtalpiToolsKey = env("PI67_XTALPI_TOOLS_API_KEY") || xtalpiKey;
-setProviderKey(models, "xtalpi", xtalpiKey);
-setProviderKey(models, "xtalpi-tools", xtalpiToolsKey);
+migrateXtalpiPiToolsProvider(models, modelExamples);
+
+const xtalpiKey = env("PI67_XTALPI_PI_TOOLS_API_KEY") || env("PI67_XTALPI_TOOLS_API_KEY") || env("PI67_XTALPI_API_KEY");
+setProviderKey(models, "xtalpi-pi-tools", xtalpiKey);
 setProviderKey(models, "codex", env("PI67_CODEX_API_KEY"));
 setProviderField(models, "codex", "baseUrl", env("PI67_CODEX_BASE_URL"));
 
@@ -459,6 +521,14 @@ if (env("PI67_AGENT_MEMORY_BIN")) {
   mcp.mcpServers.agent_memory.command = compactHome(env("PI67_AGENT_MEMORY_BIN"));
   mcp.mcpServers.agent_memory.args = Array.isArray(mcp.mcpServers.agent_memory.args) ? mcp.mcpServers.agent_memory.args : [];
   noteChange(`configure agent_memory MCP command: ${mcp.mcpServers.agent_memory.command}`);
+}
+
+if (settings.defaultProvider === "xtalpi-tools" || settings.defaultProvider === "xtalpi") {
+  settings.defaultProvider = "xtalpi-pi-tools";
+  settings.defaultModel = settings.defaultModel || "deepseek-v4-pro";
+  settings.defaultThinkingLevel = "off";
+  settingsChanged = true;
+  noteChange("migrate default provider to xtalpi-pi-tools");
 }
 
 const requestedProvider = env("PI67_PROVIDER");

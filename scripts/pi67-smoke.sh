@@ -94,6 +94,7 @@ cleanup() {
     /tmp/pi67-smoke-skill-governance.log \
     /tmp/pi67-smoke-external-skills-check.log \
     /tmp/pi67-smoke-release-artifact.log \
+    /tmp/pi67-smoke-xtalpi-pi-tools-test.log \
     /tmp/pi67-smoke-migrate-skills-dry.log \
     /tmp/pi67-smoke-migrate-skills-apply.log \
     /tmp/pi67-smoke-migrate-skills-conflict.log \
@@ -196,10 +197,15 @@ fi
 if [ -f "$REPO_ROOT/scripts/pi67-uninstall.sh" ]; then
   bash -n "$REPO_ROOT/scripts/pi67-uninstall.sh"
 fi
-if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-safe.sh" ]; then
-  bash -n "$REPO_ROOT/scripts/pi67-xtalpi-safe.sh"
+if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-pi-tools.sh" ]; then
+  bash -n "$REPO_ROOT/scripts/pi67-xtalpi-pi-tools.sh"
 fi
-bash -n "$REPO_ROOT/scripts/xtalpi-tool-smoke.sh"
+if [ -f "$REPO_ROOT/scripts/pi67-test-xtalpi-pi-tools.sh" ]; then
+  bash -n "$REPO_ROOT/scripts/pi67-test-xtalpi-pi-tools.sh"
+fi
+if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-pi-tools-smoke.sh" ]; then
+  bash -n "$REPO_ROOT/scripts/pi67-xtalpi-pi-tools-smoke.sh"
+fi
 pass "shell scripts parse"
 
 section "JSON"
@@ -544,11 +550,18 @@ section "Release artifact smoke"
   --ref WORKTREE >/tmp/pi67-smoke-release-artifact.log
 pass "release artifact smoke completed"
 
+section "xtalpi-pi-tools unit tests"
+"$REPO_ROOT/scripts/pi67-test-xtalpi-pi-tools.sh" >/tmp/pi67-smoke-xtalpi-pi-tools-test.log
+pass "xtalpi-pi-tools protocol tests completed"
+
 section "Temp in-place install"
 INPLACE_AGENT="$TMP_ROOT/in-place-agent"
 mkdir -p "$INPLACE_AGENT"
 
 while IFS= read -r -d '' file; do
+  if [ ! -e "$REPO_ROOT/$file" ]; then
+    continue
+  fi
   mkdir -p "$INPLACE_AGENT/$(dirname "$file")"
   cp -p "$REPO_ROOT/$file" "$INPLACE_AGENT/$file"
 done < <(git -C "$REPO_ROOT" ls-files -z)
@@ -642,7 +655,7 @@ PI67_IMAGE_GEN_API_KEY="smoke_image_gen_api_key" \
 "$REPO_ROOT/scripts/pi67-configure.sh" \
   --repo-root "$REPO_ROOT" \
   --agent-dir "$AGENT_DIR" \
-  --provider xtalpi-tools \
+  --provider xtalpi-pi-tools \
   --model deepseek-v4-pro \
   --codex-base-url "http://127.0.0.1:8317/v1" \
   --tmwd-repo "$TMP_ROOT/browser67" \
@@ -661,7 +674,7 @@ PI67_IMAGE_GEN_API_KEY="smoke_image_gen_api_key" \
 "$REPO_ROOT/scripts/pi67-configure.sh" \
   --repo-root "$REPO_ROOT" \
   --agent-dir "$AGENT_DIR" \
-  --provider xtalpi-tools \
+  --provider xtalpi-pi-tools \
   --model deepseek-v4-pro \
   --codex-base-url "http://127.0.0.1:8317/v1" \
   --tmwd-repo "$TMP_ROOT/browser67" \

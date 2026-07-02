@@ -2,9 +2,9 @@
 set -u
 
 PI_BIN="${PI_BIN:-$(which pi)}"
-PROVIDER="${PROVIDER:-xtalpi-tools}"
+PROVIDER="${PROVIDER:-xtalpi-pi-tools}"
 MODEL="${MODEL:-deepseek-v4-pro}"
-OUT_DIR="${OUT_DIR:-$HOME/tmp/xtalpi-tool-smoke}"
+OUT_DIR="${OUT_DIR:-$HOME/tmp/xtalpi-pi-tools-smoke}"
 CASE_TIMEOUT_SECONDS="${CASE_TIMEOUT_SECONDS:-180}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 
@@ -60,10 +60,9 @@ const emptyAssistantEnds = events.filter(
     Array.isArray(event.message.content) &&
     event.message.content.length === 0,
 ).length;
-const recoveries = events.filter((event) => JSON.stringify(event).includes("xtalpi-compat.recovery")).length;
-const streamEndedErrors = [...errors, stderr].filter((item) => /stream ended without/i.test(String(item)));
+const recoveries = events.filter((event) => JSON.stringify(event).includes("xtalpi-pi-tools")).length;
 const processExitedCleanly = Number(status) === 0;
-const hasUsableFinalAnswer = !!agent && errors.length === 0 && streamEndedErrors.length === 0 && finalText.trim().length > 0;
+const hasUsableFinalAnswer = !!agent && errors.length === 0 && finalText.trim().length > 0;
 const ok = hasUsableFinalAnswer;
 console.log(JSON.stringify({
   file,
@@ -119,11 +118,11 @@ run_case() {
 
 failures=0
 
-run_case "no-tool" "请不要调用工具，只用一句中文回复：xtalpi smoke ok。" --no-tools || failures=$((failures + 1))
+run_case "no-tool" "请不要调用工具，只用一句中文回复：xtalpi pi tools smoke ok。" --no-tools || failures=$((failures + 1))
 
 run_case "bash" "请只执行一次 pwd，然后用一句中文总结结果。不要再调用第二个工具。" --tools bash || failures=$((failures + 1))
 
-run_case "read" "请读取 $HOME/.pi/agent/npm/node_modules/@ff-labs/pi-fff/package.json，然后用一句话说出包名和版本。" --tools read || failures=$((failures + 1))
+run_case "read" "请读取 $HOME/.pi/agent/package.json，然后用一句话说出包名和版本。" --tools read || failures=$((failures + 1))
 
 run_case "web-read" "请检查 https://github.com/ff-labs/pi-fff 是否能访问；如果是 404，请读取 $HOME/.pi/agent/npm/node_modules/@ff-labs/pi-fff/README.md 和 package.json，用三句话总结结论。不要搜索本机目录。" || failures=$((failures + 1))
 

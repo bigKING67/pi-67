@@ -51,11 +51,13 @@ EXTERNAL_SKILL_SYNC_SCHEMA_DOC="$REPO_ROOT/docs/external-skill-sync-schema.md"
 FULL_INSTALL_DOC="$REPO_ROOT/docs/full-install.md"
 SKILL_GOV_DOC="$REPO_ROOT/docs/skill-governance.md"
 TROUBLESHOOTING_DOC="$REPO_ROOT/docs/troubleshooting.md"
-XTALPI_TOOLS_DOC="$REPO_ROOT/docs/xtalpi-tools.md"
+XTALPI_PI_TOOLS_DOC="$REPO_ROOT/docs/xtalpi-pi-tools.md"
 SKILL_GOVERNANCE_TEST="$REPO_ROOT/scripts/pi67-test-skill-governance.sh"
 EXTERNAL_SKILLS_CHECK="$REPO_ROOT/scripts/pi67-check-external-skills.sh"
 RELEASE_ARTIFACT_SMOKE="$REPO_ROOT/scripts/pi67-release-artifact-smoke.sh"
-XTALPI_SAFE_SCRIPT="$REPO_ROOT/scripts/pi67-xtalpi-safe.sh"
+XTALPI_PI_TOOLS_SCRIPT="$REPO_ROOT/scripts/pi67-xtalpi-pi-tools.sh"
+XTALPI_PI_TOOLS_TEST="$REPO_ROOT/scripts/pi67-test-xtalpi-pi-tools.sh"
+XTALPI_PI_TOOLS_SMOKE="$REPO_ROOT/scripts/pi67-xtalpi-pi-tools-smoke.sh"
 
 if [ -f "$VERSION_FILE" ]; then
   VERSION="$(tr -d '[:space:]' < "$VERSION_FILE")"
@@ -171,16 +173,22 @@ else
   fail "release artifact smoke is not documented"
 fi
 
-if [ -f "$XTALPI_SAFE_SCRIPT" ] && [ -f "$XTALPI_TOOLS_DOC" ]; then
-  pass "xtalpi safe launcher and docs exist"
+if [ -f "$XTALPI_PI_TOOLS_SCRIPT" ] && [ -f "$XTALPI_PI_TOOLS_TEST" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE" ] && [ -f "$XTALPI_PI_TOOLS_DOC" ]; then
+  pass "xtalpi-pi-tools launcher, tests, smoke, and docs exist"
 else
-  fail "xtalpi safe launcher or docs are missing"
+  fail "xtalpi-pi-tools launcher, tests, smoke, or docs are missing"
 fi
 
-if grep -q "pi67-xtalpi-safe.sh" "$REPO_ROOT/README.md" && grep -q "pi67-xtalpi-safe.sh" "$XTALPI_TOOLS_DOC" && grep -q "pi67-xtalpi-safe.sh" "$TROUBLESHOOTING_DOC" && grep -q "pi67-xtalpi-safe.sh" "$FULL_INSTALL_DOC"; then
-  pass "xtalpi safe launcher is documented"
+if grep -q "pi67-xtalpi-pi-tools.sh" "$REPO_ROOT/README.md" && grep -q "pi67-xtalpi-pi-tools.sh" "$XTALPI_PI_TOOLS_DOC" && grep -q "pi67-xtalpi-pi-tools.sh" "$TROUBLESHOOTING_DOC" && grep -q "pi67-xtalpi-pi-tools.sh" "$FULL_INSTALL_DOC"; then
+  pass "xtalpi-pi-tools launcher is documented"
 else
-  fail "xtalpi safe launcher is not documented"
+  fail "xtalpi-pi-tools launcher is not documented"
+fi
+
+if grep -q '"defaultProvider": "xtalpi-pi-tools"' "$REPO_ROOT/settings.json" && grep -q '"xtalpi-pi-tools"' "$REPO_ROOT/models.example.json" && ! grep -q '"xtalpi-tools"' "$REPO_ROOT/models.example.json"; then
+  pass "xtalpi-pi-tools is the only xtalpi provider template"
+else
+  fail "xtalpi-pi-tools provider template/default is not clean"
 fi
 
 if grep -q "pi67-release.sh" "$REPO_ROOT/README.md" && grep -q "pi67-release.sh" "$REPO_ROOT/docs/release.md"; then
@@ -196,7 +204,7 @@ if command_exists git && git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/d
     fail "git diff --check failed"
   fi
 
-  if git -C "$REPO_ROOT" ls-files --error-unmatch VERSION CHANGELOG.md docs/release.md docs/report-schema.md docs/doctor-schema.md docs/status.md docs/skill-migration-schema.md docs/external-skill-sync-schema.md docs/skill-governance.md docs/troubleshooting.md docs/xtalpi-tools.md scripts/pi67-check-external-skills.sh scripts/pi67-doctor.sh scripts/pi67-migrate-skills.sh scripts/pi67-release-artifact-smoke.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-status.sh scripts/pi67-sync-external-skills.sh scripts/pi67-test-skill-governance.sh scripts/pi67-update.sh scripts/pi67-xtalpi-safe.sh >/dev/null 2>&1; then
+  if git -C "$REPO_ROOT" ls-files --error-unmatch VERSION CHANGELOG.md docs/release.md docs/report-schema.md docs/doctor-schema.md docs/status.md docs/skill-migration-schema.md docs/external-skill-sync-schema.md docs/skill-governance.md docs/troubleshooting.md docs/xtalpi-pi-tools.md scripts/pi67-check-external-skills.sh scripts/pi67-doctor.sh scripts/pi67-migrate-skills.sh scripts/pi67-release-artifact-smoke.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-status.sh scripts/pi67-sync-external-skills.sh scripts/pi67-test-skill-governance.sh scripts/pi67-update.sh scripts/pi67-xtalpi-pi-tools.sh scripts/pi67-test-xtalpi-pi-tools.sh scripts/pi67-xtalpi-pi-tools-smoke.sh >/dev/null 2>&1; then
     pass "release metadata files are tracked or staged"
   else
     warn "release metadata files are not all tracked yet; expected before final commit"

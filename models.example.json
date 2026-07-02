@@ -1,64 +1,45 @@
 {
   "providers": {
-    "xtalpi": {
+    "xtalpi-pi-tools": {
       "baseUrl": "https://sciencetoken-api.xtalpi.xyz/proxy/openai/v1",
-      "api": "openai-completions",
+      "api": "xtalpi-pi-tools",
       "apiKey": "YOUR_XTALPI_API_KEY",
-      "compat": {
-        "supportsStore": false,
-        "supportsDeveloperRole": false,
-        "supportsReasoningEffort": true,
-        "supportsUsageInStreaming": false,
-        "maxTokensField": "max_tokens",
-        "requiresReasoningContentOnAssistantMessages": false,
-        "thinkingFormat": "deepseek",
-        "supportsStrictMode": false,
-        "requiresToolResultName": true
-      },
       "models": [
         {
           "id": "deepseek-v4-flash",
-          "name": "DeepSeek V4 Flash",
-          "reasoning": true,
+          "name": "DeepSeek V4 Flash (Pi local tools)",
+          "reasoning": false,
           "input": ["text"],
           "contextWindow": 262144,
-          "maxTokens": 65536,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-          "thinkingLevelMap": { "minimal": null, "low": null, "medium": null, "high": "high", "xhigh": "max" },
-          "compat": { "maxTokensField": "max_tokens", "thinkingFormat": "deepseek" }
+          "maxTokens": 32768,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
         },
         {
           "id": "deepseek-v4-pro",
-          "name": "DeepSeek V4 Pro",
-          "reasoning": true,
+          "name": "DeepSeek V4 Pro (Pi local tools)",
+          "reasoning": false,
           "input": ["text"],
           "contextWindow": 262144,
-          "maxTokens": 65536,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-          "thinkingLevelMap": { "minimal": null, "low": null, "medium": null, "high": "high", "xhigh": "max" },
-          "compat": { "maxTokensField": "max_tokens", "thinkingFormat": "deepseek" }
+          "maxTokens": 32768,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
         },
         {
           "id": "xtalpi-science-flagship",
-          "name": "晶泰科学旗舰模型",
-          "reasoning": true,
+          "name": "晶泰科学旗舰模型 (Pi local tools)",
+          "reasoning": false,
           "input": ["text"],
           "contextWindow": 262144,
-          "maxTokens": 65536,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-          "thinkingLevelMap": { "minimal": null, "low": null, "medium": null, "high": "high", "xhigh": "max" },
-          "compat": { "maxTokensField": "max_tokens", "thinkingFormat": "deepseek" }
+          "maxTokens": 32768,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
         },
         {
           "id": "xtalpi-science-standard",
-          "name": "晶泰科学标准模型",
-          "reasoning": true,
+          "name": "晶泰科学标准模型 (Pi local tools)",
+          "reasoning": false,
           "input": ["text"],
           "contextWindow": 262144,
-          "maxTokens": 65536,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-          "thinkingLevelMap": { "minimal": null, "low": null, "medium": null, "high": "high", "xhigh": "max" },
-          "compat": { "maxTokensField": "max_tokens", "thinkingFormat": "deepseek" }
+          "maxTokens": 32768,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
         }
       ]
     },
@@ -93,96 +74,6 @@
           "contextWindow": 262144,
           "maxTokens": 65536,
           "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
-        }
-      ]
-    },
-    "xtalpi-tools": {
-      "baseUrl": "https://sciencetoken-api.xtalpi.xyz/proxy/openai/v1",
-      "api": "openai-completions",
-      "apiKey": "YOUR_XTALPI_API_KEY",
-      "compat": {
-        "supportsStore": false,
-        "supportsDeveloperRole": false,
-        "supportsReasoningEffort": false,
-        "supportsUsageInStreaming": false,
-        "maxTokensField": "max_tokens",
-        "requiresReasoningContentOnAssistantMessages": false,
-        "thinkingFormat": "deepseek",
-        "supportsStrictMode": false,
-        "requiresToolResultName": true
-      },
-      "models": [
-        {
-          "id": "deepseek-v4-flash",
-          "name": "DeepSeek V4 Flash Tools",
-          "reasoning": false,
-          "input": ["text"],
-          "contextWindow": 262144,
-          "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-          "compat": {
-            "maxTokensField": "max_tokens",
-            "thinkingFormat": "deepseek",
-            "supportsReasoningEffort": false,
-            "supportsUsageInStreaming": false,
-            "requiresReasoningContentOnAssistantMessages": false,
-            "supportsStrictMode": false,
-            "requiresToolResultName": true
-          }
-        },
-        {
-          "id": "deepseek-v4-pro",
-          "name": "DeepSeek V4 Pro Tools",
-          "reasoning": false,
-          "input": ["text"],
-          "contextWindow": 262144,
-          "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-          "compat": {
-            "maxTokensField": "max_tokens",
-            "thinkingFormat": "deepseek",
-            "supportsReasoningEffort": false,
-            "supportsUsageInStreaming": false,
-            "requiresReasoningContentOnAssistantMessages": false,
-            "supportsStrictMode": false,
-            "requiresToolResultName": true
-          }
-        },
-        {
-          "id": "xtalpi-science-flagship",
-          "name": "晶泰科学旗舰模型 Tools",
-          "reasoning": false,
-          "input": ["text"],
-          "contextWindow": 262144,
-          "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-          "compat": {
-            "maxTokensField": "max_tokens",
-            "thinkingFormat": "deepseek",
-            "supportsReasoningEffort": false,
-            "supportsUsageInStreaming": false,
-            "requiresReasoningContentOnAssistantMessages": false,
-            "supportsStrictMode": false,
-            "requiresToolResultName": true
-          }
-        },
-        {
-          "id": "xtalpi-science-standard",
-          "name": "晶泰科学标准模型 Tools",
-          "reasoning": false,
-          "input": ["text"],
-          "contextWindow": 262144,
-          "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
-          "compat": {
-            "maxTokensField": "max_tokens",
-            "thinkingFormat": "deepseek",
-            "supportsReasoningEffort": false,
-            "supportsUsageInStreaming": false,
-            "requiresReasoningContentOnAssistantMessages": false,
-            "supportsStrictMode": false,
-            "requiresToolResultName": true
-          }
         }
       ]
     }

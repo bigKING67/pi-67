@@ -110,48 +110,51 @@ The pair in `settings.json` must exist inside `models.json`:
 
 ```json
 {
-  "defaultProvider": "xtalpi-tools",
+  "defaultProvider": "xtalpi-pi-tools",
   "defaultModel": "deepseek-v4-pro"
 }
 ```
 
 If you do not use xtalpi, change both fields to a provider/model that exists in `models.json`.
 
-## xtalpi returns empty assistant content repeatedly
+## xtalpi-pi-tools still returns empty or gets stuck
 
-This is usually an xtalpi OpenAI-compatible proxy/tool-continuation issue, not a local API key format issue. It often appears after a tool result is returned: the request reaches xtalpi, but the streamed response ends without assistant text or a finish reason.
+`xtalpi-pi-tools` is designed to avoid the old OpenAI-compatible tool continuation issue. It does not send native `tools`, `tool_choice`, `parallel_tool_calls`, `role=tool`, `thinking`, or `reasoning_effort` to xtalpi.
 
-pi-67 enables local anti-stall protection by default:
-
-- tool calls are serialized;
-- reasoning parameters are removed on tool continuations;
-- tool results are mirrored into normal text;
-- only the most relevant tools are sent when the tool list is large;
-- after an empty assistant response, the recovery request uses `rescue_no_tools`: no tools, no reasoning, and a non-streaming payload when supported.
-
-For important tasks or on a newly installed Windows laptop, start Pi in the more conservative xtalpi mode:
+First run the local protocol test:
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-xtalpi-safe.sh
+bash ~/.pi/agent/scripts/pi67-test-xtalpi-pi-tools.sh
 ```
 
-The script sets:
+Then start Pi through the stable launcher:
 
 ```bash
-XTALPI_EMPTY_ASSISTANT_STRATEGY=rescue_no_tools
-XTALPI_TOOL_RESULT_MIRROR=always
-XTALPI_TOOL_FILTER=auto
-XTALPI_MAX_TOOLS=8
-XTALPI_MAX_MIRRORED_TOOL_RESULT_CHARS=8000
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools.sh
 ```
 
-It does not change your `models.json`, API key, or xtalpi URL. It only makes the current Pi process more conservative.
-
-If you still see the fallback message after updating, run:
+The launcher sets:
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-update.sh
-bash ~/.pi/agent/scripts/pi67-xtalpi-safe.sh
+XTALPI_PI_TOOLS_MAX_TOOLS=24
+XTALPI_PI_TOOLS_MAX_TOOL_RESULT_CHARS=20000
+XTALPI_PI_TOOLS_MAX_EMPTY_RETRIES=2
+XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES=2
+XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES=4
+```
+
+If you upgraded from old `xtalpi-tools`, migrate local config once:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-configure.sh --provider xtalpi-pi-tools --model deepseek-v4-pro --prompt-secrets
+```
+
+This copies any existing `xtalpi` / `xtalpi-tools` key into `xtalpi-pi-tools` and removes the old provider entries by default.
+
+For a live smoke test:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
 ```
 
 If the task is time-critical and xtalpi continues returning empty content, temporarily switch to another configured provider:
@@ -433,6 +436,18 @@ bash ~/.pi/agent/scripts/pi67-update.sh --check-only
 ```
 
 This reports remote head status, dirty worktree state, missing local config templates, npm sync status, and whether `~/.pi/agent/pi67-report.json` is stale.
+
+Normal updates also run a no-prompt local config migration step. This keeps existing secrets, but can migrate old `xtalpi` / `xtalpi-tools` entries into `xtalpi-pi-tools` after a release upgrade:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-update.sh
+```
+
+If you intentionally do not want local config migration in that run:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-update.sh --no-configure
+```
 
 For a machine that has not received the updater yet:
 

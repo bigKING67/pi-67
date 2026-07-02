@@ -4,6 +4,29 @@ All notable changes to pi-67 are documented here.
 
 The format is based on Keep a Changelog, and this project uses semantic versioning for the pi-67 distribution itself. Pi package dependency versions are managed separately in `package.json`.
 
+## [0.10.0] - 2026-07-02
+
+### Added
+
+- `extensions/xtalpi-pi-tools/` as the new xtalpi provider that keeps tool calling local to Pi and sends only plain chat messages to the company proxy.
+- `scripts/pi67-xtalpi-pi-tools.sh` stable launcher for `xtalpi-pi-tools/deepseek-v4-pro`.
+- `scripts/pi67-test-xtalpi-pi-tools.sh` protocol/unit coverage for parser, serializer, and no-native-tools payload invariants.
+- `scripts/pi67-xtalpi-pi-tools-smoke.sh` live smoke coverage for no-tool, bash, read, and web/read tasks.
+- `docs/xtalpi-pi-tools.md` documenting the local tool protocol, runtime knobs, migration, and validation flow.
+
+### Changed
+
+- Default provider is now `xtalpi-pi-tools` with `deepseek-v4-pro` and thinking off.
+- `models.example.json` now keeps only one xtalpi provider template: `xtalpi-pi-tools`.
+- `scripts/pi67-configure.sh` migrates old `xtalpi` / `xtalpi-tools` keys and baseUrl into `xtalpi-pi-tools`, then removes old xtalpi provider entries by default.
+- `scripts/pi67-update.sh` now runs a no-prompt config migration step after updates, so existing installs converge to `xtalpi-pi-tools` without a separate manual command.
+- Release and smoke checks now validate `xtalpi-pi-tools` artifacts and no-native-tools payload invariants.
+
+### Removed
+
+- Removed old `xtalpi-tools` template path from the canonical configuration.
+- Deprecated `xtalpi-compat`, `pi67-xtalpi-safe.sh`, and `xtalpi-tool-smoke.sh` in favor of `xtalpi-pi-tools`.
+
 ## [0.9.3] - 2026-07-02
 
 ### Added

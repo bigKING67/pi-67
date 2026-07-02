@@ -271,18 +271,25 @@ To switch provider/model:
 bash ~/.pi/agent/scripts/pi67-configure.sh --provider codex --model gpt-5.4 --prompt-secrets
 ```
 
-If you use `xtalpi-tools` and the company proxy occasionally returns empty assistant content after tool calls, use the conservative launcher for important tasks:
+For xtalpi tasks, pi-67 now uses `xtalpi-pi-tools`: Pi owns the tool protocol locally and sends only plain chat messages to the company proxy. Use the stable launcher for important tasks:
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-xtalpi-safe.sh
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools.sh
 ```
 
-It keeps your existing `models.json` URL/API key unchanged and only sets safer runtime variables for the current Pi process:
+It keeps your existing xtalpi URL/API key and only sets stable local runtime variables for the current Pi process:
 
 ```bash
-XTALPI_EMPTY_ASSISTANT_STRATEGY=rescue_no_tools
-XTALPI_MAX_TOOLS=8
-XTALPI_MAX_MIRRORED_TOOL_RESULT_CHARS=8000
+XTALPI_PI_TOOLS_MAX_TOOLS=24
+XTALPI_PI_TOOLS_MAX_TOOL_RESULT_CHARS=20000
+XTALPI_PI_TOOLS_MAX_EMPTY_RETRIES=2
+XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES=2
+```
+
+Static protocol test:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-test-xtalpi-pi-tools.sh
 ```
 
 In linked mode, `settings.json` is symlinked by default so updates from pi-67 continue to apply. If you request a provider/model change that differs from the repository default, the configure helper detaches `settings.json` into a local file before writing, so personal defaults do not dirty the repo. In in-place mode, `settings.json` is tracked by the current checkout; keep personal secrets and machine paths in the ignored local config files instead.
@@ -297,7 +304,7 @@ pi-67 distinguishes between installed and ready:
 | Rules | Yes | 8 rule files exist and `pi-rules-loader` is installed |
 | Prompts | Yes | Prompt files exist and do not use legacy double-brace placeholders |
 | Skills | Yes | `pi skill list` succeeds |
-| xtalpi provider | Yes | `models.json` has a real xtalpi API key |
+| xtalpi-pi-tools provider | Yes | `models.json` has a real xtalpi API key under `xtalpi-pi-tools` |
 | Codex provider | Yes | local Codex proxy and API key are configured |
 | tmwd_browser MCP | Yes | browser67 package clone or local browser67 checkout path exists |
 | js-reverse MCP | Yes | browser67 package clone or local browser67 checkout path and bridge settings are valid |
@@ -360,9 +367,16 @@ The updater:
 1. Runs `git pull --ff-only` in the pi-67 checkout.
 2. Keeps local runtime config files.
 3. Creates newly introduced local config files from `.example` templates only when missing.
-4. Syncs npm dependencies when `package.json` differs from `~/.pi/agent/npm/package.json`.
-5. Runs doctor after the update.
-6. Overwrites `~/.pi/agent/pi67-report.json`.
+4. Runs `pi67-configure.sh --no-prompt --no-doctor` to apply safe non-interactive local config migrations, including old `xtalpi` / `xtalpi-tools` to `xtalpi-pi-tools`.
+5. Syncs npm dependencies when `package.json` differs from `~/.pi/agent/npm/package.json`.
+6. Runs doctor after the update.
+7. Overwrites `~/.pi/agent/pi67-report.json`.
+
+If you need to skip local config migration for one update:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-update.sh --no-configure
+```
 
 For an older install that does not have `pi67-update.sh` yet:
 

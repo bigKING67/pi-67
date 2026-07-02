@@ -4,7 +4,7 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
-当前发行版版本：`0.9.3`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.10.0`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 这是什么
 
@@ -12,7 +12,7 @@
 
 - 常驻内核：`AGENTS.md` 只保留硬规则、工具分流、rules 读取契约和交付闭环。
 - 长规则外置：`rules/` 存放质量、架构、目录、性能、前端、浏览器、上下文和数据规则，按任务最小读取。
-- 扩展补强：`extensions/pi-rules-loader/` 给 Pi 注入 rules 索引；`extensions/xtalpi-compat/` 处理 xtalpi 兼容。
+- 扩展补强：`extensions/pi-rules-loader/` 给 Pi 注入 rules 索引；`extensions/xtalpi-pi-tools/` 让 Pi 本地托管 xtalpi 工具协议。
 - 生产力资产：Skills、Prompts、Docs、Templates 和脚本保持仓库化，便于审计、同步和回滚。
 
 仓库不会提交真实 `auth.json`、`models.json`、`mcp.json`、`image-gen.json`、会话、缓存或运行历史；只提供 `.example` 模板。
@@ -27,16 +27,16 @@
 | 类别 | 内容 | 说明 |
 |------|------|------|
 | **核心配置** | `settings.json` | 默认 provider/model、Pi package 列表 |
-| **模型配置** | `models.example.json` | xtalpi / xtalpi-tools / codex 三 provider 模板 |
+| **模型配置** | `models.example.json` | xtalpi-pi-tools / codex provider 模板 |
 | **MCP** | `mcp.example.json` | browser67 tmwd_browser、js-reverse、agent_memory 模板 |
 | **全局内核** | `AGENTS.md` | Pi 常驻行为规范（v1.4-pi kernel） |
 | **Rules** | `rules/` (8 篇) | 质量、架构、结构、性能、前端、浏览器、上下文、数据质量规则 |
-| **自定义扩展** | `extensions/` (2 个) | `xtalpi-compat` + `pi-rules-loader` |
+| **自定义扩展** | `extensions/` (2 个) | `xtalpi-pi-tools` + `pi-rules-loader` |
 | **Shared Skills** | `shared-skills/` (31 个) | 安装到 `~/.agents/skills`，供 Pi/Codex 共用 |
 | **Skill 治理** | `docs/skill-governance.md` | skill 公开发行 / 个人 overlay / 过期治理规则 |
 | **文档** | `docs/` | 全量安装、doctor/report/status schema、排障、发布流程、MCP 优化、爬虫指南、工具速查、xtalpi 配置 |
 | **Prompts** | `prompts/` (5 个) | debug、deliver、frontend-kickoff、review、scoped-commit |
-| **脚本** | `scripts/` | configure、doctor、report、status、skill-audit、skill migration/sync/check、release artifact smoke、release、release-check、smoke、update、restore、uninstall、xtalpi safe 启动和工具冒烟测试 |
+| **脚本** | `scripts/` | configure、doctor、report、status、skill-audit、skill migration/sync/check、release artifact smoke、release、release-check、smoke、update、restore、uninstall、xtalpi-pi-tools 启动、测试和冒烟测试 |
 | **模板** | `templates/scrapers/` | 采集/合并/轮询相关脚本模板 |
 
 ## Shared skill registry
@@ -313,8 +313,14 @@ pi-67/
 ├── extensions/
 │   ├── pi-rules-loader/            # Rules 索引注入扩展
 │   │   └── index.ts
-│   └── xtalpi-compat/              # xtalpi API 兼容层
-│       └── index.ts
+│   └── xtalpi-pi-tools/            # xtalpi 本地工具协议 provider
+│       ├── index.ts
+│       ├── parser.ts
+│       ├── serializer.ts
+│       ├── protocol.ts
+│       ├── retry.ts
+│       ├── diagnostics.ts
+│       └── stream.ts
 ├── rules/                          # Pi 按需读取长规则
 │   ├── architecture-quality.md
 │   ├── browser.md
@@ -345,7 +351,7 @@ pi-67/
 │   ├── status.md
 │   ├── troubleshooting.md
 │   ├── tool-cheatsheet.md
-│   └── xtalpi-tools.md
+│   └── xtalpi-pi-tools.md
 ├── prompts/                        # Pi Prompt 模板
 │   ├── debug.md
 │   ├── deliver.md
@@ -369,25 +375,40 @@ pi-67/
 │   ├── pi67-test-skill-governance.sh
 │   ├── pi67-update.sh
 │   ├── pi67-uninstall.sh
-│   ├── pi67-xtalpi-safe.sh
-│   └── xtalpi-tool-smoke.sh
+│   ├── pi67-xtalpi-pi-tools.sh
+│   ├── pi67-test-xtalpi-pi-tools.sh
+│   └── pi67-xtalpi-pi-tools-smoke.sh
 └── templates/
     └── scrapers/
 ```
 
 ## 关于 xtalpi
 
-xtalpi 是晶泰科技内部 API。`models.example.json` 中包含 xtalpi / xtalpi-tools 两个 provider 配置，`extensions/xtalpi-compat/` 是对应兼容层。
+xtalpi 是晶泰科技内部 API。`models.example.json` 中只保留一个晶泰 provider：`xtalpi-pi-tools`。
 
-如果晶泰代理在工具调用后偶发“连续返回空 assistant 内容”，pi-67 默认会启用 anti-stall：空回后隐藏续问，并把恢复请求降级为无工具、无 reasoning、尽量非流式的文本恢复。重要任务推荐用保守启动脚本：
+`xtalpi-pi-tools` 不再向晶泰发送 OpenAI 原生 `tools` / `tool_choice` / `role=tool`，而是让 Pi 本地解析 `<pi_tool_call>` 文本协议并执行工具。晶泰侧只需要处理普通 chat completion，因此比旧 `xtalpi-tools` 更稳定。
+
+显式启动：
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-xtalpi-safe.sh
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools.sh
 ```
 
-它不会改你的 `models.json`、API key 或 URL，只影响当前 Pi 进程的 xtalpi 稳定性参数。详细说明见 `docs/xtalpi-tools.md` 和 `docs/troubleshooting.md`。
+静态测试：
 
-**xtalpi 外部用户**：完整配置仍会安装 xtalpi provider 模板；如果没有 xtalpi key，可以在 `~/.pi/agent/settings.json` / `models.json` 改用其他 provider。doctor 会把缺 key 或 provider 不匹配报告为 warning/fail。
+```bash
+bash ~/.pi/agent/scripts/pi67-test-xtalpi-pi-tools.sh
+```
+
+真实冒烟：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
+```
+
+详细说明见 `docs/xtalpi-pi-tools.md` 和 `docs/troubleshooting.md`。
+
+**xtalpi 外部用户**：完整配置仍会安装 xtalpi-pi-tools provider 模板；如果没有 xtalpi key，可以在 `~/.pi/agent/settings.json` / `models.json` 改用其他 provider。doctor 会把缺 key 或 provider 不匹配报告为 warning/fail。
 
 ## 更新
 
@@ -408,9 +429,10 @@ bash ~/.pi/agent/scripts/pi67-status.sh
 1. 在 pi-67 仓库中执行 `git pull --ff-only`
 2. 保留本地 `models.json` / `mcp.json` / `auth.json` / `image-gen.json`
 3. 如果新增本地配置模板，只复制缺失文件，不覆盖已有配置
-4. 如果 `package.json` 和 `~/.pi/agent/npm/package.json` 不一致，自动同步 npm 依赖
-5. 运行 doctor 复核 readiness
-6. 覆盖写入 `~/.pi/agent/pi67-report.json`
+4. 自动运行 `pi67-configure.sh --no-prompt --no-doctor` 做非交互配置迁移，例如把旧 `xtalpi` / `xtalpi-tools` 迁移到 `xtalpi-pi-tools`
+5. 如果 `package.json` 和 `~/.pi/agent/npm/package.json` 不一致，自动同步 npm 依赖
+6. 运行 doctor 复核 readiness
+7. 覆盖写入 `~/.pi/agent/pi67-report.json`
 
 如果你安装的是旧版，还没有 `pi67-update.sh`，第一次这样更新：
 
@@ -442,6 +464,12 @@ bash ~/.pi/agent/scripts/pi67-update.sh --allow-dirty
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-update.sh --no-report
+```
+
+如果只想更新仓库和依赖、暂时不改本地配置：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-update.sh --no-configure
 ```
 
 ## 发布维护
