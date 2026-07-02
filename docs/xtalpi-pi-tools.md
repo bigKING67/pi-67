@@ -242,7 +242,7 @@ XTALPI_PI_TOOLS_SMOKE_CASES=web-read bash ~/.pi/agent/scripts/pi67-xtalpi-pi-too
 
 live smoke 会先运行 provider-health preflight，然后为子进程显式设置 `XTALPI_PI_TOOLS_TIMEOUT_MS` 和 `XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS`，默认来自 `XTALPI_PI_TOOLS_SMOKE_REQUEST_TIMEOUT_MS=180000` 与 `XTALPI_PI_TOOLS_SMOKE_MAX_OUTPUT_TOKENS=1024`。这只影响 smoke 子进程，不改变日常 `xtalpi-pi-tools` 运行时默认；作用是把晶泰 provider stall 和过度生成收敛成可观察的 smoke 边界，而不是被 Pi 全局 HTTP idle timeout、日常输出上限或 case watchdog 混在一起。
 
-provider-health preflight 默认开启，超时默认 `XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_TIMEOUT_MS=10000`。它在正式 case 前发送一个最小 chat completion 请求（`max_tokens=1`，不带工具），并写入：
+provider-health preflight 默认开启，超时默认 `XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_TIMEOUT_MS=30000`。它在正式 case 前发送一个最小 chat completion 请求（`max_tokens=1`，不带工具），并写入：
 
 ```text
 $HOME/tmp/xtalpi-pi-tools-smoke/<stamp>-provider-health.json

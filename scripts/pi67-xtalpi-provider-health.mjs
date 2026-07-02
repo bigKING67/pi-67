@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const DEFAULT_BASE_URL = "https://sciencetoken-api.xtalpi.xyz/proxy/openai/v1";
+const DEFAULT_TIMEOUT_MS = 30000;
 
 function usage() {
   console.log(`Usage:
@@ -13,7 +14,7 @@ Options:
   --agent-dir DIR      Pi agent dir. Defaults to ~/.pi/agent.
   --provider ID        Provider id. Defaults to xtalpi-pi-tools.
   --model ID           Model id. Defaults to deepseek-v4-pro.
-  --timeout-ms MS      Request timeout. Defaults to 10000.
+  --timeout-ms MS      Request timeout. Defaults to ${DEFAULT_TIMEOUT_MS}.
   --output-file FILE   Write JSON result to FILE as well as stdout.
   --self-test          Run offline classifier/redaction self-test.
   -h, --help           Show this help.
@@ -25,7 +26,7 @@ function parseArgs(argv) {
     agentDir: path.join(process.env.HOME || ".", ".pi", "agent"),
     provider: "xtalpi-pi-tools",
     model: "deepseek-v4-pro",
-    timeoutMs: 10000,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
     outputFile: "",
     selfTest: false,
   };
@@ -99,7 +100,43 @@ function normalizeBaseUrl(baseUrl) {
 
 function isPlaceholderKey(value) {
   const raw = String(value || "").trim();
-  return !raw || raw.includes("YOUR_") || raw.includes("REPLACE_ME") || /^<[^>]+>$/.test(raw);
+  return !raw || raw.includes("YOUR_") || raw.includes("REPLACE_") || raw === "changeme" || /^<[^>]+>$/.test(raw);
+}
+
+function providerFromModels(models, id) {
+  const provider = models?.providers?.[id];
+  return isObject(provider) ? provider : undefined;
+}
+
+function providersForRuntime(models, providerId) {
+  const primary = providerFromModels(models, providerId);
+  const providers = [primary];
+  if (providerId === "xtalpi-pi-tools") {
+    providers.push(providerFromModels(models, "xtalpi-tools"));
+    providers.push(providerFromModels(models, "xtalpi"));
+  }
+  return { primary, providers };
+}
+
+function stringField(provider, field) {
+  const value = provider?.[field];
+  return typeof value === "string" ? value : undefined;
+}
+
+function firstStringField(providers, field) {
+  for (const provider of providers) {
+    const value = stringField(provider, field);
+    if (value) return value;
+  }
+  return undefined;
+}
+
+function firstRealProviderKey(providers) {
+  for (const provider of providers) {
+    const value = stringField(provider, "apiKey");
+    if (value && !isPlaceholderKey(value)) return value;
+  }
+  return undefined;
 }
 
 function resultBase({ provider, model, timeoutMs, startedAt }) {
@@ -158,7 +195,7 @@ async function checkProviderHealth(options) {
     });
   }
 
-  const provider = models?.providers?.[options.provider];
+  const { primary: provider, providers } = providersForRuntime(models, options.provider);
   if (!isObject(provider)) {
     return failure(context, {
       errorCode: "config_error",
@@ -183,14 +220,15 @@ async function checkProviderHealth(options) {
   const baseUrl = normalizeBaseUrl(
     process.env.XTALPI_PI_TOOLS_BASE_URL ||
       process.env.XTALPI_BASE_URL ||
-      provider.baseUrl ||
+      firstStringField(providers, "baseUrl") ||
       DEFAULT_BASE_URL,
   );
   const endpoint = `${baseUrl}/chat/completions`;
   const apiKey =
     process.env.XTALPI_PI_TOOLS_API_KEY ||
     process.env.XTALPI_API_KEY ||
-    provider.apiKey ||
+    firstRealProviderKey(providers) ||
+    stringField(provider, "apiKey") ||
     "";
 
   if (isPlaceholderKey(apiKey)) {
@@ -305,6 +343,18 @@ function selfTest() {
   const upstream = classifyHttpStatus(503);
   if (upstream.errorCode !== "http_5xx" || upstream.errorCategory !== "upstream" || upstream.retryable !== true) {
     throw new Error("http 5xx classification self-test failed");
+  }
+  if (!isPlaceholderKey("changeme") || !isPlaceholderKey("REPLACE_THIS_KEY")) {
+    throw new Error("placeholder key self-test failed");
+  }
+  const legacyRuntime = providersForRuntime({
+    providers: {
+      "xtalpi-pi-tools": { apiKey: "YOUR_XTALPI_API_KEY" },
+      "xtalpi-tools": { apiKey: "legacy-key-1234567890" },
+    },
+  }, "xtalpi-pi-tools");
+  if (firstRealProviderKey(legacyRuntime.providers) !== "legacy-key-1234567890") {
+    throw new Error("legacy xtalpi key fallback self-test failed");
   }
   console.log("xtalpi provider health self-test passed");
 }
