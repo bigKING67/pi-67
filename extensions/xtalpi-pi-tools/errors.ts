@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { redactSensitiveString } from "./diagnostics.ts";
 import { safeBlockText } from "./text-safety.ts";
 
@@ -13,6 +16,7 @@ export type XtalpiErrorCategory =
 
 export type XtalpiErrorCode =
   | "api_key_missing"
+  | "config_error"
   | "http_401"
   | "http_403"
   | "http_408"
@@ -25,6 +29,87 @@ export type XtalpiErrorCode =
   | "request_aborted"
   | "request_timeout"
   | "unknown_error";
+
+type ProviderErrorMetadata = {
+  category: XtalpiErrorCategory;
+  retryable: boolean;
+  healthImmediateRetry: boolean;
+};
+
+type ProviderErrorContract = {
+  schema: string;
+  errors: Record<string, ProviderErrorMetadata>;
+  httpStatus: Record<string, XtalpiErrorCode>;
+  httpStatusRanges: Array<{
+    min: number;
+    max: number;
+    code: XtalpiErrorCode;
+  }>;
+};
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function contractFilePath(): string {
+  return join(dirname(fileURLToPath(import.meta.url)), "provider-error-contract.json");
+}
+
+function loadProviderErrorContract(): ProviderErrorContract {
+  const file = contractFilePath();
+  const parsed = JSON.parse(readFileSync(file, "utf8")) as unknown;
+  if (!isObject(parsed) || parsed.schema !== "xtalpi-pi-tools.provider-error-contract.v1") {
+    throw new Error(`invalid xtalpi provider error contract schema: ${file}`);
+  }
+  if (!isObject(parsed.errors) || !isObject(parsed.httpStatus) || !Array.isArray(parsed.httpStatusRanges)) {
+    throw new Error(`invalid xtalpi provider error contract shape: ${file}`);
+  }
+  const contract = parsed as ProviderErrorContract;
+  for (const code of [
+    "api_key_missing",
+    "config_error",
+    "http_401",
+    "http_403",
+    "http_408",
+    "http_429",
+    "http_5xx",
+    "http_error",
+    "malformed_response",
+    "network_error",
+    "non_json_response",
+    "request_aborted",
+    "request_timeout",
+    "unknown_error",
+  ]) {
+    const metadata = contract.errors[code];
+    if (
+      !metadata ||
+      typeof metadata.category !== "string" ||
+      typeof metadata.retryable !== "boolean" ||
+      typeof metadata.healthImmediateRetry !== "boolean"
+    ) {
+      throw new Error(`invalid xtalpi provider error metadata for ${code}: ${file}`);
+    }
+  }
+  for (const [status, code] of Object.entries(contract.httpStatus)) {
+    if (!/^[0-9]+$/.test(status) || !contract.errors[code]) {
+      throw new Error(`invalid xtalpi provider error httpStatus mapping ${status}: ${file}`);
+    }
+  }
+  for (const range of contract.httpStatusRanges) {
+    if (
+      !Number.isInteger(range.min) ||
+      !Number.isInteger(range.max) ||
+      range.min > range.max ||
+      !contract.errors[range.code]
+    ) {
+      throw new Error(`invalid xtalpi provider error httpStatus range: ${file}`);
+    }
+  }
+  return contract;
+}
+
+const PROVIDER_ERROR_CONTRACT = loadProviderErrorContract();
 
 export type ClassifiedErrorOptions = {
   category: XtalpiErrorCategory;
@@ -55,15 +140,29 @@ export class XtalpiProviderError extends Error {
   }
 }
 
+export function providerErrorMetadata(code: XtalpiErrorCode): ProviderErrorMetadata {
+  return PROVIDER_ERROR_CONTRACT.errors[code] || PROVIDER_ERROR_CONTRACT.errors.unknown_error;
+}
+
+export function providerHealthImmediateRetry(code: XtalpiErrorCode): boolean {
+  return providerErrorMetadata(code).healthImmediateRetry === true;
+}
+
+function httpStatusCode(status: number): XtalpiErrorCode {
+  const exact = PROVIDER_ERROR_CONTRACT.httpStatus[String(status)];
+  if (exact) return exact;
+  for (const range of PROVIDER_ERROR_CONTRACT.httpStatusRanges) {
+    if (status >= range.min && status <= range.max) return range.code;
+  }
+  return "http_error";
+}
+
 export function classifyHttpStatus(status: number): Pick<ClassifiedErrorOptions, "category" | "retryable"> & {
   code: XtalpiErrorCode;
 } {
-  if (status === 401) return { code: "http_401", category: "authentication", retryable: false };
-  if (status === 403) return { code: "http_403", category: "authentication", retryable: false };
-  if (status === 408) return { code: "http_408", category: "timeout", retryable: true };
-  if (status === 429) return { code: "http_429", category: "rate_limit", retryable: true };
-  if (status >= 500) return { code: "http_5xx", category: "upstream", retryable: true };
-  return { code: "http_error", category: "upstream", retryable: false };
+  const code = httpStatusCode(status);
+  const metadata = providerErrorMetadata(code);
+  return { code, category: metadata.category, retryable: metadata.retryable };
 }
 
 export function buildHttpError(status: number, body: string): XtalpiProviderError {
@@ -89,29 +188,32 @@ export function classifyTransportError(error: unknown, timeoutMs: number, aborte
   const name = error instanceof Error ? error.name : "";
 
   if (aborted) {
+    const metadata = providerErrorMetadata("request_aborted");
     return new XtalpiProviderError("request_aborted", "xtalpi-pi-tools request aborted by caller", {
-      category: "aborted",
-      retryable: false,
+      category: metadata.category,
+      retryable: metadata.retryable,
       cause: error,
     });
   }
 
   if (rawMessage.includes("timeout after") || name === "AbortError") {
+    const metadata = providerErrorMetadata("request_timeout");
     return new XtalpiProviderError(
       "request_timeout",
       `xtalpi-pi-tools request timeout after ${timeoutMs}ms`,
       {
-        category: "timeout",
-        retryable: true,
+        category: metadata.category,
+        retryable: metadata.retryable,
         details: { timeoutMs },
         cause: error,
       },
     );
   }
 
+  const metadata = providerErrorMetadata("network_error");
   return new XtalpiProviderError("network_error", `xtalpi-pi-tools network error: ${rawMessage}`, {
-    category: "network",
-    retryable: true,
+    category: metadata.category,
+    retryable: metadata.retryable,
     cause: error,
   });
 }
@@ -129,10 +231,11 @@ export function toErrorTelemetry(error: unknown): Record<string, unknown> {
   }
 
   const message = error instanceof Error ? error.message : String(error);
+  const metadata = providerErrorMetadata("unknown_error");
   return {
     errorCode: "unknown_error",
-    errorCategory: "upstream",
-    retryable: false,
+    errorCategory: metadata.category,
+    retryable: metadata.retryable,
     errorMessage: redactSensitiveString(message),
   };
 }

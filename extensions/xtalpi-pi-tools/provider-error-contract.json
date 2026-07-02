@@ -1,0 +1,93 @@
+{
+  "schema": "xtalpi-pi-tools.provider-error-contract.v1",
+  "errors": {
+    "api_key_missing": {
+      "category": "configuration",
+      "retryable": false,
+      "healthImmediateRetry": false
+    },
+    "config_error": {
+      "category": "configuration",
+      "retryable": false,
+      "healthImmediateRetry": false
+    },
+    "http_401": {
+      "category": "authentication",
+      "retryable": false,
+      "healthImmediateRetry": false
+    },
+    "http_403": {
+      "category": "authentication",
+      "retryable": false,
+      "healthImmediateRetry": false
+    },
+    "http_408": {
+      "category": "timeout",
+      "retryable": true,
+      "healthImmediateRetry": true
+    },
+    "http_429": {
+      "category": "rate_limit",
+      "retryable": true,
+      "healthImmediateRetry": false
+    },
+    "http_5xx": {
+      "category": "upstream",
+      "retryable": true,
+      "healthImmediateRetry": true
+    },
+    "http_error": {
+      "category": "upstream",
+      "retryable": false,
+      "healthImmediateRetry": false
+    },
+    "malformed_response": {
+      "category": "protocol",
+      "retryable": true,
+      "healthImmediateRetry": true
+    },
+    "network_error": {
+      "category": "network",
+      "retryable": true,
+      "healthImmediateRetry": true
+    },
+    "non_json_response": {
+      "category": "protocol",
+      "retryable": true,
+      "healthImmediateRetry": true
+    },
+    "request_aborted": {
+      "category": "aborted",
+      "retryable": false,
+      "healthImmediateRetry": false
+    },
+    "request_timeout": {
+      "category": "timeout",
+      "retryable": true,
+      "healthImmediateRetry": true
+    },
+    "unknown_error": {
+      "category": "upstream",
+      "retryable": false,
+      "healthImmediateRetry": false
+    }
+  },
+  "httpStatus": {
+    "401": "http_401",
+    "403": "http_403",
+    "408": "http_408",
+    "429": "http_429"
+  },
+  "httpStatusRanges": [
+    {
+      "min": 500,
+      "max": 599,
+      "code": "http_5xx"
+    },
+    {
+      "min": 400,
+      "max": 599,
+      "code": "http_error"
+    }
+  ]
+}

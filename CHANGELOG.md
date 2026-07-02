@@ -14,6 +14,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh` live smoke coverage for no-tool, bash, read, and web/read tasks.
 - `scripts/pi67-xtalpi-pi-tools-debug-summary.sh` for summarizing live smoke debug telemetry and recovery events.
 - `extensions/xtalpi-pi-tools/fixtures/replay-cases.json` for parser/provider replay regression cases.
+- `extensions/xtalpi-pi-tools/provider-error-contract.json` as the shared provider error classification and health-retry contract.
 - `docs/xtalpi-pi-tools.md` documenting the local tool protocol, runtime knobs, migration, and validation flow.
 
 ### Changed
@@ -50,6 +51,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh` now stops remaining cases after the first provider error by default, while still writing a scoped summary artifact; set `XTALPI_PI_TOOLS_SMOKE_STOP_ON_PROVIDER_ERROR=0` for exhaustive failure collection.
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh` now runs a bounded provider-health preflight before live cases, writes `<stamp>-provider-health.json`, and records preflight failures in the normal summary/history schema so upstream network/auth/rate-limit failures are diagnosed before the slower Pi tool loop.
 - Provider-health preflight now records per-attempt telemetry and retries bounded transient failures by default while suppressing immediate `http_429` retries to avoid burning rate-limit windows.
+- Provider runtime and provider-health preflight now read the same provider error contract, so error codes, categories, retryability, and immediate retry policy cannot drift across TS runtime and `.mjs` health checks.
 
 ### Removed
 

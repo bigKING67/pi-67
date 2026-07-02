@@ -26,6 +26,27 @@ const { pathToFileURL } = require("node:url");
   const replayFixtures = JSON.parse(
     fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "fixtures", "replay-cases.json"), "utf8"),
   );
+  const providerErrorContract = JSON.parse(
+    fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "provider-error-contract.json"), "utf8"),
+  );
+
+  function contractMetadata(code) {
+    const metadata = providerErrorContract.errors[code];
+    assert.ok(metadata, `missing provider error contract entry: ${code}`);
+    assert.equal(typeof metadata.category, "string", code);
+    assert.equal(typeof metadata.retryable, "boolean", code);
+    assert.equal(typeof metadata.healthImmediateRetry, "boolean", code);
+    return metadata;
+  }
+
+  function expectedClassified(code) {
+    const metadata = contractMetadata(code);
+    return {
+      code,
+      category: metadata.category,
+      retryable: metadata.retryable,
+    };
+  }
 
   function chatResponse(content) {
     return {
@@ -231,25 +252,27 @@ const { pathToFileURL } = require("node:url");
     }
   }
 
-  assert.deepEqual(errors.classifyHttpStatus(401), {
-    code: "http_401",
-    category: "authentication",
-    retryable: false,
-  });
-  assert.deepEqual(errors.classifyHttpStatus(429), {
-    code: "http_429",
-    category: "rate_limit",
-    retryable: true,
-  });
-  assert.deepEqual(errors.classifyHttpStatus(503), {
-    code: "http_5xx",
-    category: "upstream",
-    retryable: true,
-  });
+  assert.equal(providerErrorContract.schema, "xtalpi-pi-tools.provider-error-contract.v1");
+  for (const code of [
+    "http_429",
+    "request_timeout",
+    "network_error",
+    "non_json_response",
+    "malformed_response",
+    "config_error",
+  ]) {
+    contractMetadata(code);
+  }
+  assert.deepEqual(errors.classifyHttpStatus(401), expectedClassified("http_401"));
+  assert.deepEqual(errors.classifyHttpStatus(429), expectedClassified("http_429"));
+  assert.deepEqual(errors.classifyHttpStatus(503), expectedClassified("http_5xx"));
+  assert.deepEqual(errors.providerErrorMetadata("config_error"), contractMetadata("config_error"));
+  assert.equal(errors.providerHealthImmediateRetry("http_429"), false);
+  assert.equal(errors.providerHealthImmediateRetry("request_timeout"), true);
   const timeoutError = errors.classifyTransportError(new Error("xtalpi-pi-tools timeout after 1000ms"), 1000, false);
   assert.equal(timeoutError.code, "request_timeout");
-  assert.equal(timeoutError.category, "timeout");
-  assert.equal(timeoutError.retryable, true);
+  assert.equal(timeoutError.category, contractMetadata("request_timeout").category);
+  assert.equal(timeoutError.retryable, contractMetadata("request_timeout").retryable);
 
   const debugDir = fs.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", "xtalpi-pi-tools-debug-test."));
   const debugFile = path.join(debugDir, "debug.jsonl");

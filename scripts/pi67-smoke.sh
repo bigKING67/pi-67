@@ -95,6 +95,7 @@ cleanup() {
     /tmp/pi67-smoke-external-skills-check.log \
     /tmp/pi67-smoke-release-artifact.log \
     /tmp/pi67-smoke-xtalpi-pi-tools-test.log \
+    /tmp/pi67-smoke-xtalpi-provider-health-test.log \
     /tmp/pi67-smoke-migrate-skills-dry.log \
     /tmp/pi67-smoke-migrate-skills-apply.log \
     /tmp/pi67-smoke-migrate-skills-conflict.log \
@@ -222,6 +223,10 @@ done
 if [ -f "$REPO_ROOT/extensions/xtalpi-pi-tools/fixtures/replay-cases.json" ]; then
   json_valid "$REPO_ROOT/extensions/xtalpi-pi-tools/fixtures/replay-cases.json"
   pass "valid JSON: extensions/xtalpi-pi-tools/fixtures/replay-cases.json"
+fi
+if [ -f "$REPO_ROOT/extensions/xtalpi-pi-tools/provider-error-contract.json" ]; then
+  json_valid "$REPO_ROOT/extensions/xtalpi-pi-tools/provider-error-contract.json"
+  pass "valid JSON: extensions/xtalpi-pi-tools/provider-error-contract.json"
 fi
 
 section "Shared skill defaults"

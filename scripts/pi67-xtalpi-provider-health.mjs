@@ -2,11 +2,13 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const DEFAULT_BASE_URL = "https://sciencetoken-api.xtalpi.xyz/proxy/openai/v1";
 const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_ATTEMPTS = 2;
 const DEFAULT_RETRY_DELAY_MS = 1000;
+const ERROR_CONTRACT_SCHEMA = "xtalpi-pi-tools.provider-error-contract.v1";
 
 function usage() {
   console.log(`Usage:
@@ -95,6 +97,56 @@ function isObject(value) {
   return value && typeof value === "object" && !Array.isArray(value);
 }
 
+function providerErrorContractPath() {
+  return path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "extensions",
+    "xtalpi-pi-tools",
+    "provider-error-contract.json",
+  );
+}
+
+function loadProviderErrorContract() {
+  const file = providerErrorContractPath();
+  const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+  if (!isObject(parsed) || parsed.schema !== ERROR_CONTRACT_SCHEMA) {
+    throw new Error(`invalid xtalpi provider error contract schema: ${file}`);
+  }
+  if (!isObject(parsed.errors) || !isObject(parsed.httpStatus) || !Array.isArray(parsed.httpStatusRanges)) {
+    throw new Error(`invalid xtalpi provider error contract shape: ${file}`);
+  }
+  for (const [code, metadata] of Object.entries(parsed.errors)) {
+    if (
+      !isObject(metadata) ||
+      typeof metadata.category !== "string" ||
+      typeof metadata.retryable !== "boolean" ||
+      typeof metadata.healthImmediateRetry !== "boolean"
+    ) {
+      throw new Error(`invalid xtalpi provider error metadata for ${code}: ${file}`);
+    }
+  }
+  for (const [status, code] of Object.entries(parsed.httpStatus)) {
+    if (!/^[0-9]+$/.test(status) || !parsed.errors[code]) {
+      throw new Error(`invalid xtalpi provider error httpStatus mapping ${status}: ${file}`);
+    }
+  }
+  for (const range of parsed.httpStatusRanges) {
+    if (
+      !isObject(range) ||
+      !Number.isInteger(range.min) ||
+      !Number.isInteger(range.max) ||
+      range.min > range.max ||
+      !parsed.errors[range.code]
+    ) {
+      throw new Error(`invalid xtalpi provider error httpStatus range: ${file}`);
+    }
+  }
+  return parsed;
+}
+
+const PROVIDER_ERROR_CONTRACT = loadProviderErrorContract();
+
 export function redactSensitiveString(value) {
   return String(value || "")
     .replace(/Bearer\s+[A-Za-z0-9._~+\-/=]+/gi, "Bearer [REDACTED]")
@@ -103,13 +155,41 @@ export function redactSensitiveString(value) {
     .replace(/(authorization["'\s:=]+)[A-Za-z0-9._~+\-/=]{8,}/gi, "$1[REDACTED]");
 }
 
+export function providerErrorMetadata(code) {
+  const normalizedCode = PROVIDER_ERROR_CONTRACT.errors[code] ? code : "unknown_error";
+  const metadata = PROVIDER_ERROR_CONTRACT.errors[normalizedCode];
+  return {
+    errorCode: normalizedCode,
+    errorCategory: metadata.category,
+    retryable: metadata.retryable,
+    healthImmediateRetry: metadata.healthImmediateRetry === true,
+  };
+}
+
+function errorFields(code) {
+  const metadata = providerErrorMetadata(code);
+  return {
+    errorCode: metadata.errorCode,
+    errorCategory: metadata.errorCategory,
+    retryable: metadata.retryable,
+  };
+}
+
+function providerHealthImmediateRetry(code) {
+  return providerErrorMetadata(code).healthImmediateRetry === true;
+}
+
+function httpStatusCode(status) {
+  const exact = PROVIDER_ERROR_CONTRACT.httpStatus[String(status)];
+  if (exact) return exact;
+  for (const range of PROVIDER_ERROR_CONTRACT.httpStatusRanges) {
+    if (status >= range.min && status <= range.max) return range.code;
+  }
+  return "http_error";
+}
+
 export function classifyHttpStatus(status) {
-  if (status === 401) return { errorCode: "http_401", errorCategory: "authentication", retryable: false };
-  if (status === 403) return { errorCode: "http_403", errorCategory: "authentication", retryable: false };
-  if (status === 408) return { errorCode: "http_408", errorCategory: "timeout", retryable: true };
-  if (status === 429) return { errorCode: "http_429", errorCategory: "rate_limit", retryable: true };
-  if (status >= 500) return { errorCode: "http_5xx", errorCategory: "upstream", retryable: true };
-  return { errorCode: "http_error", errorCategory: "upstream", retryable: false };
+  return errorFields(httpStatusCode(status));
 }
 
 function normalizeBaseUrl(baseUrl) {
@@ -214,8 +294,7 @@ function attemptSummary(result, attempt, startedAt) {
 
 function shouldRetryNow(result) {
   if (result.ok === true || result.retryable !== true) return false;
-  // A 429 needs caller-level backoff, not an immediate second health probe.
-  return result.errorCode !== "http_429";
+  return providerHealthImmediateRetry(result.errorCode);
 }
 
 async function requestProviderHealth(context, request) {
@@ -247,10 +326,9 @@ async function requestProviderHealth(context, request) {
   } catch (error) {
     const message = redactSensitiveString(error instanceof Error ? error.message : String(error));
     const isTimeout = message.includes("timeout after") || (error instanceof Error && error.name === "AbortError");
+    const code = isTimeout ? "request_timeout" : "network_error";
     return failure(context, {
-      errorCode: isTimeout ? "request_timeout" : "network_error",
-      errorCategory: isTimeout ? "timeout" : "network",
-      retryable: true,
+      ...errorFields(code),
       errorMessage: isTimeout
         ? `xtalpi-pi-tools provider health timeout after ${timeoutMs}ms`
         : `xtalpi-pi-tools provider health network error: ${message}`,
@@ -274,9 +352,7 @@ async function requestProviderHealth(context, request) {
     json = JSON.parse(body);
   } catch (error) {
     return failure(context, {
-      errorCode: "non_json_response",
-      errorCategory: "protocol",
-      retryable: true,
+      ...errorFields("non_json_response"),
       errorMessage: `xtalpi-pi-tools provider health returned non-JSON response: ${
         redactSensitiveString(error instanceof Error ? error.message : String(error))
       }`,
@@ -285,9 +361,7 @@ async function requestProviderHealth(context, request) {
 
   if (!Array.isArray(json?.choices)) {
     return failure(context, {
-      errorCode: "malformed_response",
-      errorCategory: "protocol",
-      retryable: true,
+      ...errorFields("malformed_response"),
       errorMessage: "xtalpi-pi-tools provider health returned JSON without choices[]",
     });
   }
@@ -312,9 +386,7 @@ async function checkProviderHealth(options) {
     models = JSON.parse(fs.readFileSync(path.join(options.agentDir, "models.json"), "utf8"));
   } catch (error) {
     return failure(context, {
-      errorCode: "config_error",
-      errorCategory: "configuration",
-      retryable: false,
+      ...errorFields("config_error"),
       errorMessage: `cannot read models.json: ${redactSensitiveString(error instanceof Error ? error.message : String(error))}`,
     });
   }
@@ -322,9 +394,7 @@ async function checkProviderHealth(options) {
   const { primary: provider, providers } = providersForRuntime(models, options.provider);
   if (!isObject(provider)) {
     return failure(context, {
-      errorCode: "config_error",
-      errorCategory: "configuration",
-      retryable: false,
+      ...errorFields("config_error"),
       errorMessage: `provider not found in models.json: ${options.provider}`,
     });
   }
@@ -334,9 +404,7 @@ async function checkProviderHealth(options) {
     : undefined;
   if (!configuredModel) {
     return failure(context, {
-      errorCode: "config_error",
-      errorCategory: "configuration",
-      retryable: false,
+      ...errorFields("config_error"),
       errorMessage: `model not found under provider ${options.provider}: ${options.model}`,
     });
   }
@@ -359,9 +427,7 @@ async function checkProviderHealth(options) {
     return failure(context, {
       baseUrl,
       endpoint,
-      errorCode: "api_key_missing",
-      errorCategory: "configuration",
-      retryable: false,
+      ...errorFields("api_key_missing"),
       attemptsConfigured: options.attempts,
       retryDelayMs: options.retryDelayMs,
       attemptCount: 0,
@@ -403,13 +469,19 @@ async function checkProviderHealth(options) {
     }
 
     if (attempt >= options.attempts || !shouldRetryNow(lastResult)) {
+      const retrySuppressedReason =
+        lastResult.retryable === true && !providerHealthImmediateRetry(lastResult.errorCode)
+          ? lastResult.errorCode === "http_429"
+            ? "rate_limit_immediate_retry_disabled"
+            : "provider_health_immediate_retry_disabled"
+          : undefined;
       return failure(context, {
         ...commonFields,
         httpStatus: lastResult.httpStatus,
         errorCode: lastResult.errorCode,
         errorCategory: lastResult.errorCategory,
         retryable: lastResult.retryable,
-        retrySuppressedReason: lastResult.errorCode === "http_429" ? "rate_limit_immediate_retry_disabled" : undefined,
+        retrySuppressedReason,
         errorMessage: lastResult.errorMessage,
       });
     }
@@ -425,24 +497,48 @@ async function checkProviderHealth(options) {
     attemptCount: attempts.length,
     retryCount: Math.max(0, attempts.length - 1),
     attempts,
-    errorCode: lastResult?.errorCode || "unknown_error",
-    errorCategory: lastResult?.errorCategory || "upstream",
-    retryable: false,
+    ...errorFields(lastResult?.errorCode || "unknown_error"),
     errorMessage: lastResult?.errorMessage || "xtalpi-pi-tools provider health failed without a result",
   });
 }
 
 function selfTest() {
+  if (PROVIDER_ERROR_CONTRACT.schema !== ERROR_CONTRACT_SCHEMA) {
+    throw new Error("provider error contract schema self-test failed");
+  }
+  for (const code of [
+    "http_429",
+    "request_timeout",
+    "network_error",
+    "non_json_response",
+    "malformed_response",
+    "config_error",
+  ]) {
+    const metadata = providerErrorMetadata(code);
+    if (metadata.errorCode !== code || typeof metadata.errorCategory !== "string" || typeof metadata.retryable !== "boolean") {
+      throw new Error(`provider error contract metadata self-test failed for ${code}`);
+    }
+  }
   const redacted = redactSensitiveString("rate limited for Bearer short and sk-testvalue1234567890");
   if (redacted.includes("Bearer short") || redacted.includes("sk-testvalue1234567890")) {
     throw new Error("redaction self-test failed");
   }
   const rateLimit = classifyHttpStatus(429);
-  if (rateLimit.errorCode !== "http_429" || rateLimit.errorCategory !== "rate_limit" || rateLimit.retryable !== true) {
+  const rateLimitMetadata = providerErrorMetadata("http_429");
+  if (
+    rateLimit.errorCode !== "http_429" ||
+    rateLimit.errorCategory !== rateLimitMetadata.errorCategory ||
+    rateLimit.retryable !== rateLimitMetadata.retryable
+  ) {
     throw new Error("http 429 classification self-test failed");
   }
   const upstream = classifyHttpStatus(503);
-  if (upstream.errorCode !== "http_5xx" || upstream.errorCategory !== "upstream" || upstream.retryable !== true) {
+  const upstreamMetadata = providerErrorMetadata("http_5xx");
+  if (
+    upstream.errorCode !== "http_5xx" ||
+    upstream.errorCategory !== upstreamMetadata.errorCategory ||
+    upstream.retryable !== upstreamMetadata.retryable
+  ) {
     throw new Error("http 5xx classification self-test failed");
   }
   if (shouldRetryNow({ ok: false, retryable: true, errorCode: "http_429" })) {

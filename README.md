@@ -415,6 +415,7 @@ node ~/.pi/agent/scripts/pi67-xtalpi-provider-health.mjs
 ```
 
 provider health 会输出结构化 JSON，并对瞬时 timeout/network/upstream/protocol 抖动做有界重试；`http_429` 只记录为 rate-limit，不做立即重试。
+这些错误代码、分类、retryable 语义和 provider-health immediate retry 策略由 `extensions/xtalpi-pi-tools/provider-error-contract.json` 统一定义，运行时 provider 与 preflight 共同读取，避免脚本和扩展长期漂移。
 
 冒烟 telemetry 汇总：
 

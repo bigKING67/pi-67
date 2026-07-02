@@ -250,6 +250,8 @@ $HOME/tmp/xtalpi-pi-tools-smoke/<stamp>-provider-health.json
 
 preflight 只会对瞬时可重试失败做立即重试，例如 `request_timeout`、`network_error`、`http_408`、`http_5xx`、`non_json_response` 或 `malformed_response`；`http_429` 会标记为 retryable，但不会立即重试，避免在限流窗口里继续消耗请求。
 
+provider 错误代码、分类、`retryable` 语义和 provider-health immediate retry 策略的真源是 `extensions/xtalpi-pi-tools/provider-error-contract.json`。运行时 `xtalpi-pi-tools` provider 和 `scripts/pi67-xtalpi-provider-health.mjs` 共同读取这份 contract，避免 `http_429`、timeout/network、protocol failure 等分类在 TS runtime 和 preflight 脚本之间漂移。
+
 如果 preflight 失败（例如 `api_key_missing`、`network_error`、`http_401`、`http_429`、`http_5xx`、`non_json_response`），smoke 会跳过正式 case，并仍写入 `<stamp>-summary.json`，其中 `debugSummary.totals.providerErrors=1`、`providerHealth` 包含脱敏后的结构化失败原因、`attempts` 尝试明细和 `retrySuppressedReason`。这比等完整 Pi 工具 loop 在每个 case 里超时更快。需要绕过 preflight 直接跑 case 时：
 
 ```bash
@@ -288,7 +290,7 @@ $HOME/tmp/xtalpi-pi-tools-smoke/<stamp>-summary.json
 
 摘要 schema 为 `xtalpi-pi-tools.smoke-summary.v1`，包含 provider、model、stamp、selected cases、case timeout、request timeout、max output tokens、failure count、provider-health preflight 状态、preflight timeout / attempts / retry delay、provider-error stop 策略和 stop reason、debug-summary gate 状态、总体 recoveries / recovery rate / raw markup final answer / process lifecycle failure / watchdog timeout 计数，以及逐 case telemetry。debug summary JSON 的逐 case telemetry 还包含 `runtimeFingerprint`，用于确认当轮实际协议版本、selected-tool hash、展示工具名、请求超时、输出上限、工具结果截断上限和 recovery limits。
 
-provider 调用失败会写入结构化 debug telemetry：`errorCode`、`errorCategory`、`retryable` 和可选 `httpStatus`。常见代码包括 `api_key_missing`、`request_timeout`、`request_aborted`、`network_error`、`http_401`、`http_403`、`http_408`、`http_429`、`http_5xx`、`http_error`、`non_json_response` 和 `malformed_response`。debug summary 会汇总 `provider_errors`、`retryable_provider_errors`、`provider_error_codes` 和 `provider_error_categories`，且默认要求 `provider_errors=0`。这样可以把晶泰限流/鉴权/上游错误和 Pi 工具协议质量回归分开判断。
+provider 调用失败会写入结构化 debug telemetry：`errorCode`、`errorCategory`、`retryable` 和可选 `httpStatus`。常见代码包括 `api_key_missing`、`config_error`、`request_timeout`、`request_aborted`、`network_error`、`http_401`、`http_403`、`http_408`、`http_429`、`http_5xx`、`http_error`、`non_json_response` 和 `malformed_response`。debug summary 会汇总 `provider_errors`、`retryable_provider_errors`、`provider_error_codes` 和 `provider_error_categories`，且默认要求 `provider_errors=0`。这样可以把晶泰限流/鉴权/上游错误和 Pi 工具协议质量回归分开判断。
 
 汇总最近的冒烟 telemetry：
 
