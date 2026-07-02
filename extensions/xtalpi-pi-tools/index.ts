@@ -270,6 +270,14 @@ function endpointFor(model: Model<Api>): string {
   return `${baseUrl}/chat/completions`;
 }
 
+export function resolveRequestTimeoutMs(options?: Pick<SimpleStreamOptions, "timeoutMs">): number {
+  const optionTimeoutMs =
+    typeof options?.timeoutMs === "number" && Number.isFinite(options.timeoutMs) && options.timeoutMs >= 1000
+      ? Math.floor(options.timeoutMs)
+      : DEFAULT_TIMEOUT_MS;
+  return envInt("XTALPI_PI_TOOLS_TIMEOUT_MS", optionTimeoutMs, 1000);
+}
+
 export function buildChatCompletionPayload(
   model: Pick<Model<Api>, "id" | "maxTokens">,
   messages: XtalpiChatMessage[],
@@ -352,15 +360,16 @@ async function callXtalpiChat(
   }
 
   const payload = buildChatCompletionPayload(model, messages, options);
+  const timeoutMs = resolveRequestTimeoutMs(options);
   debugLog("request", {
     provider: PROVIDER_ID,
     model: model.id,
     messageCount: payload.messages.length,
     maxTokens: payload.max_tokens,
     nativeToolsPresent: false,
+    timeoutMs,
   });
 
-  const timeoutMs = options?.timeoutMs || envInt("XTALPI_PI_TOOLS_TIMEOUT_MS", DEFAULT_TIMEOUT_MS, 1000);
   const response = await fetchWithTimeout(
     endpointFor(model),
     {

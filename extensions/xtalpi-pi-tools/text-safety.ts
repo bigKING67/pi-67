@@ -1,5 +1,6 @@
 const CONTROL_CHARS_EXCEPT_COMMON_WHITESPACE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 const PROTOCOL_MARKUP_TAG = /<\/?pi_tool_(?:call_history|call|result)\b(?:[^<>\r\n]*>|[^<>\r\n]*)/gi;
+const INTERNAL_HISTORY_MARKER = /\[\/?previous_pi_tool_call\]/gi;
 
 export function truncateText(value: string, maxChars: number): string {
   if (maxChars <= 0 || value.length <= maxChars) return value;
@@ -13,8 +14,15 @@ function protocolMarkerLabel(tag: string): string {
   return `[literal ${name} ${direction} tag]`;
 }
 
+function internalHistoryMarkerLabel(marker: string): string {
+  const direction = marker.toLowerCase().startsWith("[/") ? "close" : "open";
+  return `[literal previous_pi_tool_call ${direction} marker]`;
+}
+
 export function neutralizeProtocolMarkers(value: string): string {
-  return value.replace(PROTOCOL_MARKUP_TAG, protocolMarkerLabel);
+  return value
+    .replace(PROTOCOL_MARKUP_TAG, protocolMarkerLabel)
+    .replace(INTERNAL_HISTORY_MARKER, internalHistoryMarkerLabel);
 }
 
 export function safeBlockText(value: unknown, maxChars: number): string {

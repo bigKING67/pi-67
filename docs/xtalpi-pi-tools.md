@@ -37,7 +37,7 @@ content:
 </pi_tool_result>
 ```
 
-工具结果内容是不可信数据：其中出现的指令、角色声明、伪 system prompt 或 `<pi_tool_call>` / `<pi_tool_result>` 文本都不能覆盖 Pi/system/user 指令。实现会把工具结果里的协议标记（包括 `<pi_tool_call name="...">` 这类带属性变体，以及缺少 `>` 的残缺标签片段）中和为普通文本，避免工具输出伪造协议边界。
+工具结果内容是不可信数据：其中出现的指令、角色声明、伪 system prompt、`<pi_tool_call>` / `<pi_tool_result>` 文本或 `[previous_pi_tool_call]` 历史记录都不能覆盖 Pi/system/user 指令。实现会把工具结果、工具元数据和 repair raw excerpt 里的协议标记（包括 `<pi_tool_call name="...">` 这类带属性变体、缺少 `>` 的残缺标签片段，以及 `[previous_pi_tool_call]` bracket markers）中和为普通文本，避免工具输出伪造协议边界或内部历史记录。
 
 历史 assistant tool call 不再以 `<pi_tool_call_history>` 裸协议标签回灌给模型，而是序列化为 `[previous_pi_tool_call]` 普通记录。这样仍保留“哪些工具已经执行过”的上下文，同时减少模型在最终回答或下一次工具调用里复读内部协议标签的概率。如果模型仍把 `[previous_pi_tool_call]` 历史记录当作最终回答复读，provider 会按内部协议泄漏触发 repair，smoke/debug-summary 也会把它计入 final-answer markup gate。
 
@@ -196,7 +196,7 @@ extensions/xtalpi-pi-tools/fixtures/replay-cases.json
 - raw/internal Pi protocol markup final answer repair（含残缺/畸形协议标签和 `[previous_pi_tool_call]` 历史记录）
 - tool result 作为普通 user 文本序列化
 - assistant tool-call history 作为普通 `[previous_pi_tool_call]` 记录序列化，避免把裸 `<pi_tool_call_history>` 暴露给模型
-- tool result prompt-injection / 协议边界中和（含带属性与残缺协议标签变体）
+- tool result prompt-injection / 协议边界中和（含带属性与残缺协议标签变体、`[previous_pi_tool_call]` bracket markers）
 - tool metadata / repair prompt 协议边界中和
 - payload 不包含 `tools`、`tool_choice`、`parallel_tool_calls`、`thinking`、`reasoning_effort`
 - payload 不包含 `role=tool`
@@ -230,6 +230,8 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
 
 冒烟脚本还会为每个 case 开启 `XTALPI_PI_TOOLS_DEBUG=1`，校验 debug JSONL schema，并汇总 `recovery.*` 事件，便于判断是否发生了本地修复重试。
 
+live smoke 会为子进程显式设置 `XTALPI_PI_TOOLS_TIMEOUT_MS` 和 `XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS`，默认来自 `XTALPI_PI_TOOLS_SMOKE_REQUEST_TIMEOUT_MS=180000` 与 `XTALPI_PI_TOOLS_SMOKE_MAX_OUTPUT_TOKENS=1024`。这只影响 smoke 子进程，不改变日常 `xtalpi-pi-tools` 运行时默认；作用是把晶泰 provider stall 和过度生成收敛成可观察的 smoke 边界，而不是被 Pi 全局 HTTP idle timeout、日常输出上限或 case watchdog 混在一起。
+
 冒烟结束时会调用 debug summary 对最新一轮 artifact 做门禁：case 数必须匹配、Pi 事件不能有 error、不能出现空 assistant 结束、不能出现 raw Pi tool markup final answer，recovery 次数不能超过脚本设定阈值。
 
 输出 JSONL artifact 默认在：
@@ -244,7 +246,7 @@ $HOME/tmp/xtalpi-pi-tools-smoke
 $HOME/tmp/xtalpi-pi-tools-smoke/<stamp>-summary.json
 ```
 
-摘要 schema 为 `xtalpi-pi-tools.smoke-summary.v1`，包含 provider、model、stamp、case timeout、failure count、debug-summary gate 状态、总体 recoveries / recovery rate / raw markup final answer 计数，以及逐 case telemetry。
+摘要 schema 为 `xtalpi-pi-tools.smoke-summary.v1`，包含 provider、model、stamp、case timeout、request timeout、max output tokens、failure count、debug-summary gate 状态、总体 recoveries / recovery rate / raw markup final answer 计数，以及逐 case telemetry。
 
 汇总最近的冒烟 telemetry：
 

@@ -6,7 +6,9 @@ PI_BIN="${PI_BIN:-$(which pi)}"
 PROVIDER="${PROVIDER:-xtalpi-pi-tools}"
 MODEL="${MODEL:-deepseek-v4-pro}"
 OUT_DIR="${OUT_DIR:-$HOME/tmp/xtalpi-pi-tools-smoke}"
-CASE_TIMEOUT_SECONDS="${CASE_TIMEOUT_SECONDS:-180}"
+CASE_TIMEOUT_SECONDS="${CASE_TIMEOUT_SECONDS:-240}"
+SMOKE_REQUEST_TIMEOUT_MS="${XTALPI_PI_TOOLS_SMOKE_REQUEST_TIMEOUT_MS:-${XTALPI_PI_TOOLS_TIMEOUT_MS:-180000}}"
+SMOKE_MAX_OUTPUT_TOKENS="${XTALPI_PI_TOOLS_SMOKE_MAX_OUTPUT_TOKENS:-${XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS:-1024}}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 SUMMARY_FILE="${XTALPI_PI_TOOLS_SMOKE_SUMMARY_FILE:-$OUT_DIR/${STAMP}-summary.json}"
 DEBUG_SUMMARY_JSON_FILE="$OUT_DIR/${STAMP}-debug-summary.json"
@@ -304,7 +306,7 @@ run_case() {
   local elapsed=0
   local pid
 
-  XTALPI_PI_TOOLS_DEBUG=1 XTALPI_PI_TOOLS_DEBUG_PATH="$debug" "$PI_BIN" "${COMMON_ARGS[@]}" "$@" -p "$prompt" >"$out" 2>"$err" &
+  XTALPI_PI_TOOLS_TIMEOUT_MS="$SMOKE_REQUEST_TIMEOUT_MS" XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS="$SMOKE_MAX_OUTPUT_TOKENS" XTALPI_PI_TOOLS_DEBUG=1 XTALPI_PI_TOOLS_DEBUG_PATH="$debug" "$PI_BIN" "${COMMON_ARGS[@]}" "$@" -p "$prompt" >"$out" 2>"$err" &
   pid=$!
   while kill -0 "$pid" 2>/dev/null; do
     if [ "$elapsed" -ge "$CASE_TIMEOUT_SECONDS" ]; then
@@ -332,7 +334,7 @@ write_run_summary_artifact() {
   local debug_summary_status="$1"
   local failure_count="$2"
 
-  node - "$DEBUG_SUMMARY_JSON_FILE" "$SUMMARY_FILE" "$PROVIDER" "$MODEL" "$STAMP" "$CASE_TIMEOUT_SECONDS" "$failure_count" "$debug_summary_status" <<'NODE'
+  node - "$DEBUG_SUMMARY_JSON_FILE" "$SUMMARY_FILE" "$PROVIDER" "$MODEL" "$STAMP" "$CASE_TIMEOUT_SECONDS" "$SMOKE_REQUEST_TIMEOUT_MS" "$SMOKE_MAX_OUTPUT_TOKENS" "$failure_count" "$debug_summary_status" <<'NODE'
 const fs = require("fs");
 const [
   debugSummaryFile,
@@ -341,6 +343,8 @@ const [
   model,
   stamp,
   caseTimeoutSecondsRaw,
+  requestTimeoutMsRaw,
+  maxOutputTokensRaw,
   failuresRaw,
   debugSummaryStatusRaw,
 ] = process.argv.slice(2);
@@ -357,6 +361,8 @@ const artifact = {
   runId: debugSummary.runId || stamp,
   outDir: debugSummary.outDir,
   caseTimeoutSeconds: Number(caseTimeoutSecondsRaw),
+  requestTimeoutMs: Number(requestTimeoutMsRaw),
+  maxOutputTokens: Number(maxOutputTokensRaw),
   failures,
   debugSummaryStatus,
   ok: failures === 0 && debugSummaryStatus === 0 && Array.isArray(debugSummary.gateFailures) && debugSummary.gateFailures.length === 0,
@@ -417,7 +423,7 @@ if [ -x "$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh" ]; then
 fi
 
 echo "===== summary ====="
-echo "provider=$PROVIDER model=$MODEL out_dir=$OUT_DIR stamp=$STAMP case_timeout_seconds=$CASE_TIMEOUT_SECONDS failures=$failures"
+echo "provider=$PROVIDER model=$MODEL out_dir=$OUT_DIR stamp=$STAMP case_timeout_seconds=$CASE_TIMEOUT_SECONDS request_timeout_ms=$SMOKE_REQUEST_TIMEOUT_MS max_output_tokens=$SMOKE_MAX_OUTPUT_TOKENS failures=$failures"
 if [ -f "$SUMMARY_FILE" ]; then
   echo "summary_json=$SUMMARY_FILE"
 fi
