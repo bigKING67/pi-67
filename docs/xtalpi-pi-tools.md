@@ -437,6 +437,24 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
 
 `full-suite-strict` 还会默认设置 `--run-kind full-suite --require-run-kind full-suite`：局部 targeted run 可以保留在同一个 artifact 目录里用于排查，但不会污染“最近 N 次 full-suite 趋势”证据。trend-gate JSON 会保留 `history.totalArtifacts`、`history.candidateArtifacts`、`history.filteredOutArtifacts` 和 `history.filter.runKinds`，用于说明有多少 artifact 被过滤。
 
+如果要把 runtime 漂移从观测升级为 gate，可使用可选 runtime stability profile：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
+  --trend-gate 3 \
+  --profile full-suite-runtime-strict \
+  --json \
+  "$HOME/tmp/xtalpi-pi-tools-smoke"
+```
+
+`full-suite-runtime-strict` 继承 `full-suite-strict` 的所有阈值，并额外启用 `--require-stable-runtime-fingerprint` 与 `--require-stable-runtime-bounds`。它要求 selected full-suite runs 的 runtime fingerprint hash 和 runtime bounds hash 均保持稳定；不稳定时 gate failure 会列出对应 hash 与 run ids。也可以不使用 profile，直接在任意 `--trend-gate` 上附加：
+
+```bash
+--require-stable-runtime
+--require-stable-runtime-fingerprint
+--require-stable-runtime-bounds
+```
+
 如果要把“最新 run 比上一 run 的 recovery 次数增加，或 recovery rate 变高”也作为失败条件，可以加：
 
 ```bash
@@ -446,7 +464,7 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   "$HOME/tmp/xtalpi-pi-tools-smoke"
 ```
 
-trend-gate 支持 JSON，schema 为 `xtalpi-pi-tools.smoke-trend-gate.v1`，包含 history、gate failures、latest-vs-previous recovery delta、重复 recovery case 统计和实际生效阈值：
+trend-gate 支持 JSON，schema 为 `xtalpi-pi-tools.smoke-trend-gate.v1`，包含 history、gate failures、latest-vs-previous recovery delta、重复 recovery case 统计、runtime stability 签名分组和实际生效阈值：
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \

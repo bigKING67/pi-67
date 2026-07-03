@@ -25,6 +25,8 @@ MAX_RECOVERIES=""
 MAX_RECOVERY_RATE=""
 RUN_KIND_FILTER=""
 REQUIRE_RUN_KIND=""
+REQUIRE_STABLE_RUNTIME_FINGERPRINT="0"
+REQUIRE_STABLE_RUNTIME_BOUNDS="0"
 
 usage() {
   cat <<'EOF'
@@ -45,7 +47,8 @@ Selection:
   --require-run-kind LIST         require selected run(s) to have one of the comma-separated runKind values
 
 Gate options:
-  --profile full-suite-strict      apply the full 8-case strict trend gate defaults
+  --profile full-suite-strict|full-suite-runtime-strict
+                                  apply built-in trend gate defaults
   --expect-cases N                 require case count for --latest/--run-id and every --trend-gate run
   --expect-case-names LIST          require exact comma-separated case names for --latest/--run-id and --trend-gate
   --max-errors N                  default: 0
@@ -56,6 +59,10 @@ Gate options:
   --max-recovery-rate N           recoveries / turns
   --fail-on-recovery-increase     fail if the newest run has more recoveries or a higher recovery rate
   --max-recovery-case-runs N      fail if one case has recoveries in more than N selected runs
+  --require-stable-runtime         require stable runtime fingerprint and runtime bounds across --trend-gate runs
+  --require-stable-runtime-fingerprint
+                                  require stable runtime fingerprint across --trend-gate runs
+  --require-stable-runtime-bounds  require stable runtime bounds across --trend-gate runs
 
 Default OUT_DIR:
   $HOME/tmp/xtalpi-pi-tools-smoke
@@ -68,7 +75,7 @@ apply_profile_defaults() {
   case "$PROFILE" in
     "")
       ;;
-    full-suite-strict)
+    full-suite-strict|full-suite-runtime-strict)
       EXPECT_CASES="${EXPECT_CASES:-8}"
       EXPECT_CASE_NAMES="${EXPECT_CASE_NAMES:-$FULL_SUITE_CASE_NAMES}"
       RUN_KIND_FILTER="${RUN_KIND_FILTER:-full-suite}"
@@ -79,9 +86,13 @@ apply_profile_defaults() {
       MAX_RECOVERY_RATE="${MAX_RECOVERY_RATE:-0}"
       MAX_RECOVERY_CASE_RUNS="${MAX_RECOVERY_CASE_RUNS:-0}"
       FAIL_ON_RECOVERY_INCREASE="1"
+      if [ "$PROFILE" = "full-suite-runtime-strict" ]; then
+        REQUIRE_STABLE_RUNTIME_FINGERPRINT="1"
+        REQUIRE_STABLE_RUNTIME_BOUNDS="1"
+      fi
       ;;
     *)
-      echo "xtalpi-pi-tools debug summary: unknown --profile '$PROFILE' (supported: full-suite-strict)" >&2
+      echo "xtalpi-pi-tools debug summary: unknown --profile '$PROFILE' (supported: full-suite-strict, full-suite-runtime-strict)" >&2
       exit 2
       ;;
   esac
@@ -834,6 +845,39 @@ NODE
     return 1
   fi
 
+  local runtime_profile_json="$tmp_dir/runtime-profile-output.json"
+  if ! output="$("$SCRIPT_PATH" --trend-gate 2 --profile full-suite-runtime-strict --json "$tmp_dir/full-suite-trend" >"$runtime_profile_json" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+  if ! node - "$runtime_profile_json" <<'NODE'; then
+const fs = require("node:fs");
+const file = process.argv[2];
+const data = JSON.parse(fs.readFileSync(file, "utf8"));
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+assert(data.ok === true, "full-suite-runtime-strict profile should pass stable full-suite history");
+assert(data.limits.profile === "full-suite-runtime-strict", "runtime profile should be visible in limits");
+assert(data.limits.requireStableRuntimeFingerprint === true, "runtime profile should require stable fingerprint");
+assert(data.limits.requireStableRuntimeBounds === true, "runtime profile should require stable bounds");
+assert(data.runtimeStability.runtimeFingerprints.length === 1, "stable fixture should have one runtime fingerprint");
+assert(data.runtimeStability.runtimeBounds.length === 1, "stable fixture should have one runtime bounds signature");
+NODE
+    return 1
+  fi
+
+  if output="$("$SCRIPT_PATH" --trend-gate 2 --profile full-suite-runtime-strict "$tmp_dir/drift" 2>&1)"; then
+    echo "expected full-suite-runtime-strict profile to fail runtime drift fixture"
+    echo "$output"
+    return 1
+  fi
+  if [[ "$output" != *"runtime_fingerprint changed across selected runs"* || "$output" != *"runtime_bounds changed across selected runs"* ]]; then
+    echo "runtime strict profile failure did not expose runtime drift reasons"
+    echo "$output"
+    return 1
+  fi
+
   local mixed_profile_json="$tmp_dir/mixed-profile-output.json"
   if ! output="$("$SCRIPT_PATH" --trend-gate 3 --profile full-suite-strict --json "$tmp_dir/mixed-full-suite-trend" >"$mixed_profile_json" 2>&1)"; then
     echo "$output"
@@ -1020,6 +1064,19 @@ while [ "$#" -gt 0 ]; do
       MAX_RECOVERY_CASE_RUNS="${2:-}"
       shift 2
       ;;
+    --require-stable-runtime)
+      REQUIRE_STABLE_RUNTIME_FINGERPRINT="1"
+      REQUIRE_STABLE_RUNTIME_BOUNDS="1"
+      shift
+      ;;
+    --require-stable-runtime-fingerprint)
+      REQUIRE_STABLE_RUNTIME_FINGERPRINT="1"
+      shift
+      ;;
+    --require-stable-runtime-bounds)
+      REQUIRE_STABLE_RUNTIME_BOUNDS="1"
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -1055,7 +1112,9 @@ node - \
   "$MAX_RECOVERIES" \
   "$MAX_RECOVERY_RATE" \
   "$RUN_KIND_FILTER" \
-  "$REQUIRE_RUN_KIND" <<'NODE'
+  "$REQUIRE_RUN_KIND" \
+  "$REQUIRE_STABLE_RUNTIME_FINGERPRINT" \
+  "$REQUIRE_STABLE_RUNTIME_BOUNDS" <<'NODE'
 const fs = require("node:fs");
 const crypto = require("node:crypto");
 const path = require("node:path");
@@ -1083,6 +1142,8 @@ const [
   maxRecoveryRateRaw,
   runKindFilterRaw,
   requireRunKindRaw,
+  requireStableRuntimeFingerprintRaw,
+  requireStableRuntimeBoundsRaw,
 ] = process.argv.slice(2);
 const {
   buildCaseSet,
@@ -1194,6 +1255,8 @@ function compactObject(value) {
 
 const runKindFilter = parseRunKindList(runKindFilterRaw, "--run-kind");
 const requireRunKinds = parseRunKindList(requireRunKindRaw, "--require-run-kind");
+const requireStableRuntimeFingerprint = requireStableRuntimeFingerprintRaw === "1";
+const requireStableRuntimeBounds = requireStableRuntimeBoundsRaw === "1";
 const gates = {
   profile: gateProfile || undefined,
   expectCases: optionalNumber(expectCasesRaw, "--expect-cases"),
@@ -1208,6 +1271,8 @@ const gates = {
   ),
   maxRecoveries: optionalNumber(maxRecoveriesRaw, "--max-recoveries"),
   maxRecoveryRate: optionalNumber(maxRecoveryRateRaw, "--max-recovery-rate"),
+  requireStableRuntimeFingerprint,
+  requireStableRuntimeBounds,
 };
 
 const historyLimit = optionalNumber(historyLimitRaw, "--history");
@@ -1261,6 +1326,10 @@ if ((trendGateLimit !== undefined || driftLimit !== undefined) && (latestOnly ||
 }
 if (driftLimit !== undefined && requireRunKinds !== undefined) {
   console.error("xtalpi-pi-tools debug summary: --require-run-kind cannot be combined with --drift; use --run-kind to select drift candidates");
+  process.exit(2);
+}
+if ((requireStableRuntimeFingerprint || requireStableRuntimeBounds) && trendGateLimit === undefined) {
+  console.error("xtalpi-pi-tools debug summary: --require-stable-runtime* requires --trend-gate");
   process.exit(2);
 }
 if (historyLimit !== undefined && (latestOnly || runIdFilter !== "")) {
@@ -2416,6 +2485,33 @@ function buildRecoveryCaseRunCounts(runs) {
   return result;
 }
 
+function buildRuntimeStability(runs) {
+  return {
+    runtimeFingerprints: buildSignatureGroups(
+      runs,
+      (run) => run.runtimeFingerprintSha256,
+      (run) => ({
+        sha256: run.runtimeFingerprintSha256,
+        fingerprint: run.runtimeFingerprint,
+      }),
+    ),
+    runtimeBounds: buildSignatureGroups(
+      runs,
+      (run) => run.runtimeBoundsSha256,
+      (run) => ({
+        sha256: run.runtimeBoundsSha256,
+        bounds: run.runtimeBounds,
+      }),
+    ),
+  };
+}
+
+function formatSignatureGroups(groups) {
+  return groups
+    .map((group) => `${group.sha256 || group.key || "unknown"}:${group.runIds.join(",")}`)
+    .join("; ");
+}
+
 function evaluateTrendGate(history) {
   const hardLimits = {
     profile: gates.profile,
@@ -2431,6 +2527,8 @@ function evaluateTrendGate(history) {
     maxRecoveryRate: gates.maxRecoveryRate,
     maxRecoveryCaseRuns,
     failOnRecoveryIncrease,
+    requireStableRuntimeFingerprint: gates.requireStableRuntimeFingerprint,
+    requireStableRuntimeBounds: gates.requireStableRuntimeBounds,
   };
   const gateFailures = [];
 
@@ -2528,11 +2626,27 @@ function evaluateTrendGate(history) {
     }
   }
 
+  const runtimeStability = buildRuntimeStability(history.runs);
+  if (
+    hardLimits.requireStableRuntimeFingerprint &&
+    runtimeStability.runtimeFingerprints.length > 1
+  ) {
+    gateFailures.push(
+      `runtime_fingerprint changed across selected runs: ${formatSignatureGroups(runtimeStability.runtimeFingerprints)}`,
+    );
+  }
+  if (hardLimits.requireStableRuntimeBounds && runtimeStability.runtimeBounds.length > 1) {
+    gateFailures.push(
+      `runtime_bounds changed across selected runs: ${formatSignatureGroups(runtimeStability.runtimeBounds)}`,
+    );
+  }
+
   return {
     limits: hardLimits,
     recoveryTrend,
     recoveryCaseRunCounts,
     repeatedRecoveryCases,
+    runtimeStability,
     gateFailures,
   };
 }
@@ -2574,6 +2688,27 @@ function printTrendGate(limit) {
     );
     if (evaluation.repeatedRecoveryCases.length > 0) {
       console.log(`repeated_recovery_cases=${JSON.stringify(evaluation.repeatedRecoveryCases)}`);
+    }
+    if (
+      evaluation.limits.requireStableRuntimeFingerprint ||
+      evaluation.limits.requireStableRuntimeBounds ||
+      evaluation.runtimeStability.runtimeFingerprints.length > 1 ||
+      evaluation.runtimeStability.runtimeBounds.length > 1
+    ) {
+      console.log(
+        `runtime_stability=${JSON.stringify({
+          runtimeFingerprints: evaluation.runtimeStability.runtimeFingerprints.map((item) => ({
+            sha256: item.sha256,
+            count: item.count,
+            runIds: item.runIds,
+          })),
+          runtimeBounds: evaluation.runtimeStability.runtimeBounds.map((item) => ({
+            sha256: item.sha256,
+            count: item.count,
+            runIds: item.runIds,
+          })),
+        })}`,
+      );
     }
     if (evaluation.gateFailures.length > 0) {
       console.error(`gate_failures=${JSON.stringify(evaluation.gateFailures)}`);
