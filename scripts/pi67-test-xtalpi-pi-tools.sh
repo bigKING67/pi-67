@@ -15,6 +15,7 @@ const { pathToFileURL } = require("node:url");
   const ext = (name) => pathToFileURL(path.join(repoRoot, "extensions", "xtalpi-pi-tools", name)).href;
 
   const chatClient = await import(ext("chat-client.ts"));
+  const outputMessage = await import(ext("output-message.ts"));
   const parser = await import(ext("parser.ts"));
   const protocol = await import(ext("protocol.ts"));
   const diagnostics = await import(ext("diagnostics.ts"));
@@ -24,6 +25,7 @@ const { pathToFileURL } = require("node:url");
   const responseNormalizer = await import(ext("response-normalizer.ts"));
   const runtimeConfig = await import(ext("runtime-config.ts"));
   const serializer = await import(ext("serializer.ts"));
+  const streamModule = await import(ext("stream.ts"));
   const textSafety = await import(ext("text-safety.ts"));
   const toolCallDecision = await import(ext("tool-call-decision.ts"));
   const turnDebugContext = await import(ext("turn-debug-context.ts"));
@@ -632,6 +634,45 @@ const { pathToFileURL } = require("node:url");
     () => chatClient.parseXtalpiChatResponse(JSON.stringify({ choices: [] })),
     (error) => error.code === "malformed_response",
   );
+  const finalOutputStream = streamModule.createLocalAssistantMessageEventStream();
+  const finalOutput = outputMessage.startOutputMessage(finalOutputStream, {
+    id: "deepseek-v4-pro",
+    api: "xtalpi-pi-tools",
+    provider: "xtalpi-pi-tools",
+  });
+  outputMessage.finishOutputWithTurnResult(finalOutputStream, finalOutput, {
+    kind: "final",
+    text: "final text",
+    usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 3 },
+    responseModel: "deepseek-v4-pro",
+  });
+  const finalOutputResult = await finalOutputStream.result();
+  assert.equal(finalOutputResult.stopReason, "stop");
+  assert.equal(finalOutputResult.responseModel, "deepseek-v4-pro");
+  assert.equal(finalOutputResult.usage.totalTokens, 3);
+  assert.deepEqual(finalOutputResult.content, [{ type: "text", text: "final text" }]);
+
+  const toolOutputStream = streamModule.createLocalAssistantMessageEventStream();
+  const toolOutput = outputMessage.startOutputMessage(toolOutputStream, {
+    id: "deepseek-v4-pro",
+    api: "xtalpi-pi-tools",
+    provider: "xtalpi-pi-tools",
+  });
+  outputMessage.finishOutputWithTurnResult(toolOutputStream, toolOutput, {
+    kind: "tool_call",
+    toolCall: { type: "toolCall", id: "call_1", name: "read", arguments: { path: "package.json" } },
+    leadingText: "before",
+    trailingText: "after",
+    usage: { input: 3, output: 4, cacheRead: 0, cacheWrite: 0, totalTokens: 7 },
+  });
+  const toolOutputResult = await toolOutputStream.result();
+  assert.equal(toolOutputResult.stopReason, "toolUse");
+  assert.equal(toolOutputResult.usage.totalTokens, 7);
+  assert.deepEqual(
+    toolOutputResult.content.map((block) => block.type),
+    ["text", "toolCall", "text"],
+  );
+  assert.equal(toolOutputResult.content[1].name, "read");
   const normalizedNativeToolCall = responseNormalizer.extractTextFromMessage({
     content: "",
     tool_calls: [

@@ -1,7 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type {
   Api,
-  AssistantMessage,
   AssistantMessageEventStream,
   Context,
   Model,
@@ -9,24 +8,27 @@ import type {
   ToolCall,
 } from "@earendil-works/pi-ai";
 import { callXtalpiChat } from "./chat-client.ts";
-import { debugLog, safeErrorMessage } from "./diagnostics.ts";
-import { toErrorTelemetry } from "./errors.ts";
+import { debugLog } from "./diagnostics.ts";
+import {
+  finishOutputWithError,
+  finishOutputWithTurnResult,
+  startOutputMessage,
+  type XtalpiProviderTurnResult,
+} from "./output-message.ts";
 import { parseToolCall } from "./parser.ts";
 import {
   API_ID,
   DEFAULT_MAX_TOOL_RESULT_CHARS,
   DEFAULT_MAX_TOOLS,
-  EMPTY_USAGE,
   PROVIDER_ID,
   PROVIDER_NAME,
-  type UsageSummary,
+  type JsonObject,
 } from "./protocol.ts";
 import {
   buildEmptyResponseRepairPrompt,
   envInt,
 } from "./retry.ts";
 import { buildParseErrorRepairPlan } from "./recovery-decision.ts";
-import { toPiUsage } from "./response-normalizer.ts";
 import {
   buildChatCompletionPayload,
   loadRuntimeConfig,
@@ -37,31 +39,11 @@ import {
   serializeContextForXtalpi,
   type ContextLike,
 } from "./serializer.ts";
-import {
-  createLocalAssistantMessageEventStream,
-  emitTextBlock,
-  emitToolCallBlock,
-} from "./stream.ts";
+import { createLocalAssistantMessageEventStream } from "./stream.ts";
 import { safeBlockText } from "./text-safety.ts";
 import { decideToolCallRequest } from "./tool-call-decision.ts";
 import { buildTurnDebugContext } from "./turn-debug-context.ts";
 import { TurnLoopState } from "./turn-loop-state.ts";
-
-type ProviderTurnResult =
-  | {
-      kind: "final";
-      text: string;
-      usage: UsageSummary;
-      responseModel?: string;
-    }
-  | {
-      kind: "tool_call";
-      toolCall: ToolCall;
-      leadingText: string;
-      trailingText: string;
-      usage: UsageSummary;
-      responseModel?: string;
-    };
 
 let runtimeConfig: ProviderRuntimeConfig | undefined;
 
@@ -105,11 +87,20 @@ function makeToolCallId(name: string): string {
   return `pi_tool_${safeName}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function makeRequestedToolCall(name: string, args: JsonObject): ToolCall {
+  return {
+    type: "toolCall",
+    id: makeToolCallId(name),
+    name,
+    arguments: args,
+  };
+}
+
 async function runProviderTurn(
   model: Model<Api>,
   context: Context,
   options?: SimpleStreamOptions,
-): Promise<ProviderTurnResult> {
+): Promise<XtalpiProviderTurnResult> {
   const maxTools = envInt("XTALPI_PI_TOOLS_MAX_TOOLS", DEFAULT_MAX_TOOLS, 0);
   const maxToolResultChars = envInt(
     "XTALPI_PI_TOOLS_MAX_TOOL_RESULT_CHARS",
@@ -189,12 +180,7 @@ async function runProviderTurn(
       };
     }
 
-    const requestedCall: ToolCall = {
-      type: "toolCall",
-      id: makeToolCallId(parsed.call.name),
-      name: parsed.call.name,
-      arguments: parsed.call.arguments,
-    };
+    const requestedCall = makeRequestedToolCall(parsed.call.name, parsed.call.arguments);
 
     const toolDecision = decideToolCallRequest({
       requestedCall,
@@ -243,19 +229,6 @@ async function runProviderTurn(
   }
 }
 
-function createOutputMessage(model: Model<Api>): AssistantMessage {
-  return {
-    role: "assistant",
-    content: [],
-    api: model.api,
-    provider: model.provider,
-    model: model.id,
-    usage: toPiUsage(EMPTY_USAGE),
-    stopReason: "stop",
-    timestamp: Date.now(),
-  };
-}
-
 function streamXtalpiPiTools(
   model: Model<Api>,
   context: Context,
@@ -264,37 +237,17 @@ function streamXtalpiPiTools(
   const stream = createLocalAssistantMessageEventStream();
 
   void (async () => {
-    const output = createOutputMessage(model);
-    stream.push({ type: "start", partial: output });
+    const output = startOutputMessage(stream, model);
 
     try {
       const result = await runProviderTurn(model, context, options);
-      output.usage = toPiUsage(result.usage);
-      if (result.responseModel) output.responseModel = result.responseModel;
-
-      if (result.kind === "tool_call") {
-        if (result.leadingText) emitTextBlock(stream, output, result.leadingText);
-        emitToolCallBlock(stream, output, result.toolCall);
-        if (result.trailingText) emitTextBlock(stream, output, result.trailingText);
-        output.stopReason = "toolUse";
-        stream.push({ type: "done", reason: "toolUse", message: output });
-      } else {
-        emitTextBlock(stream, output, result.text);
-        output.stopReason = "stop";
-        stream.push({ type: "done", reason: "stop", message: output });
-      }
-
-      stream.end(output);
+      finishOutputWithTurnResult(stream, output, result);
     } catch (error) {
-      output.stopReason = options?.signal?.aborted ? "aborted" : "error";
-      output.errorMessage = safeErrorMessage(error);
-      debugLog("error.provider", {
-        provider: PROVIDER_ID,
-        model: model.id,
-        ...toErrorTelemetry(error),
+      finishOutputWithError(stream, output, {
+        error,
+        model,
+        aborted: options?.signal?.aborted === true,
       });
-      stream.push({ type: "error", reason: output.stopReason, error: output });
-      stream.end(output);
     }
   })();
 
