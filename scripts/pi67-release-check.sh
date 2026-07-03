@@ -64,6 +64,7 @@ XTALPI_PI_TOOLS_PROVIDER_HEALTH="$REPO_ROOT/scripts/pi67-xtalpi-provider-health.
 XTALPI_PI_TOOLS_ERROR_CONTRACT_CHECK="$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs"
 XTALPI_PI_TOOLS_REPLAY_FIXTURES="$REPO_ROOT/extensions/xtalpi-pi-tools/fixtures/replay-cases.json"
 XTALPI_PI_TOOLS_ERROR_CONTRACT="$REPO_ROOT/extensions/xtalpi-pi-tools/provider-error-contract.json"
+XTALPI_PI_TOOLS_RUNTIME_CONFIG="$REPO_ROOT/extensions/xtalpi-pi-tools/runtime-config.ts"
 
 if [ -f "$VERSION_FILE" ]; then
   VERSION="$(tr -d '[:space:]' < "$VERSION_FILE")"
@@ -216,6 +217,37 @@ if grep -q '"defaultProvider": "xtalpi-pi-tools"' "$REPO_ROOT/settings.json" && 
   pass "xtalpi-pi-tools is the only xtalpi provider template"
 else
   fail "xtalpi-pi-tools provider template/default is not clean"
+fi
+
+if command_exists node; then
+  if node - "$REPO_ROOT/models.example.json" "$XTALPI_PI_TOOLS_RUNTIME_CONFIG" "$XTALPI_PI_TOOLS_PROVIDER_HEALTH" <<'NODE'
+const fs = require("fs");
+const [modelsFile, runtimeConfigFile, providerHealthFile] = process.argv.slice(2);
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+const models = JSON.parse(fs.readFileSync(modelsFile, "utf8"));
+const provider = models.providers?.["xtalpi-pi-tools"];
+assert(provider, "models.example.json missing xtalpi-pi-tools provider");
+assert(provider.api === "xtalpi-pi-tools", "xtalpi-pi-tools provider must not use openai-responses or another adapter");
+assert(
+  provider.baseUrl === "https://sciencetoken-api.xtalpi.xyz/proxy/openai/v1",
+  "xtalpi-pi-tools baseUrl must be the OpenAI v1 root, not a /responses or already-suffixed endpoint",
+);
+const runtimeConfig = fs.readFileSync(runtimeConfigFile, "utf8");
+const providerHealth = fs.readFileSync(providerHealthFile, "utf8");
+assert(runtimeConfig.includes("/chat/completions"), "runtime-config must append /chat/completions");
+assert(providerHealth.includes("/chat/completions"), "provider-health must probe /chat/completions");
+assert(!runtimeConfig.includes("/responses"), "runtime-config must not target OpenAI Responses API for xtalpi");
+assert(!providerHealth.includes("/responses"), "provider-health must not probe OpenAI Responses API for xtalpi");
+NODE
+  then
+    pass "xtalpi-pi-tools endpoint contract uses OpenAI chat completions"
+  else
+    fail "xtalpi-pi-tools endpoint contract drifted from OpenAI chat completions"
+  fi
+else
+  warn "node not found; skipped xtalpi-pi-tools endpoint contract validation"
 fi
 
 if grep -q "pi67-release.sh" "$REPO_ROOT/README.md" && grep -q "pi67-release.sh" "$REPO_ROOT/docs/release.md"; then

@@ -2,10 +2,11 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PI_BIN="${PI_BIN:-$(command -v pi 2>/dev/null || true)}"
 DEBUG_SUMMARY_BIN="${XTALPI_PI_TOOLS_SMOKE_DEBUG_SUMMARY_BIN:-$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh}"
 SMOKE_ARTIFACT_CORE_PATH="$SCRIPT_DIR/pi67-xtalpi-smoke-artifact-core.cjs"
-PI_AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
+PI_AGENT_DIR="${PI_AGENT_DIR:-$REPO_ROOT}"
 PROVIDER="${PROVIDER:-xtalpi-pi-tools}"
 MODEL="${MODEL:-deepseek-v4-pro}"
 OUT_DIR="${OUT_DIR:-$HOME/tmp/xtalpi-pi-tools-smoke}"
@@ -62,6 +63,7 @@ Environment:
   XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_RETRY_DELAY_MS Delay between preflight retryable attempts. Default: 1000.
   XTALPI_PI_TOOLS_SMOKE_DEBUG_SUMMARY_BIN      Debug-summary executable override. Default: script dir helper.
   XTALPI_PI_TOOLS_SMOKE_CASES                  Comma-separated case filter, same values as --case.
+  PI_AGENT_DIR                                 Agent/repo root used as Pi child-process cwd. Default: script parent.
   PI_BIN                                       Pi executable override. Default: command -v pi.
 EOF
 }
@@ -272,7 +274,8 @@ const toolSelectionRequirementsByCase = {
     omittedIncludes: ["bash", "web_fetch"],
   },
 };
-const toolSelectionRequirement = toolSelectionRequirementsByCase[String(lifecycle.caseName || "")];
+const caseName = String(lifecycle.caseName || "");
+const toolSelectionRequirement = toolSelectionRequirementsByCase[caseName];
 function evaluateToolSelectionRequirement(requirement, telemetry) {
   if (!requirement) return { ok: true, failures: [] };
   const failures = [];
@@ -301,6 +304,22 @@ const agent = events.findLast?.((event) => event.type === "agent_end");
 const toolStartEvents = events.filter((event) => event.type === "tool_execution_start");
 const actualToolNames = toolStartEvents.map((event) => String(event.toolName || ""));
 const toolStarts = toolStartEvents.map((event) => `${event.toolName}:${JSON.stringify(event.args)}`);
+const relativePackageReadCases = new Set([
+  "read",
+  "bash-read",
+  "web-read",
+  "tool-selection-clipping",
+  "tool-selection-continuation",
+]);
+const packageReadPathFailures = [];
+if (relativePackageReadCases.has(caseName)) {
+  for (const event of toolStartEvents.filter((item) => item.toolName === "read")) {
+    const readPath = typeof event.args?.path === "string" ? event.args.path : "";
+    if (readPath !== "package.json") {
+      packageReadPathFailures.push(`expected read.path to equal package.json, got ${JSON.stringify(readPath)}`);
+    }
+  }
+}
 const errors = events
   .filter((event) => event.type === "error" || event.message?.stopReason === "error" || event.message?.errorMessage)
   .map((event) => event.message?.errorMessage || event.error || event.message)
@@ -310,10 +329,10 @@ const finalText = Array.isArray(final?.content)
   ? final.content.filter((block) => block.type === "text").map((block) => block.text).join("\n")
   : "";
 const requiredFinalTextByCase = {
-  "web-read": ["Example Domain", "@ff-labs/pi-fff"],
+  "web-read": ["Example Domain", "pi-extensions"],
   "tool-result-injection": ["PI_TOOL_RESULT_INJECTION_CANARY"],
 };
-const requiredFinalText = requiredFinalTextByCase[String(lifecycle.caseName || "")] || [];
+const requiredFinalText = requiredFinalTextByCase[caseName] || [];
 const missingFinalText = requiredFinalText.filter((text) => !finalText.includes(text));
 const emptyAssistantEnds = events.filter(
   (event) =>
@@ -401,7 +420,8 @@ const postAgentEndLingerSeconds =
 const timedOutByWatchdog = lifecycle.timedOutByWatchdog === true;
 const processLifecycleOk = processExitedCleanly;
 const protocolFlowOk = hasUsableFinalAnswer && toolExpectation.ok;
-const semanticFlowOk = protocolFlowOk && debugTelemetryOk && toolSelectionRequirementResult.ok;
+const packageReadPathOk = packageReadPathFailures.length === 0;
+const semanticFlowOk = protocolFlowOk && debugTelemetryOk && toolSelectionRequirementResult.ok && packageReadPathOk;
 const timedOutAfterAgentEnd = timedOutByWatchdog && !!agent;
 const ok = processLifecycleOk && semanticFlowOk;
 console.log(JSON.stringify({
@@ -441,6 +461,8 @@ console.log(JSON.stringify({
   toolSelectionRequirement: toolSelectionRequirement || undefined,
   toolSelectionRequirementOk: toolSelectionRequirementResult.ok,
   toolSelectionFailures: toolSelectionRequirementResult.failures,
+  packageReadPathOk,
+  packageReadPathFailures,
   toolSelectionTelemetry,
   recoveryEvents: recoveryEvents.map((event) => ({
     event: event.event,
@@ -473,9 +495,9 @@ function writeJsonl(file, events) {
   fs.writeFileSync(path.join(dir, file), events.map((event) => JSON.stringify(event)).join("\n") + "\n");
 }
 
-function writeFixture(name, { tools = [], finalText = "final answer", debugEvents = [], caseName = name }) {
+function writeFixture(name, { tools = [], toolArgsByName = {}, finalText = "final answer", debugEvents = [], caseName = name }) {
   writeJsonl(`${name}.jsonl`, [
-    ...tools.map((toolName) => ({ type: "tool_execution_start", toolName, args: {} })),
+    ...tools.map((toolName) => ({ type: "tool_execution_start", toolName, args: toolArgsByName[toolName] || {} })),
     {
       type: "agent_end",
       messages: [
@@ -529,6 +551,7 @@ writeFixture("tool-result-injection", {
 });
 writeFixture("tool-selection-clipping", {
   tools: ["read"],
+  toolArgsByName: { read: { path: "package.json" } },
   finalText: "normal final answer",
   caseName: "tool-selection-clipping",
   debugEvents: [
@@ -578,6 +601,7 @@ writeFixture("tool-selection-clipping-missing", {
 });
 writeFixture("tool-selection-continuation", {
   tools: ["read"],
+  toolArgsByName: { read: { path: "package.json" } },
   finalText: "normal final answer",
   caseName: "tool-selection-continuation",
   debugEvents: [
@@ -801,6 +825,15 @@ if (data.postAgentEndLingerSeconds !== 30) throw new Error("unexpected postAgent
   local invalid_debug_output
   local invalid_debug_status=0
 
+  if grep -n 'run_selected_.*\$HOME/\.pi/agent' "$smoke_script" | grep -v 'grep -n'; then
+    echo "smoke prompts must not depend on user-specific HOME agent paths"
+    return 1
+  fi
+  if grep -n 'run_selected_.*node_modules/@ff-labs/pi-fff' "$smoke_script" | grep -v 'grep -n'; then
+    echo "smoke prompts must not depend on installed npm package physical paths"
+    return 1
+  fi
+
   node - "$fake_pi" <<'NODE'
 const fs = require("fs");
 const file = process.argv[2];
@@ -832,10 +865,11 @@ const selected = tools.includes("read")
 if (process.env.FAKE_PI_LOG) {
   fs.appendFileSync(process.env.FAKE_PI_LOG, JSON.stringify({
     args,
+    cwd: process.cwd(),
     noTools,
     tools,
     selected,
-    prompt: optionValue("-p").slice(0, 80),
+    prompt: optionValue("-p"),
   }) + "\\n");
 }
 
@@ -885,9 +919,9 @@ NODE
     return 1
   fi
 
-  if ! node - "$runner_summary" "$fake_pi_log" <<'NODE'; then
+  if ! node - "$runner_summary" "$fake_pi_log" "$REPO_ROOT" <<'NODE'; then
 const fs = require("fs");
-const [summaryFile, logFile] = process.argv.slice(2);
+const [summaryFile, logFile, expectedCwd] = process.argv.slice(2);
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -910,6 +944,10 @@ assert(summary.debugSummary?.totals?.cases === 2, "debug summary should include 
 const caseNames = (summary.debugSummary?.cases || []).map((item) => item.caseName).sort();
 assert(JSON.stringify(caseNames) === JSON.stringify(["no-tool", "read"]), "debug summary case names drifted");
 assert(invocations.length === 2, "fake PI should be invoked exactly once per selected case");
+assert(invocations.every((item) => item.cwd === expectedCwd), "smoke child process did not run from PI_AGENT_DIR");
+assert(invocations.every((item) => !item.prompt.includes("$HOME/.pi/agent")), "smoke prompt still contains literal HOME agent path");
+assert(invocations.every((item) => !item.prompt.includes("/Users/")), "smoke prompt still contains a macOS user path");
+assert(invocations.every((item) => !item.prompt.includes("node_modules/@ff-labs/pi-fff")), "smoke prompt still depends on installed npm package physical path");
 assert(invocations.some((item) => item.noTools === true && item.selected.length === 0), "no-tool case did not use --no-tools");
 assert(invocations.some((item) => item.tools.join(",") === "read" && item.selected.join(",") === "read"), "read case did not use PI_BIN with --tools read");
 assert(!invocations.some((item) => item.tools.includes("bash")), "unselected bash case should not run");
@@ -1020,6 +1058,16 @@ if [ -z "$DEBUG_SUMMARY_BIN" ] || [ ! -x "$DEBUG_SUMMARY_BIN" ]; then
   exit 2
 fi
 
+if [ ! -d "$PI_AGENT_DIR" ]; then
+  echo "xtalpi-pi-tools smoke: PI_AGENT_DIR does not exist: $PI_AGENT_DIR" >&2
+  exit 2
+fi
+
+if [ ! -f "$PI_AGENT_DIR/package.json" ]; then
+  echo "xtalpi-pi-tools smoke: package.json not found under PI_AGENT_DIR: $PI_AGENT_DIR" >&2
+  exit 2
+fi
+
 mkdir -p "$OUT_DIR"
 ADVERSARIAL_TOOL_RESULT_FILE="$OUT_DIR/${STAMP}-tool-result-injection.txt"
 
@@ -1111,7 +1159,7 @@ run_pi_process() {
   fi
 
   start_epoch="$(date +%s)"
-  env "${case_env[@]}" "$PI_BIN" "$@" -p "$prompt" >"$out" 2>"$err" &
+  (cd "$PI_AGENT_DIR" && env "${case_env[@]}" "$PI_BIN" "$@" -p "$prompt") >"$out" 2>"$err" &
   pid=$!
   while kill -0 "$pid" 2>/dev/null; do
     if [ "$agent_end_seen" -eq 0 ] && [ -f "$out" ] && grep -q '"type":"agent_end"' "$out" 2>/dev/null; then
@@ -1551,15 +1599,15 @@ run_selected_case "no-tool" "请不要调用工具，只用一句中文回复：
 
 run_selected_case "bash" "请只执行一次 pwd，然后用一句中文总结结果。不要再调用第二个工具。" "bash" --tools bash || failures=$((failures + 1))
 
-run_selected_case "read" "请读取 $HOME/.pi/agent/package.json，然后用一句话说出包名和版本。" "read" --tools read || failures=$((failures + 1))
+run_selected_case "read" "请使用 read 工具读取当前工作区相对路径 package.json；read 的 path 参数必须严格等于 \"package.json\"，不要使用绝对路径。然后用一句话说出包名和版本。" "read" --tools read || failures=$((failures + 1))
 
-run_selected_case "bash-read" "这是严格工具顺序 smoke：第一步必须使用 bash 工具且 command 必须是 pwd；第二步必须使用 read 工具读取 $HOME/.pi/agent/package.json。禁止用 bash 执行 cat/ls/grep/读取文件。最后用两句话分别说明当前目录、包名和版本。" "all:bash,read" --tools bash,read || failures=$((failures + 1))
+run_selected_case "bash-read" "这是严格工具顺序 smoke：第一步必须使用 bash 工具且 command 必须是 pwd；第二步必须使用 read 工具读取当前工作区相对路径 package.json，且 read 的 path 参数必须严格等于 \"package.json\"，不要使用绝对路径。禁止用 bash 执行 cat/ls/grep/读取文件。最后用两句话分别说明当前目录、包名和版本。" "all:bash,read" --tools bash,read || failures=$((failures + 1))
 
-run_selected_case "web-read" "请使用 web_fetch 读取 https://example.com/，并确认页面内容或标题里的英文短语 Example Domain；然后继续使用 read 读取 $HOME/.pi/agent/npm/node_modules/@ff-labs/pi-fff/package.json。最后只用两句话总结：第一句话必须原样包含 Example Domain，第二句话必须原样包含本地 package name @ff-labs/pi-fff 和版本。不要搜索本机目录，不要读取 README.md；最终回答不要复述工具调用历史、previous_pi_tool_call 记录或任何 Pi 协议标记。" "all:web_fetch,read;only:web_fetch,read" --tools web_fetch,read || failures=$((failures + 1))
+run_selected_case "web-read" "请使用 web_fetch 读取 https://example.com/，并确认页面内容或标题里的英文短语 Example Domain；然后继续使用 read 读取当前工作区相对路径 package.json，且 read 的 path 参数必须严格等于 \"package.json\"，不要使用绝对路径。最后只用两句话总结：第一句话必须原样包含 Example Domain，第二句话必须原样包含本地 package name pi-extensions 和版本。不要搜索本机目录，不要读取 README.md；最终回答不要复述工具调用历史、previous_pi_tool_call 记录或任何 Pi 协议标记。" "all:web_fetch,read;only:web_fetch,read" --tools web_fetch,read || failures=$((failures + 1))
 
-run_selected_case_with_max_tools 1 "tool-selection-clipping" "请读取 $HOME/.pi/agent/package.json，然后用一句话说出包名和版本。本 case 用于验证本地工具选择截断遥测；只根据可用工具完成任务。" "all:read;only:read" --tools read,bash,web_fetch || failures=$((failures + 1))
+run_selected_case_with_max_tools 1 "tool-selection-clipping" "请使用 read 工具读取当前工作区相对路径 package.json；read 的 path 参数必须严格等于 \"package.json\"，不要使用绝对路径。然后用一句话说出包名和版本。本 case 用于验证本地工具选择截断遥测；只根据可用工具完成任务。" "all:read;only:read" --tools read,bash,web_fetch || failures=$((failures + 1))
 
-run_selected_continuation_case_with_max_tools 1 "tool-selection-continuation" "这是 continuation smoke 的第一轮。请不要调用工具，只回复“已记录”。下一轮当我只说“继续”时，请使用 read 工具读取 $HOME/.pi/agent/package.json，然后用一句话说出包名和版本。" "继续" "all:read;only:read" --tools read,bash,web_fetch || failures=$((failures + 1))
+run_selected_continuation_case_with_max_tools 1 "tool-selection-continuation" "这是 continuation smoke 的第一轮。请不要调用工具，只回复“已记录”。下一轮当我只说“继续”时，请使用 read 工具读取当前工作区相对路径 package.json；read 的 path 参数必须严格等于 \"package.json\"，不要使用绝对路径。然后用一句话说出包名和版本。" "继续" "all:read;only:read" --tools read,bash,web_fetch || failures=$((failures + 1))
 
 if case_is_requested "tool-result-injection"; then
   write_adversarial_tool_result_fixture

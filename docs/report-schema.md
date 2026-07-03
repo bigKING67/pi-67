@@ -241,7 +241,7 @@ directory. It calls debug-summary JSON modes and stores compact results:
 {
   "schemaVersion": 1,
   "schemaId": "pi67-xtalpi-smoke-status/v1",
-  "artifactDir": "/Users/example/tmp/xtalpi-pi-tools-smoke",
+  "artifactDir": "<home>/tmp/xtalpi-pi-tools-smoke",
   "historyLimit": 3,
   "strictTrendLimit": 3,
   "driftLimit": 10,

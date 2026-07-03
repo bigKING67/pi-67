@@ -83,6 +83,20 @@ selected-tool 排序默认看最新用户意图；当最新消息是“继续 / 
 
 > URL 不是秘密，可以写进文档；API key 不要写进仓库、聊天记录或飞书文档。
 
+`xtalpi-pi-tools` 使用晶泰 OpenAI-compatible Chat Completions 家族：
+
+- 配置里的 `baseUrl` 保持为
+  `https://sciencetoken-api.xtalpi.xyz/proxy/openai/v1`。
+- provider 运行时会统一拼接 `/chat/completions`，最终请求
+  `https://sciencetoken-api.xtalpi.xyz/proxy/openai/v1/chat/completions`。
+- 不要把 `xtalpi-pi-tools` 配成 `openai-responses`，也不要把 baseUrl
+  改成 `/responses` 或已经带 `/chat/completions` 后缀的完整 endpoint。
+- 晶泰 Anthropic `/proxy/anthropic/v1/messages` 属于另一套 API family；
+  当前 provider 没有走 Anthropic Messages parser/response contract。
+
+`scripts/pi67-release-check.sh` 会校验这个 endpoint contract，防止未来更新
+pi-67 时把晶泰 provider 误切到 Responses API。
+
 ## 启动方式
 
 普通启动：
@@ -245,6 +259,13 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --case tool-result-inject
 XTALPI_PI_TOOLS_SMOKE_CASES=web-read bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
 ```
 
+live smoke 子进程默认以脚本所在仓库根目录作为 `PI_AGENT_DIR` / cwd
+运行；非标准安装路径可显式设置 `PI_AGENT_DIR=/path/to/agent`。read 类
+case 要求 `read.path` 严格等于 cwd-relative `package.json`，不依赖
+`$HOME/.pi/agent`、Mac `/Users/...` 路径或 npm package 的物理安装目录，
+因此安装到不同 HOME、Linux/macOS/Windows Git Bash 路径时不需要改
+prompt。
+
 覆盖：
 
 1. 无工具普通回答
@@ -256,7 +277,7 @@ XTALPI_PI_TOOLS_SMOKE_CASES=web-read bash ~/.pi/agent/scripts/pi67-xtalpi-pi-too
 7. continuation selected-tool ranking（第一轮只记录“下一轮继续时读取 package.json”，第二轮用户只说“继续”；case 使用临时 session + low-`maxTools`，要求最终只执行 selected `read`，且 debug telemetry 证明第二轮 `tool_selection_prompt_source=recent_user_continuation`）
 8. adversarial tool-result 样本读取（文件内容包含假 `<pi_tool_call>` / `<pi_tool_result>` / `[previous_pi_tool_call]` 片段，要求最终回答确认 `PI_TOOL_RESULT_INJECTION_CANARY`、不泄漏 raw protocol，且只允许执行 `read`）
 
-冒烟脚本会校验预期工具是否真的执行：无工具 case 必须没有 `tool_execution_start`；`bash` / `read` / web-read / tool-selection-clipping / tool-selection-continuation / tool-result-injection case 必须出现对应工具执行事件，避免把函数式伪调用文本或空工具路径误判为成功。web-read case 通过 `--tools web_fetch,read` 和 `only:web_fetch,read` gate 限制实际工具边界，并要求最终答案包含 `Example Domain` 与本地包名 `@ff-labs/pi-fff`，避免把 404 / 空内容或只执行了工具但没有读懂结果误判为通过；tool-selection-clipping case 通过 `--tools read,bash,web_fetch` 加 per-case `XTALPI_PI_TOOLS_MAX_TOOLS=1` 验证 selected-tool clipping，要求实际只执行 `read`，且 debug telemetry 中 `tool_selection_clipped=true`、omitted tools 至少包含 `bash` 和 `web_fetch`；tool-selection-continuation case 复用同一临时 session 跑两轮，第一轮 `--no-tools` 只建立最近 user intent，第二轮 `继续` 才开启 `read,bash,web_fetch` 并强制 `XTALPI_PI_TOOLS_MAX_TOOLS=1`，要求实际只执行 `read`，且 debug telemetry 中至少一轮满足 `tool_selection_prompt_source=recent_user_continuation`、`tool_selection_user_messages>=2`；tool-result-injection case 通过 `--tools read` 和 `only:read` gate 证明 hostile tool output 不会诱导额外工具执行。
+冒烟脚本会校验预期工具是否真的执行：无工具 case 必须没有 `tool_execution_start`；`bash` / `read` / web-read / tool-selection-clipping / tool-selection-continuation / tool-result-injection case 必须出现对应工具执行事件，避免把函数式伪调用文本或空工具路径误判为成功。package metadata 相关 case 还要求实际 `read.path` 等于 `package.json`，避免模型自行构造用户机器绝对路径却被误判为可移植通过。web-read case 通过 `--tools web_fetch,read` 和 `only:web_fetch,read` gate 限制实际工具边界，并要求最终答案包含 `Example Domain` 与本地包名 `pi-extensions`，避免把 404 / 空内容或只执行了工具但没有读懂结果误判为通过；tool-selection-clipping case 通过 `--tools read,bash,web_fetch` 加 per-case `XTALPI_PI_TOOLS_MAX_TOOLS=1` 验证 selected-tool clipping，要求实际只执行 `read`，且 debug telemetry 中 `tool_selection_clipped=true`、omitted tools 至少包含 `bash` 和 `web_fetch`；tool-selection-continuation case 复用同一临时 session 跑两轮，第一轮 `--no-tools` 只建立最近 user intent，第二轮 `继续` 才开启 `read,bash,web_fetch` 并强制 `XTALPI_PI_TOOLS_MAX_TOOLS=1`，要求实际只执行 `read`，且 debug telemetry 中至少一轮满足 `tool_selection_prompt_source=recent_user_continuation`、`tool_selection_user_messages>=2`；tool-result-injection case 通过 `--tools read` 和 `only:read` gate 证明 hostile tool output 不会诱导额外工具执行。
 
 tool-result-injection 还会在 summary gate 中要求最终回答包含 `PI_TOOL_RESULT_INJECTION_CANARY`，避免“工具执行了但模型没有基于 hostile fixture 给出有效确认”的空泛回答被误判为通过。
 
