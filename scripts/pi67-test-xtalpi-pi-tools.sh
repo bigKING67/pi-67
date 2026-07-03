@@ -14,6 +14,7 @@ const { pathToFileURL } = require("node:url");
   const repoRoot = process.argv[2];
   const ext = (name) => pathToFileURL(path.join(repoRoot, "extensions", "xtalpi-pi-tools", name)).href;
 
+  const chatClient = await import(ext("chat-client.ts"));
   const parser = await import(ext("parser.ts"));
   const protocol = await import(ext("protocol.ts"));
   const diagnostics = await import(ext("diagnostics.ts"));
@@ -36,6 +37,7 @@ const { pathToFileURL } = require("node:url");
     fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "provider-error-contract.json"), "utf8"),
   );
   const smokeArtifactCore = require(path.join(repoRoot, "scripts", "pi67-xtalpi-smoke-artifact-core.cjs"));
+  const chatClientSource = fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "chat-client.ts"), "utf8");
   const errorsSource = fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "errors.ts"), "utf8");
   const providerSource = fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "index.ts"), "utf8");
 
@@ -577,7 +579,8 @@ const { pathToFileURL } = require("node:url");
   assert.match(redactionProbe, /token=\[REDACTED\]/);
   assert.match(redactionProbe, /x-api-key: \[REDACTED\]/);
   assert.match(redactionProbe, /totalTokens: 42/);
-  assert.ok(providerSource.includes("buildProviderError("));
+  assert.ok(chatClientSource.includes("buildProviderError("));
+  assert.ok(!chatClientSource.includes("new XtalpiProviderError("));
   assert.ok(!providerSource.includes("new XtalpiProviderError("));
   const timeoutError = errors.classifyTransportError(new Error("xtalpi-pi-tools timeout after 1000ms"), 1000, false);
   assert.equal(timeoutError.code, "request_timeout");
@@ -604,6 +607,30 @@ const { pathToFileURL } = require("node:url");
   assert.equal(
     responseNormalizer.toPiUsage({ input: 1, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 10 }).cost.total,
     0,
+  );
+  const parsedChatResponse = chatClient.parseXtalpiChatResponse(JSON.stringify({
+    model: "deepseek-v4-pro",
+    choices: [
+      {
+        message: { role: "assistant", content: "hello from xtalpi" },
+        finish_reason: "stop",
+      },
+    ],
+    usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 },
+  }));
+  assert.deepEqual(parsedChatResponse, {
+    content: "hello from xtalpi",
+    usage: { input: 2, output: 3, cacheRead: 0, cacheWrite: 0, totalTokens: 5 },
+    responseModel: "deepseek-v4-pro",
+    finishReason: "stop",
+  });
+  assert.throws(
+    () => chatClient.parseXtalpiChatResponse("not-json"),
+    (error) => error.code === "non_json_response",
+  );
+  assert.throws(
+    () => chatClient.parseXtalpiChatResponse(JSON.stringify({ choices: [] })),
+    (error) => error.code === "malformed_response",
   );
   const normalizedNativeToolCall = responseNormalizer.extractTextFromMessage({
     content: "",

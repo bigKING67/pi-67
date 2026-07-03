@@ -8,14 +8,9 @@ import type {
   SimpleStreamOptions,
   ToolCall,
 } from "@earendil-works/pi-ai";
+import { callXtalpiChat } from "./chat-client.ts";
 import { debugLog, safeErrorMessage } from "./diagnostics.ts";
-import {
-  XtalpiProviderError,
-  buildHttpError,
-  buildProviderError,
-  classifyTransportError,
-  toErrorTelemetry,
-} from "./errors.ts";
+import { toErrorTelemetry } from "./errors.ts";
 import { parseToolCall } from "./parser.ts";
 import {
   API_ID,
@@ -25,22 +20,15 @@ import {
   PROVIDER_ID,
   PROVIDER_NAME,
   type UsageSummary,
-  type XtalpiChatMessage,
 } from "./protocol.ts";
 import {
   buildEmptyResponseRepairPrompt,
   envInt,
 } from "./retry.ts";
 import { buildParseErrorRepairPlan } from "./recovery-decision.ts";
-import {
-  extractTextFromMessage,
-  toPiUsage,
-  usageFromResponse,
-} from "./response-normalizer.ts";
+import { toPiUsage } from "./response-normalizer.ts";
 import {
   buildChatCompletionPayload,
-  endpointFor,
-  isPlaceholderKey,
   loadRuntimeConfig,
   resolveRequestTimeoutMs,
   type ProviderRuntimeConfig,
@@ -58,13 +46,6 @@ import { safeBlockText } from "./text-safety.ts";
 import { decideToolCallRequest } from "./tool-call-decision.ts";
 import { buildTurnDebugContext } from "./turn-debug-context.ts";
 import { TurnLoopState } from "./turn-loop-state.ts";
-
-type ChatResponse = {
-  content: string;
-  usage: UsageSummary;
-  responseModel?: string;
-  finishReason?: string;
-};
 
 type ProviderTurnResult =
   | {
@@ -93,167 +74,6 @@ export {
   resolveMaxOutputTokens,
   resolveRequestTimeoutMs,
 } from "./runtime-config.ts";
-
-function abortReason(signal: AbortSignal | undefined): unknown {
-  return signal?.reason || new Error("aborted");
-}
-
-function throwIfCallerAborted(signal: AbortSignal | undefined): void {
-  if (!signal?.aborted) return;
-  throw buildProviderError("request_aborted", "xtalpi-pi-tools request aborted by caller", {
-    cause: abortReason(signal),
-  });
-}
-
-type FetchTextResult = {
-  response: Response;
-  body: string;
-};
-
-async function readResponseTextWithAbort(response: Response, signal: AbortSignal): Promise<string> {
-  if (signal.aborted) throw abortReason(signal);
-
-  let removeAbortListener: (() => void) | undefined;
-  const abortPromise = new Promise<never>((_resolve, reject) => {
-    const abortHandler = () => reject(abortReason(signal));
-    removeAbortListener = () => signal.removeEventListener("abort", abortHandler);
-    signal.addEventListener("abort", abortHandler, { once: true });
-  });
-
-  try {
-    return await Promise.race([response.text(), abortPromise]);
-  } finally {
-    removeAbortListener?.();
-  }
-}
-
-async function fetchTextWithTimeout(
-  url: string,
-  init: RequestInit,
-  timeoutMs: number,
-  signal?: AbortSignal,
-): Promise<FetchTextResult> {
-  throwIfCallerAborted(signal);
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(new Error(`xtalpi-pi-tools timeout after ${timeoutMs}ms`)), timeoutMs);
-  const abortHandler = () => controller.abort(abortReason(signal));
-  if (signal) signal.addEventListener("abort", abortHandler, { once: true });
-
-  try {
-    const response = await fetch(url, { ...init, signal: controller.signal });
-    const body = await readResponseTextWithAbort(response, controller.signal);
-    return { response, body };
-  } finally {
-    clearTimeout(timeout);
-    if (signal) signal.removeEventListener("abort", abortHandler);
-  }
-}
-
-async function callXtalpiChat(
-  model: Model<Api>,
-  messages: XtalpiChatMessage[],
-  options?: SimpleStreamOptions,
-): Promise<ChatResponse> {
-  throwIfCallerAborted(options?.signal);
-
-  const apiKey = options?.apiKey || runtimeConfig?.apiKey || "";
-  if (isPlaceholderKey(apiKey)) {
-    throw buildProviderError(
-      "api_key_missing",
-      "xtalpi-pi-tools API key is not configured. Set XTALPI_PI_TOOLS_API_KEY or configure models.json providers.xtalpi-pi-tools.apiKey.",
-    );
-  }
-
-  const payload = buildChatCompletionPayload(model, messages, options);
-  const timeoutMs = resolveRequestTimeoutMs(options);
-  debugLog("request", {
-    provider: PROVIDER_ID,
-    model: model.id,
-    messageCount: payload.messages.length,
-    maxTokens: payload.max_tokens,
-    nativeToolsPresent: false,
-    timeoutMs,
-  });
-
-  let response: Response;
-  let body: string;
-  try {
-    ({ response, body } = await fetchTextWithTimeout(
-      endpointFor(model, runtimeConfig),
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          accept: "application/json",
-          authorization: `Bearer ${apiKey}`,
-          ...(model.headers || {}),
-          ...(options?.headers || {}),
-        },
-        body: JSON.stringify(payload),
-      },
-      timeoutMs,
-      options?.signal,
-    ));
-  } catch (error) {
-    if (error instanceof XtalpiProviderError) throw error;
-    throw classifyTransportError(error, timeoutMs, options?.signal?.aborted === true);
-  }
-
-  if (!response.ok) {
-    throw buildHttpError(response.status, body);
-  }
-
-  let json: unknown;
-  try {
-    json = JSON.parse(body);
-  } catch (error) {
-    throw buildProviderError(
-      "non_json_response",
-      `xtalpi-pi-tools returned non-JSON response: ${error instanceof Error ? error.message : String(error)}`,
-      {
-        details: {
-          bodyExcerpt: safeBlockText(body, 1000),
-          bodyChars: body.length,
-        },
-        cause: error,
-      },
-    );
-  }
-
-  const root = isObject(json) ? json : {};
-  const choices = Array.isArray(root.choices) ? root.choices : [];
-  const firstChoice = choices.find(isObject);
-  const message = isObject(firstChoice?.message) ? firstChoice.message : undefined;
-  if (!message) {
-    throw buildProviderError(
-      "malformed_response",
-      "xtalpi-pi-tools returned JSON without choices[].message",
-      {
-        details: {
-          bodyExcerpt: safeBlockText(body, 1000),
-          bodyChars: body.length,
-        },
-      },
-    );
-  }
-
-  const content = extractTextFromMessage(message);
-  const usage = usageFromResponse(root.usage);
-  const responseModel = typeof root.model === "string" ? root.model : undefined;
-  const finishReason = typeof firstChoice?.finish_reason === "string" ? firstChoice.finish_reason : undefined;
-
-  debugLog("response", {
-    provider: PROVIDER_ID,
-    model: model.id,
-    responseModel,
-    finishReason,
-    contentChars: content.length,
-    usage,
-  });
-
-  return { content, usage, responseModel, finishReason };
-}
 
 function latestToolCallWithResult(context: ContextLike): ToolCall | undefined {
   let latestCall: ToolCall | undefined;
@@ -318,7 +138,7 @@ async function runProviderTurn(
   // Recovery turns must stay serial: each repair prompt depends on the exact
   // previous model response and on the current per-turn recovery budget.
   while (true) {
-    const response = await callXtalpiChat(model, messages, options);
+    const response = await callXtalpiChat({ model, messages, options, runtimeConfig });
     loopState.addResponse(response);
     const raw = response.content.trim();
 
