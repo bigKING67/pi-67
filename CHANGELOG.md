@@ -73,6 +73,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - Live xtalpi smoke now passes the exact selected case names into its immediate debug-summary gate, so same-count case-set drift cannot pass the run-level smoke gate.
 - Live xtalpi smoke now fails fast with a clear `PI_BIN` hint when the Pi executable is missing, instead of running provider preflight before an opaque process-launch failure.
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh --self-test` now exercises the main smoke runner offline with a fake `pi`, covering `PI_BIN` override, selected-case filtering, summary artifact writing, exact case-name debug-summary gates, and invalid-`PI_BIN` fail-fast behavior.
+- Live xtalpi smoke now requires an executable debug-summary helper before running provider preflight or cases, with `XTALPI_PI_TOOLS_SMOKE_DEBUG_SUMMARY_BIN` available for explicit test/runtime overrides.
 
 ### Removed
 

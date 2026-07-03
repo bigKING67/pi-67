@@ -206,7 +206,7 @@ extensions/xtalpi-pi-tools/fixtures/replay-cases.json
 - TypeScript error code/category union 与 provider error contract manifest 同步
 - smoke summarizer self-test：`all:` / `only:` 工具边界、low-`maxTools` tool-selection clipping telemetry、raw markup final answer 和 tool-result-injection canary 缺失负向样例
 - smoke continuation self-test：多轮 session case 必须在第二轮 `继续` 时暴露 `tool_selection_prompt_source=recent_user_continuation`，并仍只执行 selected `read`
-- smoke runner self-test：用 fake `pi` 离线验证 `PI_BIN` override、`--case` case 过滤、summary artifact、`--expect-cases` / `--expect-case-names` debug-summary gate 传参，以及无效 `PI_BIN` fail-fast 路径
+- smoke runner self-test：用 fake `pi` 离线验证 `PI_BIN` override、`--case` case 过滤、summary artifact、`--expect-cases` / `--expect-case-names` debug-summary gate 传参，以及无效 `PI_BIN` / debug-summary helper fail-fast 路径
 - debug-summary self-test：case 数、recovery 阈值和 raw markup final answer threshold gate 负向样例
 - provider error contract validator self-test：已知坏 contract 的 manifest、code 集合、category、retryability、HTTP 映射和 range 顺序负向样例
 - provider-level body-read timeout regression：即使 `response.text()` 不响应 `AbortSignal`，也必须在 `XTALPI_PI_TOOLS_TIMEOUT_MS` 内归类为 `request_timeout`
@@ -259,6 +259,8 @@ tool-result-injection 还会在 summary gate 中要求最终回答包含 `PI_TOO
 冒烟脚本还会为每个 case 开启 `XTALPI_PI_TOOLS_DEBUG=1`，校验 debug JSONL schema，并汇总 `recovery.*` 事件，便于判断是否发生了本地修复重试。
 
 live smoke 会先运行 provider-health preflight，然后为子进程显式设置 `XTALPI_PI_TOOLS_TIMEOUT_MS` 和 `XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS`，默认来自 `XTALPI_PI_TOOLS_SMOKE_REQUEST_TIMEOUT_MS=180000` 与 `XTALPI_PI_TOOLS_SMOKE_MAX_OUTPUT_TOKENS=1024`。这只影响 smoke 子进程，不改变日常 `xtalpi-pi-tools` 运行时默认；作用是把晶泰 provider stall 和过度生成收敛成可观察的 smoke 边界，而不是被 Pi 全局 HTTP idle timeout、日常输出上限或 case watchdog 混在一起。
+
+live smoke 还会在正式 provider preflight 和 case 执行前确认 `PI_BIN` 与 debug-summary helper 都存在且可执行。`PI_BIN` 可用 `PI_BIN=/path/to/pi` 覆盖；debug-summary helper 默认使用同目录 `pi67-xtalpi-pi-tools-debug-summary.sh`，特殊测试环境可用 `XTALPI_PI_TOOLS_SMOKE_DEBUG_SUMMARY_BIN=/path/to/pi67-xtalpi-pi-tools-debug-summary.sh` 覆盖。任一 helper 缺失都会 exit `2`，避免没有 debug-summary gate 或 summary artifact 的 smoke 被误判为通过。
 
 provider-health preflight 默认开启，超时默认 `XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_TIMEOUT_MS=30000`，最多尝试 `XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_ATTEMPTS=2` 次，重试间隔 `XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_RETRY_DELAY_MS=1000`。它在正式 case 前发送一个最小 chat completion 请求（`max_tokens=1`，不带工具），并写入：
 

@@ -3,6 +3,7 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PI_BIN="${PI_BIN:-$(command -v pi 2>/dev/null || true)}"
+DEBUG_SUMMARY_BIN="${XTALPI_PI_TOOLS_SMOKE_DEBUG_SUMMARY_BIN:-$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh}"
 PI_AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
 PROVIDER="${PROVIDER:-xtalpi-pi-tools}"
 MODEL="${MODEL:-deepseek-v4-pro}"
@@ -58,6 +59,7 @@ Environment:
   XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_TIMEOUT_MS   Provider health preflight timeout. Default: 30000.
   XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_ATTEMPTS     Provider health preflight attempts. Default: 2.
   XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_RETRY_DELAY_MS Delay between preflight retryable attempts. Default: 1000.
+  XTALPI_PI_TOOLS_SMOKE_DEBUG_SUMMARY_BIN      Debug-summary executable override. Default: script dir helper.
   XTALPI_PI_TOOLS_SMOKE_CASES                  Comma-separated case filter, same values as --case.
   PI_BIN                                       Pi executable override. Default: command -v pi.
 EOF
@@ -801,6 +803,8 @@ if (data.postAgentEndLingerSeconds !== 30) throw new Error("unexpected postAgent
   local runner_output
   local invalid_output
   local invalid_status=0
+  local invalid_debug_output
+  local invalid_debug_status=0
 
   node - "$fake_pi" <<'NODE'
 const fs = require("fs");
@@ -918,6 +922,28 @@ NODE
     return 1
   fi
 
+  invalid_debug_output="$(env \
+    PI_BIN="$fake_pi" \
+    OUT_DIR="$tmp_dir/invalid-debug-run" \
+    XTALPI_PI_TOOLS_SMOKE_PREFLIGHT=1 \
+    XTALPI_PI_TOOLS_SMOKE_DEBUG_SUMMARY_BIN="$tmp_dir/not-debug-summary" \
+    "$smoke_script" --case no-tool 2>&1)"
+  invalid_debug_status=$?
+  if [ "$invalid_debug_status" -ne 2 ]; then
+    echo "expected invalid debug-summary runner check to exit 2, got $invalid_debug_status"
+    echo "$invalid_debug_output"
+    return 1
+  fi
+  if [[ "$invalid_debug_output" != *"debug summary executable not found or not executable"* ]]; then
+    echo "invalid debug-summary runner check did not print the expected fail-fast hint"
+    echo "$invalid_debug_output"
+    return 1
+  fi
+  if [ -d "$tmp_dir/invalid-debug-run" ]; then
+    echo "invalid debug-summary runner check should fail before creating the smoke output directory"
+    return 1
+  fi
+
   invalid_output="$(env \
     PI_BIN="$tmp_dir/not-a-pi" \
     OUT_DIR="$tmp_dir/invalid-run" \
@@ -990,6 +1016,11 @@ fi
 
 if [ -z "$PI_BIN" ] || [ ! -x "$PI_BIN" ]; then
   echo "xtalpi-pi-tools smoke: pi executable not found or not executable; set PI_BIN=/path/to/pi" >&2
+  exit 2
+fi
+
+if [ -z "$DEBUG_SUMMARY_BIN" ] || [ ! -x "$DEBUG_SUMMARY_BIN" ]; then
+  echo "xtalpi-pi-tools smoke: debug summary executable not found or not executable; set XTALPI_PI_TOOLS_SMOKE_DEBUG_SUMMARY_BIN=/path/to/pi67-xtalpi-pi-tools-debug-summary.sh" >&2
   exit 2
 fi
 
@@ -1560,43 +1591,41 @@ fi
 
 SELECTED_CASES_CSV="$(join_by_comma "${SELECTED_CASES[@]}")"
 
-if [ -x "$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh" ]; then
-  echo "===== debug-summary ====="
-  debug_summary_status=0
-  "$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh" \
-    --run-id "$STAMP" \
-    --expect-cases "$EXPECTED_CASES" \
-    --expect-case-names "$SELECTED_CASES_CSV" \
-    --max-errors 0 \
-    --max-empty-assistant-ends 0 \
-    --max-raw-tool-markup-final-answers 0 \
-    --max-recoveries 8 \
-    "$OUT_DIR" || debug_summary_status=$?
-  if [ "$debug_summary_status" -ne 0 ]; then
-    failures=$((failures + 1))
-  fi
+echo "===== debug-summary ====="
+debug_summary_status=0
+"$DEBUG_SUMMARY_BIN" \
+  --run-id "$STAMP" \
+  --expect-cases "$EXPECTED_CASES" \
+  --expect-case-names "$SELECTED_CASES_CSV" \
+  --max-errors 0 \
+  --max-empty-assistant-ends 0 \
+  --max-raw-tool-markup-final-answers 0 \
+  --max-recoveries 8 \
+  "$OUT_DIR" || debug_summary_status=$?
+if [ "$debug_summary_status" -ne 0 ]; then
+  failures=$((failures + 1))
+fi
 
-  debug_summary_json_status=0
-  "$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh" \
-    --json \
-    --run-id "$STAMP" \
-    --expect-cases "$EXPECTED_CASES" \
-    --expect-case-names "$SELECTED_CASES_CSV" \
-    --max-errors 0 \
-    --max-empty-assistant-ends 0 \
-    --max-raw-tool-markup-final-answers 0 \
-    --max-recoveries 8 \
-    "$OUT_DIR" >"$DEBUG_SUMMARY_JSON_FILE" || debug_summary_json_status=$?
-  if [ "$debug_summary_json_status" -ne 0 ] && [ "$debug_summary_status" -eq 0 ]; then
-    failures=$((failures + 1))
-  fi
-  if [ ! -s "$DEBUG_SUMMARY_JSON_FILE" ]; then
-    echo "xtalpi-pi-tools smoke: debug summary JSON artifact was not written: $DEBUG_SUMMARY_JSON_FILE" >&2
-    failures=$((failures + 1))
-  elif ! write_run_summary_artifact "$debug_summary_json_status" "$failures" "$SELECTED_CASES_CSV" "$STOP_REASON"; then
-    echo "xtalpi-pi-tools smoke: failed to write summary artifact: $SUMMARY_FILE" >&2
-    failures=$((failures + 1))
-  fi
+debug_summary_json_status=0
+"$DEBUG_SUMMARY_BIN" \
+  --json \
+  --run-id "$STAMP" \
+  --expect-cases "$EXPECTED_CASES" \
+  --expect-case-names "$SELECTED_CASES_CSV" \
+  --max-errors 0 \
+  --max-empty-assistant-ends 0 \
+  --max-raw-tool-markup-final-answers 0 \
+  --max-recoveries 8 \
+  "$OUT_DIR" >"$DEBUG_SUMMARY_JSON_FILE" || debug_summary_json_status=$?
+if [ "$debug_summary_json_status" -ne 0 ] && [ "$debug_summary_status" -eq 0 ]; then
+  failures=$((failures + 1))
+fi
+if [ ! -s "$DEBUG_SUMMARY_JSON_FILE" ]; then
+  echo "xtalpi-pi-tools smoke: debug summary JSON artifact was not written: $DEBUG_SUMMARY_JSON_FILE" >&2
+  failures=$((failures + 1))
+elif ! write_run_summary_artifact "$debug_summary_json_status" "$failures" "$SELECTED_CASES_CSV" "$STOP_REASON"; then
+  echo "xtalpi-pi-tools smoke: failed to write summary artifact: $SUMMARY_FILE" >&2
+  failures=$((failures + 1))
 fi
 
 echo "===== summary ====="
