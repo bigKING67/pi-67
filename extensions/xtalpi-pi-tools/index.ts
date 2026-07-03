@@ -31,13 +31,8 @@ import {
   buildEmptyResponseRepairPrompt,
   envInt,
 } from "./retry.ts";
+import { buildParseErrorRepairPlan } from "./recovery-decision.ts";
 import {
-  buildParseErrorRepairPlan,
-  canRecoverEmptyResponse,
-  canRecoverRepair,
-} from "./recovery-decision.ts";
-import {
-  addUsage,
   extractTextFromMessage,
   toPiUsage,
   usageFromResponse,
@@ -62,6 +57,7 @@ import {
 import { safeBlockText } from "./text-safety.ts";
 import { decideToolCallRequest } from "./tool-call-decision.ts";
 import { buildTurnDebugContext } from "./turn-debug-context.ts";
+import { TurnLoopState } from "./turn-loop-state.ts";
 
 type ChatResponse = {
   content: string;
@@ -317,26 +313,20 @@ async function runProviderTurn(
   const selectedToolNames = debugContext.selectedToolNames;
   debugLog("turn.start", debugContext);
 
-  let emptyRetries = 0;
-  let repairRetries = 0;
-  let totalRecoveries = 0;
-  let accumulatedUsage = { ...EMPTY_USAGE };
-  let responseModel: string | undefined;
+  const loopState = new TurnLoopState();
 
   // Recovery turns must stay serial: each repair prompt depends on the exact
   // previous model response and on the current per-turn recovery budget.
   while (true) {
     const response = await callXtalpiChat(model, messages, options);
-    accumulatedUsage = addUsage(accumulatedUsage, response.usage);
-    responseModel = response.responseModel || responseModel;
+    loopState.addResponse(response);
     const raw = response.content.trim();
 
     if (!raw) {
-      if (canRecoverEmptyResponse({ emptyRetries, totalRecoveries }, debugContext)) {
-        emptyRetries += 1;
-        totalRecoveries += 1;
+      if (loopState.canRecoverEmptyResponse(debugContext)) {
+        const recovery = loopState.noteEmptyRecovery();
         messages.push({ role: "user", content: buildEmptyResponseRepairPrompt() });
-        debugLog("recovery.empty_response", { ...debugContext, emptyRetries, totalRecoveries });
+        debugLog("recovery.empty_response", { ...debugContext, ...recovery });
         continue;
       }
 
@@ -344,24 +334,21 @@ async function runProviderTurn(
         kind: "final",
         text:
           "xtalpi-pi-tools 收到连续空响应，已停止自动重试以避免卡死。请重发上一句，或降低任务复杂度后继续。",
-        usage: accumulatedUsage,
-        responseModel,
+        ...loopState.resultFields(),
       };
     }
 
     const parsed = parseToolCall(raw);
     if (parsed.kind === "error") {
-      if (canRecoverRepair({ repairRetries, totalRecoveries }, debugContext)) {
-        repairRetries += 1;
-        totalRecoveries += 1;
+      if (loopState.canRecoverRepair(debugContext)) {
+        const recovery = loopState.noteRepairRecovery();
         const repairPlan = buildParseErrorRepairPlan(parsed, selectedToolNames);
         messages.push({ role: "assistant", content: raw.slice(0, 4000) });
         messages.push({ role: "user", content: repairPlan.prompt });
         debugLog(repairPlan.event, {
           ...debugContext,
           code: parsed.code,
-          repairRetries,
-          totalRecoveries,
+          ...recovery,
           rawExcerpt: safeBlockText(parsed.raw, 500),
         });
         continue;
@@ -370,8 +357,7 @@ async function runProviderTurn(
       return {
         kind: "final",
         text: `xtalpi-pi-tools 无法解析模型返回的工具调用，已停止自动修复。\n\n解析错误：${parsed.message}\n\n模型原始输出摘录：\n${raw.slice(0, 2000)}`,
-        usage: accumulatedUsage,
-        responseModel,
+        ...loopState.resultFields(),
       };
     }
 
@@ -379,8 +365,7 @@ async function runProviderTurn(
       return {
         kind: "final",
         text: parsed.text,
-        usage: accumulatedUsage,
-        responseModel,
+        ...loopState.resultFields(),
       };
     }
 
@@ -397,20 +382,18 @@ async function runProviderTurn(
       selectedToolNamesList: selectedToolNames,
       selectedToolByName,
       lastCompletedCall,
-      canRepair: canRecoverRepair({ repairRetries, totalRecoveries }, debugContext),
+      canRepair: loopState.canRecoverRepair(debugContext),
     });
 
     if (toolDecision.kind === "repair") {
-      repairRetries += 1;
-      totalRecoveries += 1;
+      const recovery = loopState.noteRepairRecovery();
       messages.push({ role: "assistant", content: raw.slice(0, 4000) });
       messages.push({ role: "user", content: toolDecision.prompt });
       debugLog(toolDecision.event, {
         ...debugContext,
         toolName: toolDecision.toolName,
         errors: toolDecision.errors,
-        repairRetries,
-        totalRecoveries,
+        ...recovery,
       });
       continue;
     }
@@ -419,8 +402,7 @@ async function runProviderTurn(
       return {
         kind: "final",
         text: toolDecision.text,
-        usage: accumulatedUsage,
-        responseModel,
+        ...loopState.resultFields(),
       };
     }
 
@@ -436,8 +418,7 @@ async function runProviderTurn(
       toolCall: requestedCall,
       leadingText: parsed.before,
       trailingText: parsed.after,
-      usage: accumulatedUsage,
-      responseModel,
+      ...loopState.resultFields(),
     };
   }
 }

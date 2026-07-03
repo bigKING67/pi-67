@@ -26,6 +26,7 @@ const { pathToFileURL } = require("node:url");
   const textSafety = await import(ext("text-safety.ts"));
   const toolCallDecision = await import(ext("tool-call-decision.ts"));
   const turnDebugContext = await import(ext("turn-debug-context.ts"));
+  const turnLoopState = await import(ext("turn-loop-state.ts"));
   const validator = await import(ext("argument-validator.ts"));
   const provider = await import(ext("index.ts"));
   const replayFixtures = JSON.parse(
@@ -274,6 +275,54 @@ const { pathToFileURL } = require("node:url");
   const unknownFieldRepairPlan = recoveryDecision.buildParseErrorRepairPlan(unknownField, ["read"]);
   assert.equal(unknownFieldRepairPlan.event, "recovery.invalid_tool_json");
   assert.match(unknownFieldRepairPlan.prompt, /unknown top-level field/);
+
+  const loopState = new turnLoopState.TurnLoopState();
+  assert.deepEqual(loopState.snapshot(), {
+    emptyRetries: 0,
+    repairRetries: 0,
+    totalRecoveries: 0,
+    accumulatedUsage: protocol.EMPTY_USAGE,
+  });
+  loopState.addResponse({
+    usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 10 },
+    responseModel: "deepseek-v4-pro",
+  });
+  loopState.addResponse({
+    usage: { input: 5, output: 6, cacheRead: 7, cacheWrite: 8, totalTokens: 26 },
+  });
+  loopState.addResponse({
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+    responseModel: "",
+  });
+  assert.deepEqual(loopState.resultFields(), {
+    usage: { input: 6, output: 8, cacheRead: 10, cacheWrite: 12, totalTokens: 36 },
+    responseModel: "deepseek-v4-pro",
+  });
+  assert.equal(
+    loopState.canRecoverEmptyResponse({ maxEmptyRetries: 1, maxTotalRecoveries: 2 }),
+    true,
+  );
+  assert.deepEqual(loopState.noteEmptyRecovery(), { emptyRetries: 1, totalRecoveries: 1 });
+  assert.equal(
+    loopState.canRecoverEmptyResponse({ maxEmptyRetries: 1, maxTotalRecoveries: 2 }),
+    false,
+  );
+  assert.equal(
+    loopState.canRecoverRepair({ maxRepairRetries: 1, maxTotalRecoveries: 2 }),
+    true,
+  );
+  assert.deepEqual(loopState.noteRepairRecovery(), { repairRetries: 1, totalRecoveries: 2 });
+  assert.equal(
+    loopState.canRecoverRepair({ maxRepairRetries: 1, maxTotalRecoveries: 2 }),
+    false,
+  );
+  assert.deepEqual(loopState.snapshot(), {
+    emptyRetries: 1,
+    repairRetries: 1,
+    totalRecoveries: 2,
+    accumulatedUsage: { input: 6, output: 8, cacheRead: 10, cacheWrite: 12, totalTokens: 36 },
+    responseModel: "deepseek-v4-pro",
+  });
 
   const validArgs = validator.validateToolArguments(
     { name: "read", parameters: { type: "object", required: ["path"], properties: { path: { type: "string" } } } },
