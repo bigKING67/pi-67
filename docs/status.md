@@ -116,6 +116,11 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --trend-gate 3 --
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --drift 10 --run-kind full-suite --json
 ```
 
+These debug-summary modes are read-only. When an older persisted summary lacks
+request-latency fields but its per-case debug JSONL files still exist,
+debug-summary backfills the compact request-latency telemetry from those JSONL
+files without running live smoke.
+
 The resulting `xtalpiSmoke` block uses schema
 `pi67-xtalpi-smoke-status/v1` and includes:
 

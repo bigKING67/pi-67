@@ -338,7 +338,7 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   "$HOME/tmp/xtalpi-pi-tools-smoke"
 ```
 
-`--history` 读取 `<stamp>-summary.json`，按最新优先输出每轮 `ok`、`failures`、`cases`、`run_kind`、`selected_cases`、`case_set_sha256`、`recoveries`、`recovery_rate`、raw markup final answer、empty assistant end、error、provider error、request latency、slow request、process lifecycle failure 和 watchdog timeout 计数；它会忽略同目录下的 `<stamp>-debug-summary.json` 中间产物，避免把 debug-summary 自身误当成 smoke run。旧 summary 如果没有 `runKind`，debug-summary 会根据 `caseSet`、`providerHealth` 和 `stopReason` 现场回推分类。
+`--history` 读取 `<stamp>-summary.json`，按最新优先输出每轮 `ok`、`failures`、`cases`、`run_kind`、`selected_cases`、`case_set_sha256`、`recoveries`、`recovery_rate`、raw markup final answer、empty assistant end、error、provider error、request latency、slow request、process lifecycle failure 和 watchdog timeout 计数；它会忽略同目录下的 `<stamp>-debug-summary.json` 中间产物，避免把 debug-summary 自身误当成 smoke run。旧 summary 如果没有 `runKind`，debug-summary 会根据 `caseSet`、`providerHealth` 和 `stopReason` 现场回推分类；旧 summary 如果缺少 request latency 字段但同 run 的 per-case debug JSONL 仍在，会只读回填 request latency / slow request telemetry。
 
 `--history`、`--trend-gate` 和 `--drift` 支持 `--run-kind LIST` 先按 `runKind` 过滤 persisted summary artifacts，再选择 newest N；`--require-run-kind LIST` 会要求 history / trend-gate selected runs 的 `runKind` 属于指定集合。`scripts/pi67-report.sh` 和 `scripts/pi67-status.sh` 也会默认读取同一 smoke artifact 目录，写入 / 输出 compact `xtalpiSmoke` 状态：最近 3 次整体 history、每轮 `runKind`、request latency / slow request telemetry、`--trend-gate 3 --profile full-suite-strict` 的结果，以及最近 10 次 full-suite artifact 的 drift 摘要与 request-latency quality totals。该状态只读本地 artifact，不运行 live smoke，也不改写历史文件；使用 `--no-xtalpi-smoke` 可关闭，或用 `--xtalpi-smoke-dir DIR` 指向非默认目录。
 

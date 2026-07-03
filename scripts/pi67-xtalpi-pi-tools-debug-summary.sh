@@ -689,6 +689,45 @@ writeSummary("20260702-000002", {
     slowRequestThresholdMs: 60000,
   },
 });
+
+const latencyBackfill = ensureDir("latency-backfill");
+writeSummary("20260702-000001", {
+  dir: latencyBackfill,
+  ok: true,
+  failures: 0,
+  recoveries: 0,
+  totalCases: 1,
+  selectedCases: ["read"],
+});
+writeCase(latencyBackfill, "20260702-000001", "read", {
+  toolNames: ["read"],
+  debugEvents: [
+    {
+      schema: "xtalpi-pi-tools.debug.v1",
+      ts: "2026-07-02T00:00:00.000Z",
+      event: "request",
+      event_category: "request",
+    },
+    {
+      schema: "xtalpi-pi-tools.debug.v1",
+      ts: "2026-07-02T00:00:01.500Z",
+      event: "response",
+      event_category: "response",
+    },
+    {
+      schema: "xtalpi-pi-tools.debug.v1",
+      ts: "2026-07-02T00:00:02.000Z",
+      event: "request",
+      event_category: "request",
+    },
+    {
+      schema: "xtalpi-pi-tools.debug.v1",
+      ts: "2026-07-02T00:01:04.000Z",
+      event: "response",
+      event_category: "response",
+    },
+  ],
+});
 NODE
 
   if ! output="$("$SCRIPT_PATH" --run-id 20260702-000001 --expect-cases 1 --expect-case-names clean --max-errors 0 --max-empty-assistant-ends 0 --max-raw-tool-markup-final-answers 0 --max-recoveries 0 "$tmp_dir/clean" 2>&1)"; then
@@ -813,6 +852,28 @@ assert(/^[a-f0-9]{64}$/.test(data.runs[1].caseSet.sha256), "case set hash missin
 assert(data.runs[1].requestCount === 2, "persisted request count was not preserved");
 assert(data.runs[1].requestLatencyMsMax === 62000, "persisted request latency max was not preserved");
 assert(data.runs[1].slowRequestCount === 1, "persisted slow request count was not preserved");
+NODE
+    return 1
+  fi
+
+  local latency_backfill_json="$tmp_dir/latency-backfill-output.json"
+  if ! output="$("$SCRIPT_PATH" --history 1 --json "$tmp_dir/latency-backfill" >"$latency_backfill_json" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+  if ! node - "$latency_backfill_json" <<'NODE'; then
+const fs = require("node:fs");
+const file = process.argv[2];
+const data = JSON.parse(fs.readFileSync(file, "utf8"));
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+const run = data.runs[0];
+assert(run.requestCount === 2, "legacy persisted summary latency was not backfilled from debug JSONL");
+assert(run.requestLatencyMsMin === 1500, "backfilled request latency min was wrong");
+assert(run.requestLatencyMsMax === 62000, "backfilled request latency max was wrong");
+assert(run.requestLatencyMsAvg === 31750, "backfilled request latency avg was wrong");
+assert(run.slowRequestCount === 1, "backfilled slow request count was wrong");
 NODE
     return 1
   fi
@@ -1796,6 +1857,55 @@ function collectRequestLatencySummary(events) {
   };
 }
 
+function listRunDebugFiles(runId) {
+  if (!/^\d{8}-\d{6}$/.test(String(runId || ""))) return [];
+  return fs
+    .readdirSync(outDir)
+    .filter((file) => file.startsWith(`${runId}-`) && file.endsWith(".debug.jsonl"))
+    .sort();
+}
+
+function requestLatencySummaryFromRunDebugFiles(runId) {
+  const totals = {
+    requestCount: 0,
+    requestLatencyMsMin: 0,
+    requestLatencyMsMax: 0,
+    requestLatencyMsAvg: 0,
+    slowRequestCount: 0,
+    slowRequestThresholdMs: SLOW_REQUEST_THRESHOLD_MS,
+  };
+  let requestLatencyMsTotal = 0;
+
+  for (const file of listRunDebugFiles(runId)) {
+    const debug = readJsonl(path.join(outDir, file));
+    const latency = collectRequestLatencySummary(debug.events);
+    if (latency.requestCount > 0) {
+      totals.requestLatencyMsMin = totals.requestCount === 0
+        ? latency.requestLatencyMsMin
+        : Math.min(totals.requestLatencyMsMin, latency.requestLatencyMsMin);
+      totals.requestLatencyMsMax = Math.max(totals.requestLatencyMsMax, latency.requestLatencyMsMax);
+      requestLatencyMsTotal += latency.requestLatencyMsAvg * latency.requestCount;
+    }
+    totals.requestCount += latency.requestCount;
+    totals.slowRequestCount += latency.slowRequestCount;
+  }
+
+  totals.requestLatencyMsAvg = totals.requestCount > 0
+    ? Math.round(requestLatencyMsTotal / totals.requestCount)
+    : 0;
+  return totals;
+}
+
+function hydrateRequestLatencyFromDebugFiles(run) {
+  if (numberOrZero(run?.requestCount) > 0) return run;
+  const latency = requestLatencySummaryFromRunDebugFiles(run?.runId);
+  if (latency.requestCount <= 0) return run;
+  return {
+    ...run,
+    ...latency,
+  };
+}
+
 function collectRuntimeFingerprint(events) {
   const turnEvents = events.filter((event) => event.event === "turn.start");
   const sources = turnEvents.length > 0 ? turnEvents : events;
@@ -2477,10 +2587,10 @@ function buildHistory(limit) {
     const candidateRuns = newestRuns.filter((run) => runKindMatches(run.runKind, runKindFilter));
     candidateArtifacts = candidateRuns.length;
     filteredOutArtifacts = summaryFiles.length - candidateRuns.length;
-    runs = candidateRuns.slice(0, limit);
+    runs = candidateRuns.slice(0, limit).map(hydrateRequestLatencyFromDebugFiles);
   } else {
     const selectedFiles = summaryFiles.slice(-limit).reverse();
-    runs = selectedFiles.map(summarizeSmokeSummaryFile);
+    runs = selectedFiles.map(summarizeSmokeSummaryFile).map(hydrateRequestLatencyFromDebugFiles);
   }
   const parseErrorCount = runs.filter((run) => run.parseError).length;
 

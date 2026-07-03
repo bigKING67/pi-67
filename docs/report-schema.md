@@ -363,7 +363,8 @@ targeted or preflight-failed diagnostic runs. Compact run entries preserve
 request-latency telemetry when it is present in smoke summaries:
 `requestCount`, `requestLatencyMsMin`, `requestLatencyMsMax`,
 `requestLatencyMsAvg`, `slowRequestCount`, and `slowRequestThresholdMs`. Older
-artifacts that predate latency telemetry may report these fields as `null`.
+artifacts that predate latency telemetry are backfilled from per-case debug
+JSONL when those files are present; otherwise these fields may report as `null`.
 
 The `drift` block is produced from `--drift <N> --run-kind full-suite`. It is a
 compact, read-only observability surface rather than a pass/fail gate: consumers
