@@ -18,6 +18,7 @@ const { pathToFileURL } = require("node:url");
   const outputMessage = await import(ext("output-message.ts"));
   const parser = await import(ext("parser.ts"));
   const protocol = await import(ext("protocol.ts"));
+  const providerTurn = await import(ext("provider-turn.ts"));
   const diagnostics = await import(ext("diagnostics.ts"));
   const errors = await import(ext("errors.ts"));
   const recoveryDecision = await import(ext("recovery-decision.ts"));
@@ -43,6 +44,7 @@ const { pathToFileURL } = require("node:url");
   const chatClientSource = fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "chat-client.ts"), "utf8");
   const errorsSource = fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "errors.ts"), "utf8");
   const providerSource = fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "index.ts"), "utf8");
+  assert.equal(typeof providerTurn.runProviderTurn, "function");
 
   function contractMetadata(code) {
     const metadata = providerErrorContract.errors[code];
