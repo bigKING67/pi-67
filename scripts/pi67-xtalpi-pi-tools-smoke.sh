@@ -1414,6 +1414,7 @@ if [ -x "$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh" ]; then
   "$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh" \
     --run-id "$STAMP" \
     --expect-cases "$EXPECTED_CASES" \
+    --expect-case-names "$SELECTED_CASES_CSV" \
     --max-errors 0 \
     --max-empty-assistant-ends 0 \
     --max-raw-tool-markup-final-answers 0 \
@@ -1428,6 +1429,7 @@ if [ -x "$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh" ]; then
     --json \
     --run-id "$STAMP" \
     --expect-cases "$EXPECTED_CASES" \
+    --expect-case-names "$SELECTED_CASES_CSV" \
     --max-errors 0 \
     --max-empty-assistant-ends 0 \
     --max-raw-tool-markup-final-answers 0 \

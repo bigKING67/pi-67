@@ -70,6 +70,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - xtalpi selected-tool ranking now carries recent user intent across continuation prompts such as "继续" / "continue", while still excluding untrusted tool results from the execution whitelist decision.
 - xtalpi debug telemetry and debug summary now expose selected-tool prompt source/count metadata, so continuation-based ranking is diagnosable without logging raw prompt text.
 - Live xtalpi smoke now includes a two-turn `tool-selection-continuation` case that uses a temporary session plus low `XTALPI_PI_TOOLS_MAX_TOOLS` to prove `继续` selects the prior user-intended `read` tool and emits `recent_user_continuation` telemetry.
+- Live xtalpi smoke now passes the exact selected case names into its immediate debug-summary gate, so same-count case-set drift cannot pass the run-level smoke gate.
 
 ### Removed
 
