@@ -401,6 +401,17 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   "$HOME/tmp/xtalpi-pi-tools-smoke"
 ```
 
+发布或高置信复核可以直接使用内置 profile，避免每次手动拼完整 8-case 名单和阈值：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
+  --trend-gate 3 \
+  --profile full-suite-strict \
+  "$HOME/tmp/xtalpi-pi-tools-smoke"
+```
+
+`full-suite-strict` 会设置 `--expect-cases 8`、完整 8-case `--expect-case-names`、`--max-empty-assistant-ends 0`、`--max-raw-tool-markup-final-answers 0`、`--max-recoveries 0`、`--max-recovery-rate 0`、`--max-recovery-case-runs 0` 和 `--fail-on-recovery-increase`。仍可显式传入 `--max-recoveries` 等数字阈值覆盖 profile 默认值。
+
 如果要把“最新 run 比上一 run 的 recovery 次数增加，或 recovery rate 变高”也作为失败条件，可以加：
 
 ```bash

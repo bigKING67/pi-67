@@ -6,6 +6,7 @@ SCRIPT_PATH="$SCRIPT_DIR/$(basename "$0")"
 SUMMARY_CORE_PATH="$SCRIPT_DIR/pi67-xtalpi-smoke-artifact-core.cjs"
 OUT_DIR="${OUT_DIR:-$HOME/tmp/xtalpi-pi-tools-smoke}"
 FORMAT="text"
+PROFILE=""
 LATEST_ONLY="0"
 RUN_ID=""
 HISTORY_LIMIT=""
@@ -38,6 +39,7 @@ Selection:
   --compare BASE_RUN HEAD_RUN    compare two persisted smoke summaries
 
 Gate options:
+  --profile full-suite-strict      apply the full 8-case strict trend gate defaults
   --expect-cases N                 require case count for --latest/--run-id and every --trend-gate run
   --expect-case-names LIST          require exact comma-separated case names for --latest/--run-id and --trend-gate
   --max-errors N                  default: 0
@@ -52,6 +54,29 @@ Gate options:
 Default OUT_DIR:
   $HOME/tmp/xtalpi-pi-tools-smoke
 EOF
+}
+
+FULL_SUITE_CASE_NAMES="no-tool,bash,read,bash-read,web-read,tool-selection-clipping,tool-selection-continuation,tool-result-injection"
+
+apply_profile_defaults() {
+  case "$PROFILE" in
+    "")
+      ;;
+    full-suite-strict)
+      EXPECT_CASES="${EXPECT_CASES:-8}"
+      EXPECT_CASE_NAMES="${EXPECT_CASE_NAMES:-$FULL_SUITE_CASE_NAMES}"
+      MAX_EMPTY_ASSISTANT_ENDS="${MAX_EMPTY_ASSISTANT_ENDS:-0}"
+      MAX_RAW_TOOL_MARKUP_FINAL_ANSWERS="${MAX_RAW_TOOL_MARKUP_FINAL_ANSWERS:-0}"
+      MAX_RECOVERIES="${MAX_RECOVERIES:-0}"
+      MAX_RECOVERY_RATE="${MAX_RECOVERY_RATE:-0}"
+      MAX_RECOVERY_CASE_RUNS="${MAX_RECOVERY_CASE_RUNS:-0}"
+      FAIL_ON_RECOVERY_INCREASE="1"
+      ;;
+    *)
+      echo "xtalpi-pi-tools debug summary: unknown --profile '$PROFILE' (supported: full-suite-strict)" >&2
+      exit 2
+      ;;
+  esac
 }
 
 run_self_test() {
@@ -314,6 +339,16 @@ writeSummary("20260702-000003", { ok: false, failures: 1, recoveries: 1, raw: 1 
 fs.writeFileSync(path.join(history, "20260702-000004-debug-summary.json"), "{}\n");
 
 const trend = ensureDir("trend");
+const fullSuiteCases = [
+  "no-tool",
+  "bash",
+  "read",
+  "bash-read",
+  "web-read",
+  "tool-selection-clipping",
+  "tool-selection-continuation",
+  "tool-result-injection",
+];
 writeSummary("20260702-000001", {
   dir: trend,
   ok: true,
@@ -355,6 +390,24 @@ writeSummary("20260702-000002", {
       piToolStarts: ["web_fetch", "read", "read"],
     },
   ],
+});
+
+const fullSuiteTrend = ensureDir("full-suite-trend");
+writeSummary("20260702-000001", {
+  dir: fullSuiteTrend,
+  ok: true,
+  failures: 0,
+  recoveries: 0,
+  totalCases: fullSuiteCases.length,
+  selectedCases: fullSuiteCases,
+});
+writeSummary("20260702-000002", {
+  dir: fullSuiteTrend,
+  ok: true,
+  failures: 0,
+  recoveries: 0,
+  totalCases: fullSuiteCases.length,
+  selectedCases: fullSuiteCases,
 });
 
 const subsetTrend = ensureDir("subset-trend");
@@ -547,6 +600,46 @@ NODE
     return 1
   fi
 
+  local profile_json="$tmp_dir/profile-output.json"
+  if ! output="$("$SCRIPT_PATH" --trend-gate 2 --profile full-suite-strict --json "$tmp_dir/full-suite-trend" >"$profile_json" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+  if ! node - "$profile_json" <<'NODE'; then
+const fs = require("node:fs");
+const file = process.argv[2];
+const data = JSON.parse(fs.readFileSync(file, "utf8"));
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+assert(data.ok === true, "full-suite-strict profile should pass for clean full-suite history");
+assert(data.limits.profile === "full-suite-strict", "profile should be visible in trend gate limits");
+assert(data.limits.expectCases === 8, "profile should set full-suite case count");
+assert(data.limits.maxRecoveries === 0, "profile should set zero-recovery default");
+assert(data.limits.failOnRecoveryIncrease === true, "profile should fail on recovery increase");
+assert(
+  JSON.stringify(data.limits.expectCaseNames) === JSON.stringify([
+    "bash",
+    "bash-read",
+    "no-tool",
+    "read",
+    "tool-result-injection",
+    "tool-selection-clipping",
+    "tool-selection-continuation",
+    "web-read",
+  ]),
+  "profile should set exact full-suite case names",
+);
+NODE
+    return 1
+  fi
+
+  if output="$("$SCRIPT_PATH" --trend-gate 2 --profile full-suite-strict "$tmp_dir/trend" 2>&1)"; then
+    echo "expected full-suite-strict profile to fail non-full-suite trend fixture"
+    echo "$output"
+    return 1
+  fi
+
   if output="$("$SCRIPT_PATH" --trend-gate 2 --expect-case-names no-tool,bash,read,bash-read,tool-result-injection "$tmp_dir/trend" 2>&1)"; then
     echo "expected trend case-name gate to fail"
     echo "$output"
@@ -601,6 +694,14 @@ while [ "$#" -gt 0 ]; do
     --json)
       FORMAT="json"
       shift
+      ;;
+    --profile)
+      if [ "$#" -lt 2 ]; then
+        echo "xtalpi-pi-tools debug summary: --profile requires NAME" >&2
+        exit 2
+      fi
+      PROFILE="${2:-}"
+      shift 2
       ;;
     --latest)
       LATEST_ONLY="1"
@@ -682,10 +783,13 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+apply_profile_defaults
+
 node - \
   "$SUMMARY_CORE_PATH" \
   "$OUT_DIR" \
   "$FORMAT" \
+  "$PROFILE" \
   "$LATEST_ONLY" \
   "$RUN_ID" \
   "$HISTORY_LIMIT" \
@@ -708,6 +812,7 @@ const [
   summaryCorePath,
   outDir,
   format,
+  gateProfileRaw,
   latestOnlyRaw,
   runIdRaw,
   historyLimitRaw,
@@ -742,6 +847,7 @@ const {
   uniqueStrings,
 } = require(summaryCorePath);
 const latestOnly = latestOnlyRaw === "1";
+const gateProfile = String(gateProfileRaw || "").trim();
 const runIdFilter = String(runIdRaw || "").trim();
 const failOnRecoveryIncrease = failOnRecoveryIncreaseRaw === "1";
 const compareBaseRunId = String(compareBaseRunIdRaw || "").trim();
@@ -779,6 +885,7 @@ function formatCaseNames(values) {
 }
 
 const gates = {
+  profile: gateProfile || undefined,
   expectCases: optionalNumber(expectCasesRaw, "--expect-cases"),
   expectCaseNames: parseCaseNameList(expectCaseNamesRaw, "--expect-case-names"),
   maxErrors: optionalNumber(maxErrorsRaw, "--max-errors"),
@@ -1536,6 +1643,7 @@ function buildRecoveryCaseRunCounts(runs) {
 
 function evaluateTrendGate(history) {
   const hardLimits = {
+    profile: gates.profile,
     expectCases: gates.expectCases,
     expectCaseNames: gates.expectCaseNames,
     maxErrors: gates.maxErrors ?? 0,
