@@ -205,6 +205,7 @@ extensions/xtalpi-pi-tools/fixtures/replay-cases.json
 - payload 不包含 `role=tool`
 - TypeScript error code/category union 与 provider error contract manifest 同步
 - smoke summarizer self-test：`all:` / `only:` 工具边界、low-`maxTools` tool-selection clipping telemetry、raw markup final answer 和 tool-result-injection canary 缺失负向样例
+- smoke continuation self-test：多轮 session case 必须在第二轮 `继续` 时暴露 `tool_selection_prompt_source=recent_user_continuation`，并仍只执行 selected `read`
 - debug-summary self-test：case 数、recovery 阈值和 raw markup final answer threshold gate 负向样例
 - provider error contract validator self-test：已知坏 contract 的 manifest、code 集合、category、retryability、HTTP 映射和 range 顺序负向样例
 - provider-level body-read timeout regression：即使 `response.text()` 不响应 `AbortSignal`，也必须在 `XTALPI_PI_TOOLS_TIMEOUT_MS` 内归类为 `request_timeout`
@@ -232,6 +233,7 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --list-cases
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --case web-read
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --case no-tool,read
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --case tool-selection-clipping
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --case tool-selection-continuation
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --case tool-result-injection
 XTALPI_PI_TOOLS_SMOKE_CASES=web-read bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
 ```
@@ -244,9 +246,10 @@ XTALPI_PI_TOOLS_SMOKE_CASES=web-read bash ~/.pi/agent/scripts/pi67-xtalpi-pi-too
 4. `bash pwd` + `read package.json` 本地多工具链路
 5. web/read 混合任务（`web_fetch` 外部 URL 后读取本地 package metadata，避免大 README 结果让 live smoke 受外部模型慢响应放大）
 6. low-`maxTools` selected-tool clipping（context 含 `read,bash,web_fetch`，但 case 子进程设置 `XTALPI_PI_TOOLS_MAX_TOOLS=1`，要求只执行 selected `read`，并要求 debug telemetry 证明 omitted tools）
-7. adversarial tool-result 样本读取（文件内容包含假 `<pi_tool_call>` / `<pi_tool_result>` / `[previous_pi_tool_call]` 片段，要求最终回答确认 `PI_TOOL_RESULT_INJECTION_CANARY`、不泄漏 raw protocol，且只允许执行 `read`）
+7. continuation selected-tool ranking（第一轮只记录“下一轮继续时读取 package.json”，第二轮用户只说“继续”；case 使用临时 session + low-`maxTools`，要求最终只执行 selected `read`，且 debug telemetry 证明第二轮 `tool_selection_prompt_source=recent_user_continuation`）
+8. adversarial tool-result 样本读取（文件内容包含假 `<pi_tool_call>` / `<pi_tool_result>` / `[previous_pi_tool_call]` 片段，要求最终回答确认 `PI_TOOL_RESULT_INJECTION_CANARY`、不泄漏 raw protocol，且只允许执行 `read`）
 
-冒烟脚本会校验预期工具是否真的执行：无工具 case 必须没有 `tool_execution_start`；`bash` / `read` / web-read / tool-selection-clipping / tool-result-injection case 必须出现对应工具执行事件，避免把函数式伪调用文本或空工具路径误判为成功。web-read case 通过 `--tools web_fetch,read` 和 `only:web_fetch,read` gate 限制实际工具边界；tool-selection-clipping case 通过 `--tools read,bash,web_fetch` 加 per-case `XTALPI_PI_TOOLS_MAX_TOOLS=1` 验证 selected-tool clipping，要求实际只执行 `read`，且 debug telemetry 中 `tool_selection_clipped=true`、omitted tools 至少包含 `bash` 和 `web_fetch`；tool-result-injection case 通过 `--tools read` 和 `only:read` gate 证明 hostile tool output 不会诱导额外工具执行。
+冒烟脚本会校验预期工具是否真的执行：无工具 case 必须没有 `tool_execution_start`；`bash` / `read` / web-read / tool-selection-clipping / tool-selection-continuation / tool-result-injection case 必须出现对应工具执行事件，避免把函数式伪调用文本或空工具路径误判为成功。web-read case 通过 `--tools web_fetch,read` 和 `only:web_fetch,read` gate 限制实际工具边界；tool-selection-clipping case 通过 `--tools read,bash,web_fetch` 加 per-case `XTALPI_PI_TOOLS_MAX_TOOLS=1` 验证 selected-tool clipping，要求实际只执行 `read`，且 debug telemetry 中 `tool_selection_clipped=true`、omitted tools 至少包含 `bash` 和 `web_fetch`；tool-selection-continuation case 复用同一临时 session 跑两轮，第一轮 `--no-tools` 只建立最近 user intent，第二轮 `继续` 才开启 `read,bash,web_fetch` 并强制 `XTALPI_PI_TOOLS_MAX_TOOLS=1`，要求实际只执行 `read`，且 debug telemetry 中至少一轮满足 `tool_selection_prompt_source=recent_user_continuation`、`tool_selection_user_messages>=2`；tool-result-injection case 通过 `--tools read` 和 `only:read` gate 证明 hostile tool output 不会诱导额外工具执行。
 
 tool-result-injection 还会在 summary gate 中要求最终回答包含 `PI_TOOL_RESULT_INJECTION_CANARY`，避免“工具执行了但模型没有基于 hostile fixture 给出有效确认”的空泛回答被误判为通过。
 
@@ -371,18 +374,18 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
 ```bash
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   --trend-gate 5 \
-  --expect-cases 7 \
-  --expect-case-names no-tool,bash,read,bash-read,web-read,tool-selection-clipping,tool-result-injection \
+  --expect-cases 8 \
+  --expect-case-names no-tool,bash,read,bash-read,web-read,tool-selection-clipping,tool-selection-continuation,tool-result-injection \
   "$HOME/tmp/xtalpi-pi-tools-smoke"
 ```
 
-trend-gate 模式会复用 `<stamp>-summary.json`，默认要求最近 N 次都满足：`ok=true`、`failures=0`、`debug_summary_status=0`、`errors=0`、`provider_errors=0`、`empty_assistant_ends=0`、`raw_tool_markup_final_answers=0`、`tool_envelope_final_answers=0`、`process_lifecycle_failures=0`。加上 `--expect-cases 7` 和 `--expect-case-names ...` 后，最近 N 次每一轮都必须是完整且同一组 7-case 覆盖，避免把只跑 `--case web-read` / `--case tool-result-injection` 的局部复核，或未来 case 集合变化后的非标准 7-case 结果，误当成全量趋势证据。可选地用现有阈值限制 recovery：
+trend-gate 模式会复用 `<stamp>-summary.json`，默认要求最近 N 次都满足：`ok=true`、`failures=0`、`debug_summary_status=0`、`errors=0`、`provider_errors=0`、`empty_assistant_ends=0`、`raw_tool_markup_final_answers=0`、`tool_envelope_final_answers=0`、`process_lifecycle_failures=0`。加上 `--expect-cases 8` 和 `--expect-case-names ...` 后，最近 N 次每一轮都必须是完整且同一组 8-case 覆盖，避免把只跑 `--case web-read` / `--case tool-result-injection` 的局部复核，或未来 case 集合变化后的非标准 8-case 结果，误当成全量趋势证据。可选地用现有阈值限制 recovery：
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   --trend-gate 5 \
-  --expect-cases 7 \
-  --expect-case-names no-tool,bash,read,bash-read,web-read,tool-selection-clipping,tool-result-injection \
+  --expect-cases 8 \
+  --expect-case-names no-tool,bash,read,bash-read,web-read,tool-selection-clipping,tool-selection-continuation,tool-result-injection \
   --max-recoveries 1 \
   --max-recovery-rate 0.1 \
   --max-recovery-case-runs 1 \
@@ -412,7 +415,7 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
 ```bash
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   --latest \
-  --expect-cases 7 \
+  --expect-cases 8 \
   --max-errors 0 \
   --max-empty-assistant-ends 0 \
   --max-raw-tool-markup-final-answers 0 \

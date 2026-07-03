@@ -408,7 +408,7 @@ bash ~/.pi/agent/scripts/pi67-test-xtalpi-pi-tools.sh
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
 ```
 
-真实冒烟覆盖 no-tool、bash、read、bash/read、web/read、low-`maxTools` `tool-selection-clipping`，以及 adversarial `tool-result-injection` 场景；可用 `--case tool-selection-clipping` 单独复核 selected-tool clipping telemetry，也可用 `--case tool-result-injection` 单独复核工具结果注入边界与 canary confirmation gate。
+真实冒烟覆盖 no-tool、bash、read、bash/read、web/read、low-`maxTools` `tool-selection-clipping`、multi-turn `tool-selection-continuation`，以及 adversarial `tool-result-injection` 场景；可用 `--case tool-selection-clipping` 单独复核 selected-tool clipping telemetry，用 `--case tool-selection-continuation` 单独复核 continuation prompt source telemetry，也可用 `--case tool-result-injection` 单独复核工具结果注入边界与 canary confirmation gate。
 
 provider health 快速预检：
 
