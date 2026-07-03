@@ -226,6 +226,192 @@ const { pathToFileURL } = require("node:url");
     }
   }
 
+  function makeProviderTurnChat(responses) {
+    const calls = [];
+    let responseIndex = 0;
+    return {
+      calls,
+      callChat: async (input) => {
+        calls.push(JSON.parse(JSON.stringify(input.messages)));
+        const response = responses[Math.min(responseIndex, responses.length - 1)];
+        responseIndex += 1;
+        return {
+          content: response.content,
+          usage: response.usage ?? { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2 },
+          responseModel: response.responseModel ?? "deepseek-v4-pro",
+        };
+      },
+    };
+  }
+
+  async function withProviderTurnEnv(env, fn) {
+    const names = Object.keys(env);
+    const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+    try {
+      for (const [name, value] of Object.entries(env)) process.env[name] = value;
+      await fn();
+    } finally {
+      for (const name of names) {
+        if (previous[name] === undefined) {
+          delete process.env[name];
+        } else {
+          process.env[name] = previous[name];
+        }
+      }
+    }
+  }
+
+  const providerTurnModel = {
+    id: "deepseek-v4-pro",
+    maxTokens: 32768,
+    api: "xtalpi-pi-tools",
+    provider: "xtalpi-pi-tools",
+    baseUrl: "https://example.invalid/v1",
+  };
+  const readTool = {
+    name: "read",
+    description: "Read a file",
+    parameters: { type: "object", required: ["path"], properties: { path: { type: "string" } } },
+  };
+
+  await withProviderTurnEnv({
+    XTALPI_PI_TOOLS_MAX_TOOLS: "8",
+    XTALPI_PI_TOOLS_MAX_EMPTY_RETRIES: "1",
+    XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES: "1",
+    XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES: "2",
+  }, async () => {
+    const finalChat = makeProviderTurnChat([{ content: "direct final answer" }]);
+    const finalResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: { systemPrompt: "system base", tools: [], messages: [{ role: "user", content: "hello" }] },
+      callChat: finalChat.callChat,
+    });
+    assert.equal(finalResult.kind, "final");
+    assert.equal(finalResult.text, "direct final answer");
+    assert.equal(finalChat.calls.length, 1);
+    assert.equal(finalChat.calls[0][0].role, "system");
+
+    const toolChat = makeProviderTurnChat([
+      { content: '<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>' },
+    ]);
+    const toolResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: { systemPrompt: "system base", tools: [readTool], messages: [{ role: "user", content: "read package.json" }] },
+      callChat: toolChat.callChat,
+    });
+    assert.equal(toolResult.kind, "tool_call");
+    assert.equal(toolResult.toolCall.name, "read");
+    assert.deepEqual(toolResult.toolCall.arguments, { path: "package.json" });
+    assert.equal(toolChat.calls.length, 1);
+
+    const hiddenAdminTool = {
+      name: "hidden_admin",
+      description: "Hidden admin tool",
+      parameters: { type: "object", properties: {} },
+    };
+    const selectedToolBoundaryChat = makeProviderTurnChat([
+      { content: '<pi_tool_call>\n{"name":"hidden_admin","arguments":{}}\n</pi_tool_call>' },
+      { content: "final after selected tool repair" },
+    ]);
+    await withProviderTurnEnv({
+      XTALPI_PI_TOOLS_MAX_TOOLS: "1",
+      XTALPI_PI_TOOLS_MAX_EMPTY_RETRIES: "0",
+      XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES: "1",
+      XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES: "1",
+    }, async () => {
+      const selectedToolBoundaryResult = await providerTurn.runProviderTurn({
+        model: providerTurnModel,
+        context: {
+          systemPrompt: "system base",
+          tools: [readTool, hiddenAdminTool],
+          messages: [{ role: "user", content: "read package.json" }],
+        },
+        callChat: selectedToolBoundaryChat.callChat,
+      });
+      assert.equal(selectedToolBoundaryResult.kind, "final");
+      assert.equal(selectedToolBoundaryResult.text, "final after selected tool repair");
+      assert.equal(selectedToolBoundaryChat.calls.length, 2);
+      assert.match(selectedToolBoundaryChat.calls[0][0].content, /Available Pi tools \(1\/2/);
+      assert.match(selectedToolBoundaryChat.calls[0][0].content, /- read:/);
+      assert.ok(!selectedToolBoundaryChat.calls[0][0].content.includes("hidden_admin"));
+      const repairPrompt = selectedToolBoundaryChat.calls[1].at(-1).content;
+      assert.match(repairPrompt, /xtalpi-pi-tools-unknown-tool-repair/);
+      const availableNamesSection = repairPrompt.split("Available tool names:\n").at(1);
+      assert.ok(availableNamesSection);
+      assert.match(availableNamesSection, /"read"/);
+      assert.ok(!availableNamesSection.includes("hidden_admin"));
+    });
+
+    const emptyRecoveryChat = makeProviderTurnChat([
+      { content: "" },
+      { content: "recovered after empty response" },
+    ]);
+    const emptyRecoveryResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: { systemPrompt: "system base", tools: [], messages: [{ role: "user", content: "hello" }] },
+      callChat: emptyRecoveryChat.callChat,
+    });
+    assert.equal(emptyRecoveryResult.kind, "final");
+    assert.equal(emptyRecoveryResult.text, "recovered after empty response");
+    assert.equal(emptyRecoveryChat.calls.length, 2);
+    assert.match(emptyRecoveryChat.calls[1].at(-1).content, /xtalpi-pi-tools-empty-response-repair/);
+
+    const parseRepairChat = makeProviderTurnChat([
+      { content: 'read({"path":"package.json"})' },
+      { content: '<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>' },
+    ]);
+    const parseRepairResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: { systemPrompt: "system base", tools: [readTool], messages: [{ role: "user", content: "read package.json" }] },
+      callChat: parseRepairChat.callChat,
+    });
+    assert.equal(parseRepairResult.kind, "tool_call");
+    assert.equal(parseRepairResult.toolCall.name, "read");
+    assert.equal(parseRepairChat.calls.length, 2);
+    assert.match(parseRepairChat.calls[1].at(-1).content, /xtalpi-pi-tools-function-style-tool-repair/);
+
+    const invalidArgsRepairChat = makeProviderTurnChat([
+      { content: '<pi_tool_call>\n{"name":"read","arguments":{"path":42}}\n</pi_tool_call>' },
+      { content: '<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>' },
+    ]);
+    const invalidArgsRepairResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: { systemPrompt: "system base", tools: [readTool], messages: [{ role: "user", content: "read package.json" }] },
+      callChat: invalidArgsRepairChat.callChat,
+    });
+    assert.equal(invalidArgsRepairResult.kind, "tool_call");
+    assert.deepEqual(invalidArgsRepairResult.toolCall.arguments, { path: "package.json" });
+    assert.equal(invalidArgsRepairChat.calls.length, 2);
+    assert.match(invalidArgsRepairChat.calls[1].at(-1).content, /xtalpi-pi-tools-invalid-tool-arguments-repair/);
+  });
+
+  await withProviderTurnEnv({
+    XTALPI_PI_TOOLS_MAX_TOOLS: "8",
+    XTALPI_PI_TOOLS_MAX_EMPTY_RETRIES: "0",
+    XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES: "0",
+    XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES: "0",
+  }, async () => {
+    const repeatedChat = makeProviderTurnChat([
+      { content: '<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>' },
+    ]);
+    const repeatedResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: {
+        systemPrompt: "system base",
+        tools: [readTool],
+        messages: [
+          { role: "user", content: "read package.json" },
+          { role: "assistant", content: [{ type: "toolCall", id: "call_1", name: "read", arguments: { path: "package.json" } }] },
+          { role: "toolResult", toolCallId: "call_1", toolName: "read", isError: false, content: [{ type: "text", text: "{\"name\":\"pi-extensions\"}" }] },
+        ],
+      },
+      callChat: repeatedChat.callChat,
+    });
+    assert.equal(repeatedResult.kind, "final");
+    assert.match(repeatedResult.text, /重复请求同一个工具/);
+    assert.equal(repeatedChat.calls.length, 1);
+  });
+
   for (const fixture of replayFixtures.parser ?? []) {
     assertParserFixture(fixture);
   }

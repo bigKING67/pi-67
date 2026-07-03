@@ -4,13 +4,17 @@ import type {
   Model,
   SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
-import { callXtalpiChat } from "./chat-client.ts";
+import {
+  callXtalpiChat,
+  type XtalpiChatResponse,
+} from "./chat-client.ts";
 import { debugLog } from "./diagnostics.ts";
 import type { XtalpiProviderTurnResult } from "./output-message.ts";
 import { parseToolCall } from "./parser.ts";
 import {
   DEFAULT_MAX_TOOL_RESULT_CHARS,
   DEFAULT_MAX_TOOLS,
+  type XtalpiChatMessage,
 } from "./protocol.ts";
 import { buildParseErrorRepairPlan } from "./recovery-decision.ts";
 import {
@@ -31,13 +35,22 @@ import {
 import { buildTurnDebugContext } from "./turn-debug-context.ts";
 import { TurnLoopState } from "./turn-loop-state.ts";
 
+export type ProviderTurnChatClient = (input: {
+  model: Model<Api>;
+  messages: XtalpiChatMessage[];
+  options?: SimpleStreamOptions;
+  runtimeConfig?: ProviderRuntimeConfig;
+}) => Promise<XtalpiChatResponse>;
+
 export async function runProviderTurn(input: {
   model: Model<Api>;
   context: Context;
   options?: SimpleStreamOptions;
   runtimeConfig?: ProviderRuntimeConfig;
+  callChat?: ProviderTurnChatClient;
 }): Promise<XtalpiProviderTurnResult> {
   const { model, context, options, runtimeConfig } = input;
+  const callChat = input.callChat ?? callXtalpiChat;
   const maxTools = envInt("XTALPI_PI_TOOLS_MAX_TOOLS", DEFAULT_MAX_TOOLS, 0);
   const maxToolResultChars = envInt(
     "XTALPI_PI_TOOLS_MAX_TOOL_RESULT_CHARS",
@@ -66,7 +79,7 @@ export async function runProviderTurn(input: {
   // Recovery turns must stay serial: each repair prompt depends on the exact
   // previous model response and on the current per-turn recovery budget.
   while (true) {
-    const response = await callXtalpiChat({ model, messages, options, runtimeConfig });
+    const response = await callChat({ model, messages, options, runtimeConfig });
     loopState.addResponse(response);
     const raw = response.content.trim();
 
