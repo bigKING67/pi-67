@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT_PATH="$SCRIPT_DIR/$(basename "$0")"
-SUMMARY_CORE_PATH="$SCRIPT_DIR/pi67-xtalpi-debug-summary-core.cjs"
+SUMMARY_CORE_PATH="$SCRIPT_DIR/pi67-xtalpi-smoke-artifact-core.cjs"
 OUT_DIR="${OUT_DIR:-$HOME/tmp/xtalpi-pi-tools-smoke}"
 FORMAT="text"
 LATEST_ONLY="0"

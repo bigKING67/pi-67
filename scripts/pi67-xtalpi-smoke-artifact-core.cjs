@@ -53,12 +53,31 @@ function readJsonl(file) {
   return result;
 }
 
+function readJsonlEvents(file, { parseErrorEvent = false, rawLimit = 200 } = {}) {
+  if (!fs.existsSync(file)) return [];
+  const raw = fs.readFileSync(file, "utf8").trim();
+  if (!raw) return [];
+  return raw.split(/\n/).filter(Boolean).flatMap((line) => {
+    try {
+      return [JSON.parse(line)];
+    } catch {
+      return parseErrorEvent ? [{ type: "parse_error", raw: line.slice(0, rawLimit) }] : [];
+    }
+  });
+}
+
 function readJsonFile(file) {
   try {
     return { ok: true, value: JSON.parse(fs.readFileSync(file, "utf8")) };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
+}
+
+function readJsonFileAsObject(file) {
+  if (!file || !fs.existsSync(file)) return {};
+  const parsed = readJsonFile(file);
+  return parsed.ok ? objectOrUndefined(parsed.value) || {} : {};
 }
 
 function stripPiToolEnvelopes(text) {
@@ -95,6 +114,10 @@ function uniqueBooleans(values) {
   return [...new Set(values.filter((value) => typeof value === "boolean"))].sort((a, b) => Number(a) - Number(b));
 }
 
+function boolOrUndefined(value) {
+  return typeof value === "boolean" ? value : undefined;
+}
+
 function numberOrZero(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
@@ -110,6 +133,7 @@ function objectOrUndefined(value) {
 }
 
 module.exports = {
+  boolOrUndefined,
   buildCaseSet,
   containsRawPiToolMarkup,
   isRawToolMarkupFinalAnswer,
@@ -118,7 +142,9 @@ module.exports = {
   numberOrUndefined,
   numberOrZero,
   objectOrUndefined,
+  readJsonFileAsObject,
   readJsonFile,
+  readJsonlEvents,
   readJsonl,
   sortedUniqueStrings,
   stripPiToolEnvelopes,

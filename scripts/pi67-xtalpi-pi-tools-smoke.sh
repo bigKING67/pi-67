@@ -4,6 +4,7 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PI_BIN="${PI_BIN:-$(command -v pi 2>/dev/null || true)}"
 DEBUG_SUMMARY_BIN="${XTALPI_PI_TOOLS_SMOKE_DEBUG_SUMMARY_BIN:-$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh}"
+SMOKE_ARTIFACT_CORE_PATH="$SCRIPT_DIR/pi67-xtalpi-smoke-artifact-core.cjs"
 PI_AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
 PROVIDER="${PROVIDER:-xtalpi-pi-tools}"
 MODEL="${MODEL:-deepseek-v4-pro}"
@@ -176,37 +177,22 @@ summarize_jsonl() {
   local debug_file="${5:-}"
   local lifecycle_file="${6:-}"
 
-  node - "$file" "$stderr_file" "$status" "$expected_tools" "$debug_file" "$lifecycle_file" <<'NODE'
+  node - "$SMOKE_ARTIFACT_CORE_PATH" "$file" "$stderr_file" "$status" "$expected_tools" "$debug_file" "$lifecycle_file" <<'NODE'
 const fs = require("fs");
-const [file, stderrFile, status, expectedToolsRaw, debugFile, lifecycleFile] = process.argv.slice(2);
-function readJsonl(path) {
-  const raw = path && fs.existsSync(path) ? fs.readFileSync(path, "utf8").trim() : "";
-  if (!raw) return [];
-  return raw.split(/\n/).filter(Boolean).map((line) => {
-    try {
-      return JSON.parse(line);
-    } catch {
-      return { type: "parse_error", raw: line.slice(0, 200) };
-    }
-  });
-}
-function readJsonFile(path) {
-  if (!path || !fs.existsSync(path)) return {};
-  try {
-    const value = JSON.parse(fs.readFileSync(path, "utf8"));
-    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  } catch {
-    return {};
-  }
-}
-function optionalNumber(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : undefined;
-}
+const [smokeArtifactCorePath, file, stderrFile, status, expectedToolsRaw, debugFile, lifecycleFile] = process.argv.slice(2);
+const {
+  boolOrUndefined,
+  containsRawPiToolMarkup,
+  isToolEnvelopeOnlyFinalAnswer,
+  numberOrUndefined,
+  objectOrUndefined,
+  readJsonFileAsObject,
+  readJsonlEvents,
+} = require(smokeArtifactCorePath);
 const stderr = fs.existsSync(stderrFile) ? fs.readFileSync(stderrFile, "utf8").trim() : "";
-const events = readJsonl(file);
-const debugEvents = readJsonl(debugFile);
-const lifecycle = readJsonFile(lifecycleFile);
+const events = readJsonlEvents(file, { parseErrorEvent: true });
+const debugEvents = readJsonlEvents(debugFile, { parseErrorEvent: true });
+const lifecycle = readJsonFileAsObject(lifecycleFile);
 const turnEvents = debugEvents.filter((event) => event.event === "turn.start");
 const debugTelemetryOk =
   debugEvents.length > 0 &&
@@ -217,16 +203,6 @@ const debugTelemetryOk =
       typeof event.event_category === "string",
   );
 const recoveryEvents = debugEvents.filter((event) => event.event_category === "recovery");
-function objectOrUndefined(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : undefined;
-}
-function numberOrUndefined(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : undefined;
-}
-function boolOrUndefined(value) {
-  return typeof value === "boolean" ? value : undefined;
-}
 function toolSelectionNames(items) {
   return Array.isArray(items) ? items.map((item) => String(item?.name || "")).filter(Boolean) : [];
 }
@@ -308,20 +284,6 @@ const requiredFinalTextByCase = {
 };
 const requiredFinalText = requiredFinalTextByCase[String(lifecycle.caseName || "")] || [];
 const missingFinalText = requiredFinalText.filter((text) => !finalText.includes(text));
-function stripPiToolEnvelopes(text) {
-  return String(text || "")
-    .replace(/<pi_tool_call_history\b[^>]*>[\s\S]*?<\/pi_tool_call_history>/g, "")
-    .replace(/<pi_tool_call\b[^>]*>[\s\S]*?<\/pi_tool_call>/g, "")
-    .replace(/<pi_tool_result\b[^>]*>[\s\S]*?<\/pi_tool_result>/g, "")
-    .trim();
-}
-function containsRawPiToolMarkup(text) {
-  return /(?:<\/?pi_tool_(?:call_history|call|result)\b(?:[^<>\r\n]*>|[^<>\r\n]*(?:$|\r?\n))|\[\/?previous_pi_tool_call\])/i.test(String(text || ""));
-}
-function isToolEnvelopeOnlyFinalAnswer(text) {
-  const trimmed = String(text || "").trim();
-  return containsRawPiToolMarkup(trimmed) && stripPiToolEnvelopes(trimmed).length === 0;
-}
 const emptyAssistantEnds = events.filter(
   (event) =>
     event.type === "message_end" &&
@@ -399,8 +361,8 @@ function evaluateToolExpectation(rawExpectation, actualNames) {
   return { ok, label: labels.join(";"), mode: modes.join("+"), unexpectedTools };
 }
 const toolExpectation = evaluateToolExpectation(expectedToolsRaw, actualToolNames);
-const elapsedSeconds = optionalNumber(lifecycle.elapsedSeconds);
-const agentEndElapsedSeconds = optionalNumber(lifecycle.agentEndElapsedSeconds);
+const elapsedSeconds = numberOrUndefined(lifecycle.elapsedSeconds);
+const agentEndElapsedSeconds = numberOrUndefined(lifecycle.agentEndElapsedSeconds);
 const postAgentEndLingerSeconds =
   elapsedSeconds !== undefined && agentEndElapsedSeconds !== undefined
     ? Math.max(0, elapsedSeconds - agentEndElapsedSeconds)
@@ -1054,9 +1016,10 @@ write_lifecycle_artifact() {
   local agent_end_seen="$7"
   local agent_end_elapsed="$8"
 
-  node - "$lifecycle" "$case_name" "$exit_status" "$elapsed_seconds" "$case_timeout_seconds" "$timed_out_by_watchdog" "$agent_end_seen" "$agent_end_elapsed" <<'NODE'
+  node - "$SMOKE_ARTIFACT_CORE_PATH" "$lifecycle" "$case_name" "$exit_status" "$elapsed_seconds" "$case_timeout_seconds" "$timed_out_by_watchdog" "$agent_end_seen" "$agent_end_elapsed" <<'NODE'
 const fs = require("fs");
 const [
+  smokeArtifactCorePath,
   file,
   caseName,
   exitStatusRaw,
@@ -1066,10 +1029,7 @@ const [
   agentEndSeenRaw,
   agentEndElapsedSecondsRaw,
 ] = process.argv.slice(2);
-const optionalNumber = (value) => {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : undefined;
-};
+const { numberOrUndefined } = require(smokeArtifactCorePath);
 const artifact = {
   schema: "xtalpi-pi-tools.smoke-lifecycle.v1",
   caseName,
@@ -1079,7 +1039,7 @@ const artifact = {
   timedOutByWatchdog: timedOutByWatchdogRaw === "1",
   agentEndSeenDuringRun: agentEndSeenRaw === "1",
 };
-const agentEndElapsedSeconds = optionalNumber(agentEndElapsedSecondsRaw);
+const agentEndElapsedSeconds = numberOrUndefined(agentEndElapsedSecondsRaw);
 if (agentEndElapsedSeconds !== undefined) {
   artifact.agentEndElapsedSeconds = agentEndElapsedSeconds;
   artifact.postAgentEndLingerSeconds = Math.max(0, artifact.elapsedSeconds - agentEndElapsedSeconds);
@@ -1365,10 +1325,10 @@ write_run_summary_artifact() {
   local selected_cases_csv="$3"
   local stop_reason="$4"
 
-  node - "$DEBUG_SUMMARY_JSON_FILE" "$SUMMARY_FILE" "$PROVIDER_HEALTH_FILE" "$PROVIDER" "$MODEL" "$STAMP" "$CASE_TIMEOUT_SECONDS" "$SMOKE_REQUEST_TIMEOUT_MS" "$SMOKE_MAX_OUTPUT_TOKENS" "$selected_cases_csv" "$failure_count" "$debug_summary_status" "$SMOKE_STOP_ON_PROVIDER_ERROR" "$SMOKE_PREFLIGHT" "$SMOKE_PREFLIGHT_TIMEOUT_MS" "$SMOKE_PREFLIGHT_ATTEMPTS" "$SMOKE_PREFLIGHT_RETRY_DELAY_MS" "$stop_reason" <<'NODE'
-const crypto = require("node:crypto");
+  node - "$SMOKE_ARTIFACT_CORE_PATH" "$DEBUG_SUMMARY_JSON_FILE" "$SUMMARY_FILE" "$PROVIDER_HEALTH_FILE" "$PROVIDER" "$MODEL" "$STAMP" "$CASE_TIMEOUT_SECONDS" "$SMOKE_REQUEST_TIMEOUT_MS" "$SMOKE_MAX_OUTPUT_TOKENS" "$selected_cases_csv" "$failure_count" "$debug_summary_status" "$SMOKE_STOP_ON_PROVIDER_ERROR" "$SMOKE_PREFLIGHT" "$SMOKE_PREFLIGHT_TIMEOUT_MS" "$SMOKE_PREFLIGHT_ATTEMPTS" "$SMOKE_PREFLIGHT_RETRY_DELAY_MS" "$stop_reason" <<'NODE'
 const fs = require("fs");
 const [
+  smokeArtifactCorePath,
   debugSummaryFile,
   summaryFile,
   providerHealthFile,
@@ -1388,6 +1348,7 @@ const [
   preflightRetryDelayMsRaw,
   stopReasonRaw,
 ] = process.argv.slice(2);
+const { buildCaseSet } = require(smokeArtifactCorePath);
 
 const debugSummary = JSON.parse(fs.readFileSync(debugSummaryFile, "utf8"));
 const providerHealth = providerHealthFile && fs.existsSync(providerHealthFile)
@@ -1395,20 +1356,7 @@ const providerHealth = providerHealthFile && fs.existsSync(providerHealthFile)
   : undefined;
 const failures = Number(failuresRaw);
 const debugSummaryStatus = Number(debugSummaryStatusRaw);
-function buildCaseSet(selectedCasesRaw) {
-  const selectedCases = String(selectedCasesRaw || "").split(",").filter(Boolean);
-  const normalizedCases = [...new Set(selectedCases)].sort();
-  const canonical = normalizedCases.join(",");
-  return {
-    schema: "xtalpi-pi-tools.case-set.v1",
-    selectedCases,
-    normalizedCases,
-    count: normalizedCases.length,
-    canonical,
-    sha256: crypto.createHash("sha256").update(canonical).digest("hex"),
-  };
-}
-const caseSet = buildCaseSet(selectedCasesRaw);
+const caseSet = buildCaseSet(String(selectedCasesRaw || "").split(",").filter(Boolean));
 const artifact = {
   schema: "xtalpi-pi-tools.smoke-summary.v1",
   createdAt: new Date().toISOString(),
@@ -1443,10 +1391,10 @@ write_preflight_failure_summary_artifact() {
   local failure_count="$1"
   local stop_reason="$2"
 
-  node - "$SUMMARY_FILE" "$PROVIDER_HEALTH_FILE" "$PROVIDER" "$MODEL" "$STAMP" "$CASE_TIMEOUT_SECONDS" "$SMOKE_REQUEST_TIMEOUT_MS" "$SMOKE_MAX_OUTPUT_TOKENS" "$failure_count" "$SMOKE_STOP_ON_PROVIDER_ERROR" "$SMOKE_PREFLIGHT" "$SMOKE_PREFLIGHT_TIMEOUT_MS" "$SMOKE_PREFLIGHT_ATTEMPTS" "$SMOKE_PREFLIGHT_RETRY_DELAY_MS" "$stop_reason" <<'NODE'
-const crypto = require("node:crypto");
+  node - "$SMOKE_ARTIFACT_CORE_PATH" "$SUMMARY_FILE" "$PROVIDER_HEALTH_FILE" "$PROVIDER" "$MODEL" "$STAMP" "$CASE_TIMEOUT_SECONDS" "$SMOKE_REQUEST_TIMEOUT_MS" "$SMOKE_MAX_OUTPUT_TOKENS" "$failure_count" "$SMOKE_STOP_ON_PROVIDER_ERROR" "$SMOKE_PREFLIGHT" "$SMOKE_PREFLIGHT_TIMEOUT_MS" "$SMOKE_PREFLIGHT_ATTEMPTS" "$SMOKE_PREFLIGHT_RETRY_DELAY_MS" "$stop_reason" <<'NODE'
 const fs = require("fs");
 const [
+  smokeArtifactCorePath,
   summaryFile,
   providerHealthFile,
   provider,
@@ -1463,20 +1411,14 @@ const [
   preflightRetryDelayMsRaw,
   stopReasonRaw,
 ] = process.argv.slice(2);
+const { buildCaseSet } = require(smokeArtifactCorePath);
 
 const providerHealth = providerHealthFile && fs.existsSync(providerHealthFile)
   ? JSON.parse(fs.readFileSync(providerHealthFile, "utf8"))
   : { ok: false, errorCode: "provider_health_missing", errorCategory: "configuration", retryable: false };
 const providerErrorCode = String(providerHealth.errorCode || "unknown_error");
 const providerErrorCategory = String(providerHealth.errorCategory || "unknown");
-const emptyCaseSet = {
-  schema: "xtalpi-pi-tools.case-set.v1",
-  selectedCases: [],
-  normalizedCases: [],
-  count: 0,
-  canonical: "",
-  sha256: crypto.createHash("sha256").update("").digest("hex"),
-};
+const emptyCaseSet = buildCaseSet([]);
 const debugSummary = {
   outDir: require("path").dirname(summaryFile),
   latestOnly: false,

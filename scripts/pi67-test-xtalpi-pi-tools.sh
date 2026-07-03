@@ -30,7 +30,7 @@ const { pathToFileURL } = require("node:url");
   const providerErrorContract = JSON.parse(
     fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "provider-error-contract.json"), "utf8"),
   );
-  const debugSummaryCore = require(path.join(repoRoot, "scripts", "pi67-xtalpi-debug-summary-core.cjs"));
+  const smokeArtifactCore = require(path.join(repoRoot, "scripts", "pi67-xtalpi-smoke-artifact-core.cjs"));
   const errorsSource = fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "errors.ts"), "utf8");
   const providerSource = fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "index.ts"), "utf8");
 
@@ -96,15 +96,15 @@ const { pathToFileURL } = require("node:url");
     }
   }
 
-  assert.deepEqual(debugSummaryCore.sortedUniqueStrings([" read ", "bash", "read", "", "bash"]), ["bash", "read"]);
-  const debugCaseSet = debugSummaryCore.buildCaseSet(["read", "bash", "read"]);
+  assert.deepEqual(smokeArtifactCore.sortedUniqueStrings([" read ", "bash", "read", "", "bash"]), ["bash", "read"]);
+  const debugCaseSet = smokeArtifactCore.buildCaseSet(["read", "bash", "read"]);
   assert.equal(debugCaseSet.schema, "xtalpi-pi-tools.case-set.v1");
   assert.deepEqual(debugCaseSet.selectedCases, ["read", "bash", "read"]);
   assert.deepEqual(debugCaseSet.normalizedCases, ["bash", "read"]);
   assert.equal(debugCaseSet.canonical, "bash,read");
   assert.match(debugCaseSet.sha256, /^[a-f0-9]{64}$/);
   assert.deepEqual(
-    debugSummaryCore.normalizeCaseSet(
+    smokeArtifactCore.normalizeCaseSet(
       { schema: "custom.case-set", selectedCases: ["raw"], normalizedCases: [" z ", "a", "a"] },
       ["fallback"],
     ),
@@ -114,44 +114,53 @@ const { pathToFileURL } = require("node:url");
       normalizedCases: ["a", "z"],
       count: 2,
       canonical: "a,z",
-      sha256: debugSummaryCore.buildCaseSet(["a", "z"]).sha256,
+      sha256: smokeArtifactCore.buildCaseSet(["a", "z"]).sha256,
     },
   );
-  assert.deepEqual(debugSummaryCore.normalizeCaseSet(null, ["fallback"]).normalizedCases, ["fallback"]);
-  assert.equal(debugSummaryCore.containsRawPiToolMarkup("plain final answer"), false);
-  assert.equal(debugSummaryCore.isRawToolMarkupFinalAnswer("<pi_tool_call>{}</pi_tool_call>"), true);
-  assert.equal(debugSummaryCore.isToolEnvelopeOnlyFinalAnswer("<pi_tool_call>{}</pi_tool_call>"), true);
+  assert.deepEqual(smokeArtifactCore.normalizeCaseSet(null, ["fallback"]).normalizedCases, ["fallback"]);
+  assert.equal(smokeArtifactCore.containsRawPiToolMarkup("plain final answer"), false);
+  assert.equal(smokeArtifactCore.isRawToolMarkupFinalAnswer("<pi_tool_call>{}</pi_tool_call>"), true);
+  assert.equal(smokeArtifactCore.isToolEnvelopeOnlyFinalAnswer("<pi_tool_call>{}</pi_tool_call>"), true);
   assert.equal(
-    debugSummaryCore.stripPiToolEnvelopes("<pi_tool_call>{}</pi_tool_call>\nnormal final answer"),
+    smokeArtifactCore.stripPiToolEnvelopes("<pi_tool_call>{}</pi_tool_call>\nnormal final answer"),
     "normal final answer",
   );
-  assert.deepEqual(debugSummaryCore.uniqueStrings(["b", "", "a", "b", 1]), ["a", "b"]);
-  assert.deepEqual(debugSummaryCore.uniqueNumbers([2, Number.NaN, 1, 2, "3"]), [1, 2]);
-  assert.deepEqual(debugSummaryCore.uniqueBooleans([true, false, true, 0]), [false, true]);
-  assert.equal(debugSummaryCore.numberOrZero("5"), 5);
-  assert.equal(debugSummaryCore.numberOrZero("nope"), 0);
-  assert.equal(debugSummaryCore.numberOrUndefined("nope"), undefined);
-  assert.deepEqual(debugSummaryCore.objectOrUndefined({ ok: true }), { ok: true });
-  assert.equal(debugSummaryCore.objectOrUndefined([]), undefined);
+  assert.deepEqual(smokeArtifactCore.uniqueStrings(["b", "", "a", "b", 1]), ["a", "b"]);
+  assert.deepEqual(smokeArtifactCore.uniqueNumbers([2, Number.NaN, 1, 2, "3"]), [1, 2]);
+  assert.deepEqual(smokeArtifactCore.uniqueBooleans([true, false, true, 0]), [false, true]);
+  assert.equal(smokeArtifactCore.boolOrUndefined(true), true);
+  assert.equal(smokeArtifactCore.boolOrUndefined("true"), undefined);
+  assert.equal(smokeArtifactCore.numberOrZero("5"), 5);
+  assert.equal(smokeArtifactCore.numberOrZero("nope"), 0);
+  assert.equal(smokeArtifactCore.numberOrUndefined("nope"), undefined);
+  assert.deepEqual(smokeArtifactCore.objectOrUndefined({ ok: true }), { ok: true });
+  assert.equal(smokeArtifactCore.objectOrUndefined([]), undefined);
 
-  const debugSummaryCoreTmp = fs.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", "xtalpi-debug-core-test."));
+  const smokeArtifactCoreTmp = fs.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", "xtalpi-artifact-core-test."));
   try {
-    const jsonlFile = path.join(debugSummaryCoreTmp, "events.jsonl");
+    const jsonlFile = path.join(smokeArtifactCoreTmp, "events.jsonl");
     fs.writeFileSync(jsonlFile, '{"ok":true}\nnot-json\n{"ok":false}\n');
-    assert.deepEqual(debugSummaryCore.readJsonl(jsonlFile), {
+    assert.deepEqual(smokeArtifactCore.readJsonl(jsonlFile), {
       events: [{ ok: true }, { ok: false }],
       parseErrors: 1,
     });
-    assert.deepEqual(debugSummaryCore.readJsonl(path.join(debugSummaryCoreTmp, "missing.jsonl")), {
+    assert.deepEqual(smokeArtifactCore.readJsonlEvents(jsonlFile, { parseErrorEvent: true }), [
+      { ok: true },
+      { type: "parse_error", raw: "not-json" },
+      { ok: false },
+    ]);
+    assert.deepEqual(smokeArtifactCore.readJsonl(path.join(smokeArtifactCoreTmp, "missing.jsonl")), {
       events: [],
       parseErrors: 0,
     });
-    const jsonFile = path.join(debugSummaryCoreTmp, "value.json");
+    const jsonFile = path.join(smokeArtifactCoreTmp, "value.json");
     fs.writeFileSync(jsonFile, '{"ok":true}\n');
-    assert.deepEqual(debugSummaryCore.readJsonFile(jsonFile), { ok: true, value: { ok: true } });
-    assert.equal(debugSummaryCore.readJsonFile(path.join(debugSummaryCoreTmp, "missing.json")).ok, false);
+    assert.deepEqual(smokeArtifactCore.readJsonFile(jsonFile), { ok: true, value: { ok: true } });
+    assert.deepEqual(smokeArtifactCore.readJsonFileAsObject(jsonFile), { ok: true });
+    assert.deepEqual(smokeArtifactCore.readJsonFileAsObject(path.join(smokeArtifactCoreTmp, "missing.json")), {});
+    assert.equal(smokeArtifactCore.readJsonFile(path.join(smokeArtifactCoreTmp, "missing.json")).ok, false);
   } finally {
-    fs.rmSync(debugSummaryCoreTmp, { recursive: true, force: true });
+    fs.rmSync(smokeArtifactCoreTmp, { recursive: true, force: true });
   }
 
   async function assertProviderReplayFixture(fixture, registeredProvider, originalFetch) {
