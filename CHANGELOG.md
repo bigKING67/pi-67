@@ -79,6 +79,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - Repeated-tool detection and object-valued schema `enum` checks now use JSON deep equality that ignores object key order, so argument reordering cannot bypass loop protection or fail valid enum matches.
 - Tool argument `pattern` validation now skips overlong or obviously unsafe regex cases, preventing untrusted tool schemas from stalling the local validator through pathological backtracking.
 - Skipped or invalid tool argument `pattern` checks now emit bounded debug telemetry and debug-summary counts without recording raw pattern text or argument values.
+- Invalid tool JSON repair prompts now list only the tools selected for the current turn, and the web/read live smoke now requires successful `Example Domain` content plus the local `@ff-labs/pi-fff` package name before passing.
 
 ### Removed
 

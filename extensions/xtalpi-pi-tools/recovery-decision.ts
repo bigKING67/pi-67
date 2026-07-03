@@ -54,6 +54,6 @@ export function buildParseErrorRepairPlan(
 
   return {
     event: "recovery.invalid_tool_json",
-    prompt: buildInvalidToolJsonRepairPrompt(parsed.message, parsed.raw),
+    prompt: buildInvalidToolJsonRepairPrompt(parsed.message, parsed.raw, names),
   };
 }

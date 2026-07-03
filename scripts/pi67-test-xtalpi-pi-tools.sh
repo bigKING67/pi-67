@@ -413,6 +413,21 @@ const { pathToFileURL } = require("node:url");
     assert.equal(parseRepairChat.calls.length, 2);
     assert.match(parseRepairChat.calls[1].at(-1).content, /xtalpi-pi-tools-function-style-tool-repair/);
 
+    const invalidJsonRepairChat = makeProviderTurnChat([
+      { content: '<pi_tool_call>\n{"name":"read","arguments":\n</pi_tool_call>' },
+      { content: '<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>' },
+    ]);
+    const invalidJsonRepairResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: { systemPrompt: "system base", tools: [readTool], messages: [{ role: "user", content: "read package.json" }] },
+      callChat: invalidJsonRepairChat.callChat,
+    });
+    assert.equal(invalidJsonRepairResult.kind, "tool_call");
+    assert.equal(invalidJsonRepairResult.toolCall.name, "read");
+    assert.equal(invalidJsonRepairChat.calls.length, 2);
+    assert.match(invalidJsonRepairChat.calls[1].at(-1).content, /xtalpi-pi-tools-invalid-tool-json-repair/);
+    assert.match(invalidJsonRepairChat.calls[1].at(-1).content, /Available tool names:\n"read"/);
+
     const invalidArgsRepairChat = makeProviderTurnChat([
       { content: '<pi_tool_call>\n{"name":"read","arguments":{"path":42}}\n</pi_tool_call>' },
       { content: '<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>' },
@@ -513,6 +528,7 @@ const { pathToFileURL } = require("node:url");
   const unknownFieldRepairPlan = recoveryDecision.buildParseErrorRepairPlan(unknownField, ["read"]);
   assert.equal(unknownFieldRepairPlan.event, "recovery.invalid_tool_json");
   assert.match(unknownFieldRepairPlan.prompt, /unknown top-level field/);
+  assert.match(unknownFieldRepairPlan.prompt, /Available tool names:\n"read"/);
 
   const loopState = new turnLoopState.TurnLoopState();
   assert.deepEqual(loopState.snapshot(), {
