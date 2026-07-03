@@ -899,6 +899,7 @@ assert(summary.failures === 0, "runner failures should be zero");
 assert(summary.providerHealthPreflight === false, "runner self-test should not call provider preflight");
 assert(JSON.stringify(summary.selectedCases) === JSON.stringify(["no-tool", "read"]), "selected case order drifted");
 assert(summary.caseSet?.canonical === "no-tool,read", "case set canonical should reflect selected cases");
+assert(summary.runKind === "targeted", "selected subset smoke should be classified as targeted");
 assert(summary.debugSummary?.gates?.expectCases === 2, "debug summary did not receive expect-cases");
 assert(
   JSON.stringify(summary.debugSummary?.gates?.expectCaseNames) === JSON.stringify(["no-tool", "read"]),
@@ -1381,7 +1382,7 @@ const [
   preflightRetryDelayMsRaw,
   stopReasonRaw,
 ] = process.argv.slice(2);
-const { buildCaseSet } = require(smokeArtifactCorePath);
+const { buildCaseSet, classifyRunKind } = require(smokeArtifactCorePath);
 
 const debugSummary = JSON.parse(fs.readFileSync(debugSummaryFile, "utf8"));
 const providerHealth = providerHealthFile && fs.existsSync(providerHealthFile)
@@ -1390,6 +1391,7 @@ const providerHealth = providerHealthFile && fs.existsSync(providerHealthFile)
 const failures = Number(failuresRaw);
 const debugSummaryStatus = Number(debugSummaryStatusRaw);
 const caseSet = buildCaseSet(String(selectedCasesRaw || "").split(",").filter(Boolean));
+const runKind = classifyRunKind(caseSet, { providerHealth, stopReason: stopReasonRaw });
 const artifact = {
   schema: "xtalpi-pi-tools.smoke-summary.v1",
   createdAt: new Date().toISOString(),
@@ -1403,6 +1405,7 @@ const artifact = {
   maxOutputTokens: Number(maxOutputTokensRaw),
   selectedCases: caseSet.selectedCases,
   caseSet,
+  runKind,
   stopOnProviderError: /^(1|true|yes|on)$/i.test(String(stopOnProviderErrorRaw || "")),
   providerHealthPreflight: /^(1|true|yes|on)$/i.test(String(preflightRaw || "")),
   providerHealthPreflightTimeoutMs: Number(preflightTimeoutMsRaw),
@@ -1444,7 +1447,7 @@ const [
   preflightRetryDelayMsRaw,
   stopReasonRaw,
 ] = process.argv.slice(2);
-const { buildCaseSet } = require(smokeArtifactCorePath);
+const { buildCaseSet, classifyRunKind } = require(smokeArtifactCorePath);
 
 const providerHealth = providerHealthFile && fs.existsSync(providerHealthFile)
   ? JSON.parse(fs.readFileSync(providerHealthFile, "utf8"))
@@ -1452,6 +1455,7 @@ const providerHealth = providerHealthFile && fs.existsSync(providerHealthFile)
 const providerErrorCode = String(providerHealth.errorCode || "unknown_error");
 const providerErrorCategory = String(providerHealth.errorCategory || "unknown");
 const emptyCaseSet = buildCaseSet([]);
+const runKind = classifyRunKind(emptyCaseSet, { providerHealth, stopReason: stopReasonRaw });
 const debugSummary = {
   outDir: require("path").dirname(summaryFile),
   latestOnly: false,
@@ -1504,6 +1508,7 @@ const artifact = {
   maxOutputTokens: Number(maxOutputTokensRaw),
   selectedCases: emptyCaseSet.selectedCases,
   caseSet: emptyCaseSet,
+  runKind,
   stopOnProviderError: /^(1|true|yes|on)$/i.test(String(stopOnProviderErrorRaw || "")),
   providerHealthPreflight: /^(1|true|yes|on)$/i.test(String(preflightRaw || "")),
   providerHealthPreflightTimeoutMs: Number(preflightTimeoutMsRaw),

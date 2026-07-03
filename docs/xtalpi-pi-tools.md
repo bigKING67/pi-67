@@ -314,7 +314,7 @@ $HOME/tmp/xtalpi-pi-tools-smoke
 $HOME/tmp/xtalpi-pi-tools-smoke/<stamp>-summary.json
 ```
 
-摘要 schema 为 `xtalpi-pi-tools.smoke-summary.v1`，包含 provider、model、stamp、selected cases、稳定 `caseSet` 指纹（排序去重后的 canonical case 名称和 SHA-256）、case timeout、request timeout、max output tokens、failure count、provider-health preflight 状态、preflight timeout / attempts / retry delay、provider-error stop 策略和 stop reason、debug-summary gate 状态、总体 recoveries / recovery rate / raw markup final answer / process lifecycle failure / watchdog timeout / argument validation warning 计数，以及逐 case telemetry。smoke 脚本会把本轮 selected cases 同时作为 `--expect-cases` 和 `--expect-case-names` 传给 debug-summary gate，避免同数量但不同 case 集合的 artifact 被误判为本轮通过。debug summary JSON 的逐 case telemetry 还包含 `runtimeFingerprint`，用于确认当轮实际协议版本、selected-tool hash、展示工具名、selected-tool ranking 是否被 `maxTools` 截断、被省略工具数量、请求超时、输出上限、工具结果截断上限和 recovery limits。
+摘要 schema 为 `xtalpi-pi-tools.smoke-summary.v1`，包含 provider、model、stamp、selected cases、稳定 `caseSet` 指纹（排序去重后的 canonical case 名称和 SHA-256）、`runKind`（`full-suite` / `targeted` / `preflight-failed` / `empty`）、case timeout、request timeout、max output tokens、failure count、provider-health preflight 状态、preflight timeout / attempts / retry delay、provider-error stop 策略和 stop reason、debug-summary gate 状态、总体 recoveries / recovery rate / raw markup final answer / process lifecycle failure / watchdog timeout / argument validation warning 计数，以及逐 case telemetry。smoke 脚本会把本轮 selected cases 同时作为 `--expect-cases` 和 `--expect-case-names` 传给 debug-summary gate，避免同数量但不同 case 集合的 artifact 被误判为本轮通过。debug summary JSON 的逐 case telemetry 还包含 `runtimeFingerprint`，用于确认当轮实际协议版本、selected-tool hash、展示工具名、selected-tool ranking 是否被 `maxTools` 截断、被省略工具数量、请求超时、输出上限、工具结果截断上限和 recovery limits。
 
 当 `XTALPI_PI_TOOLS_MAX_TOOLS` 很低时，`turn.start` debug telemetry 会在本地 JSONL 的 `data.toolSelectionSummary` 写入有界选择摘要，schema 为 `xtalpi-pi-tools.tool-selection.v1`。该摘要只包含工具名、去重后的原始 index、score、是否 selected 和 reason code，并在 `selected` / `omitted` 每组最多保留 12 项；不会写入工具 description、parameters 或用户 prompt 原文。顶层字段 `tool_selection_clipped`、`tool_selection_omitted_count`、`tool_selection_valid_count`、`tool_selection_prompt_source`、`tool_selection_prompt_chars` 和 `tool_selection_user_messages` 便于 grep 和 debug-summary 聚合。该摘要只进入本地 debug artifact，不会发送给晶泰模型；provider prompt 仍只展示实际 selected tools。
 
@@ -336,7 +336,7 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   "$HOME/tmp/xtalpi-pi-tools-smoke"
 ```
 
-`--history` 读取 `<stamp>-summary.json`，按最新优先输出每轮 `ok`、`failures`、`cases`、`selected_cases`、`case_set_sha256`、`recoveries`、`recovery_rate`、raw markup final answer、empty assistant end、error、provider error、process lifecycle failure 和 watchdog timeout 计数；它会忽略同目录下的 `<stamp>-debug-summary.json` 中间产物，避免把 debug-summary 自身误当成 smoke run。
+`--history` 读取 `<stamp>-summary.json`，按最新优先输出每轮 `ok`、`failures`、`cases`、`run_kind`、`selected_cases`、`case_set_sha256`、`recoveries`、`recovery_rate`、raw markup final answer、empty assistant end、error、provider error、process lifecycle failure 和 watchdog timeout 计数；它会忽略同目录下的 `<stamp>-debug-summary.json` 中间产物，避免把 debug-summary 自身误当成 smoke run。旧 summary 如果没有 `runKind`，debug-summary 会根据 `caseSet`、`providerHealth` 和 `stopReason` 现场回推分类。
 
 也可以精确汇总某一次 smoke run，避免并发或历史 artifact 干扰：
 

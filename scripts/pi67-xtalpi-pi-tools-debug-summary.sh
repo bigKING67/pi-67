@@ -520,6 +520,7 @@ assert(data.totalArtifacts === 3, "debug-summary artifact should not be counted 
 assert(data.runs.length === 2, "history limit did not select two runs");
 assert(data.runs[0].runId === "20260702-000003", "newest run should be first");
 assert(data.runs[1].runId === "20260702-000002", "second newest run should be second");
+assert(data.runs[0].runKind === "targeted", "history should classify subset fixture as targeted");
 assert(data.runs[0].ok === false && data.runs[0].failures === 1, "failed run was not visible");
 assert(data.runs[0].rawToolMarkupFinalAnswers === 1, "raw final-answer count was not preserved");
 assert(data.runs[1].recoveries === 2, "recovery run was not visible");
@@ -534,7 +535,7 @@ NODE
     echo "$output"
     return 1
   fi
-  if [[ "$output" != *"20260702-000003"* || "$output" != *"20260702-000002"* || "$output" != *"case_set_sha256="* || "$output" == *"20260702-000001"* ]]; then
+  if [[ "$output" != *"20260702-000003"* || "$output" != *"20260702-000002"* || "$output" != *"run_kind=targeted"* || "$output" != *"case_set_sha256="* || "$output" == *"20260702-000001"* ]]; then
     echo "history text output did not show only the newest two runs"
     echo "$output"
     return 1
@@ -617,6 +618,7 @@ assert(data.limits.profile === "full-suite-strict", "profile should be visible i
 assert(data.limits.expectCases === 8, "profile should set full-suite case count");
 assert(data.limits.maxRecoveries === 0, "profile should set zero-recovery default");
 assert(data.limits.failOnRecoveryIncrease === true, "profile should fail on recovery increase");
+assert(data.history.runs.every((run) => run.runKind === "full-suite"), "profile fixture should classify full-suite runs");
 assert(
   JSON.stringify(data.limits.expectCaseNames) === JSON.stringify([
     "bash",
@@ -831,6 +833,7 @@ const [
 ] = process.argv.slice(2);
 const {
   buildCaseSet,
+  classifyRunKind,
   containsRawPiToolMarkup,
   isRawToolMarkupFinalAnswer,
   isToolEnvelopeOnlyFinalAnswer,
@@ -1239,6 +1242,7 @@ function summarizeSmokeSummaryFile(fileName) {
       selectedCases: [],
       caseNames: [],
       caseSet: buildCaseSet([]),
+      runKind: "parse-error",
       recoveryCaseNames: [],
       caseRecoveries: [],
       gateFailures: ["summary_parse_error"],
@@ -1253,6 +1257,12 @@ function summarizeSmokeSummaryFile(fileName) {
     ? sortedUniqueStrings(artifact.selectedCases)
     : caseNames;
   const caseSet = normalizeCaseSet(artifact?.caseSet, selectedCases);
+  const runKind = typeof artifact?.runKind === "string" && artifact.runKind.trim()
+    ? artifact.runKind
+    : classifyRunKind(caseSet, {
+        providerHealth: artifact?.providerHealth,
+        stopReason: artifact?.stopReason,
+      });
   const caseRecoveries = cases
     .map((item) => ({
       caseName: String(item?.caseName || "unknown"),
@@ -1297,6 +1307,7 @@ function summarizeSmokeSummaryFile(fileName) {
     selectedCases: caseSet.normalizedCases,
     caseNames,
     caseSet,
+    runKind,
     recoveryCaseNames: caseRecoveries.map((item) => item.caseName),
     caseRecoveries,
     gateFailures,
@@ -1589,6 +1600,7 @@ function printHistory(limit) {
       const modelText = run.model ? ` model=${run.model}` : "";
       const selectedText = run.selectedCases?.length ? ` selected_cases=${run.selectedCases.join(",")}` : "";
       const caseSetText = run.caseSet?.sha256 ? ` case_set_sha256=${run.caseSet.sha256}` : "";
+      const runKindText = run.runKind ? ` run_kind=${run.runKind}` : "";
       console.log(
         `- ${run.runId}: ok=${run.ok} failures=${run.failures} cases=${run.cases} ` +
           `recoveries=${run.recoveries} recovery_rate=${run.recoveryRate.toFixed(4)} ` +
@@ -1602,7 +1614,7 @@ function printHistory(limit) {
           `tool_selection_clipped_cases=${run.toolSelectionClippedCases} ` +
           `tool_selection_omitted_count_max=${run.toolSelectionOmittedCountMax} ` +
           `debug_summary_status=${run.debugSummaryStatus}` +
-          `${providerText}${modelText}${selectedText}${caseSetText}${gateText}${parseText}`,
+          `${providerText}${modelText}${runKindText}${selectedText}${caseSetText}${gateText}${parseText}`,
       );
     }
   }

@@ -1,6 +1,17 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 
+const FULL_SUITE_CASE_NAMES = [
+  "no-tool",
+  "bash",
+  "read",
+  "bash-read",
+  "web-read",
+  "tool-selection-clipping",
+  "tool-selection-continuation",
+  "tool-result-injection",
+];
+
 function sortedUniqueStrings(values) {
   return [...new Set((Array.isArray(values) ? values : []).map((value) => String(value).trim()).filter(Boolean))].sort();
 }
@@ -36,6 +47,32 @@ function normalizeCaseSet(value, fallbackCases) {
     canonical,
     sha256,
   };
+}
+
+function caseNameListsEqual(left, right) {
+  const leftSorted = sortedUniqueStrings(left);
+  const rightSorted = sortedUniqueStrings(right);
+  return leftSorted.length === rightSorted.length &&
+    leftSorted.every((item, index) => item === rightSorted[index]);
+}
+
+function classifyRunKind(caseSetOrCases, { providerHealth, stopReason } = {}) {
+  const rawCaseSet = objectOrUndefined(caseSetOrCases);
+  const normalizedCases = rawCaseSet
+    ? sortedUniqueStrings(rawCaseSet.normalizedCases || rawCaseSet.selectedCases || [])
+    : sortedUniqueStrings(caseSetOrCases);
+  const providerHealthObject = objectOrUndefined(providerHealth);
+  const reason = String(stopReason || "");
+
+  if (
+    reason === "provider_health_failed" ||
+    (normalizedCases.length === 0 && providerHealthObject && providerHealthObject.ok === false)
+  ) {
+    return "preflight-failed";
+  }
+  if (caseNameListsEqual(normalizedCases, FULL_SUITE_CASE_NAMES)) return "full-suite";
+  if (normalizedCases.length === 0) return "empty";
+  return "targeted";
 }
 
 function readJsonl(file) {
@@ -135,7 +172,9 @@ function objectOrUndefined(value) {
 module.exports = {
   boolOrUndefined,
   buildCaseSet,
+  classifyRunKind,
   containsRawPiToolMarkup,
+  FULL_SUITE_CASE_NAMES,
   isRawToolMarkupFinalAnswer,
   isToolEnvelopeOnlyFinalAnswer,
   normalizeCaseSet,
