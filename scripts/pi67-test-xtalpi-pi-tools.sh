@@ -584,6 +584,20 @@ const { pathToFileURL } = require("node:url");
     { payload: { b: { c: 2 }, a: 1 } },
   );
   assert.equal(enumObjectArgs.ok, true);
+  const unsafePatternArgs = validator.validateToolArguments(
+    {
+      name: "unsafe_pattern",
+      parameters: {
+        type: "object",
+        required: ["value"],
+        properties: {
+          value: { type: "string", pattern: "^(a+)+$" },
+        },
+      },
+    },
+    { value: `${"a".repeat(2048)}!` },
+  );
+  assert.equal(unsafePatternArgs.ok, true);
 
   const selectedToolNamesForDecision = ["read"];
   const selectedToolNameSet = new Set(selectedToolNamesForDecision);

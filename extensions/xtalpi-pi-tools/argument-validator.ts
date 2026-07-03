@@ -4,6 +4,12 @@ import type { ToolLike } from "./serializer.ts";
 
 type JsonSchema = Record<string, unknown>;
 
+const MAX_PATTERN_CHARS = 256;
+const MAX_PATTERN_INPUT_CHARS = 1024;
+const NESTED_QUANTIFIER_PATTERN = new RegExp(
+  String.raw`\((?:[^()\\]|\\.)*(?:[+*]|\{\d+(?:,\d*)?\})(?:[^()\\]|\\.)*\)(?:[+*]|\{\d+(?:,\d*)?\})`,
+);
+
 export type ArgumentValidationResult =
   | {
       ok: true;
@@ -62,6 +68,14 @@ function pushError(errors: string[], maxErrors: number, message: string): void {
   if (errors.length < maxErrors) errors.push(message);
 }
 
+function shouldSkipPatternValidation(pattern: string, value: string): boolean {
+  return (
+    pattern.length > MAX_PATTERN_CHARS ||
+    value.length > MAX_PATTERN_INPUT_CHARS ||
+    NESTED_QUANTIFIER_PATTERN.test(pattern)
+  );
+}
+
 function validateNumberConstraints(schema: JsonSchema, value: number, path: string, errors: string[], maxErrors: number): void {
   const minimum = numericKeyword(schema, "minimum");
   const maximum = numericKeyword(schema, "maximum");
@@ -113,7 +127,7 @@ function validateStringConstraints(schema: JsonSchema, value: string, path: stri
   }
   if (errors.length >= maxErrors) return;
 
-  if (typeof schema.pattern === "string") {
+  if (typeof schema.pattern === "string" && !shouldSkipPatternValidation(schema.pattern, value)) {
     try {
       if (!new RegExp(schema.pattern).test(value)) {
         pushError(errors, maxErrors, `${path} must match pattern ${schema.pattern}`);

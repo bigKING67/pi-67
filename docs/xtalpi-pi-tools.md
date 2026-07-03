@@ -49,7 +49,7 @@ content:
 
 selected-tool 排序默认看最新用户意图；当最新消息是“继续 / 接着 / 下一步 / continue”这类承接指令时，会额外纳入最近几条 user 消息来恢复上一轮明确提到的工具意图。tool result 不参与 selected-tool 排序，避免不可信工具输出通过“下一轮继续”影响工具白名单。debug telemetry 会记录 `tool_selection_prompt_source`、`tool_selection_prompt_chars` 和 `tool_selection_user_messages`，用于判断本轮排序依据来自最新 user 消息还是 continuation recent-user 上下文；不会记录原始 prompt 文本。
 
-工具参数在交给 Pi 执行前会做轻量 schema 校验。当前校验覆盖 JSON Schema 常用子集：`required`、`properties`、基础 `type`、`enum`、`array.items`、`anyOf` / `oneOf`、`additionalProperties:false`，以及常见边界约束（字符串 `minLength` / `maxLength` / `pattern`，数字 `minimum` / `maximum` / `exclusiveMinimum` / `exclusiveMaximum` / `multipleOf`，数组 `minItems` / `maxItems`，对象 `minProperties` / `maxProperties`）。对象型 `enum` 比较会忽略 key 顺序，符合 JSON 语义。如果参数明显不匹配，会先要求模型修复为正确的 `<pi_tool_call>`，而不是把坏参数直接交给工具层。
+工具参数在交给 Pi 执行前会做轻量 schema 校验。当前校验覆盖 JSON Schema 常用子集：`required`、`properties`、基础 `type`、`enum`、`array.items`、`anyOf` / `oneOf`、`additionalProperties:false`，以及常见边界约束（字符串 `minLength` / `maxLength` / `pattern`，数字 `minimum` / `maximum` / `exclusiveMinimum` / `exclusiveMaximum` / `multipleOf`，数组 `minItems` / `maxItems`，对象 `minProperties` / `maxProperties`）。对象型 `enum` 比较会忽略 key 顺序，符合 JSON 语义；`pattern` 校验会跳过过长输入、过长 pattern 和明显嵌套量词 pattern，避免不可信工具 schema 让本地校验卡在正则回溯里。如果参数明显不匹配，会先要求模型修复为正确的 `<pi_tool_call>`，而不是把坏参数直接交给工具层。
 
 这样晶泰侧不需要稳定支持 OpenAI tool calling，只需要稳定支持普通 chat completion。
 
