@@ -25,6 +25,7 @@ git status --short
 Expected result:
 
 - release metadata is internally consistent
+- xtalpi provider error-contract and debug-summary/profile self-tests pass
 - smoke test passes locally
 - clean artifact smoke passes for the current worktree candidate
 - release notes preview is generated from `CHANGELOG.md`

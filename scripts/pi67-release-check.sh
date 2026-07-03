@@ -192,6 +192,12 @@ else
   warn "node not found; skipped provider error contract validation"
 fi
 
+if bash "$XTALPI_PI_TOOLS_DEBUG_SUMMARY" --self-test >/dev/null; then
+  pass "xtalpi-pi-tools debug-summary and strict trend profile self-test passed"
+else
+  fail "xtalpi-pi-tools debug-summary or strict trend profile self-test failed"
+fi
+
 if grep -q "pi67-xtalpi-pi-tools.sh" "$REPO_ROOT/README.md" && grep -q "pi67-xtalpi-pi-tools.sh" "$XTALPI_PI_TOOLS_DOC" && grep -q "pi67-xtalpi-pi-tools.sh" "$TROUBLESHOOTING_DOC" && grep -q "pi67-xtalpi-pi-tools.sh" "$FULL_INSTALL_DOC"; then
   pass "xtalpi-pi-tools launcher is documented"
 else
