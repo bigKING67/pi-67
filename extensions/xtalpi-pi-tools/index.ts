@@ -5,7 +5,6 @@ import type {
   Context,
   Model,
   SimpleStreamOptions,
-  ToolCall,
 } from "@earendil-works/pi-ai";
 import { callXtalpiChat } from "./chat-client.ts";
 import { debugLog } from "./diagnostics.ts";
@@ -22,7 +21,6 @@ import {
   DEFAULT_MAX_TOOLS,
   PROVIDER_ID,
   PROVIDER_NAME,
-  type JsonObject,
 } from "./protocol.ts";
 import {
   buildEmptyResponseRepairPrompt,
@@ -42,59 +40,20 @@ import {
 import { createLocalAssistantMessageEventStream } from "./stream.ts";
 import { safeBlockText } from "./text-safety.ts";
 import { decideToolCallRequest } from "./tool-call-decision.ts";
+import {
+  latestToolCallWithResult,
+  makeRequestedToolCall,
+} from "./tool-call-history.ts";
 import { buildTurnDebugContext } from "./turn-debug-context.ts";
 import { TurnLoopState } from "./turn-loop-state.ts";
 
 let runtimeConfig: ProviderRuntimeConfig | undefined;
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 export {
   buildChatCompletionPayload,
   resolveMaxOutputTokens,
   resolveRequestTimeoutMs,
 } from "./runtime-config.ts";
-
-function latestToolCallWithResult(context: ContextLike): ToolCall | undefined {
-  let latestCall: ToolCall | undefined;
-  let hasResultAfterLatestCall = false;
-
-  for (const message of context.messages) {
-    if (message.role === "assistant" && Array.isArray(message.content)) {
-      for (const block of message.content) {
-        if (isObject(block) && block.type === "toolCall" && typeof block.name === "string") {
-          latestCall = {
-            type: "toolCall",
-            id: typeof block.id === "string" ? block.id : "",
-            name: block.name,
-            arguments: isObject(block.arguments) ? block.arguments : {},
-          };
-          hasResultAfterLatestCall = false;
-        }
-      }
-    } else if (message.role === "toolResult" && latestCall) {
-      hasResultAfterLatestCall = true;
-    }
-  }
-
-  return hasResultAfterLatestCall ? latestCall : undefined;
-}
-
-function makeToolCallId(name: string): string {
-  const safeName = name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 32) || "tool";
-  return `pi_tool_${safeName}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function makeRequestedToolCall(name: string, args: JsonObject): ToolCall {
-  return {
-    type: "toolCall",
-    id: makeToolCallId(name),
-    name,
-    arguments: args,
-  };
-}
 
 async function runProviderTurn(
   model: Model<Api>,
