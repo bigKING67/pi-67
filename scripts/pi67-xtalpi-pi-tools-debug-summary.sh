@@ -372,6 +372,14 @@ writeSummary("20260702-000002", {
   recoveries: 0,
   totalCases: 1,
 });
+
+const shortTrend = ensureDir("short-trend");
+writeSummary("20260702-000001", {
+  dir: shortTrend,
+  ok: true,
+  failures: 0,
+  recoveries: 0,
+});
 NODE
 
   if ! output="$("$SCRIPT_PATH" --run-id 20260702-000001 --expect-cases 1 --expect-case-names clean --max-errors 0 --max-empty-assistant-ends 0 --max-raw-tool-markup-final-answers 0 --max-recoveries 0 "$tmp_dir/clean" 2>&1)"; then
@@ -547,6 +555,17 @@ NODE
 
   if output="$("$SCRIPT_PATH" --trend-gate 2 --expect-cases 5 "$tmp_dir/subset-trend" 2>&1)"; then
     echo "expected subset trend fixture to fail case-count gate"
+    echo "$output"
+    return 1
+  fi
+
+  if output="$("$SCRIPT_PATH" --trend-gate 2 "$tmp_dir/short-trend" 2>&1)"; then
+    echo "expected short trend fixture to fail insufficient-history gate"
+    echo "$output"
+    return 1
+  fi
+  if [[ "$output" != *"expected at least 2 summary artifacts, found 1"* ]]; then
+    echo "insufficient-history trend gate did not expose the requested/found mismatch"
     echo "$output"
     return 1
   fi
@@ -1529,6 +1548,10 @@ function evaluateTrendGate(history) {
     failOnRecoveryIncrease,
   };
   const gateFailures = [];
+
+  if (history.found < history.requested) {
+    gateFailures.push(`expected at least ${history.requested} summary artifacts, found ${history.found}`);
+  }
 
   for (const run of history.runs) {
     if (run.parseError) {

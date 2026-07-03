@@ -40,6 +40,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `scripts/pi67-xtalpi-pi-tools-debug-summary.sh --history N` now reports the newest persisted smoke summary artifacts for trend-safe recovery/raw-markup/failure comparisons.
 - `scripts/pi67-xtalpi-pi-tools-debug-summary.sh --compare BASE_RUN HEAD_RUN` now reports run-to-run telemetry deltas and stable case-level protocol differences.
 - `scripts/pi67-xtalpi-pi-tools-debug-summary.sh --trend-gate N` now gates recent smoke summaries for hard failures, raw final-answer leaks, empty assistant ends, recovery thresholds, recovery increases, and repeated recovery cases.
+- `scripts/pi67-xtalpi-pi-tools-debug-summary.sh --trend-gate N` now fails when fewer than N smoke summary artifacts are available, so a single clean run cannot masquerade as multi-run trend evidence.
 - `xtalpi-pi-tools` now serializes prior assistant tool calls as neutral `[previous_pi_tool_call]` records, repairs `[previous_pi_tool_call]` final-answer leaks, and records sanitized raw-response excerpts on repair telemetry to reduce and diagnose protocol-markup recoveries.
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh` now keeps the web/read live case focused on `web_fetch` plus local `package.json` metadata, reducing large README tool-result latency while preserving cross-tool boundary coverage.
 - Untrusted tool output, tool metadata, and repair excerpts now neutralize `[previous_pi_tool_call]` bracket markers before they are sent back to xtalpi, closing the remaining internal-history marker injection gap.

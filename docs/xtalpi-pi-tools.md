@@ -388,7 +388,7 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   "$HOME/tmp/xtalpi-pi-tools-smoke"
 ```
 
-trend-gate 模式会复用 `<stamp>-summary.json`，默认要求最近 N 次都满足：`ok=true`、`failures=0`、`debug_summary_status=0`、`errors=0`、`provider_errors=0`、`empty_assistant_ends=0`、`raw_tool_markup_final_answers=0`、`tool_envelope_final_answers=0`、`process_lifecycle_failures=0`。加上 `--expect-cases 8` 和 `--expect-case-names ...` 后，最近 N 次每一轮都必须是完整且同一组 8-case 覆盖，避免把只跑 `--case web-read` / `--case tool-result-injection` 的局部复核，或未来 case 集合变化后的非标准 8-case 结果，误当成全量趋势证据。可选地用现有阈值限制 recovery：
+trend-gate 模式会复用 `<stamp>-summary.json`，并且要求至少存在 N 个 smoke summary artifact；如果实际 `found < requested` 会直接失败，避免把单次 clean run 误当成多轮趋势证据。默认要求最近 N 次都满足：`ok=true`、`failures=0`、`debug_summary_status=0`、`errors=0`、`provider_errors=0`、`empty_assistant_ends=0`、`raw_tool_markup_final_answers=0`、`tool_envelope_final_answers=0`、`process_lifecycle_failures=0`。加上 `--expect-cases 8` 和 `--expect-case-names ...` 后，最近 N 次每一轮都必须是完整且同一组 8-case 覆盖，避免把只跑 `--case web-read` / `--case tool-result-injection` 的局部复核，或未来 case 集合变化后的非标准 8-case 结果，误当成全量趋势证据。可选地用现有阈值限制 recovery：
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
