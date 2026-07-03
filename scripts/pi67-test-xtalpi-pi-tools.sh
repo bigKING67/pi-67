@@ -30,6 +30,7 @@ const { pathToFileURL } = require("node:url");
   const textSafety = await import(ext("text-safety.ts"));
   const toolCallDecision = await import(ext("tool-call-decision.ts"));
   const toolCallHistory = await import(ext("tool-call-history.ts"));
+  const toolSelection = await import(ext("tool-selection.ts"));
   const turnDebugContext = await import(ext("turn-debug-context.ts"));
   const turnLoopState = await import(ext("turn-loop-state.ts"));
   const validator = await import(ext("argument-validator.ts"));
@@ -45,6 +46,7 @@ const { pathToFileURL } = require("node:url");
   const errorsSource = fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "errors.ts"), "utf8");
   const providerSource = fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "index.ts"), "utf8");
   assert.equal(typeof providerTurn.runProviderTurn, "function");
+  assert.equal(typeof toolSelection.selectToolsWithSummary, "function");
 
   function contractMetadata(code) {
     const metadata = providerErrorContract.errors[code];
