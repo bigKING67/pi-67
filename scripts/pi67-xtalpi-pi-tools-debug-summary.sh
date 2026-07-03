@@ -123,10 +123,16 @@ writeCase(clean, "20260702-000001", "clean", {
       tool_selection_clipped: true,
       tool_selection_omitted_count: 2,
       tool_selection_valid_count: 3,
+      tool_selection_prompt_source: "recent_user_continuation",
+      tool_selection_prompt_chars: 128,
+      tool_selection_user_messages: 2,
       data: {
         toolSelectionClipped: true,
         toolSelectionOmittedCount: 2,
         toolSelectionValidCount: 3,
+        toolSelectionPromptSource: "recent_user_continuation",
+        toolSelectionPromptChars: 128,
+        toolSelectionUserMessageCount: 2,
         toolSelectionSummary: {
           schema: "xtalpi-pi-tools.tool-selection.v1",
           validToolCount: 3,
@@ -350,7 +356,7 @@ NODE
     echo "$output"
     return 1
   fi
-  if [[ "$output" != *"tool_selection_clipped=true"* || "$output" != *"tool_selection_omitted=2-2"* || "$output" != *"tool_selection_valid=3-3"* ]]; then
+  if [[ "$output" != *"tool_selection_clipped=true"* || "$output" != *"tool_selection_omitted=2-2"* || "$output" != *"tool_selection_valid=3-3"* || "$output" != *"tool_selection_prompt_source=recent_user_continuation"* ]]; then
     echo "clean fixture output did not expose bounded tool-selection diagnostics"
     echo "$output"
     return 1
@@ -924,6 +930,15 @@ function collectRuntimeFingerprint(events) {
     ),
     toolSelectionValidCount: uniqueNumbers(
       sources.map((event) => numberMetric(event, "toolSelectionValidCount", "tool_selection_valid_count")),
+    ),
+    toolSelectionPromptSources: uniqueStrings(
+      sources.map((event) => stringMetric(event, "toolSelectionPromptSource", "tool_selection_prompt_source")),
+    ),
+    toolSelectionPromptChars: uniqueNumbers(
+      sources.map((event) => numberMetric(event, "toolSelectionPromptChars", "tool_selection_prompt_chars")),
+    ),
+    toolSelectionUserMessageCount: uniqueNumbers(
+      sources.map((event) => numberMetric(event, "toolSelectionUserMessageCount", "tool_selection_user_messages")),
     ),
     maxToolResultChars: uniqueNumbers(
       sources.map((event) => numberMetric(event, "maxToolResultChars", "max_tool_result_chars")),
@@ -1866,6 +1881,10 @@ if (format === "json") {
         ` tool_selection_omitted=${item.toolSelectionOmittedCountMin ?? "(unknown)"}-${item.toolSelectionOmittedCountMax ?? "(unknown)"}` +
         ` tool_selection_valid=${item.toolSelectionValidCountMin ?? "(unknown)"}-${item.toolSelectionValidCountMax ?? "(unknown)"}`
       : "";
+    const toolSelectionPromptSources = item.runtimeFingerprint?.toolSelectionPromptSources || [];
+    const promptSourceText = toolSelectionPromptSources.length
+      ? ` tool_selection_prompt_source=${toolSelectionPromptSources.join("|")}`
+      : "";
     const providerErrorText = item.providerErrors > 0
       ? ` provider_errors=${item.providerErrors}` +
         ` retryable_provider_errors=${item.retryableProviderErrors}` +
@@ -1886,7 +1905,7 @@ if (format === "json") {
         ` recoveries=${item.recoveries} empty_assistant_ends=${item.emptyAssistantEnds}` +
         ` raw_tool_markup_final_answer=${item.rawToolMarkupFinalAnswer}` +
         ` tool_envelope_final_answer=${item.toolEnvelopeFinalAnswer}${recoveryText}${toolText}${selectedText}${selectionText}` +
-        `${providerErrorText}${lifecycleText}` +
+        `${promptSourceText}${providerErrorText}${lifecycleText}` +
         ` final_text_chars=${item.finalTextChars}`,
     );
   }

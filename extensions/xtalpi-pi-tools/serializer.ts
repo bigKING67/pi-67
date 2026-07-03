@@ -57,11 +57,16 @@ export type ToolSelectionSummary = {
   omitted: ToolSelectionItem[];
 };
 
+export type ToolSelectionPromptSource = "latest_user" | "recent_user_continuation";
+
 export type SerializedXtalpiContext = {
   messages: XtalpiChatMessage[];
   selectedTools: ToolLike[];
   selectedToolNames: Set<string>;
   toolSelectionSummary: ToolSelectionSummary;
+  toolSelectionPromptSource: ToolSelectionPromptSource;
+  toolSelectionPromptChars: number;
+  toolSelectionUserMessageCount: number;
 };
 
 const MAX_TOOL_CALL_HISTORY_ARGUMENTS_CHARS = 4000;
@@ -125,7 +130,7 @@ function truncateSelectionContext(value: string): string {
   return value.slice(value.length - MAX_TOOL_SELECTION_CONTEXT_CHARS);
 }
 
-function recentUserText(messages: MessageLike[]): string {
+function recentUserText(messages: MessageLike[]): { text: string; userMessageCount: number } {
   const chunks: string[] = [];
   for (let index = messages.length - 1; index >= 0 && chunks.length < MAX_TOOL_SELECTION_USER_MESSAGES; index -= 1) {
     const message = messages[index];
@@ -133,12 +138,26 @@ function recentUserText(messages: MessageLike[]): string {
     const content = contentToText(message.content).trim();
     if (content) chunks.push(content);
   }
-  return truncateSelectionContext(chunks.reverse().join("\n"));
+  return { text: truncateSelectionContext(chunks.reverse().join("\n")), userMessageCount: chunks.length };
 }
 
-function toolSelectionPrompt(messages: MessageLike[]): string {
+function toolSelectionPrompt(messages: MessageLike[]): {
+  text: string;
+  source: ToolSelectionPromptSource;
+  userMessageCount: number;
+} {
   const latest = latestUserText(messages);
-  return isContinuationPrompt(latest) ? recentUserText(messages) || latest : latest;
+  if (isContinuationPrompt(latest)) {
+    const recent = recentUserText(messages);
+    if (recent.text) {
+      return {
+        text: recent.text,
+        source: "recent_user_continuation",
+        userMessageCount: recent.userMessageCount,
+      };
+    }
+  }
+  return { text: latest, source: "latest_user", userMessageCount: latest ? 1 : 0 };
 }
 
 function schemaType(value: unknown): string {
@@ -356,7 +375,7 @@ export function serializeContextForXtalpi(
   options: SerializeOptions,
 ): SerializedXtalpiContext {
   const prompt = toolSelectionPrompt(context.messages);
-  const toolSelection = selectToolsWithSummary(context.tools, prompt, options.maxTools);
+  const toolSelection = selectToolsWithSummary(context.tools, prompt.text, options.maxTools);
   const selectedTools = toolSelection.selectedTools;
   const selectedToolNames = toolSelection.selectedToolNames;
   const systemParts = [
@@ -388,7 +407,15 @@ export function serializeContextForXtalpi(
     }
   }
 
-  return { messages: output, selectedTools, selectedToolNames, toolSelectionSummary: toolSelection.summary };
+  return {
+    messages: output,
+    selectedTools,
+    selectedToolNames,
+    toolSelectionSummary: toolSelection.summary,
+    toolSelectionPromptSource: prompt.source,
+    toolSelectionPromptChars: prompt.text.length,
+    toolSelectionUserMessageCount: prompt.userMessageCount,
+  };
 }
 
 export function serializeContextToXtalpiMessages(

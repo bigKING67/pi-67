@@ -343,6 +343,9 @@ const { pathToFileURL } = require("node:url");
       toolSelectionClipped: true,
       toolSelectionOmittedCount: 2,
       toolSelectionValidCount: 4,
+      toolSelectionPromptSource: "recent_user_continuation",
+      toolSelectionPromptChars: 128,
+      toolSelectionUserMessageCount: 3,
       toolSelectionSummary: {
         schema: "xtalpi-pi-tools.tool-selection.v1",
         totalToolCount: 5,
@@ -374,6 +377,9 @@ const { pathToFileURL } = require("node:url");
     assert.equal(debugEvent.tool_selection_clipped, true);
     assert.equal(debugEvent.tool_selection_omitted_count, 2);
     assert.equal(debugEvent.tool_selection_valid_count, 4);
+    assert.equal(debugEvent.tool_selection_prompt_source, "recent_user_continuation");
+    assert.equal(debugEvent.tool_selection_prompt_chars, 128);
+    assert.equal(debugEvent.tool_selection_user_messages, 3);
     assert.equal(debugEvent.max_tool_result_chars, 20000);
     assert.equal(debugEvent.max_output_tokens, 1024);
     assert.equal(debugEvent.request_timeout_ms, 180000);
@@ -461,6 +467,9 @@ const { pathToFileURL } = require("node:url");
   assert.equal(selectedContext.toolSelectionSummary.validToolCount, 3);
   assert.equal(selectedContext.toolSelectionSummary.maxTools, 1);
   assert.equal(selectedContext.toolSelectionSummary.omittedToolCount, 2);
+  assert.equal(selectedContext.toolSelectionPromptSource, "latest_user");
+  assert.equal(selectedContext.toolSelectionUserMessageCount, 1);
+  assert.ok(selectedContext.toolSelectionPromptChars > 0);
   assert.deepEqual(selectedContext.toolSelectionSummary.selected.map((item) => item.name), ["read"]);
   assert.equal(selectedContext.toolSelectionSummary.selected[0].selected, true);
   assert.ok(selectedContext.toolSelectionSummary.selected[0].score > 0);
@@ -491,6 +500,9 @@ const { pathToFileURL } = require("node:url");
     },
   );
   assert.deepEqual([...continuationSelectionContext.selectedToolNames], ["web_fetch"]);
+  assert.equal(continuationSelectionContext.toolSelectionPromptSource, "recent_user_continuation");
+  assert.equal(continuationSelectionContext.toolSelectionUserMessageCount, 2);
+  assert.ok(continuationSelectionContext.toolSelectionPromptChars > "继续".length);
   assert.ok(continuationSelectionContext.messages[0].content.includes("- web_fetch:"));
   assert.ok(!continuationSelectionContext.messages[0].content.includes("- read:"));
 
@@ -520,6 +532,8 @@ const { pathToFileURL } = require("node:url");
     },
   );
   assert.deepEqual([...continuationToolResultIsolationContext.selectedToolNames], ["read"]);
+  assert.equal(continuationToolResultIsolationContext.toolSelectionPromptSource, "recent_user_continuation");
+  assert.equal(continuationToolResultIsolationContext.toolSelectionUserMessageCount, 2);
   assert.ok(continuationToolResultIsolationContext.messages[0].content.includes("- read:"));
   assert.ok(!continuationToolResultIsolationContext.messages[0].content.includes("- web_fetch:"));
 

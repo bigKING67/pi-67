@@ -234,6 +234,13 @@ const toolSelectionTelemetry = turnEvents.map((event) => {
     clipped: boolOrUndefined(event.tool_selection_clipped) ?? boolOrUndefined(data.toolSelectionClipped),
     omittedCount: numberOrUndefined(event.tool_selection_omitted_count) ?? numberOrUndefined(data.toolSelectionOmittedCount),
     validCount: numberOrUndefined(event.tool_selection_valid_count) ?? numberOrUndefined(data.toolSelectionValidCount),
+    promptSource: typeof event.tool_selection_prompt_source === "string"
+      ? event.tool_selection_prompt_source
+      : typeof data.toolSelectionPromptSource === "string"
+        ? data.toolSelectionPromptSource
+        : undefined,
+    promptChars: numberOrUndefined(event.tool_selection_prompt_chars) ?? numberOrUndefined(data.toolSelectionPromptChars),
+    userMessageCount: numberOrUndefined(event.tool_selection_user_messages) ?? numberOrUndefined(data.toolSelectionUserMessageCount),
     selectedNames: toolSelectionNames(summary.selected),
     omittedNames: toolSelectionNames(summary.omitted),
   };
