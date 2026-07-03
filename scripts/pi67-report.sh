@@ -14,6 +14,11 @@ RUN_DOCTOR=true
 DOCTOR_TIMEOUT_MS=90000
 DOCTOR_DEEP_MCP=false
 MCP_TIMEOUT_MS=2500
+XTALPI_SMOKE=true
+XTALPI_SMOKE_DIR="${PI67_XTALPI_SMOKE_DIR:-}"
+XTALPI_SMOKE_HISTORY=3
+XTALPI_SMOKE_TREND=3
+XTALPI_SMOKE_TIMEOUT_MS=15000
 DRY_RUN=false
 
 usage() {
@@ -34,6 +39,15 @@ Options:
                             Timeout for doctor JSON. Defaults to 90000.
       --doctor-deep-mcp     Include doctor --deep-mcp in the report.
       --mcp-timeout-ms MS   Timeout passed to doctor --deep-mcp. Defaults to 2500.
+      --no-xtalpi-smoke     Do not summarize local xtalpi smoke artifacts.
+      --xtalpi-smoke-dir DIR
+                            Smoke artifact dir. Defaults to ~/tmp/xtalpi-pi-tools-smoke.
+      --xtalpi-smoke-history N
+                            Number of newest smoke runs to summarize. Defaults to 3.
+      --xtalpi-smoke-trend N
+                            Number of newest smoke runs for full-suite-strict trend gate. Defaults to 3.
+      --xtalpi-smoke-timeout-ms MS
+                            Timeout per debug-summary command. Defaults to 15000.
       --dry-run             Print the target path without writing.
   -h, --help                Show this help.
 
@@ -81,6 +95,26 @@ while [ "$#" -gt 0 ]; do
       MCP_TIMEOUT_MS="${2:?--mcp-timeout-ms requires a number}"
       shift 2
       ;;
+    --no-xtalpi-smoke)
+      XTALPI_SMOKE=false
+      shift
+      ;;
+    --xtalpi-smoke-dir)
+      XTALPI_SMOKE_DIR="${2:?--xtalpi-smoke-dir requires a path}"
+      shift 2
+      ;;
+    --xtalpi-smoke-history)
+      XTALPI_SMOKE_HISTORY="${2:?--xtalpi-smoke-history requires a number}"
+      shift 2
+      ;;
+    --xtalpi-smoke-trend)
+      XTALPI_SMOKE_TREND="${2:?--xtalpi-smoke-trend requires a number}"
+      shift 2
+      ;;
+    --xtalpi-smoke-timeout-ms)
+      XTALPI_SMOKE_TIMEOUT_MS="${2:?--xtalpi-smoke-timeout-ms requires a number}"
+      shift 2
+      ;;
     --dry-run)
       DRY_RUN=true
       shift
@@ -113,16 +147,36 @@ fi
 
 mkdir -p "$(dirname "$OUTPUT")"
 
-node - "$REPO_ROOT" "$PI_AGENT_DIR" "$SHARED_SKILLS_DIR" "$OPERATION" "$OUTPUT" "$RUN_DOCTOR" "$DOCTOR_TIMEOUT_MS" "$DOCTOR_DEEP_MCP" "$MCP_TIMEOUT_MS" <<'NODE'
+node - "$REPO_ROOT" "$PI_AGENT_DIR" "$SHARED_SKILLS_DIR" "$OPERATION" "$OUTPUT" "$RUN_DOCTOR" "$DOCTOR_TIMEOUT_MS" "$DOCTOR_DEEP_MCP" "$MCP_TIMEOUT_MS" "$XTALPI_SMOKE" "$XTALPI_SMOKE_DIR" "$XTALPI_SMOKE_HISTORY" "$XTALPI_SMOKE_TREND" "$XTALPI_SMOKE_TIMEOUT_MS" "$SCRIPT_DIR" <<'NODE'
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { spawnSync } = require("child_process");
 
-const [, , repoRoot, agentDir, sharedSkillsDir, operation, output, runDoctorArg, doctorTimeoutMsArg, doctorDeepMcpArg, mcpTimeoutMs] = process.argv;
+const [
+  ,
+  ,
+  repoRoot,
+  agentDir,
+  sharedSkillsDir,
+  operation,
+  output,
+  runDoctorArg,
+  doctorTimeoutMsArg,
+  doctorDeepMcpArg,
+  mcpTimeoutMs,
+  xtalpiSmokeArg,
+  xtalpiSmokeDirArg,
+  xtalpiSmokeHistoryArg,
+  xtalpiSmokeTrendArg,
+  xtalpiSmokeTimeoutMsArg,
+  scriptDir,
+] = process.argv;
 const runDoctor = runDoctorArg === "true";
 const doctorTimeoutMs = Number(doctorTimeoutMsArg || "90000");
 const doctorDeepMcp = doctorDeepMcpArg === "true";
+const xtalpiSmokeEnabled = xtalpiSmokeArg === "true";
+const { collectXtalpiSmokeStatus, defaultArtifactDir } = require(path.join(scriptDir, "pi67-xtalpi-smoke-status-core.cjs"));
 
 function readText(file) {
   try {
@@ -414,6 +468,20 @@ const report = {
     pi: commandVersion("pi", ["--version"]),
   },
   doctor: runDoctorJson(),
+  xtalpiSmoke: xtalpiSmokeEnabled
+    ? collectXtalpiSmokeStatus({
+        repoRoot,
+        artifactDir: xtalpiSmokeDirArg || defaultArtifactDir(),
+        historyLimit: xtalpiSmokeHistoryArg,
+        strictTrendLimit: xtalpiSmokeTrendArg,
+        timeoutMs: xtalpiSmokeTimeoutMsArg,
+      })
+    : {
+        schemaVersion: 1,
+        schemaId: "pi67-xtalpi-smoke-status/v1",
+        skipped: true,
+        reason: "disabled by caller",
+      },
 };
 
 const dir = path.dirname(output);

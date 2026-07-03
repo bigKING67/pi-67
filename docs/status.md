@@ -10,9 +10,10 @@ It summarizes:
 - optional remote branch head status
 - `~/.pi/agent/pi67-report.json` freshness
 - doctor summary from the latest report
+- latest local `xtalpi-pi-tools` smoke artifact history and `full-suite-strict` trend status
 - recommended next command
 
-It does **not** run `git pull`, `npm install`, `pi67-doctor.sh`, or `pi67-report.sh`, and it does not write files.
+It does **not** run `git pull`, `npm install`, `pi67-doctor.sh`, `pi67-report.sh`, or live smoke tests, and it does not write files.
 
 ## Usage
 
@@ -42,6 +43,18 @@ Inspect a specific branch or remote:
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-status.sh --remote origin --branch main
+```
+
+Inspect a non-default xtalpi smoke artifact directory:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-status.sh --xtalpi-smoke-dir /path/to/xtalpi-pi-tools-smoke
+```
+
+Skip local smoke artifact summarization:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-status.sh --no-xtalpi-smoke
 ```
 
 ## Status results
@@ -86,10 +99,35 @@ Stable top-level fields:
 | `installMode` | string | `in-place` when the repo root is the agent dir; otherwise `linked`. |
 | `agent` | object | Pi agent directory path. |
 | `report` | object | Existing `pi67-report.json` parse/freshness state. |
+| `xtalpiSmoke` | object | Read-only compact summary of local xtalpi smoke artifacts and `full-suite-strict` trend status. |
 | `result` | string | Overall status result. |
 | `blockers` | array | Blocking issues. |
 | `warnings` | array | Non-blocking issues. |
 | `recommendations` | array | Concrete next commands/actions. |
+
+## xtalpi smoke status
+
+By default, status reads the local smoke artifact directory
+`~/tmp/xtalpi-pi-tools-smoke` through:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --history 3 --json
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --trend-gate 3 --profile full-suite-strict --json
+```
+
+The resulting `xtalpiSmoke` block uses schema
+`pi67-xtalpi-smoke-status/v1` and includes:
+
+- `artifactDir`, `historyLimit`, `strictTrendLimit`, and command timeout
+- compact `history` data with newest run ids, `runKind`, selected cases,
+  recoveries, provider errors, and summary gate status
+- compact `strictTrendGate` data with `ok`, gate failures, run-kind counts, and
+  recovery trend
+- `result`: `OK`, `ATTENTION`, `NO_ARTIFACTS`, or `UNAVAILABLE`
+
+`NO_ARTIFACTS` is informational and does not by itself change the top-level
+status result. `ATTENTION` and `UNAVAILABLE` are reported as warnings with a
+debug-summary command recommendation.
 
 ## Report freshness
 

@@ -52,6 +52,7 @@ Compatibility rule:
 | `agent` | object | stable | Pi agent directory state. |
 | `runtime` | object | stable | Local runtime versions. |
 | `doctor` | object | passthrough | Doctor JSON result (`pi67-doctor/v2`) or reporter parse/skip diagnostics. |
+| `xtalpiSmoke` | object | optional-stable | Read-only compact summary of local `xtalpi-pi-tools` smoke artifacts and strict trend status. |
 
 ## `pi67`
 
@@ -229,6 +230,66 @@ When doctor fails to emit valid JSON:
 ```
 
 The reporter intentionally stores byte counts instead of raw stdout/stderr to avoid leaking local private details.
+
+## `xtalpiSmoke`
+
+`scripts/pi67-report.sh` includes a read-only smoke artifact summary by default.
+It does not run live smoke cases and does not write to the smoke artifact
+directory. It calls debug-summary JSON modes and stores compact results:
+
+```json
+{
+  "schemaVersion": 1,
+  "schemaId": "pi67-xtalpi-smoke-status/v1",
+  "artifactDir": "/Users/example/tmp/xtalpi-pi-tools-smoke",
+  "historyLimit": 3,
+  "strictTrendLimit": 3,
+  "result": "ATTENTION",
+  "history": {
+    "ok": true,
+    "data": {
+      "found": 3,
+      "totalArtifacts": 77,
+      "runs": [
+        {
+          "runId": "20260703-151935",
+          "runKind": "full-suite",
+          "ok": true,
+          "failures": 0,
+          "cases": 8
+        }
+      ]
+    }
+  },
+  "strictTrendGate": {
+    "ok": false,
+    "data": {
+      "ok": false,
+      "runKindCounts": {
+        "full-suite": 2,
+        "targeted": 1
+      },
+      "gateFailures": []
+    }
+  }
+}
+```
+
+Result values:
+
+| Result | Meaning |
+| --- | --- |
+| `OK` | Smoke artifacts were found, history parsed, and the `full-suite-strict` trend gate passed. |
+| `ATTENTION` | History or strict trend evaluation failed or returned gate failures. |
+| `NO_ARTIFACTS` | The artifact directory is missing; this is informational for fresh installs. |
+| `UNAVAILABLE` | The local debug-summary helper is missing or not executable. |
+
+Options:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-report.sh --xtalpi-smoke-dir /path/to/xtalpi-pi-tools-smoke
+bash ~/.pi/agent/scripts/pi67-report.sh --no-xtalpi-smoke
+```
 
 ## Consumer guidance
 

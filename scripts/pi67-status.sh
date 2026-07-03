@@ -26,6 +26,11 @@ CHECK_REMOTE=true
 REMOTE="origin"
 BRANCH=""
 REMOTE_TIMEOUT_MS=8000
+XTALPI_SMOKE=true
+XTALPI_SMOKE_DIR="${PI67_XTALPI_SMOKE_DIR:-}"
+XTALPI_SMOKE_HISTORY=3
+XTALPI_SMOKE_TREND=3
+XTALPI_SMOKE_TIMEOUT_MS=15000
 
 usage() {
   cat <<'USAGE'
@@ -41,6 +46,12 @@ Options:
       --branch NAME            Remote branch to inspect. Defaults to current branch.
       --no-remote              Do not call git ls-remote.
       --remote-timeout-ms MS   Timeout for remote checks. Defaults to 8000.
+      --no-xtalpi-smoke        Do not summarize local xtalpi smoke artifacts.
+      --xtalpi-smoke-dir DIR   Smoke artifact dir. Defaults to ~/tmp/xtalpi-pi-tools-smoke.
+      --xtalpi-smoke-history N Number of newest smoke runs to summarize. Defaults to 3.
+      --xtalpi-smoke-trend N   Number of newest smoke runs for full-suite-strict trend gate. Defaults to 3.
+      --xtalpi-smoke-timeout-ms MS
+                               Timeout per debug-summary command. Defaults to 15000.
       --json                   Emit machine-readable JSON only.
   -h, --help                   Show this help.
 
@@ -74,6 +85,26 @@ while [ "$#" -gt 0 ]; do
       REMOTE_TIMEOUT_MS="${2:?--remote-timeout-ms requires a number}"
       shift 2
       ;;
+    --no-xtalpi-smoke)
+      XTALPI_SMOKE=false
+      shift
+      ;;
+    --xtalpi-smoke-dir)
+      XTALPI_SMOKE_DIR="${2:?--xtalpi-smoke-dir requires a path}"
+      shift 2
+      ;;
+    --xtalpi-smoke-history)
+      XTALPI_SMOKE_HISTORY="${2:?--xtalpi-smoke-history requires a number}"
+      shift 2
+      ;;
+    --xtalpi-smoke-trend)
+      XTALPI_SMOKE_TREND="${2:?--xtalpi-smoke-trend requires a number}"
+      shift 2
+      ;;
+    --xtalpi-smoke-timeout-ms)
+      XTALPI_SMOKE_TIMEOUT_MS="${2:?--xtalpi-smoke-timeout-ms requires a number}"
+      shift 2
+      ;;
     --json)
       OUTPUT_FORMAT="json"
       shift
@@ -100,7 +131,7 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 
-node - "$REPO_ROOT" "$PI_AGENT_DIR" "$OUTPUT_FORMAT" "$CHECK_REMOTE" "$REMOTE" "$BRANCH" "$REMOTE_TIMEOUT_MS" <<'NODE'
+node - "$REPO_ROOT" "$PI_AGENT_DIR" "$OUTPUT_FORMAT" "$CHECK_REMOTE" "$REMOTE" "$BRANCH" "$REMOTE_TIMEOUT_MS" "$XTALPI_SMOKE" "$XTALPI_SMOKE_DIR" "$XTALPI_SMOKE_HISTORY" "$XTALPI_SMOKE_TREND" "$XTALPI_SMOKE_TIMEOUT_MS" "$SCRIPT_DIR" <<'NODE'
 const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
@@ -115,11 +146,19 @@ const [
   remoteName,
   branchArg,
   remoteTimeoutMsArg,
+  xtalpiSmokeArg,
+  xtalpiSmokeDirArg,
+  xtalpiSmokeHistoryArg,
+  xtalpiSmokeTrendArg,
+  xtalpiSmokeTimeoutMsArg,
+  scriptDir,
 ] = process.argv;
 
 const outputJson = outputFormat === "json";
 const checkRemote = checkRemoteArg === "true";
 const remoteTimeoutMs = Number(remoteTimeoutMsArg || "8000");
+const xtalpiSmokeEnabled = xtalpiSmokeArg === "true";
+const { collectXtalpiSmokeStatus, defaultArtifactDir } = require(path.join(scriptDir, "pi67-xtalpi-smoke-status-core.cjs"));
 
 function command(commandName, args, options = {}) {
   const result = spawnSync(commandName, args, {
@@ -397,7 +436,7 @@ function deriveReport(repository, version) {
   return base;
 }
 
-function deriveResult(repository, remote, report) {
+function deriveResult(repository, remote, report, xtalpiSmoke) {
   const recommendations = [];
   const warnings = [];
   const blockers = [];
@@ -462,6 +501,22 @@ function deriveResult(repository, remote, report) {
     recommendations.push("Regenerate the report with doctor enabled.");
   }
 
+  if (xtalpiSmoke && xtalpiSmoke.skipped !== true) {
+    if (xtalpiSmoke.result === "ATTENTION") {
+      const failures = xtalpiSmoke.strictTrendGate?.data?.gateFailures || [];
+      warnings.push(
+        failures.length > 0
+          ? `xtalpi smoke full-suite-strict trend needs attention: ${failures.join("; ")}`
+          : "xtalpi smoke full-suite-strict trend needs attention",
+      );
+      recommendations.push(
+        `Inspect xtalpi smoke trend: bash ${path.join(repoRoot, "scripts", "pi67-xtalpi-pi-tools-debug-summary.sh")} --trend-gate ${xtalpiSmoke.strictTrendLimit || 3} --profile full-suite-strict "${xtalpiSmoke.artifactDir || "$HOME/tmp/xtalpi-pi-tools-smoke"}"`,
+      );
+    } else if (xtalpiSmoke.result === "UNAVAILABLE") {
+      warnings.push(`xtalpi smoke status unavailable: ${(xtalpiSmoke.warnings || []).join("; ") || "unknown reason"}`);
+    }
+  }
+
   const uniqueRecommendations = [...new Set(recommendations)];
   let result = "READY";
   if (blockers.length > 0) {
@@ -491,7 +546,21 @@ const installMode = deriveInstallMode();
 const repository = deriveRepository();
 const remote = deriveRemote(repository);
 const report = deriveReport(repository, version);
-const status = deriveResult(repository, remote, report);
+const xtalpiSmoke = xtalpiSmokeEnabled
+  ? collectXtalpiSmokeStatus({
+      repoRoot,
+      artifactDir: xtalpiSmokeDirArg || defaultArtifactDir(),
+      historyLimit: xtalpiSmokeHistoryArg,
+      strictTrendLimit: xtalpiSmokeTrendArg,
+      timeoutMs: xtalpiSmokeTimeoutMsArg,
+    })
+  : {
+      schemaVersion: 1,
+      schemaId: "pi67-xtalpi-smoke-status/v1",
+      skipped: true,
+      reason: "disabled by caller",
+    };
+const status = deriveResult(repository, remote, report, xtalpiSmoke);
 
 const output = {
   schemaVersion: 1,
@@ -510,6 +579,7 @@ const output = {
     installMode,
   },
   report,
+  xtalpiSmoke,
   result: status.result,
   blockers: status.blockers,
   warnings: status.warnings,
@@ -569,6 +639,44 @@ if (!report.exists) {
     }
   } else {
     console.log("Doctor     : missing");
+  }
+}
+console.log("");
+console.log("--- xtalpi smoke ---");
+if (xtalpiSmoke.skipped) {
+  console.log(`State      : skipped (${xtalpiSmoke.reason || "unknown reason"})`);
+} else {
+  console.log(`Artifact dir: ${xtalpiSmoke.artifactDir || "unknown"}`);
+  console.log(`Result     : ${xtalpiSmoke.result || "unknown"}`);
+  if (!xtalpiSmoke.artifactsExist) {
+    console.log("History    : no artifacts");
+  } else {
+    const history = xtalpiSmoke.history?.data;
+    const latest = history?.runs?.[0];
+    console.log(
+      `History    : found=${history?.found ?? "?"}/${history?.requested ?? "?"} total=${history?.totalArtifacts ?? "?"}`,
+    );
+    if (latest) {
+      console.log(
+        `Latest     : ${latest.runId || "unknown"} run_kind=${latest.runKind || "unknown"} ` +
+          `ok=${latest.ok ?? "?"} failures=${latest.failures ?? "?"} cases=${latest.cases ?? "?"}`,
+      );
+    }
+    const trend = xtalpiSmoke.strictTrendGate?.data;
+    if (trend) {
+      console.log(
+        `Strict gate: ok=${trend.ok ?? "?"} found=${trend.found ?? "?"}/${trend.requested ?? "?"} ` +
+          `run_kinds=${JSON.stringify(trend.runKindCounts || {})}`,
+      );
+      if (trend.gateFailures?.length) {
+        console.log(`Gate why   : ${trend.gateFailures.join("; ")}`);
+      }
+    } else if (xtalpiSmoke.strictTrendGate) {
+      console.log(
+        `Strict gate: unavailable exit=${xtalpiSmoke.strictTrendGate.exitCode ?? "?"} ` +
+          `parse_error=${xtalpiSmoke.strictTrendGate.parseError || "none"}`,
+      );
+    }
   }
 }
 console.log("");

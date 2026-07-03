@@ -338,6 +338,8 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
 
 `--history` 读取 `<stamp>-summary.json`，按最新优先输出每轮 `ok`、`failures`、`cases`、`run_kind`、`selected_cases`、`case_set_sha256`、`recoveries`、`recovery_rate`、raw markup final answer、empty assistant end、error、provider error、process lifecycle failure 和 watchdog timeout 计数；它会忽略同目录下的 `<stamp>-debug-summary.json` 中间产物，避免把 debug-summary 自身误当成 smoke run。旧 summary 如果没有 `runKind`，debug-summary 会根据 `caseSet`、`providerHealth` 和 `stopReason` 现场回推分类。
 
+`scripts/pi67-report.sh` 和 `scripts/pi67-status.sh` 也会默认读取同一 smoke artifact 目录，写入 / 输出 compact `xtalpiSmoke` 状态：最近 3 次 history、每轮 `runKind`，以及 `--trend-gate 3 --profile full-suite-strict` 的结果。该状态只读本地 artifact，不运行 live smoke，也不改写历史文件；使用 `--no-xtalpi-smoke` 可关闭，或用 `--xtalpi-smoke-dir DIR` 指向非默认目录。
+
 也可以精确汇总某一次 smoke run，避免并发或历史 artifact 干扰：
 
 ```bash

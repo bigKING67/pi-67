@@ -211,6 +211,9 @@ fi
 if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-pi-tools-debug-summary.sh" ]; then
   bash -n "$REPO_ROOT/scripts/pi67-xtalpi-pi-tools-debug-summary.sh"
 fi
+if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-smoke-status-core.cjs" ]; then
+  node --check "$REPO_ROOT/scripts/pi67-xtalpi-smoke-status-core.cjs" >/dev/null
+fi
 if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-provider-health.mjs" ]; then
   node --check "$REPO_ROOT/scripts/pi67-xtalpi-provider-health.mjs" >/dev/null
 fi
@@ -851,6 +854,9 @@ UPDATE_REPO="$TMP_ROOT/update-repo"
 git clone "$REPO_ROOT" "$UPDATE_REPO" >/tmp/pi67-smoke-update-clone.log 2>&1
 cp "$REPO_ROOT/scripts/pi67-report.sh" "$UPDATE_REPO/scripts/pi67-report.sh"
 chmod +x "$UPDATE_REPO/scripts/pi67-report.sh"
+if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-smoke-status-core.cjs" ]; then
+  cp "$REPO_ROOT/scripts/pi67-xtalpi-smoke-status-core.cjs" "$UPDATE_REPO/scripts/pi67-xtalpi-smoke-status-core.cjs"
+fi
 
 "$REPO_ROOT/scripts/pi67-update.sh" \
   --repo-root "$UPDATE_REPO" \
