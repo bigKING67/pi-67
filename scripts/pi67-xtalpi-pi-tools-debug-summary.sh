@@ -12,6 +12,8 @@ RUN_ID=""
 HISTORY_LIMIT=""
 TREND_GATE_LIMIT=""
 DRIFT_LIMIT=""
+RETENTION_REPORT="0"
+RETENTION_POLICY_OPTION_USED="0"
 COMPARE_BASE_RUN_ID=""
 COMPARE_HEAD_RUN_ID=""
 FAIL_ON_RECOVERY_INCREASE="0"
@@ -27,6 +29,10 @@ RUN_KIND_FILTER=""
 REQUIRE_RUN_KIND=""
 REQUIRE_STABLE_RUNTIME_FINGERPRINT="0"
 REQUIRE_STABLE_RUNTIME_BOUNDS="0"
+KEEP_FULL_SUITE="10"
+KEEP_TARGETED="10"
+KEEP_PREFLIGHT_FAILED="10"
+KEEP_EMPTY="5"
 
 usage() {
   cat <<'EOF'
@@ -42,6 +48,7 @@ Selection:
   --history N                    show newest N persisted *-summary.json smoke runs
   --trend-gate N                 gate newest N persisted smoke summaries
   --drift N                      summarize provider/runtime drift across newest N persisted smoke summaries
+  --retention-report             report read-only artifact retention/hygiene recommendations
   --compare BASE_RUN HEAD_RUN    compare two persisted smoke summaries
   --run-kind LIST                for --history/--trend-gate/--drift, filter persisted summaries by runKind before selecting newest N
   --require-run-kind LIST         require selected run(s) to have one of the comma-separated runKind values
@@ -63,6 +70,12 @@ Gate options:
   --require-stable-runtime-fingerprint
                                   require stable runtime fingerprint across --trend-gate runs
   --require-stable-runtime-bounds  require stable runtime bounds across --trend-gate runs
+
+Retention report options:
+  --keep-full-suite N             retain newest N full-suite runs before suggesting archive; default: 10
+  --keep-targeted N               retain newest N targeted runs before suggesting archive; default: 10
+  --keep-preflight-failed N        retain newest N preflight-failed runs before suggesting archive; default: 10
+  --keep-empty N                  retain newest N empty runs before suggesting archive; default: 5
 
 Default OUT_DIR:
   $HOME/tmp/xtalpi-pi-tools-smoke
@@ -516,6 +529,10 @@ writeSummary("20260702-000004", {
   totalCases: fullSuiteCases.length,
   selectedCases: fullSuiteCases,
 });
+writeCase(mixedFullSuiteTrend, "20260702-000005", "orphan", {
+  toolNames: ["read"],
+});
+fs.writeFileSync(path.join(mixedFullSuiteTrend, "manual-note.txt"), "manual artifact note\n");
 
 const driftHistory = ensureDir("drift");
 writeSummary("20260702-000001", {
@@ -735,6 +752,57 @@ NODE
   fi
   if [[ "$output" != *"xtalpi-pi-tools smoke drift"* || "$output" != *"runtime_bounds_changed=true"* || "$output" != *"run_kind_changed=true"* || "$output" != *"quality_signals_present=true"* ]]; then
     echo "drift text output did not expose expected drift indicators"
+    echo "$output"
+    return 1
+  fi
+
+  local retention_json="$tmp_dir/retention-output.json"
+  if ! output="$("$SCRIPT_PATH" --retention-report --keep-full-suite 2 --keep-targeted 0 --json "$tmp_dir/mixed-full-suite-trend" >"$retention_json" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+  if ! node - "$retention_json" <<'NODE'; then
+const fs = require("node:fs");
+const data = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+assert(data.schema === "xtalpi-pi-tools.smoke-retention-report.v1", "unexpected retention schema");
+assert(data.policy.action === "report_only", "retention report must be read-only");
+assert(data.totals.summaryArtifacts === 4, "retention fixture should see four summary artifacts");
+assert(data.runKindCounts["full-suite"] === 3, "retention should count full-suite runs");
+assert(data.runKindCounts.targeted === 1, "retention should count targeted runs");
+assert(data.totals.archiveCandidateRuns === 2, "retention policy should propose two archive candidates");
+assert(data.archiveCandidateRunIds.join(",") === "20260702-000003,20260702-000001", "retention candidates should be newest-order policy leftovers");
+assert(data.retainedRunIds.includes("20260702-000004"), "retention should keep newest full-suite");
+assert(data.retainedRunIds.includes("20260702-000002"), "retention should keep second newest full-suite");
+assert(data.archiveCandidateSample.every((run) => run.processLifecycleFailures === 0), "retention compact run should expose lifecycle quality fields");
+assert(data.totals.runsWithoutSummary === 1, "retention should report orphan run artifacts without a summary");
+assert(data.runsWithoutSummary[0].runId === "20260702-000005", "retention should expose orphan run id");
+assert(data.runsWithoutSummary[0].fileCount === 2, "retention should count orphan run files");
+assert(data.totals.unknownFiles === 1, "retention should report unknown files");
+assert(data.unknownFiles[0].file === "manual-note.txt", "retention should expose unknown file sample");
+NODE
+    echo "retention JSON output did not expose expected policy recommendations"
+    cat "$retention_json"
+    return 1
+  fi
+  if ! output="$("$SCRIPT_PATH" --retention-report --keep-full-suite 2 --keep-targeted 0 "$tmp_dir/mixed-full-suite-trend" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+  if [[ "$output" != *"xtalpi-pi-tools smoke retention report"* || "$output" != *"report_only=true"* || "$output" != *"archive_candidate_runs=2"* ]]; then
+    echo "retention text output did not expose expected retention summary"
+    echo "$output"
+    return 1
+  fi
+  if output="$("$SCRIPT_PATH" --history 1 --keep-full-suite 2 "$tmp_dir/mixed-full-suite-trend" 2>&1)"; then
+    echo "expected retention policy options without --retention-report to fail"
+    echo "$output"
+    return 1
+  fi
+  if [[ "$output" != *"--keep-* options require --retention-report"* ]]; then
+    echo "retention policy option misuse did not expose expected error"
     echo "$output"
     return 1
   fi
@@ -999,6 +1067,10 @@ while [ "$#" -gt 0 ]; do
       DRIFT_LIMIT="${2:-}"
       shift 2
       ;;
+    --retention-report)
+      RETENTION_REPORT="1"
+      shift
+      ;;
     --compare)
       if [ "$#" -lt 3 ]; then
         echo "xtalpi-pi-tools debug summary: --compare requires BASE_RUN and HEAD_RUN" >&2
@@ -1077,6 +1149,42 @@ while [ "$#" -gt 0 ]; do
       REQUIRE_STABLE_RUNTIME_BOUNDS="1"
       shift
       ;;
+    --keep-full-suite)
+      if [ "$#" -lt 2 ]; then
+        echo "xtalpi-pi-tools debug summary: --keep-full-suite requires N" >&2
+        exit 2
+      fi
+      RETENTION_POLICY_OPTION_USED="1"
+      KEEP_FULL_SUITE="${2:-}"
+      shift 2
+      ;;
+    --keep-targeted)
+      if [ "$#" -lt 2 ]; then
+        echo "xtalpi-pi-tools debug summary: --keep-targeted requires N" >&2
+        exit 2
+      fi
+      RETENTION_POLICY_OPTION_USED="1"
+      KEEP_TARGETED="${2:-}"
+      shift 2
+      ;;
+    --keep-preflight-failed)
+      if [ "$#" -lt 2 ]; then
+        echo "xtalpi-pi-tools debug summary: --keep-preflight-failed requires N" >&2
+        exit 2
+      fi
+      RETENTION_POLICY_OPTION_USED="1"
+      KEEP_PREFLIGHT_FAILED="${2:-}"
+      shift 2
+      ;;
+    --keep-empty)
+      if [ "$#" -lt 2 ]; then
+        echo "xtalpi-pi-tools debug summary: --keep-empty requires N" >&2
+        exit 2
+      fi
+      RETENTION_POLICY_OPTION_USED="1"
+      KEEP_EMPTY="${2:-}"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -1114,7 +1222,13 @@ node - \
   "$RUN_KIND_FILTER" \
   "$REQUIRE_RUN_KIND" \
   "$REQUIRE_STABLE_RUNTIME_FINGERPRINT" \
-  "$REQUIRE_STABLE_RUNTIME_BOUNDS" <<'NODE'
+  "$REQUIRE_STABLE_RUNTIME_BOUNDS" \
+  "$RETENTION_REPORT" \
+  "$RETENTION_POLICY_OPTION_USED" \
+  "$KEEP_FULL_SUITE" \
+  "$KEEP_TARGETED" \
+  "$KEEP_PREFLIGHT_FAILED" \
+  "$KEEP_EMPTY" <<'NODE'
 const fs = require("node:fs");
 const crypto = require("node:crypto");
 const path = require("node:path");
@@ -1144,6 +1258,12 @@ const [
   requireRunKindRaw,
   requireStableRuntimeFingerprintRaw,
   requireStableRuntimeBoundsRaw,
+  retentionReportRaw,
+  retentionPolicyOptionUsedRaw,
+  keepFullSuiteRaw,
+  keepTargetedRaw,
+  keepPreflightFailedRaw,
+  keepEmptyRaw,
 ] = process.argv.slice(2);
 const {
   buildCaseSet,
@@ -1175,6 +1295,15 @@ function optionalNumber(raw, name) {
   const value = Number(raw);
   if (!Number.isFinite(value) || value < 0) {
     console.error(`xtalpi-pi-tools debug summary: ${name} must be a non-negative number`);
+    process.exit(2);
+  }
+  return value;
+}
+
+function requiredNonNegativeInteger(raw, name) {
+  const value = optionalNumber(raw, name);
+  if (value === undefined || !Number.isInteger(value)) {
+    console.error(`xtalpi-pi-tools debug summary: ${name} must be a non-negative integer`);
     process.exit(2);
   }
   return value;
@@ -1257,6 +1386,17 @@ const runKindFilter = parseRunKindList(runKindFilterRaw, "--run-kind");
 const requireRunKinds = parseRunKindList(requireRunKindRaw, "--require-run-kind");
 const requireStableRuntimeFingerprint = requireStableRuntimeFingerprintRaw === "1";
 const requireStableRuntimeBounds = requireStableRuntimeBoundsRaw === "1";
+const retentionReport = retentionReportRaw === "1";
+const retentionPolicyOptionUsed = retentionPolicyOptionUsedRaw === "1";
+const retentionPolicy = {
+  action: "report_only",
+  keepFullSuite: requiredNonNegativeInteger(keepFullSuiteRaw, "--keep-full-suite"),
+  keepTargeted: requiredNonNegativeInteger(keepTargetedRaw, "--keep-targeted"),
+  keepPreflightFailed: requiredNonNegativeInteger(keepPreflightFailedRaw, "--keep-preflight-failed"),
+  keepEmpty: requiredNonNegativeInteger(keepEmptyRaw, "--keep-empty"),
+  keepQualitySignalRuns: true,
+  sampleLimit: 20,
+};
 const gates = {
   profile: gateProfile || undefined,
   expectCases: optionalNumber(expectCasesRaw, "--expect-cases"),
@@ -1303,8 +1443,8 @@ if (compareMode && (compareBaseRunId === "" || compareHeadRunId === "")) {
   console.error("xtalpi-pi-tools debug summary: --compare requires BASE_RUN and HEAD_RUN");
   process.exit(2);
 }
-if (compareMode && (historyLimit !== undefined || trendGateLimit !== undefined || driftLimit !== undefined)) {
-  console.error("xtalpi-pi-tools debug summary: --compare cannot be combined with --history, --trend-gate, or --drift");
+if (compareMode && (historyLimit !== undefined || trendGateLimit !== undefined || driftLimit !== undefined || retentionReport)) {
+  console.error("xtalpi-pi-tools debug summary: --compare cannot be combined with --history, --trend-gate, --drift, or --retention-report");
   process.exit(2);
 }
 if (compareMode && (runKindFilter !== undefined || requireRunKinds !== undefined)) {
@@ -1315,9 +1455,14 @@ if (compareMode && (latestOnly || runIdFilter !== "")) {
   console.error("xtalpi-pi-tools debug summary: --compare cannot be combined with --latest or --run-id");
   process.exit(2);
 }
-const aggregateModeCount = [historyLimit, trendGateLimit, driftLimit].filter((value) => value !== undefined).length;
+const aggregateModeCount = [historyLimit, trendGateLimit, driftLimit, retentionReport ? 1 : undefined]
+  .filter((value) => value !== undefined).length;
 if (aggregateModeCount > 1) {
-  console.error("xtalpi-pi-tools debug summary: --history, --trend-gate, and --drift are mutually exclusive");
+  console.error("xtalpi-pi-tools debug summary: --history, --trend-gate, --drift, and --retention-report are mutually exclusive");
+  process.exit(2);
+}
+if (!retentionReport && retentionPolicyOptionUsed) {
+  console.error("xtalpi-pi-tools debug summary: --keep-* options require --retention-report");
   process.exit(2);
 }
 if ((trendGateLimit !== undefined || driftLimit !== undefined) && (latestOnly || runIdFilter !== "")) {
@@ -1330,6 +1475,31 @@ if (driftLimit !== undefined && requireRunKinds !== undefined) {
 }
 if ((requireStableRuntimeFingerprint || requireStableRuntimeBounds) && trendGateLimit === undefined) {
   console.error("xtalpi-pi-tools debug summary: --require-stable-runtime* requires --trend-gate");
+  process.exit(2);
+}
+if (retentionReport && (latestOnly || runIdFilter !== "")) {
+  console.error("xtalpi-pi-tools debug summary: --retention-report cannot be combined with --latest or --run-id");
+  process.exit(2);
+}
+if (retentionReport && (runKindFilter !== undefined || requireRunKinds !== undefined)) {
+  console.error("xtalpi-pi-tools debug summary: --retention-report cannot be combined with --run-kind or --require-run-kind");
+  process.exit(2);
+}
+if (retentionReport && (
+  gateProfile ||
+  failOnRecoveryIncrease ||
+  maxRecoveryCaseRunsRaw !== "" ||
+  expectCasesRaw !== "" ||
+  expectCaseNamesRaw !== "" ||
+  maxErrorsRaw !== "0" ||
+  maxEmptyAssistantEndsRaw !== "" ||
+  maxRawToolMarkupFinalAnswersRaw !== "" ||
+  maxRecoveriesRaw !== "" ||
+  maxRecoveryRateRaw !== "" ||
+  requireStableRuntimeFingerprint ||
+  requireStableRuntimeBounds
+)) {
+  console.error("xtalpi-pi-tools debug summary: --retention-report cannot be combined with trend gate options");
   process.exit(2);
 }
 if (historyLimit !== undefined && (latestOnly || runIdFilter !== "")) {
@@ -2215,6 +2385,236 @@ function compactDriftRun(run) {
   };
 }
 
+function classifyArtifactFile(file) {
+  let match = file.match(/^(\d{8}-\d{6})-summary\.json$/);
+  if (match) return { runId: match[1], kind: "summary", caseName: null };
+  match = file.match(/^(\d{8}-\d{6})-debug-summary\.json$/);
+  if (match) return { runId: match[1], kind: "debug-summary", caseName: null };
+  match = file.match(/^(\d{8}-\d{6})-provider-health\.json$/);
+  if (match) return { runId: match[1], kind: "provider-health", caseName: null };
+  match = file.match(/^(\d{8}-\d{6})-(.+)\.debug\.jsonl$/);
+  if (match) return { runId: match[1], kind: "case-debug", caseName: match[2] };
+  match = file.match(/^(\d{8}-\d{6})-(.+)\.lifecycle\.json$/);
+  if (match) return { runId: match[1], kind: "case-lifecycle", caseName: match[2] };
+  match = file.match(/^(\d{8}-\d{6})-(.+)\.jsonl$/);
+  if (match) return { runId: match[1], kind: "case-events", caseName: match[2] };
+  match = file.match(/^(\d{8}-\d{6})-(.+)\.stderr$/);
+  if (match) return { runId: match[1], kind: "case-stderr", caseName: match[2] };
+  match = file.match(/^(\d{8}-\d{6})-(.+)\.txt$/);
+  if (match) return { runId: match[1], kind: "case-text", caseName: match[2] };
+  return { runId: null, kind: "unknown", caseName: null };
+}
+
+function listArtifactFiles() {
+  return fs.readdirSync(outDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => {
+      const file = entry.name;
+      const stat = fs.statSync(path.join(outDir, file));
+      return {
+        file,
+        bytes: stat.size,
+        ...classifyArtifactFile(file),
+      };
+    })
+    .sort((left, right) => left.file.localeCompare(right.file));
+}
+
+function summarizeFileGroup(files) {
+  return {
+    fileCount: files.length,
+    bytes: files.reduce((sum, item) => sum + numberOrZero(item.bytes), 0),
+    kinds: countBy(files, (item) => item.kind),
+    sampleFiles: files.slice(0, retentionPolicy.sampleLimit).map((item) => item.file),
+  };
+}
+
+function hasQualitySignal(run) {
+  if (run.parseError) return true;
+  if (run.ok !== true) return true;
+  return [
+    "failures",
+    "debugSummaryStatus",
+    "recoveries",
+    "rawToolMarkupFinalAnswers",
+    "emptyAssistantEnds",
+    "toolEnvelopeFinalAnswers",
+    "errors",
+    "processLifecycleFailures",
+    "watchdogTimeouts",
+    "timedOutAfterAgentEnd",
+    "providerErrors",
+    "retryableProviderErrors",
+    "argumentValidationWarnings",
+  ].some((field) => numberOrZero(run[field]) > 0);
+}
+
+function retentionLimitForRunKind(runKind) {
+  if (runKind === "full-suite") return retentionPolicy.keepFullSuite;
+  if (runKind === "targeted") return retentionPolicy.keepTargeted;
+  if (runKind === "preflight-failed") return retentionPolicy.keepPreflightFailed;
+  if (runKind === "empty") return retentionPolicy.keepEmpty;
+  return 0;
+}
+
+function addRetainReason(retainReasons, runId, reason) {
+  if (!retainReasons.has(runId)) retainReasons.set(runId, []);
+  retainReasons.get(runId).push(reason);
+}
+
+function compactRetentionRun(run, groupedFiles, retainReasons) {
+  const files = groupedFiles.get(run.runId) || [];
+  return {
+    runId: run.runId,
+    ok: run.ok,
+    runKind: run.runKind || null,
+    cases: run.cases,
+    failures: run.failures,
+    recoveries: run.recoveries,
+    debugSummaryStatus: run.debugSummaryStatus,
+    rawToolMarkupFinalAnswers: run.rawToolMarkupFinalAnswers,
+    emptyAssistantEnds: run.emptyAssistantEnds,
+    toolEnvelopeFinalAnswers: run.toolEnvelopeFinalAnswers,
+    errors: run.errors,
+    processLifecycleFailures: run.processLifecycleFailures,
+    watchdogTimeouts: run.watchdogTimeouts,
+    timedOutAfterAgentEnd: run.timedOutAfterAgentEnd,
+    providerErrors: run.providerErrors,
+    retryableProviderErrors: run.retryableProviderErrors,
+    argumentValidationWarnings: run.argumentValidationWarnings,
+    qualitySignalPresent: hasQualitySignal(run),
+    parseError: run.parseError || null,
+    retainReasons: retainReasons.get(run.runId) || [],
+    fileCount: files.length,
+    bytes: files.reduce((sum, item) => sum + numberOrZero(item.bytes), 0),
+    artifactKinds: countBy(files, (item) => item.kind),
+  };
+}
+
+function buildRetentionReport() {
+  const files = listArtifactFiles();
+  const groupedFiles = new Map();
+  for (const file of files) {
+    if (!file.runId) continue;
+    if (!groupedFiles.has(file.runId)) groupedFiles.set(file.runId, []);
+    groupedFiles.get(file.runId).push(file);
+  }
+
+  const summaryFiles = listSmokeSummaryFiles();
+  if (summaryFiles.length === 0) {
+    console.error(`xtalpi-pi-tools debug summary: no *-summary.json files found in ${outDir}`);
+    process.exit(1);
+  }
+  const runs = summaryFiles.slice().reverse().map(summarizeSmokeSummaryFile);
+  const summaryRunIds = new Set(runs.map((run) => run.runId));
+  const retainReasons = new Map();
+
+  for (const run of runs) {
+    if (hasQualitySignal(run)) {
+      addRetainReason(retainReasons, run.runId, "quality_signal");
+    }
+  }
+
+  const runKindCounts = countBy(runs, (run) => run.runKind);
+  const runsByKind = new Map();
+  for (const run of runs) {
+    const kind = run.runKind || "unknown";
+    if (!runsByKind.has(kind)) runsByKind.set(kind, []);
+    runsByKind.get(kind).push(run);
+  }
+  for (const [kind, kindRuns] of runsByKind.entries()) {
+    const limit = retentionLimitForRunKind(kind);
+    for (const run of kindRuns.slice(0, limit)) {
+      addRetainReason(retainReasons, run.runId, `latest_${kind}_within_limit`);
+    }
+  }
+
+  const retainedRuns = runs.filter((run) => retainReasons.has(run.runId));
+  const archiveCandidates = runs.filter((run) => !retainReasons.has(run.runId));
+  const archiveCandidateRunIds = archiveCandidates.map((run) => run.runId);
+  const archiveCandidateRunIdSet = new Set(archiveCandidateRunIds);
+  const archiveCandidateFiles = files.filter((file) => file.runId && archiveCandidateRunIdSet.has(file.runId));
+  const runsWithoutSummary = [...groupedFiles.entries()]
+    .filter(([runId]) => !summaryRunIds.has(runId))
+    .map(([runId, groupFiles]) => ({
+      runId,
+      ...summarizeFileGroup(groupFiles),
+    }))
+    .sort((left, right) => right.runId.localeCompare(left.runId));
+  const unknownFiles = files
+    .filter((file) => !file.runId)
+    .map((file) => ({ file: file.file, bytes: file.bytes, kind: file.kind }));
+
+  return {
+    schema: "xtalpi-pi-tools.smoke-retention-report.v1",
+    outDir,
+    policy: retentionPolicy,
+    totals: {
+      totalFiles: files.length,
+      totalBytes: files.reduce((sum, item) => sum + numberOrZero(item.bytes), 0),
+      summaryArtifacts: summaryFiles.length,
+      runsWithSummary: runs.length,
+      retainedRuns: retainedRuns.length,
+      archiveCandidateRuns: archiveCandidates.length,
+      archiveCandidateFiles: archiveCandidateFiles.length,
+      archiveCandidateBytes: archiveCandidateFiles.reduce((sum, item) => sum + numberOrZero(item.bytes), 0),
+      runsWithoutSummary: runsWithoutSummary.length,
+      unknownFiles: unknownFiles.length,
+    },
+    fileKindCounts: countBy(files, (item) => item.kind),
+    runKindCounts,
+    retainedRunIds: retainedRuns.map((run) => run.runId),
+    archiveCandidateRunIds,
+    archiveCandidateSample: archiveCandidates
+      .slice(0, retentionPolicy.sampleLimit)
+      .map((run) => compactRetentionRun(run, groupedFiles, retainReasons)),
+    retainedRunSample: retainedRuns
+      .slice(0, retentionPolicy.sampleLimit)
+      .map((run) => compactRetentionRun(run, groupedFiles, retainReasons)),
+    qualitySignalRunIds: runs.filter(hasQualitySignal).map((run) => run.runId),
+    runsWithoutSummary: runsWithoutSummary.slice(0, retentionPolicy.sampleLimit),
+    unknownFiles: unknownFiles.slice(0, retentionPolicy.sampleLimit),
+  };
+}
+
+function printRetentionReport() {
+  const report = buildRetentionReport();
+  if (format === "json") {
+    console.log(JSON.stringify(report, null, 2));
+  } else {
+    console.log("xtalpi-pi-tools smoke retention report");
+    console.log(
+      `out_dir=${outDir} report_only=true summary_artifacts=${report.totals.summaryArtifacts} ` +
+        `total_files=${report.totals.totalFiles} total_bytes=${report.totals.totalBytes}`,
+    );
+    console.log(
+      `policy=${JSON.stringify(report.policy)} run_kinds=${JSON.stringify(report.runKindCounts)} ` +
+        `file_kinds=${JSON.stringify(report.fileKindCounts)}`,
+    );
+    console.log(
+      `retained_runs=${report.totals.retainedRuns} archive_candidate_runs=${report.totals.archiveCandidateRuns} ` +
+        `archive_candidate_files=${report.totals.archiveCandidateFiles} ` +
+        `archive_candidate_bytes=${report.totals.archiveCandidateBytes}`,
+    );
+    console.log(
+      `runs_without_summary=${report.totals.runsWithoutSummary} unknown_files=${report.totals.unknownFiles} ` +
+        `quality_signal_runs=${report.qualitySignalRunIds.length}`,
+    );
+    if (report.archiveCandidateSample.length > 0) {
+      console.log(
+        `archive_candidates_sample showing=${report.archiveCandidateSample.length}/${report.totals.archiveCandidateRuns}:`,
+      );
+      for (const run of report.archiveCandidateSample) {
+        console.log(
+          `- ${run.runId}: run_kind=${run.runKind || "(missing)"} ok=${run.ok} cases=${run.cases} ` +
+            `failures=${run.failures} recoveries=${run.recoveries} provider_errors=${run.providerErrors} ` +
+            `files=${run.fileCount} bytes=${run.bytes}`,
+        );
+      }
+    }
+  }
+}
+
 function buildDrift(limit) {
   const history = buildHistory(limit);
   const runs = history.runs;
@@ -2721,6 +3121,11 @@ function printTrendGate(limit) {
 if (!fs.existsSync(outDir) || !fs.statSync(outDir).isDirectory()) {
   console.error(`xtalpi-pi-tools debug summary: directory not found: ${outDir}`);
   process.exit(1);
+}
+
+if (retentionReport) {
+  printRetentionReport();
+  process.exit(0);
 }
 
 if (historyLimit !== undefined) {

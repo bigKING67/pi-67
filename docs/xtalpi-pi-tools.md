@@ -382,6 +382,27 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   "$HOME/tmp/xtalpi-pi-tools-smoke"
 ```
 
+查看 artifact 目录保留 / 归档建议：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
+  --retention-report \
+  "$HOME/tmp/xtalpi-pi-tools-smoke"
+```
+
+retention report 是只读目录治理报告，schema 为 `xtalpi-pi-tools.smoke-retention-report.v1`。它会盘点同一 run id 下的 summary、debug-summary、provider-health、case JSONL、stderr、lifecycle 和 text artifact，按 `runKind` 和质量信号给出保留 / 可归档建议，并单独报告有 run id 但缺少 summary 的孤儿 artifact 与无法识别的文件，但不会删除、移动或改写任何文件。默认策略保留最近 10 个 `full-suite`、最近 10 个 `targeted`、最近 10 个 `preflight-failed`、最近 5 个 `empty`，并始终保留有质量信号的 run（例如 failures、recoveries、provider errors、raw markup、process lifecycle failures、parse errors）。`--keep-*` 策略参数只允许和 `--retention-report` 一起使用，避免在 history / drift / trend-gate 模式里产生无效配置。可按需调整：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
+  --retention-report \
+  --keep-full-suite 20 \
+  --keep-targeted 5 \
+  --json \
+  "$HOME/tmp/xtalpi-pi-tools-smoke"
+```
+
+输出中的 `archiveCandidateRunIds` / `archiveCandidateSample` 只是人工归档候选；真正删除或迁移 artifact 仍必须由操作者显式执行。
+
 比较两次已归档 smoke run，用于快速定位 telemetry 回归：
 
 ```bash
