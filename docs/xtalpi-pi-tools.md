@@ -338,7 +338,7 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
 
 `--history` 读取 `<stamp>-summary.json`，按最新优先输出每轮 `ok`、`failures`、`cases`、`run_kind`、`selected_cases`、`case_set_sha256`、`recoveries`、`recovery_rate`、raw markup final answer、empty assistant end、error、provider error、process lifecycle failure 和 watchdog timeout 计数；它会忽略同目录下的 `<stamp>-debug-summary.json` 中间产物，避免把 debug-summary 自身误当成 smoke run。旧 summary 如果没有 `runKind`，debug-summary 会根据 `caseSet`、`providerHealth` 和 `stopReason` 现场回推分类。
 
-`--history` 和 `--trend-gate` 支持 `--run-kind LIST` 先按 `runKind` 过滤 persisted summary artifacts，再选择 newest N；`--require-run-kind LIST` 会要求 selected runs 的 `runKind` 属于指定集合。`scripts/pi67-report.sh` 和 `scripts/pi67-status.sh` 也会默认读取同一 smoke artifact 目录，写入 / 输出 compact `xtalpiSmoke` 状态：最近 3 次整体 history、每轮 `runKind`，以及 `--trend-gate 3 --profile full-suite-strict` 的结果。该状态只读本地 artifact，不运行 live smoke，也不改写历史文件；使用 `--no-xtalpi-smoke` 可关闭，或用 `--xtalpi-smoke-dir DIR` 指向非默认目录。
+`--history`、`--trend-gate` 和 `--drift` 支持 `--run-kind LIST` 先按 `runKind` 过滤 persisted summary artifacts，再选择 newest N；`--require-run-kind LIST` 会要求 history / trend-gate selected runs 的 `runKind` 属于指定集合。`scripts/pi67-report.sh` 和 `scripts/pi67-status.sh` 也会默认读取同一 smoke artifact 目录，写入 / 输出 compact `xtalpiSmoke` 状态：最近 3 次整体 history、每轮 `runKind`、`--trend-gate 3 --profile full-suite-strict` 的结果，以及最近 10 次 full-suite artifact 的 drift 摘要。该状态只读本地 artifact，不运行 live smoke，也不改写历史文件；使用 `--no-xtalpi-smoke` 可关闭，或用 `--xtalpi-smoke-dir DIR` 指向非默认目录。
 
 也可以精确汇总某一次 smoke run，避免并发或历史 artifact 干扰：
 
@@ -357,6 +357,27 @@ history 模式同样支持 JSON：
 ```bash
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   --history 5 \
+  --json \
+  "$HOME/tmp/xtalpi-pi-tools-smoke"
+```
+
+查看 provider / runtime / case-set 漂移：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
+  --drift 10 \
+  --run-kind full-suite \
+  "$HOME/tmp/xtalpi-pi-tools-smoke"
+```
+
+drift 模式读取 `<stamp>-summary.json`，输出最近 N 个 eligible artifact 的 provider/model、`runKind`、case-set hash、recoveries / recovery rate、provider error code/category、retryable provider errors、argument validation warning code、raw markup / empty assistant / lifecycle failure，以及 runtime fingerprint。runtime fingerprint 聚合每轮逐 case 的 protocol version、selected-tool hash / displayed tool names、`maxTools` 与 selection clipping、tool-result truncation limit、request timeout、max output tokens 和 recovery limits，并额外输出稳定 SHA-256 短 hash，方便人工对比和机器消费。drift 是观测报告，不会因为 `found < requested` 或检测到漂移而失败；只有 selected summary JSON 解析错误会返回非 0。
+
+drift JSON schema 为 `xtalpi-pi-tools.smoke-drift.v1`：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
+  --drift 10 \
+  --run-kind full-suite \
   --json \
   "$HOME/tmp/xtalpi-pi-tools-smoke"
 ```

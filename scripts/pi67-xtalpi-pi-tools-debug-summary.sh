@@ -11,6 +11,7 @@ LATEST_ONLY="0"
 RUN_ID=""
 HISTORY_LIMIT=""
 TREND_GATE_LIMIT=""
+DRIFT_LIMIT=""
 COMPARE_BASE_RUN_ID=""
 COMPARE_HEAD_RUN_ID=""
 FAIL_ON_RECOVERY_INCREASE="0"
@@ -38,8 +39,9 @@ Selection:
   --run-id RUN_ID                summarize one exact smoke run, e.g. 20260702-144643
   --history N                    show newest N persisted *-summary.json smoke runs
   --trend-gate N                 gate newest N persisted smoke summaries
+  --drift N                      summarize provider/runtime drift across newest N persisted smoke summaries
   --compare BASE_RUN HEAD_RUN    compare two persisted smoke summaries
-  --run-kind LIST                for --history/--trend-gate, filter persisted summaries by runKind before selecting newest N
+  --run-kind LIST                for --history/--trend-gate/--drift, filter persisted summaries by runKind before selecting newest N
   --require-run-kind LIST         require selected run(s) to have one of the comma-separated runKind values
 
 Gate options:
@@ -275,8 +277,43 @@ writeCase(providerError, "20260702-000007", "http-429", {
 const history = ensureDir("history");
 function writeSummary(
   runId,
-  { dir = history, ok = true, failures = 0, recoveries = 0, raw = 0, errors = 0, cases, totalCases = 5, selectedCases } = {},
+  {
+    dir = history,
+    ok = true,
+    failures = 0,
+    recoveries = 0,
+    raw = 0,
+    errors = 0,
+    cases,
+    totalCases = 5,
+    selectedCases,
+    provider = "xtalpi-pi-tools",
+    model = "deepseek-v4-pro",
+    caseTimeoutSeconds = 180,
+    requestTimeoutMs = 180000,
+    maxOutputTokens = 1024,
+    providerHealth,
+    runtimeFingerprint,
+  } = {},
 ) {
+  const defaultRuntimeFingerprint = runtimeFingerprint || {
+    protocolVersions: ["xtalpi-pi-tools.text.v1"],
+    selectedToolNameHashes: ["3316348dbadfb7b1"],
+    selectedToolNames: ["read"],
+    maxTools: [24],
+    toolSelectionClipped: [false],
+    toolSelectionOmittedCount: [0],
+    toolSelectionValidCount: [1],
+    toolSelectionPromptSources: ["latest_user"],
+    toolSelectionPromptChars: [56],
+    toolSelectionUserMessageCount: [1],
+    maxToolResultChars: [20000],
+    maxOutputTokens: [maxOutputTokens],
+    requestTimeoutMs: [requestTimeoutMs],
+    maxEmptyRetries: [2],
+    maxRepairRetries: [2],
+    maxTotalRecoveries: [4],
+  };
   const caseItems = cases || [
     {
       runId,
@@ -292,6 +329,9 @@ function writeSummary(
       piToolStarts: ["read"],
     },
   ];
+  const caseItemsWithRuntime = caseItems.map((item) => item.runtimeFingerprint
+    ? item
+    : { ...item, runtimeFingerprint: defaultRuntimeFingerprint });
   const selectedCaseNames = selectedCases || caseItems.map((item) => item.caseName);
   const normalizedCases = [...new Set(selectedCaseNames)].sort();
   const canonical = normalizedCases.join(",");
@@ -306,14 +346,30 @@ function writeSummary(
   fs.writeFileSync(path.join(dir, `${runId}-summary.json`), `${JSON.stringify({
     schema: "xtalpi-pi-tools.smoke-summary.v1",
     createdAt: "2026-07-02T00:00:00.000Z",
-    provider: "xtalpi-pi-tools",
-    model: "deepseek-v4-pro",
+    provider,
+    model,
     stamp: runId,
     runId,
     outDir: dir,
     selectedCases: selectedCaseNames,
     caseSet,
-    caseTimeoutSeconds: 180,
+    caseTimeoutSeconds,
+    requestTimeoutMs,
+    maxOutputTokens,
+    providerHealth: providerHealth || {
+      schema: "xtalpi-pi-tools.provider-health.v1",
+      provider,
+      model,
+      ok: true,
+      timeoutMs: 30000,
+      elapsedMs: 100,
+      attemptsConfigured: 2,
+      attemptCount: 1,
+      retryCount: 0,
+      retryDelayMs: 1000,
+      httpStatus: 200,
+      responseModel: model,
+    },
     failures,
     debugSummaryStatus: 0,
     ok,
@@ -335,7 +391,7 @@ function writeSummary(
         piToolStarts: 6,
         errors,
       },
-      cases: caseItems,
+      cases: caseItemsWithRuntime,
     },
   }, null, 2)}\n`);
 }
@@ -448,6 +504,51 @@ writeSummary("20260702-000004", {
   recoveries: 0,
   totalCases: fullSuiteCases.length,
   selectedCases: fullSuiteCases,
+});
+
+const driftHistory = ensureDir("drift");
+writeSummary("20260702-000001", {
+  dir: driftHistory,
+  ok: true,
+  failures: 0,
+  recoveries: 0,
+  totalCases: fullSuiteCases.length,
+  selectedCases: fullSuiteCases,
+});
+writeSummary("20260702-000002", {
+  dir: driftHistory,
+  ok: true,
+  failures: 0,
+  recoveries: 0,
+  totalCases: fullSuiteCases.length,
+  selectedCases: fullSuiteCases,
+  maxOutputTokens: 2048,
+  runtimeFingerprint: {
+    protocolVersions: ["xtalpi-pi-tools.text.v1"],
+    selectedToolNameHashes: ["3316348dbadfb7b1"],
+    selectedToolNames: ["read"],
+    maxTools: [24],
+    toolSelectionClipped: [false],
+    toolSelectionOmittedCount: [0],
+    toolSelectionValidCount: [1],
+    toolSelectionPromptSources: ["latest_user"],
+    toolSelectionPromptChars: [56],
+    toolSelectionUserMessageCount: [1],
+    maxToolResultChars: [20000],
+    maxOutputTokens: [2048],
+    requestTimeoutMs: [180000],
+    maxEmptyRetries: [2],
+    maxRepairRetries: [2],
+    maxTotalRecoveries: [4],
+  },
+});
+writeSummary("20260702-000003", {
+  dir: driftHistory,
+  ok: true,
+  failures: 0,
+  recoveries: 1,
+  totalCases: 1,
+  selectedCases: ["web-read"],
 });
 
 const subsetTrend = ensureDir("subset-trend");
@@ -587,6 +688,42 @@ NODE
   fi
   if [[ "$output" != *"run_kind_filter=full-suite"* || "$output" != *"filtered_out_artifacts=1"* || "$output" != *"20260702-000004"* || "$output" != *"20260702-000002"* || "$output" == *"20260702-000003"* ]]; then
     echo "runKind-filtered history did not select newest full-suite runs"
+    echo "$output"
+    return 1
+  fi
+
+  local drift_json="$tmp_dir/drift-output.json"
+  if ! output="$("$SCRIPT_PATH" --drift 2 --run-kind full-suite --json "$tmp_dir/drift" >"$drift_json" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+  if ! node - "$drift_json" <<'NODE'; then
+const fs = require("node:fs");
+const data = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+assert(data.schema === "xtalpi-pi-tools.smoke-drift.v1", "unexpected drift schema");
+assert(data.found === 2, "drift should select two full-suite runs");
+assert(data.candidateArtifacts === 2, "drift runKind filter should expose eligible artifact count");
+assert(data.filteredOutArtifacts === 1, "drift runKind filter should expose filtered artifact count");
+assert(data.runs.every((run) => run.runKind === "full-suite"), "drift should exclude targeted run after runKind filter");
+assert(data.drift.caseSetChanged === false, "filtered full-suite drift should have stable case set");
+assert(data.drift.runtimeBoundsChanged === true, "drift should detect runtime bounds changes");
+assert(data.drift.runtimeFingerprintChanged === true, "drift should detect runtime fingerprint changes");
+assert(data.qualityTotals.recoveries === 0, "filtered full-suite drift should not include targeted recoveries");
+assert(data.dimensions.runtimeBounds.length === 2, "drift should retain both runtime bounds signatures");
+NODE
+    echo "drift JSON output did not expose expected provider/runtime drift"
+    cat "$drift_json"
+    return 1
+  fi
+  if ! output="$("$SCRIPT_PATH" --drift 3 "$tmp_dir/drift" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+  if [[ "$output" != *"xtalpi-pi-tools smoke drift"* || "$output" != *"runtime_bounds_changed=true"* || "$output" != *"run_kind_changed=true"* || "$output" != *"quality_signals_present=true"* ]]; then
+    echo "drift text output did not expose expected drift indicators"
     echo "$output"
     return 1
   fi
@@ -810,6 +947,14 @@ while [ "$#" -gt 0 ]; do
       TREND_GATE_LIMIT="${2:-}"
       shift 2
       ;;
+    --drift)
+      if [ "$#" -lt 2 ]; then
+        echo "xtalpi-pi-tools debug summary: --drift requires N" >&2
+        exit 2
+      fi
+      DRIFT_LIMIT="${2:-}"
+      shift 2
+      ;;
     --compare)
       if [ "$#" -lt 3 ]; then
         echo "xtalpi-pi-tools debug summary: --compare requires BASE_RUN and HEAD_RUN" >&2
@@ -897,6 +1042,7 @@ node - \
   "$RUN_ID" \
   "$HISTORY_LIMIT" \
   "$TREND_GATE_LIMIT" \
+  "$DRIFT_LIMIT" \
   "$COMPARE_BASE_RUN_ID" \
   "$COMPARE_HEAD_RUN_ID" \
   "$FAIL_ON_RECOVERY_INCREASE" \
@@ -911,6 +1057,7 @@ node - \
   "$RUN_KIND_FILTER" \
   "$REQUIRE_RUN_KIND" <<'NODE'
 const fs = require("node:fs");
+const crypto = require("node:crypto");
 const path = require("node:path");
 
 const [
@@ -922,6 +1069,7 @@ const [
   runIdRaw,
   historyLimitRaw,
   trendGateLimitRaw,
+  driftLimitRaw,
   compareBaseRunIdRaw,
   compareHeadRunIdRaw,
   failOnRecoveryIncreaseRaw,
@@ -1011,6 +1159,39 @@ function formatCaseNames(values) {
   return sortedUniqueStrings(values).join(",");
 }
 
+function stableValue(value) {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, child]) => child !== undefined)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [key, stableValue(child)]),
+    );
+  }
+  return value;
+}
+
+function stableStringify(value) {
+  return JSON.stringify(stableValue(value));
+}
+
+function sha256Hex(value) {
+  return crypto.createHash("sha256").update(stableStringify(value)).digest("hex");
+}
+
+function shortSha256(value) {
+  return sha256Hex(value).slice(0, 16);
+}
+
+function boolOrUndefinedLocal(value) {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function compactObject(value) {
+  return Object.fromEntries(Object.entries(value).filter(([, child]) => child !== undefined));
+}
+
 const runKindFilter = parseRunKindList(runKindFilterRaw, "--run-kind");
 const requireRunKinds = parseRunKindList(requireRunKindRaw, "--require-run-kind");
 const gates = {
@@ -1039,6 +1220,11 @@ if (trendGateLimit !== undefined && (!Number.isInteger(trendGateLimit) || trendG
   console.error("xtalpi-pi-tools debug summary: --trend-gate must be a positive integer");
   process.exit(2);
 }
+const driftLimit = optionalNumber(driftLimitRaw, "--drift");
+if (driftLimit !== undefined && (!Number.isInteger(driftLimit) || driftLimit < 1)) {
+  console.error("xtalpi-pi-tools debug summary: --drift must be a positive integer");
+  process.exit(2);
+}
 const maxRecoveryCaseRuns = optionalNumber(maxRecoveryCaseRunsRaw, "--max-recovery-case-runs");
 if (
   maxRecoveryCaseRuns !== undefined &&
@@ -1052,8 +1238,8 @@ if (compareMode && (compareBaseRunId === "" || compareHeadRunId === "")) {
   console.error("xtalpi-pi-tools debug summary: --compare requires BASE_RUN and HEAD_RUN");
   process.exit(2);
 }
-if (compareMode && (historyLimit !== undefined || trendGateLimit !== undefined)) {
-  console.error("xtalpi-pi-tools debug summary: --compare cannot be combined with --history or --trend-gate");
+if (compareMode && (historyLimit !== undefined || trendGateLimit !== undefined || driftLimit !== undefined)) {
+  console.error("xtalpi-pi-tools debug summary: --compare cannot be combined with --history, --trend-gate, or --drift");
   process.exit(2);
 }
 if (compareMode && (runKindFilter !== undefined || requireRunKinds !== undefined)) {
@@ -1064,16 +1250,25 @@ if (compareMode && (latestOnly || runIdFilter !== "")) {
   console.error("xtalpi-pi-tools debug summary: --compare cannot be combined with --latest or --run-id");
   process.exit(2);
 }
-if (historyLimit !== undefined && trendGateLimit !== undefined) {
-  console.error("xtalpi-pi-tools debug summary: --history cannot be combined with --trend-gate");
+const aggregateModeCount = [historyLimit, trendGateLimit, driftLimit].filter((value) => value !== undefined).length;
+if (aggregateModeCount > 1) {
+  console.error("xtalpi-pi-tools debug summary: --history, --trend-gate, and --drift are mutually exclusive");
   process.exit(2);
 }
-if (trendGateLimit !== undefined && (latestOnly || runIdFilter !== "")) {
-  console.error("xtalpi-pi-tools debug summary: --trend-gate cannot be combined with --latest or --run-id");
+if ((trendGateLimit !== undefined || driftLimit !== undefined) && (latestOnly || runIdFilter !== "")) {
+  console.error("xtalpi-pi-tools debug summary: --trend-gate/--drift cannot be combined with --latest or --run-id");
   process.exit(2);
 }
-if (runKindFilter !== undefined && historyLimit === undefined && trendGateLimit === undefined) {
-  console.error("xtalpi-pi-tools debug summary: --run-kind requires --history or --trend-gate");
+if (driftLimit !== undefined && requireRunKinds !== undefined) {
+  console.error("xtalpi-pi-tools debug summary: --require-run-kind cannot be combined with --drift; use --run-kind to select drift candidates");
+  process.exit(2);
+}
+if (historyLimit !== undefined && (latestOnly || runIdFilter !== "")) {
+  console.error("xtalpi-pi-tools debug summary: --history cannot be combined with --latest or --run-id");
+  process.exit(2);
+}
+if (runKindFilter !== undefined && historyLimit === undefined && trendGateLimit === undefined && driftLimit === undefined) {
+  console.error("xtalpi-pi-tools debug summary: --run-kind requires --history, --trend-gate, or --drift");
   process.exit(2);
 }
 
@@ -1209,6 +1404,87 @@ function collectRuntimeFingerprint(events) {
       sources.map((event) => numberMetric(event, "maxTotalRecoveries", "max_total_recoveries")),
     ),
   };
+}
+
+const RUNTIME_FINGERPRINT_FIELD_TYPES = {
+  protocolVersions: "string",
+  selectedToolNameHashes: "string",
+  selectedToolNames: "string",
+  maxTools: "number",
+  toolSelectionClipped: "boolean",
+  toolSelectionOmittedCount: "number",
+  toolSelectionValidCount: "number",
+  toolSelectionPromptSources: "string",
+  toolSelectionPromptChars: "number",
+  toolSelectionUserMessageCount: "number",
+  maxToolResultChars: "number",
+  maxOutputTokens: "number",
+  requestTimeoutMs: "number",
+  maxEmptyRetries: "number",
+  maxRepairRetries: "number",
+  maxTotalRecoveries: "number",
+};
+
+function normalizeFingerprintValues(value, type) {
+  const values = Array.isArray(value) ? value : [value];
+  if (type === "number") return uniqueNumbers(values.map((item) => numberOrUndefined(item)));
+  if (type === "boolean") return uniqueBooleans(values.map((item) => boolOrUndefinedLocal(item)));
+  return uniqueStrings(values.map((item) => (item === undefined || item === null ? undefined : String(item))));
+}
+
+function mergeRuntimeFingerprints(cases) {
+  const merged = {};
+  for (const [field, type] of Object.entries(RUNTIME_FINGERPRINT_FIELD_TYPES)) {
+    const values = [];
+    for (const item of Array.isArray(cases) ? cases : []) {
+      const fingerprint = objectOrUndefined(item?.runtimeFingerprint) || {};
+      const normalized = normalizeFingerprintValues(fingerprint[field], type);
+      values.push(...normalized);
+    }
+    merged[field] = normalizeFingerprintValues(values, type);
+  }
+  return merged;
+}
+
+function runtimeBoundsFromArtifact(artifact) {
+  return compactObject({
+    caseTimeoutSeconds: numberOrUndefined(artifact?.caseTimeoutSeconds),
+    requestTimeoutMs: numberOrUndefined(artifact?.requestTimeoutMs),
+    maxOutputTokens: numberOrUndefined(artifact?.maxOutputTokens),
+    providerHealthPreflightTimeoutMs: numberOrUndefined(artifact?.providerHealthPreflightTimeoutMs),
+    providerHealthPreflightAttempts: numberOrUndefined(artifact?.providerHealthPreflightAttempts),
+    providerHealthPreflightRetryDelayMs: numberOrUndefined(artifact?.providerHealthPreflightRetryDelayMs),
+    stopOnProviderError: boolOrUndefinedLocal(artifact?.stopOnProviderError),
+  });
+}
+
+function providerHealthSummaryFromArtifact(artifact) {
+  const health = objectOrUndefined(artifact?.providerHealth) || objectOrUndefined(artifact?.providerHealthPreflight);
+  if (!health) return null;
+  return compactObject({
+    schema: typeof health.schema === "string" ? health.schema : undefined,
+    ok: boolOrUndefinedLocal(health.ok),
+    provider: typeof health.provider === "string" ? health.provider : undefined,
+    model: typeof health.model === "string" ? health.model : undefined,
+    responseModel: typeof health.responseModel === "string" ? health.responseModel : undefined,
+    httpStatus: numberOrUndefined(health.httpStatus),
+    timeoutMs: numberOrUndefined(health.timeoutMs),
+    elapsedMs: numberOrUndefined(health.elapsedMs),
+    attemptsConfigured: numberOrUndefined(health.attemptsConfigured),
+    attemptCount: numberOrUndefined(health.attemptCount),
+    retryCount: numberOrUndefined(health.retryCount),
+    retryDelayMs: numberOrUndefined(health.retryDelayMs),
+    errorCode: typeof health.errorCode === "string" ? health.errorCode : undefined,
+    errorCategory: typeof health.errorCategory === "string" ? health.errorCategory : undefined,
+    retryable: boolOrUndefinedLocal(health.retryable),
+  });
+}
+
+function providerHealthSignature(summary) {
+  const health = objectOrUndefined(summary);
+  if (!health) return null;
+  const { elapsedMs, ...stableHealth } = health;
+  return stableHealth;
 }
 
 function summarizeCase(debugFileName) {
@@ -1379,6 +1655,12 @@ function summarizeSmokeSummaryFile(fileName) {
       caseNames: [],
       caseSet: buildCaseSet([]),
       runKind: "parse-error",
+      runtimeBounds: {},
+      runtimeBoundsSha256: shortSha256({}),
+      runtimeFingerprint: mergeRuntimeFingerprints([]),
+      runtimeFingerprintSha256: shortSha256(mergeRuntimeFingerprints([])),
+      providerHealthSummary: null,
+      providerHealthSha256: null,
       recoveryCaseNames: [],
       caseRecoveries: [],
       gateFailures: ["summary_parse_error"],
@@ -1408,6 +1690,10 @@ function summarizeSmokeSummaryFile(fileName) {
   const gateFailures = Array.isArray(artifact?.debugSummary?.gateFailures)
     ? artifact.debugSummary.gateFailures
     : [];
+  const runtimeBounds = runtimeBoundsFromArtifact(artifact);
+  const runtimeFingerprint = mergeRuntimeFingerprints(cases);
+  const providerHealthSummary = providerHealthSummaryFromArtifact(artifact);
+  const providerHealthStableSignature = providerHealthSignature(providerHealthSummary);
 
   return {
     file,
@@ -1444,6 +1730,12 @@ function summarizeSmokeSummaryFile(fileName) {
     caseNames,
     caseSet,
     runKind,
+    runtimeBounds,
+    runtimeBoundsSha256: shortSha256(runtimeBounds),
+    runtimeFingerprint,
+    runtimeFingerprintSha256: shortSha256(runtimeFingerprint),
+    providerHealthSummary,
+    providerHealthSha256: providerHealthStableSignature ? shortSha256(providerHealthStableSignature) : null,
     recoveryCaseNames: caseRecoveries.map((item) => item.caseName),
     caseRecoveries,
     gateFailures,
@@ -1733,6 +2025,310 @@ function buildHistory(limit) {
   };
 }
 
+function countBy(runs, valueFn) {
+  const counts = {};
+  for (const run of runs) {
+    const value = valueFn(run) || "unknown";
+    counts[value] = (counts[value] ?? 0) + 1;
+  }
+  return counts;
+}
+
+function buildSignatureGroups(runs, signatureFn, detailsFn) {
+  const groups = new Map();
+  for (const run of runs) {
+    const signature = signatureFn(run);
+    const key = signature === undefined || signature === null || signature === "" ? "unknown" : String(signature);
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        count: 0,
+        runIds: [],
+        ...detailsFn(run),
+      });
+    }
+    const group = groups.get(key);
+    group.count += 1;
+    group.runIds.push(run.runId);
+  }
+  return [...groups.values()].sort((left, right) => {
+    if (right.count !== left.count) return right.count - left.count;
+    return left.key.localeCompare(right.key);
+  });
+}
+
+function aggregateDriftSignals(runs) {
+  const totals = {
+    failures: 0,
+    recoveries: 0,
+    maxRecoveryRate: 0,
+    rawToolMarkupFinalAnswers: 0,
+    emptyAssistantEnds: 0,
+    toolEnvelopeFinalAnswers: 0,
+    errors: 0,
+    processLifecycleFailures: 0,
+    watchdogTimeouts: 0,
+    timedOutAfterAgentEnd: 0,
+    providerErrors: 0,
+    retryableProviderErrors: 0,
+    argumentValidationWarnings: 0,
+  };
+  const providerErrorCodes = {};
+  const providerErrorCategories = {};
+  const argumentValidationWarningCodes = {};
+
+  for (const run of runs) {
+    totals.failures += numberOrZero(run.failures);
+    totals.recoveries += numberOrZero(run.recoveries);
+    totals.maxRecoveryRate = Math.max(totals.maxRecoveryRate, numberOrZero(run.recoveryRate));
+    totals.rawToolMarkupFinalAnswers += numberOrZero(run.rawToolMarkupFinalAnswers);
+    totals.emptyAssistantEnds += numberOrZero(run.emptyAssistantEnds);
+    totals.toolEnvelopeFinalAnswers += numberOrZero(run.toolEnvelopeFinalAnswers);
+    totals.errors += numberOrZero(run.errors);
+    totals.processLifecycleFailures += numberOrZero(run.processLifecycleFailures);
+    totals.watchdogTimeouts += numberOrZero(run.watchdogTimeouts);
+    totals.timedOutAfterAgentEnd += numberOrZero(run.timedOutAfterAgentEnd);
+    totals.providerErrors += numberOrZero(run.providerErrors);
+    totals.retryableProviderErrors += numberOrZero(run.retryableProviderErrors);
+    totals.argumentValidationWarnings += numberOrZero(run.argumentValidationWarnings);
+    for (const [code, count] of Object.entries(objectOrUndefined(run.providerErrorCodes) || {})) {
+      increment(providerErrorCodes, code, count);
+    }
+    for (const [category, count] of Object.entries(objectOrUndefined(run.providerErrorCategories) || {})) {
+      increment(providerErrorCategories, category, count);
+    }
+    for (const [code, count] of Object.entries(objectOrUndefined(run.argumentValidationWarningCodes) || {})) {
+      increment(argumentValidationWarningCodes, code, count);
+    }
+  }
+
+  return {
+    ...totals,
+    providerErrorCodes,
+    providerErrorCategories,
+    argumentValidationWarningCodes,
+  };
+}
+
+function compactDriftRun(run) {
+  return {
+    runId: run.runId,
+    ok: run.ok,
+    provider: run.provider || null,
+    model: run.model || null,
+    runKind: run.runKind || null,
+    cases: run.cases,
+    selectedCases: run.selectedCases,
+    caseSetSha256: run.caseSet?.sha256 || null,
+    failures: run.failures,
+    recoveries: run.recoveries,
+    recoveryRate: run.recoveryRate,
+    rawToolMarkupFinalAnswers: run.rawToolMarkupFinalAnswers,
+    emptyAssistantEnds: run.emptyAssistantEnds,
+    toolEnvelopeFinalAnswers: run.toolEnvelopeFinalAnswers,
+    errors: run.errors,
+    processLifecycleFailures: run.processLifecycleFailures,
+    watchdogTimeouts: run.watchdogTimeouts,
+    timedOutAfterAgentEnd: run.timedOutAfterAgentEnd,
+    providerErrors: run.providerErrors,
+    retryableProviderErrors: run.retryableProviderErrors,
+    providerErrorCodes: run.providerErrorCodes,
+    providerErrorCategories: run.providerErrorCategories,
+    argumentValidationWarnings: run.argumentValidationWarnings,
+    argumentValidationWarningCodes: run.argumentValidationWarningCodes,
+    runtimeBounds: run.runtimeBounds,
+    runtimeBoundsSha256: run.runtimeBoundsSha256,
+    runtimeFingerprint: run.runtimeFingerprint,
+    runtimeFingerprintSha256: run.runtimeFingerprintSha256,
+    providerHealth: run.providerHealthSummary,
+    providerHealthSha256: run.providerHealthSha256,
+    parseError: run.parseError || null,
+  };
+}
+
+function buildDrift(limit) {
+  const history = buildHistory(limit);
+  const runs = history.runs;
+  const runKindCounts = countBy(runs, (run) => run.runKind);
+  const providerModels = buildSignatureGroups(
+    runs,
+    (run) => `${run.provider || "(missing)"}\u0000${run.model || "(missing)"}`,
+    (run) => ({
+      provider: run.provider || null,
+      model: run.model || null,
+    }),
+  );
+  const caseSets = buildSignatureGroups(
+    runs,
+    (run) => run.caseSet?.sha256,
+    (run) => ({
+      sha256: run.caseSet?.sha256 || null,
+      countCases: run.caseSet?.count ?? run.cases,
+      canonical: run.caseSet?.canonical || null,
+    }),
+  );
+  const runtimeFingerprints = buildSignatureGroups(
+    runs,
+    (run) => run.runtimeFingerprintSha256,
+    (run) => ({
+      sha256: run.runtimeFingerprintSha256,
+      fingerprint: run.runtimeFingerprint,
+    }),
+  );
+  const runtimeBounds = buildSignatureGroups(
+    runs,
+    (run) => run.runtimeBoundsSha256,
+    (run) => ({
+      sha256: run.runtimeBoundsSha256,
+      bounds: run.runtimeBounds,
+    }),
+  );
+  const providerHealth = buildSignatureGroups(
+    runs,
+    (run) => run.providerHealthSha256,
+    (run) => ({
+      sha256: run.providerHealthSha256,
+      summary: run.providerHealthSummary,
+    }),
+  );
+  const qualityTotals = aggregateDriftSignals(runs);
+  const warnings = [];
+  if (history.found < history.requested) {
+    warnings.push(`requested ${history.requested} runs but found ${history.found}`);
+  }
+  if (history.parseErrorCount > 0) {
+    warnings.push(`selected summaries include ${history.parseErrorCount} parse error(s)`);
+  }
+
+  return {
+    schema: "xtalpi-pi-tools.smoke-drift.v1",
+    outDir,
+    requested: history.requested,
+    totalArtifacts: history.totalArtifacts,
+    candidateArtifacts: history.candidateArtifacts,
+    filteredOutArtifacts: history.filteredOutArtifacts,
+    filter: history.filter,
+    found: history.found,
+    order: history.order,
+    parseErrorCount: history.parseErrorCount,
+    latestRunId: runs[0]?.runId || null,
+    baselineRunId: runs.at(-1)?.runId || null,
+    runKindCounts,
+    dimensions: {
+      providerModels,
+      caseSets,
+      runtimeFingerprints,
+      runtimeBounds,
+      providerHealth,
+    },
+    drift: {
+      providerModelChanged: providerModels.length > 1,
+      runKindChanged: Object.keys(runKindCounts).length > 1,
+      caseSetChanged: caseSets.length > 1,
+      runtimeFingerprintChanged: runtimeFingerprints.length > 1,
+      runtimeBoundsChanged: runtimeBounds.length > 1,
+      providerHealthChanged: providerHealth.length > 1,
+      qualitySignalsPresent: [
+        "failures",
+        "recoveries",
+        "rawToolMarkupFinalAnswers",
+        "emptyAssistantEnds",
+        "toolEnvelopeFinalAnswers",
+        "errors",
+        "processLifecycleFailures",
+        "watchdogTimeouts",
+        "timedOutAfterAgentEnd",
+        "providerErrors",
+        "retryableProviderErrors",
+        "argumentValidationWarnings",
+      ].some((field) => numberOrZero(qualityTotals[field]) > 0),
+    },
+    qualityTotals,
+    warnings,
+    runs: runs.map(compactDriftRun),
+  };
+}
+
+function printDrift(limit) {
+  const drift = buildDrift(limit);
+
+  if (format === "json") {
+    console.log(JSON.stringify(drift, null, 2));
+  } else {
+    console.log("xtalpi-pi-tools smoke drift");
+    console.log(
+      `out_dir=${outDir} requested=${drift.requested} found=${drift.found} ` +
+        `total_artifacts=${drift.totalArtifacts} candidate_artifacts=${drift.candidateArtifacts} ` +
+        `filtered_out_artifacts=${drift.filteredOutArtifacts} ` +
+        `run_kind_filter=${drift.filter.runKinds ? drift.filter.runKinds.join(",") : "(none)"} order=${drift.order}`,
+    );
+    console.log(
+      `latest=${drift.latestRunId || "(none)"} baseline=${drift.baselineRunId || "(none)"} ` +
+        `provider_model_changed=${drift.drift.providerModelChanged} run_kind_changed=${drift.drift.runKindChanged} ` +
+        `case_set_changed=${drift.drift.caseSetChanged} runtime_fingerprint_changed=${drift.drift.runtimeFingerprintChanged} ` +
+        `runtime_bounds_changed=${drift.drift.runtimeBoundsChanged} provider_health_changed=${drift.drift.providerHealthChanged} ` +
+        `quality_signals_present=${drift.drift.qualitySignalsPresent}`,
+    );
+    console.log(
+      `run_kinds=${JSON.stringify(drift.runKindCounts)} ` +
+        `provider_models=${JSON.stringify(drift.dimensions.providerModels.map((item) => ({
+          provider: item.provider,
+          model: item.model,
+          count: item.count,
+        })))} ` +
+        `case_sets=${JSON.stringify(drift.dimensions.caseSets.map((item) => ({
+          sha256: item.sha256,
+          count: item.count,
+          countCases: item.countCases,
+        })))} ` +
+        `runtime_fingerprints=${JSON.stringify(drift.dimensions.runtimeFingerprints.map((item) => ({
+          sha256: item.sha256,
+          count: item.count,
+        })))} ` +
+        `runtime_bounds=${JSON.stringify(drift.dimensions.runtimeBounds.map((item) => ({
+          sha256: item.sha256,
+          count: item.count,
+          bounds: item.bounds,
+        })))}`,
+    );
+    console.log(
+      `quality_totals=${JSON.stringify({
+        failures: drift.qualityTotals.failures,
+        recoveries: drift.qualityTotals.recoveries,
+        rawToolMarkupFinalAnswers: drift.qualityTotals.rawToolMarkupFinalAnswers,
+        emptyAssistantEnds: drift.qualityTotals.emptyAssistantEnds,
+        toolEnvelopeFinalAnswers: drift.qualityTotals.toolEnvelopeFinalAnswers,
+        errors: drift.qualityTotals.errors,
+        processLifecycleFailures: drift.qualityTotals.processLifecycleFailures,
+        providerErrors: drift.qualityTotals.providerErrors,
+        retryableProviderErrors: drift.qualityTotals.retryableProviderErrors,
+        argumentValidationWarnings: drift.qualityTotals.argumentValidationWarnings,
+      })}`,
+    );
+    for (const run of drift.runs) {
+      const providerHealthText = run.providerHealth
+        ? ` provider_health_ok=${run.providerHealth.ok ?? "(unknown)"} provider_health_status=${run.providerHealth.httpStatus ?? "(none)"}`
+        : " provider_health=(missing)";
+      console.log(
+        `- ${run.runId}: provider=${run.provider || "(missing)"} model=${run.model || "(missing)"} ` +
+          `run_kind=${run.runKind || "(missing)"} ok=${run.ok} cases=${run.cases} case_set_sha256=${run.caseSetSha256 || "(missing)"} ` +
+          `runtime_fingerprint_sha256=${run.runtimeFingerprintSha256 || "(missing)"} ` +
+          `runtime_bounds_sha256=${run.runtimeBoundsSha256 || "(missing)"} ` +
+          `recoveries=${run.recoveries} recovery_rate=${numberOrZero(run.recoveryRate).toFixed(4)} ` +
+          `provider_errors=${run.providerErrors} retryable_provider_errors=${run.retryableProviderErrors} ` +
+          `argument_validation_warnings=${run.argumentValidationWarnings} raw_tool_markup_final_answers=${run.rawToolMarkupFinalAnswers} ` +
+          `empty_assistant_ends=${run.emptyAssistantEnds} process_lifecycle_failures=${run.processLifecycleFailures}` +
+          providerHealthText,
+      );
+    }
+    if (drift.warnings.length > 0) {
+      console.error(`warnings=${JSON.stringify(drift.warnings)}`);
+    }
+  }
+
+  process.exit(drift.parseErrorCount > 0 ? 1 : 0);
+}
+
 function buildRunKindRequirementFailures(runs) {
   if (requireRunKinds === undefined) return [];
   return runs
@@ -1998,6 +2594,10 @@ if (historyLimit !== undefined) {
 
 if (trendGateLimit !== undefined) {
   printTrendGate(trendGateLimit);
+}
+
+if (driftLimit !== undefined) {
+  printDrift(driftLimit);
 }
 
 if (compareMode) {

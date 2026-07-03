@@ -18,6 +18,7 @@ XTALPI_SMOKE=true
 XTALPI_SMOKE_DIR="${PI67_XTALPI_SMOKE_DIR:-}"
 XTALPI_SMOKE_HISTORY=3
 XTALPI_SMOKE_TREND=3
+XTALPI_SMOKE_DRIFT=10
 XTALPI_SMOKE_TIMEOUT_MS=15000
 DRY_RUN=false
 
@@ -46,6 +47,8 @@ Options:
                             Number of newest smoke runs to summarize. Defaults to 3.
       --xtalpi-smoke-trend N
                             Number of newest smoke runs for full-suite-strict trend gate. Defaults to 3.
+      --xtalpi-smoke-drift N
+                            Number of newest full-suite smoke runs for drift summary. Defaults to 10.
       --xtalpi-smoke-timeout-ms MS
                             Timeout per debug-summary command. Defaults to 15000.
       --dry-run             Print the target path without writing.
@@ -111,6 +114,10 @@ while [ "$#" -gt 0 ]; do
       XTALPI_SMOKE_TREND="${2:?--xtalpi-smoke-trend requires a number}"
       shift 2
       ;;
+    --xtalpi-smoke-drift)
+      XTALPI_SMOKE_DRIFT="${2:?--xtalpi-smoke-drift requires a number}"
+      shift 2
+      ;;
     --xtalpi-smoke-timeout-ms)
       XTALPI_SMOKE_TIMEOUT_MS="${2:?--xtalpi-smoke-timeout-ms requires a number}"
       shift 2
@@ -147,7 +154,7 @@ fi
 
 mkdir -p "$(dirname "$OUTPUT")"
 
-node - "$REPO_ROOT" "$PI_AGENT_DIR" "$SHARED_SKILLS_DIR" "$OPERATION" "$OUTPUT" "$RUN_DOCTOR" "$DOCTOR_TIMEOUT_MS" "$DOCTOR_DEEP_MCP" "$MCP_TIMEOUT_MS" "$XTALPI_SMOKE" "$XTALPI_SMOKE_DIR" "$XTALPI_SMOKE_HISTORY" "$XTALPI_SMOKE_TREND" "$XTALPI_SMOKE_TIMEOUT_MS" "$SCRIPT_DIR" <<'NODE'
+node - "$REPO_ROOT" "$PI_AGENT_DIR" "$SHARED_SKILLS_DIR" "$OPERATION" "$OUTPUT" "$RUN_DOCTOR" "$DOCTOR_TIMEOUT_MS" "$DOCTOR_DEEP_MCP" "$MCP_TIMEOUT_MS" "$XTALPI_SMOKE" "$XTALPI_SMOKE_DIR" "$XTALPI_SMOKE_HISTORY" "$XTALPI_SMOKE_TREND" "$XTALPI_SMOKE_DRIFT" "$XTALPI_SMOKE_TIMEOUT_MS" "$SCRIPT_DIR" <<'NODE'
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
@@ -169,6 +176,7 @@ const [
   xtalpiSmokeDirArg,
   xtalpiSmokeHistoryArg,
   xtalpiSmokeTrendArg,
+  xtalpiSmokeDriftArg,
   xtalpiSmokeTimeoutMsArg,
   scriptDir,
 ] = process.argv;
@@ -474,6 +482,7 @@ const report = {
         artifactDir: xtalpiSmokeDirArg || defaultArtifactDir(),
         historyLimit: xtalpiSmokeHistoryArg,
         strictTrendLimit: xtalpiSmokeTrendArg,
+        driftLimit: xtalpiSmokeDriftArg,
         timeoutMs: xtalpiSmokeTimeoutMsArg,
       })
     : {

@@ -52,7 +52,7 @@ Compatibility rule:
 | `agent` | object | stable | Pi agent directory state. |
 | `runtime` | object | stable | Local runtime versions. |
 | `doctor` | object | passthrough | Doctor JSON result (`pi67-doctor/v2`) or reporter parse/skip diagnostics. |
-| `xtalpiSmoke` | object | optional-stable | Read-only compact summary of local `xtalpi-pi-tools` smoke artifacts and strict trend status. |
+| `xtalpiSmoke` | object | optional-stable | Read-only compact summary of local `xtalpi-pi-tools` smoke artifacts, strict trend status, and full-suite drift status. |
 
 ## `pi67`
 
@@ -244,6 +244,7 @@ directory. It calls debug-summary JSON modes and stores compact results:
   "artifactDir": "/Users/example/tmp/xtalpi-pi-tools-smoke",
   "historyLimit": 3,
   "strictTrendLimit": 3,
+  "driftLimit": 10,
   "result": "ATTENTION",
   "history": {
     "ok": true,
@@ -277,6 +278,40 @@ directory. It calls debug-summary JSON modes and stores compact results:
       },
       "gateFailures": []
     }
+  },
+  "drift": {
+    "ok": true,
+    "data": {
+      "found": 5,
+      "requested": 10,
+      "filter": {
+        "runKinds": ["full-suite"]
+      },
+      "drift": {
+        "providerModelChanged": false,
+        "caseSetChanged": false,
+        "runtimeFingerprintChanged": true,
+        "runtimeBoundsChanged": false,
+        "providerHealthChanged": false,
+        "qualitySignalsPresent": true
+      },
+      "dimensions": {
+        "runtimeFingerprints": [
+          {
+            "sha256": "95eec8991ba8e52e",
+            "count": 3
+          }
+        ]
+      },
+      "runs": [
+        {
+          "runId": "20260703-151935",
+          "runtimeFingerprintSha256": "95eec8991ba8e52e",
+          "runtimeBoundsSha256": "076487a98c40fedd",
+          "providerHealthSha256": "b7d1db01e9af26c8"
+        }
+      ]
+    }
   }
 }
 ```
@@ -285,8 +320,8 @@ Result values:
 
 | Result | Meaning |
 | --- | --- |
-| `OK` | Smoke artifacts were found, history parsed, and the `full-suite-strict` trend gate passed. |
-| `ATTENTION` | History or strict trend evaluation failed or returned gate failures. |
+| `OK` | Smoke artifacts were found, history parsed, the `full-suite-strict` trend gate passed, and the drift command parsed when enabled. |
+| `ATTENTION` | History, strict trend, or drift evaluation failed to run/parse, or strict trend returned gate failures. |
 | `NO_ARTIFACTS` | The artifact directory is missing; this is informational for fresh installs. |
 | `UNAVAILABLE` | The local debug-summary helper is missing or not executable. |
 
@@ -294,6 +329,7 @@ Options:
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-report.sh --xtalpi-smoke-dir /path/to/xtalpi-pi-tools-smoke
+bash ~/.pi/agent/scripts/pi67-report.sh --xtalpi-smoke-drift 20
 bash ~/.pi/agent/scripts/pi67-report.sh --no-xtalpi-smoke
 ```
 
@@ -301,6 +337,12 @@ The `strictTrendGate` block uses the `full-suite-strict` profile, which filters
 persisted summaries to `runKind=full-suite` before selecting newest N. The
 overall `history` block remains unfiltered so consumers can still see the latest
 targeted or preflight-failed diagnostic runs.
+
+The `drift` block is produced from `--drift <N> --run-kind full-suite`. It is a
+compact, read-only observability surface rather than a pass/fail gate: consumers
+can alert on `runtimeFingerprintChanged`, `runtimeBoundsChanged`, provider
+health signature changes, or historical quality-signal presence without
+weakening the strict full-suite trend gate.
 
 ## Consumer guidance
 

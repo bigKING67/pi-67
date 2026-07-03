@@ -99,7 +99,7 @@ Stable top-level fields:
 | `installMode` | string | `in-place` when the repo root is the agent dir; otherwise `linked`. |
 | `agent` | object | Pi agent directory path. |
 | `report` | object | Existing `pi67-report.json` parse/freshness state. |
-| `xtalpiSmoke` | object | Read-only compact summary of local xtalpi smoke artifacts and `full-suite-strict` trend status. |
+| `xtalpiSmoke` | object | Read-only compact summary of local xtalpi smoke artifacts, `full-suite-strict` trend status, and full-suite drift status. |
 | `result` | string | Overall status result. |
 | `blockers` | array | Blocking issues. |
 | `warnings` | array | Non-blocking issues. |
@@ -113,16 +113,21 @@ By default, status reads the local smoke artifact directory
 ```bash
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --history 3 --json
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --trend-gate 3 --profile full-suite-strict --json
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --drift 10 --run-kind full-suite --json
 ```
 
 The resulting `xtalpiSmoke` block uses schema
 `pi67-xtalpi-smoke-status/v1` and includes:
 
-- `artifactDir`, `historyLimit`, `strictTrendLimit`, and command timeout
+- `artifactDir`, `historyLimit`, `strictTrendLimit`, `driftLimit`, and command
+  timeout
 - compact `history` data with newest run ids, `runKind`, selected cases,
   recoveries, provider errors, and summary gate status
 - compact `strictTrendGate` data with `ok`, gate failures, run-kind counts, and
   recovery trend
+- compact `drift` data for newest full-suite artifacts, including provider/model,
+  case-set hash, runtime fingerprint hash, runtime bounds hash, provider-health
+  hash, quality signal totals, and drift booleans
 - `result`: `OK`, `ATTENTION`, `NO_ARTIFACTS`, or `UNAVAILABLE`
 
 `full-suite-strict` filters the trend gate to `runKind=full-suite` before
@@ -130,6 +135,12 @@ selecting newest N, while the plain history block still shows the latest overall
 artifacts. Text output includes `eligible`, `filtered_out`, and
 `run_kind_filter` so a targeted diagnostic run can be distinguished from full
 suite evidence instead of silently weakening the trend gate.
+
+The drift block is observational rather than a gate: it can show historical
+runtime or provider-health changes even when the strict trend gate is currently
+green. Text output prints drift flags for provider/model, case-set,
+runtime-fingerprint, runtime-bounds, provider-health, and quality-signal
+presence.
 
 `NO_ARTIFACTS` is informational and does not by itself change the top-level
 status result. `ATTENTION` and `UNAVAILABLE` are reported as warnings with a

@@ -30,6 +30,7 @@ XTALPI_SMOKE=true
 XTALPI_SMOKE_DIR="${PI67_XTALPI_SMOKE_DIR:-}"
 XTALPI_SMOKE_HISTORY=3
 XTALPI_SMOKE_TREND=3
+XTALPI_SMOKE_DRIFT=10
 XTALPI_SMOKE_TIMEOUT_MS=15000
 
 usage() {
@@ -50,6 +51,7 @@ Options:
       --xtalpi-smoke-dir DIR   Smoke artifact dir. Defaults to ~/tmp/xtalpi-pi-tools-smoke.
       --xtalpi-smoke-history N Number of newest smoke runs to summarize. Defaults to 3.
       --xtalpi-smoke-trend N   Number of newest smoke runs for full-suite-strict trend gate. Defaults to 3.
+      --xtalpi-smoke-drift N   Number of newest full-suite smoke runs for drift summary. Defaults to 10.
       --xtalpi-smoke-timeout-ms MS
                                Timeout per debug-summary command. Defaults to 15000.
       --json                   Emit machine-readable JSON only.
@@ -101,6 +103,10 @@ while [ "$#" -gt 0 ]; do
       XTALPI_SMOKE_TREND="${2:?--xtalpi-smoke-trend requires a number}"
       shift 2
       ;;
+    --xtalpi-smoke-drift)
+      XTALPI_SMOKE_DRIFT="${2:?--xtalpi-smoke-drift requires a number}"
+      shift 2
+      ;;
     --xtalpi-smoke-timeout-ms)
       XTALPI_SMOKE_TIMEOUT_MS="${2:?--xtalpi-smoke-timeout-ms requires a number}"
       shift 2
@@ -131,7 +137,7 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 
-node - "$REPO_ROOT" "$PI_AGENT_DIR" "$OUTPUT_FORMAT" "$CHECK_REMOTE" "$REMOTE" "$BRANCH" "$REMOTE_TIMEOUT_MS" "$XTALPI_SMOKE" "$XTALPI_SMOKE_DIR" "$XTALPI_SMOKE_HISTORY" "$XTALPI_SMOKE_TREND" "$XTALPI_SMOKE_TIMEOUT_MS" "$SCRIPT_DIR" <<'NODE'
+node - "$REPO_ROOT" "$PI_AGENT_DIR" "$OUTPUT_FORMAT" "$CHECK_REMOTE" "$REMOTE" "$BRANCH" "$REMOTE_TIMEOUT_MS" "$XTALPI_SMOKE" "$XTALPI_SMOKE_DIR" "$XTALPI_SMOKE_HISTORY" "$XTALPI_SMOKE_TREND" "$XTALPI_SMOKE_DRIFT" "$XTALPI_SMOKE_TIMEOUT_MS" "$SCRIPT_DIR" <<'NODE'
 const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
@@ -150,6 +156,7 @@ const [
   xtalpiSmokeDirArg,
   xtalpiSmokeHistoryArg,
   xtalpiSmokeTrendArg,
+  xtalpiSmokeDriftArg,
   xtalpiSmokeTimeoutMsArg,
   scriptDir,
 ] = process.argv;
@@ -503,15 +510,29 @@ function deriveResult(repository, remote, report, xtalpiSmoke) {
 
   if (xtalpiSmoke && xtalpiSmoke.skipped !== true) {
     if (xtalpiSmoke.result === "ATTENTION") {
-      const failures = xtalpiSmoke.strictTrendGate?.data?.gateFailures || [];
-      warnings.push(
-        failures.length > 0
-          ? `xtalpi smoke full-suite-strict trend needs attention: ${failures.join("; ")}`
-          : "xtalpi smoke full-suite-strict trend needs attention",
-      );
-      recommendations.push(
-        `Inspect xtalpi smoke trend: bash ${path.join(repoRoot, "scripts", "pi67-xtalpi-pi-tools-debug-summary.sh")} --trend-gate ${xtalpiSmoke.strictTrendLimit || 3} --profile full-suite-strict "${xtalpiSmoke.artifactDir || "$HOME/tmp/xtalpi-pi-tools-smoke"}"`,
-      );
+      const strictFailures = xtalpiSmoke.strictTrendGate?.data?.gateFailures || [];
+      if (!xtalpiSmoke.history?.ok) {
+        warnings.push("xtalpi smoke history summary needs attention");
+        recommendations.push(
+          `Inspect xtalpi smoke history: bash ${path.join(repoRoot, "scripts", "pi67-xtalpi-pi-tools-debug-summary.sh")} --history ${xtalpiSmoke.historyLimit || 3} --json "${xtalpiSmoke.artifactDir || "$HOME/tmp/xtalpi-pi-tools-smoke"}"`,
+        );
+      } else if (!xtalpiSmoke.strictTrendGate?.ok || xtalpiSmoke.strictTrendGate?.data?.ok !== true) {
+        warnings.push(
+          strictFailures.length > 0
+            ? `xtalpi smoke full-suite-strict trend needs attention: ${strictFailures.join("; ")}`
+            : "xtalpi smoke full-suite-strict trend needs attention",
+        );
+        recommendations.push(
+          `Inspect xtalpi smoke trend: bash ${path.join(repoRoot, "scripts", "pi67-xtalpi-pi-tools-debug-summary.sh")} --trend-gate ${xtalpiSmoke.strictTrendLimit || 3} --profile full-suite-strict "${xtalpiSmoke.artifactDir || "$HOME/tmp/xtalpi-pi-tools-smoke"}"`,
+        );
+      } else if (xtalpiSmoke.drift && !xtalpiSmoke.drift.ok) {
+        warnings.push("xtalpi smoke full-suite drift summary needs attention");
+        recommendations.push(
+          `Inspect xtalpi smoke drift: bash ${path.join(repoRoot, "scripts", "pi67-xtalpi-pi-tools-debug-summary.sh")} --drift ${xtalpiSmoke.driftLimit || 10} --run-kind full-suite --json "${xtalpiSmoke.artifactDir || "$HOME/tmp/xtalpi-pi-tools-smoke"}"`,
+        );
+      } else {
+        warnings.push("xtalpi smoke status needs attention");
+      }
     } else if (xtalpiSmoke.result === "UNAVAILABLE") {
       warnings.push(`xtalpi smoke status unavailable: ${(xtalpiSmoke.warnings || []).join("; ") || "unknown reason"}`);
     }
@@ -552,6 +573,7 @@ const xtalpiSmoke = xtalpiSmokeEnabled
       artifactDir: xtalpiSmokeDirArg || defaultArtifactDir(),
       historyLimit: xtalpiSmokeHistoryArg,
       strictTrendLimit: xtalpiSmokeTrendArg,
+      driftLimit: xtalpiSmokeDriftArg,
       timeoutMs: xtalpiSmokeTimeoutMsArg,
     })
   : {
@@ -677,6 +699,27 @@ if (xtalpiSmoke.skipped) {
       console.log(
         `Strict gate: unavailable exit=${xtalpiSmoke.strictTrendGate.exitCode ?? "?"} ` +
           `parse_error=${xtalpiSmoke.strictTrendGate.parseError || "none"}`,
+      );
+    }
+    const drift = xtalpiSmoke.drift?.data;
+    if (drift) {
+      console.log(
+        `Drift      : found=${drift.found ?? "?"}/${drift.requested ?? "?"} ` +
+          `eligible=${drift.candidateArtifacts ?? "?"} filtered_out=${drift.filteredOutArtifacts ?? "?"} ` +
+          `run_kind_filter=${drift.filter?.runKinds?.join(",") || "(none)"}`,
+      );
+      console.log(
+        `Drift flags: provider_model=${drift.drift?.providerModelChanged ?? "?"} ` +
+          `case_set=${drift.drift?.caseSetChanged ?? "?"} ` +
+          `runtime_fingerprint=${drift.drift?.runtimeFingerprintChanged ?? "?"} ` +
+          `runtime_bounds=${drift.drift?.runtimeBoundsChanged ?? "?"} ` +
+          `provider_health=${drift.drift?.providerHealthChanged ?? "?"} ` +
+          `quality_signals=${drift.drift?.qualitySignalsPresent ?? "?"}`,
+      );
+    } else if (xtalpiSmoke.drift) {
+      console.log(
+        `Drift      : unavailable exit=${xtalpiSmoke.drift.exitCode ?? "?"} ` +
+          `parse_error=${xtalpiSmoke.drift.parseError || "none"}`,
       );
     }
   }

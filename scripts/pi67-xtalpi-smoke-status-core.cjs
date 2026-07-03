@@ -5,6 +5,7 @@ const { spawnSync } = require("node:child_process");
 
 const DEFAULT_HISTORY_LIMIT = 3;
 const DEFAULT_STRICT_TREND_LIMIT = 3;
+const DEFAULT_DRIFT_LIMIT = 10;
 const DEFAULT_TIMEOUT_MS = 15000;
 
 function defaultArtifactDir(env = process.env) {
@@ -108,6 +109,74 @@ function compactTrendGate(data) {
   };
 }
 
+function compactDriftRun(run) {
+  return {
+    runId: run?.runId || null,
+    ok: run?.ok ?? null,
+    provider: run?.provider || null,
+    model: run?.model || null,
+    runKind: run?.runKind || null,
+    cases: run?.cases ?? null,
+    caseSetSha256: run?.caseSetSha256 || null,
+    recoveries: run?.recoveries ?? null,
+    recoveryRate: run?.recoveryRate ?? null,
+    providerErrors: run?.providerErrors ?? null,
+    retryableProviderErrors: run?.retryableProviderErrors ?? null,
+    argumentValidationWarnings: run?.argumentValidationWarnings ?? null,
+    rawToolMarkupFinalAnswers: run?.rawToolMarkupFinalAnswers ?? null,
+    emptyAssistantEnds: run?.emptyAssistantEnds ?? null,
+    processLifecycleFailures: run?.processLifecycleFailures ?? null,
+    runtimeBoundsSha256: run?.runtimeBoundsSha256 || null,
+    runtimeFingerprintSha256: run?.runtimeFingerprintSha256 || null,
+    providerHealthSha256: run?.providerHealthSha256 || null,
+    runtimeBounds: run?.runtimeBounds || null,
+    providerHealth: run?.providerHealth || null,
+    parseError: run?.parseError || null,
+  };
+}
+
+function compactDimensionEntries(entries, fields) {
+  return (Array.isArray(entries) ? entries : []).map((entry) => {
+    const result = {
+      key: entry?.key || null,
+      count: entry?.count ?? null,
+      runIds: Array.isArray(entry?.runIds) ? entry.runIds : [],
+    };
+    for (const field of fields) {
+      result[field] = entry?.[field] ?? null;
+    }
+    return result;
+  });
+}
+
+function compactDrift(data) {
+  return {
+    schema: data?.schema || null,
+    requested: data?.requested ?? null,
+    totalArtifacts: data?.totalArtifacts ?? null,
+    candidateArtifacts: data?.candidateArtifacts ?? null,
+    filteredOutArtifacts: data?.filteredOutArtifacts ?? null,
+    filter: data?.filter || null,
+    found: data?.found ?? null,
+    order: data?.order || null,
+    parseErrorCount: data?.parseErrorCount ?? null,
+    latestRunId: data?.latestRunId || null,
+    baselineRunId: data?.baselineRunId || null,
+    runKindCounts: data?.runKindCounts || {},
+    drift: data?.drift || null,
+    qualityTotals: data?.qualityTotals || null,
+    dimensions: {
+      providerModels: compactDimensionEntries(data?.dimensions?.providerModels, ["provider", "model"]),
+      caseSets: compactDimensionEntries(data?.dimensions?.caseSets, ["sha256", "countCases", "canonical"]),
+      runtimeFingerprints: compactDimensionEntries(data?.dimensions?.runtimeFingerprints, ["sha256"]),
+      runtimeBounds: compactDimensionEntries(data?.dimensions?.runtimeBounds, ["sha256", "bounds"]),
+      providerHealth: compactDimensionEntries(data?.dimensions?.providerHealth, ["sha256", "summary"]),
+    },
+    warnings: Array.isArray(data?.warnings) ? data.warnings : [],
+    runs: Array.isArray(data?.runs) ? data.runs.map(compactDriftRun) : [],
+  };
+}
+
 function runDebugSummary({ repoRoot, script, artifactDir, args, timeoutMs, compact }) {
   const result = spawnSync("bash", [script, ...args, artifactDir], {
     cwd: repoRoot,
@@ -135,6 +204,7 @@ function deriveResult(status) {
   if (!status.artifactsExist) return "NO_ARTIFACTS";
   if (!status.history?.ok) return "ATTENTION";
   if (!status.strictTrendGate?.ok || status.strictTrendGate?.data?.ok !== true) return "ATTENTION";
+  if (status.drift && !status.drift.ok) return "ATTENTION";
   return "OK";
 }
 
@@ -144,6 +214,7 @@ function collectXtalpiSmokeStatus(options = {}) {
   const debugSummaryScript = options.debugSummaryScript || path.join(repoRoot, "scripts", "pi67-xtalpi-pi-tools-debug-summary.sh");
   const historyLimit = positiveInteger(options.historyLimit, DEFAULT_HISTORY_LIMIT);
   const strictTrendLimit = positiveInteger(options.strictTrendLimit, DEFAULT_STRICT_TREND_LIMIT);
+  const driftLimit = positiveInteger(options.driftLimit, DEFAULT_DRIFT_LIMIT);
   const timeoutMs = positiveInteger(options.timeoutMs, DEFAULT_TIMEOUT_MS);
   const status = {
     schemaVersion: 1,
@@ -153,6 +224,7 @@ function collectXtalpiSmokeStatus(options = {}) {
     debugSummaryScript,
     historyLimit,
     strictTrendLimit,
+    driftLimit,
     timeoutMs,
     available: true,
     artifactsExist: fs.existsSync(artifactDir) && fs.statSync(artifactDir).isDirectory(),
@@ -193,6 +265,14 @@ function collectXtalpiSmokeStatus(options = {}) {
     timeoutMs,
     compact: compactTrendGate,
   });
+  status.drift = runDebugSummary({
+    repoRoot,
+    script: debugSummaryScript,
+    artifactDir,
+    args: ["--drift", String(driftLimit), "--run-kind", "full-suite", "--json"],
+    timeoutMs,
+    compact: compactDrift,
+  });
 
   if (status.history && !status.history.ok) {
     status.warnings.push("xtalpi smoke history summary failed");
@@ -203,6 +283,9 @@ function collectXtalpiSmokeStatus(options = {}) {
   } else if (status.strictTrendGate && !status.strictTrendGate.ok) {
     status.warnings.push("xtalpi full-suite-strict trend gate failed to run");
   }
+  if (status.drift && !status.drift.ok) {
+    status.warnings.push("xtalpi full-suite drift summary failed to run");
+  }
   status.result = deriveResult(status);
   return status;
 }
@@ -210,6 +293,7 @@ function collectXtalpiSmokeStatus(options = {}) {
 module.exports = {
   collectXtalpiSmokeStatus,
   defaultArtifactDir,
+  DEFAULT_DRIFT_LIMIT,
   DEFAULT_HISTORY_LIMIT,
   DEFAULT_STRICT_TREND_LIMIT,
 };
