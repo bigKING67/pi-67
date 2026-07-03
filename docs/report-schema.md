@@ -250,6 +250,8 @@ directory. It calls debug-summary JSON modes and stores compact results:
     "data": {
       "found": 3,
       "totalArtifacts": 77,
+      "candidateArtifacts": 77,
+      "filteredOutArtifacts": 0,
       "runs": [
         {
           "runId": "20260703-151935",
@@ -262,12 +264,16 @@ directory. It calls debug-summary JSON modes and stores compact results:
     }
   },
   "strictTrendGate": {
-    "ok": false,
+    "ok": true,
     "data": {
-      "ok": false,
+      "ok": true,
+      "candidateArtifacts": 42,
+      "filteredOutArtifacts": 35,
+      "filter": {
+        "runKinds": ["full-suite"]
+      },
       "runKindCounts": {
-        "full-suite": 2,
-        "targeted": 1
+        "full-suite": 3
       },
       "gateFailures": []
     }
@@ -290,6 +296,11 @@ Options:
 bash ~/.pi/agent/scripts/pi67-report.sh --xtalpi-smoke-dir /path/to/xtalpi-pi-tools-smoke
 bash ~/.pi/agent/scripts/pi67-report.sh --no-xtalpi-smoke
 ```
+
+The `strictTrendGate` block uses the `full-suite-strict` profile, which filters
+persisted summaries to `runKind=full-suite` before selecting newest N. The
+overall `history` block remains unfiltered so consumers can still see the latest
+targeted or preflight-failed diagnostic runs.
 
 ## Consumer guidance
 

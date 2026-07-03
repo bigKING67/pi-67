@@ -338,7 +338,7 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
 
 `--history` 读取 `<stamp>-summary.json`，按最新优先输出每轮 `ok`、`failures`、`cases`、`run_kind`、`selected_cases`、`case_set_sha256`、`recoveries`、`recovery_rate`、raw markup final answer、empty assistant end、error、provider error、process lifecycle failure 和 watchdog timeout 计数；它会忽略同目录下的 `<stamp>-debug-summary.json` 中间产物，避免把 debug-summary 自身误当成 smoke run。旧 summary 如果没有 `runKind`，debug-summary 会根据 `caseSet`、`providerHealth` 和 `stopReason` 现场回推分类。
 
-`scripts/pi67-report.sh` 和 `scripts/pi67-status.sh` 也会默认读取同一 smoke artifact 目录，写入 / 输出 compact `xtalpiSmoke` 状态：最近 3 次 history、每轮 `runKind`，以及 `--trend-gate 3 --profile full-suite-strict` 的结果。该状态只读本地 artifact，不运行 live smoke，也不改写历史文件；使用 `--no-xtalpi-smoke` 可关闭，或用 `--xtalpi-smoke-dir DIR` 指向非默认目录。
+`--history` 和 `--trend-gate` 支持 `--run-kind LIST` 先按 `runKind` 过滤 persisted summary artifacts，再选择 newest N；`--require-run-kind LIST` 会要求 selected runs 的 `runKind` 属于指定集合。`scripts/pi67-report.sh` 和 `scripts/pi67-status.sh` 也会默认读取同一 smoke artifact 目录，写入 / 输出 compact `xtalpiSmoke` 状态：最近 3 次整体 history、每轮 `runKind`，以及 `--trend-gate 3 --profile full-suite-strict` 的结果。该状态只读本地 artifact，不运行 live smoke，也不改写历史文件；使用 `--no-xtalpi-smoke` 可关闭，或用 `--xtalpi-smoke-dir DIR` 指向非默认目录。
 
 也可以精确汇总某一次 smoke run，避免并发或历史 artifact 干扰：
 
@@ -413,6 +413,8 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
 ```
 
 `full-suite-strict` 会设置 `--expect-cases 8`、完整 8-case `--expect-case-names`、`--max-empty-assistant-ends 0`、`--max-raw-tool-markup-final-answers 0`、`--max-recoveries 0`、`--max-recovery-rate 0`、`--max-recovery-case-runs 0` 和 `--fail-on-recovery-increase`。仍可显式传入 `--max-recoveries` 等数字阈值覆盖 profile 默认值。
+
+`full-suite-strict` 还会默认设置 `--run-kind full-suite --require-run-kind full-suite`：局部 targeted run 可以保留在同一个 artifact 目录里用于排查，但不会污染“最近 N 次 full-suite 趋势”证据。trend-gate JSON 会保留 `history.totalArtifacts`、`history.candidateArtifacts`、`history.filteredOutArtifacts` 和 `history.filter.runKinds`，用于说明有多少 artifact 被过滤。
 
 如果要把“最新 run 比上一 run 的 recovery 次数增加，或 recovery rate 变高”也作为失败条件，可以加：
 

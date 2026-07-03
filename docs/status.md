@@ -125,6 +125,12 @@ The resulting `xtalpiSmoke` block uses schema
   recovery trend
 - `result`: `OK`, `ATTENTION`, `NO_ARTIFACTS`, or `UNAVAILABLE`
 
+`full-suite-strict` filters the trend gate to `runKind=full-suite` before
+selecting newest N, while the plain history block still shows the latest overall
+artifacts. Text output includes `eligible`, `filtered_out`, and
+`run_kind_filter` so a targeted diagnostic run can be distinguished from full
+suite evidence instead of silently weakening the trend gate.
+
 `NO_ARTIFACTS` is informational and does not by itself change the top-level
 status result. `ATTENTION` and `UNAVAILABLE` are reported as warnings with a
 debug-summary command recommendation.

@@ -666,6 +666,8 @@ if (xtalpiSmoke.skipped) {
     if (trend) {
       console.log(
         `Strict gate: ok=${trend.ok ?? "?"} found=${trend.found ?? "?"}/${trend.requested ?? "?"} ` +
+          `eligible=${trend.candidateArtifacts ?? "?"} filtered_out=${trend.filteredOutArtifacts ?? "?"} ` +
+          `run_kind_filter=${trend.filter?.runKinds?.join(",") || "(none)"} ` +
           `run_kinds=${JSON.stringify(trend.runKindCounts || {})}`,
       );
       if (trend.gateFailures?.length) {

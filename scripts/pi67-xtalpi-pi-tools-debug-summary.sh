@@ -22,6 +22,8 @@ MAX_EMPTY_ASSISTANT_ENDS=""
 MAX_RAW_TOOL_MARKUP_FINAL_ANSWERS=""
 MAX_RECOVERIES=""
 MAX_RECOVERY_RATE=""
+RUN_KIND_FILTER=""
+REQUIRE_RUN_KIND=""
 
 usage() {
   cat <<'EOF'
@@ -37,6 +39,8 @@ Selection:
   --history N                    show newest N persisted *-summary.json smoke runs
   --trend-gate N                 gate newest N persisted smoke summaries
   --compare BASE_RUN HEAD_RUN    compare two persisted smoke summaries
+  --run-kind LIST                for --history/--trend-gate, filter persisted summaries by runKind before selecting newest N
+  --require-run-kind LIST         require selected run(s) to have one of the comma-separated runKind values
 
 Gate options:
   --profile full-suite-strict      apply the full 8-case strict trend gate defaults
@@ -65,6 +69,8 @@ apply_profile_defaults() {
     full-suite-strict)
       EXPECT_CASES="${EXPECT_CASES:-8}"
       EXPECT_CASE_NAMES="${EXPECT_CASE_NAMES:-$FULL_SUITE_CASE_NAMES}"
+      RUN_KIND_FILTER="${RUN_KIND_FILTER:-full-suite}"
+      REQUIRE_RUN_KIND="${REQUIRE_RUN_KIND:-full-suite}"
       MAX_EMPTY_ASSISTANT_ENDS="${MAX_EMPTY_ASSISTANT_ENDS:-0}"
       MAX_RAW_TOOL_MARKUP_FINAL_ANSWERS="${MAX_RAW_TOOL_MARKUP_FINAL_ANSWERS:-0}"
       MAX_RECOVERIES="${MAX_RECOVERIES:-0}"
@@ -410,6 +416,40 @@ writeSummary("20260702-000002", {
   selectedCases: fullSuiteCases,
 });
 
+const mixedFullSuiteTrend = ensureDir("mixed-full-suite-trend");
+writeSummary("20260702-000001", {
+  dir: mixedFullSuiteTrend,
+  ok: true,
+  failures: 0,
+  recoveries: 0,
+  totalCases: fullSuiteCases.length,
+  selectedCases: fullSuiteCases,
+});
+writeSummary("20260702-000002", {
+  dir: mixedFullSuiteTrend,
+  ok: true,
+  failures: 0,
+  recoveries: 0,
+  totalCases: fullSuiteCases.length,
+  selectedCases: fullSuiteCases,
+});
+writeSummary("20260702-000003", {
+  dir: mixedFullSuiteTrend,
+  ok: true,
+  failures: 0,
+  recoveries: 0,
+  totalCases: 1,
+  selectedCases: ["web-read"],
+});
+writeSummary("20260702-000004", {
+  dir: mixedFullSuiteTrend,
+  ok: true,
+  failures: 0,
+  recoveries: 0,
+  totalCases: fullSuiteCases.length,
+  selectedCases: fullSuiteCases,
+});
+
 const subsetTrend = ensureDir("subset-trend");
 writeSummary("20260702-000001", {
   dir: subsetTrend,
@@ -541,6 +581,16 @@ NODE
     return 1
   fi
 
+  if ! output="$("$SCRIPT_PATH" --history 2 --run-kind full-suite "$tmp_dir/mixed-full-suite-trend" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+  if [[ "$output" != *"run_kind_filter=full-suite"* || "$output" != *"filtered_out_artifacts=1"* || "$output" != *"20260702-000004"* || "$output" != *"20260702-000002"* || "$output" == *"20260702-000003"* ]]; then
+    echo "runKind-filtered history did not select newest full-suite runs"
+    echo "$output"
+    return 1
+  fi
+
   local compare_json="$tmp_dir/compare-output.json"
   if ! output="$("$SCRIPT_PATH" --compare 20260702-000002 20260702-000003 --json "$tmp_dir/history" >"$compare_json" 2>&1)"; then
     echo "$output"
@@ -601,6 +651,17 @@ NODE
     return 1
   fi
 
+  if output="$("$SCRIPT_PATH" --trend-gate 2 --require-run-kind full-suite "$tmp_dir/trend" 2>&1)"; then
+    echo "expected require-run-kind to fail targeted trend fixture"
+    echo "$output"
+    return 1
+  fi
+  if [[ "$output" != *"expected run_kind=full-suite"* ]]; then
+    echo "require-run-kind failure did not expose runKind mismatch"
+    echo "$output"
+    return 1
+  fi
+
   local profile_json="$tmp_dir/profile-output.json"
   if ! output="$("$SCRIPT_PATH" --trend-gate 2 --profile full-suite-strict --json "$tmp_dir/full-suite-trend" >"$profile_json" 2>&1)"; then
     echo "$output"
@@ -632,6 +693,30 @@ assert(
   ]),
   "profile should set exact full-suite case names",
 );
+NODE
+    return 1
+  fi
+
+  local mixed_profile_json="$tmp_dir/mixed-profile-output.json"
+  if ! output="$("$SCRIPT_PATH" --trend-gate 3 --profile full-suite-strict --json "$tmp_dir/mixed-full-suite-trend" >"$mixed_profile_json" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+  if ! node - "$mixed_profile_json" <<'NODE'; then
+const fs = require("node:fs");
+const file = process.argv[2];
+const data = JSON.parse(fs.readFileSync(file, "utf8"));
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+assert(data.ok === true, "profile should pass newest full-suite runs when a targeted run is interleaved");
+assert(data.history.totalArtifacts === 4, "mixed fixture should preserve total artifact count");
+assert(data.history.candidateArtifacts === 3, "profile should see three eligible full-suite artifacts");
+assert(data.history.filteredOutArtifacts === 1, "profile should filter out one targeted artifact");
+assert(JSON.stringify(data.history.filter.runKinds) === JSON.stringify(["full-suite"]), "profile should filter runKind=full-suite");
+assert(data.history.found === 3, "profile should select three full-suite runs");
+assert(data.history.runs.map((run) => run.runId).join(",") === "20260702-000004,20260702-000002,20260702-000001", "profile selected wrong full-suite runs");
+assert(data.history.runs.every((run) => run.runKind === "full-suite"), "profile selected a non-full-suite run");
 NODE
     return 1
   fi
@@ -742,6 +827,22 @@ while [ "$#" -gt 0 ]; do
       EXPECT_CASE_NAMES="${2:-}"
       shift 2
       ;;
+    --run-kind|--filter-run-kind)
+      if [ "$#" -lt 2 ]; then
+        echo "xtalpi-pi-tools debug summary: --run-kind requires LIST" >&2
+        exit 2
+      fi
+      RUN_KIND_FILTER="${2:-}"
+      shift 2
+      ;;
+    --require-run-kind)
+      if [ "$#" -lt 2 ]; then
+        echo "xtalpi-pi-tools debug summary: --require-run-kind requires LIST" >&2
+        exit 2
+      fi
+      REQUIRE_RUN_KIND="${2:-}"
+      shift 2
+      ;;
     --max-errors)
       MAX_ERRORS="${2:-}"
       shift 2
@@ -806,7 +907,9 @@ node - \
   "$MAX_EMPTY_ASSISTANT_ENDS" \
   "$MAX_RAW_TOOL_MARKUP_FINAL_ANSWERS" \
   "$MAX_RECOVERIES" \
-  "$MAX_RECOVERY_RATE" <<'NODE'
+  "$MAX_RECOVERY_RATE" \
+  "$RUN_KIND_FILTER" \
+  "$REQUIRE_RUN_KIND" <<'NODE'
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -830,6 +933,8 @@ const [
   maxRawToolMarkupFinalAnswersRaw,
   maxRecoveriesRaw,
   maxRecoveryRateRaw,
+  runKindFilterRaw,
+  requireRunKindRaw,
 ] = process.argv.slice(2);
 const {
   buildCaseSet,
@@ -876,6 +981,16 @@ function parseCaseNameList(raw, name) {
   return sortedUniqueStrings(list);
 }
 
+function parseRunKindList(raw, name) {
+  if (raw === undefined || raw === "") return undefined;
+  const list = String(raw).split(",").map((item) => item.trim());
+  if (list.length === 0 || list.some((item) => item === "")) {
+    console.error(`xtalpi-pi-tools debug summary: ${name} must be a comma-separated non-empty runKind list`);
+    process.exit(2);
+  }
+  return sortedUniqueStrings(list);
+}
+
 function caseNameListsEqual(actual, expected) {
   const actualSorted = sortedUniqueStrings(actual);
   const expectedSorted = sortedUniqueStrings(expected);
@@ -883,14 +998,27 @@ function caseNameListsEqual(actual, expected) {
     actualSorted.every((item, index) => item === expectedSorted[index]);
 }
 
+function runKindMatches(runKind, expectedKinds) {
+  if (expectedKinds === undefined) return true;
+  return expectedKinds.includes(String(runKind || ""));
+}
+
+function formatRunKinds(values) {
+  return sortedUniqueStrings(values).join(",");
+}
+
 function formatCaseNames(values) {
   return sortedUniqueStrings(values).join(",");
 }
 
+const runKindFilter = parseRunKindList(runKindFilterRaw, "--run-kind");
+const requireRunKinds = parseRunKindList(requireRunKindRaw, "--require-run-kind");
 const gates = {
   profile: gateProfile || undefined,
   expectCases: optionalNumber(expectCasesRaw, "--expect-cases"),
   expectCaseNames: parseCaseNameList(expectCaseNamesRaw, "--expect-case-names"),
+  runKindFilter,
+  requireRunKinds,
   maxErrors: optionalNumber(maxErrorsRaw, "--max-errors"),
   maxEmptyAssistantEnds: optionalNumber(maxEmptyAssistantEndsRaw, "--max-empty-assistant-ends"),
   maxRawToolMarkupFinalAnswers: optionalNumber(
@@ -928,6 +1056,10 @@ if (compareMode && (historyLimit !== undefined || trendGateLimit !== undefined))
   console.error("xtalpi-pi-tools debug summary: --compare cannot be combined with --history or --trend-gate");
   process.exit(2);
 }
+if (compareMode && (runKindFilter !== undefined || requireRunKinds !== undefined)) {
+  console.error("xtalpi-pi-tools debug summary: --compare cannot be combined with --run-kind or --require-run-kind");
+  process.exit(2);
+}
 if (compareMode && (latestOnly || runIdFilter !== "")) {
   console.error("xtalpi-pi-tools debug summary: --compare cannot be combined with --latest or --run-id");
   process.exit(2);
@@ -938,6 +1070,10 @@ if (historyLimit !== undefined && trendGateLimit !== undefined) {
 }
 if (trendGateLimit !== undefined && (latestOnly || runIdFilter !== "")) {
   console.error("xtalpi-pi-tools debug summary: --trend-gate cannot be combined with --latest or --run-id");
+  process.exit(2);
+}
+if (runKindFilter !== undefined && historyLimit === undefined && trendGateLimit === undefined) {
+  console.error("xtalpi-pi-tools debug summary: --run-kind requires --history or --trend-gate");
   process.exit(2);
 }
 
@@ -1565,8 +1701,19 @@ function buildHistory(limit) {
     process.exit(1);
   }
 
-  const selectedFiles = summaryFiles.slice(-limit).reverse();
-  const runs = selectedFiles.map(summarizeSmokeSummaryFile);
+  let candidateArtifacts = summaryFiles.length;
+  let filteredOutArtifacts = 0;
+  let runs;
+  if (runKindFilter !== undefined) {
+    const newestRuns = summaryFiles.slice().reverse().map(summarizeSmokeSummaryFile);
+    const candidateRuns = newestRuns.filter((run) => runKindMatches(run.runKind, runKindFilter));
+    candidateArtifacts = candidateRuns.length;
+    filteredOutArtifacts = summaryFiles.length - candidateRuns.length;
+    runs = candidateRuns.slice(0, limit);
+  } else {
+    const selectedFiles = summaryFiles.slice(-limit).reverse();
+    runs = selectedFiles.map(summarizeSmokeSummaryFile);
+  }
   const parseErrorCount = runs.filter((run) => run.parseError).length;
 
   return {
@@ -1574,6 +1721,11 @@ function buildHistory(limit) {
     outDir,
     requested: limit,
     totalArtifacts: summaryFiles.length,
+    candidateArtifacts,
+    filteredOutArtifacts,
+    filter: {
+      runKinds: runKindFilter || null,
+    },
     found: runs.length,
     order: "newest_first",
     parseErrorCount,
@@ -1581,9 +1733,20 @@ function buildHistory(limit) {
   };
 }
 
+function buildRunKindRequirementFailures(runs) {
+  if (requireRunKinds === undefined) return [];
+  return runs
+    .filter((run) => !runKindMatches(run.runKind, requireRunKinds))
+    .map((run) => `${run.runId}: expected run_kind=${formatRunKinds(requireRunKinds)}, got ${run.runKind || "(missing)"}`);
+}
+
 function printHistory(limit) {
   const history = buildHistory(limit);
   const { runs } = history;
+  const runKindFailures = buildRunKindRequirementFailures(runs);
+  if (runKindFailures.length > 0) {
+    history.gateFailures = runKindFailures;
+  }
 
   if (format === "json") {
     console.log(JSON.stringify(history, null, 2));
@@ -1591,7 +1754,8 @@ function printHistory(limit) {
     console.log("xtalpi-pi-tools smoke history");
     console.log(
       `out_dir=${outDir} requested=${history.requested} found=${history.found} total_artifacts=${history.totalArtifacts} ` +
-        "order=newest_first",
+        `candidate_artifacts=${history.candidateArtifacts} filtered_out_artifacts=${history.filteredOutArtifacts} ` +
+        `run_kind_filter=${history.filter.runKinds ? history.filter.runKinds.join(",") : "(none)"} order=newest_first`,
     );
     for (const run of runs) {
       const parseText = run.parseError ? ` parse_error=${JSON.stringify(run.parseError)}` : "";
@@ -1617,9 +1781,12 @@ function printHistory(limit) {
           `${providerText}${modelText}${runKindText}${selectedText}${caseSetText}${gateText}${parseText}`,
       );
     }
+    if (runKindFailures.length > 0) {
+      console.error(`gate_failures=${JSON.stringify(runKindFailures)}`);
+    }
   }
 
-  process.exit(history.parseErrorCount > 0 ? 1 : 0);
+  process.exit(history.parseErrorCount > 0 || runKindFailures.length > 0 ? 1 : 0);
 }
 
 function buildRecoveryTrend(runs) {
@@ -1658,6 +1825,8 @@ function evaluateTrendGate(history) {
     profile: gates.profile,
     expectCases: gates.expectCases,
     expectCaseNames: gates.expectCaseNames,
+    runKindFilter: gates.runKindFilter,
+    requireRunKinds: gates.requireRunKinds,
     maxErrors: gates.maxErrors ?? 0,
     maxEmptyAssistantEnds: gates.maxEmptyAssistantEnds ?? 0,
     maxRawToolMarkupFinalAnswers: gates.maxRawToolMarkupFinalAnswers ?? 0,
@@ -1686,6 +1855,11 @@ function evaluateTrendGate(history) {
     }
     if (run.debugSummaryStatus > 0) {
       gateFailures.push(`${run.runId}: expected debug_summary_status=0, got ${run.debugSummaryStatus}`);
+    }
+    if (hardLimits.requireRunKinds !== undefined && !runKindMatches(run.runKind, hardLimits.requireRunKinds)) {
+      gateFailures.push(
+        `${run.runId}: expected run_kind=${formatRunKinds(hardLimits.requireRunKinds)}, got ${run.runKind || "(missing)"}`,
+      );
     }
     if (hardLimits.expectCases !== undefined && run.cases !== hardLimits.expectCases) {
       gateFailures.push(`${run.runId}: expected cases=${hardLimits.expectCases}, got ${run.cases}`);
@@ -1775,6 +1949,9 @@ function printTrendGate(limit) {
     outDir,
     requested: history.requested,
     totalArtifacts: history.totalArtifacts,
+    candidateArtifacts: history.candidateArtifacts,
+    filteredOutArtifacts: history.filteredOutArtifacts,
+    filter: history.filter,
     found: history.found,
     order: history.order,
     ok: evaluation.gateFailures.length === 0,
@@ -1788,7 +1965,10 @@ function printTrendGate(limit) {
     console.log("xtalpi-pi-tools smoke trend gate");
     console.log(
       `out_dir=${outDir} requested=${history.requested} found=${history.found} ` +
-        `total_artifacts=${history.totalArtifacts} order=${history.order} ok=${trendGate.ok}`,
+        `total_artifacts=${history.totalArtifacts} candidate_artifacts=${history.candidateArtifacts} ` +
+        `filtered_out_artifacts=${history.filteredOutArtifacts} ` +
+        `run_kind_filter=${history.filter.runKinds ? history.filter.runKinds.join(",") : "(none)"} ` +
+        `order=${history.order} ok=${trendGate.ok}`,
     );
     console.log(
       `latest=${evaluation.recoveryTrend.latestRunId || "(none)"} ` +
@@ -1927,10 +2107,15 @@ for (const item of cases) {
 }
 
 totals.recoveryRate = totals.turns > 0 ? totals.recoveries / totals.turns : 0;
+const directCaseSet = buildCaseSet(cases.map((item) => item.caseName));
+const directRunKind = classifyRunKind(directCaseSet);
 
 const gateFailures = [];
 if (gates.expectCases !== undefined && totals.cases !== gates.expectCases) {
   gateFailures.push(`expected cases=${gates.expectCases}, got ${totals.cases}`);
+}
+if (gates.requireRunKinds !== undefined && !runKindMatches(directRunKind, gates.requireRunKinds)) {
+  gateFailures.push(`expected run_kind=${formatRunKinds(gates.requireRunKinds)}, got ${directRunKind}`);
 }
 if (
   gates.expectCaseNames !== undefined &&
@@ -1970,7 +2155,7 @@ if (gates.maxRecoveryRate !== undefined && totals.recoveryRate > gates.maxRecove
   gateFailures.push(`expected recovery_rate<=${gates.maxRecoveryRate}, got ${totals.recoveryRate.toFixed(4)}`);
 }
 
-const summary = { outDir, latestOnly, runId: selectedRunId, gates, gateFailures, totals, cases };
+const summary = { outDir, latestOnly, runId: selectedRunId, caseSet: directCaseSet, runKind: directRunKind, gates, gateFailures, totals, cases };
 
 if (format === "json") {
   console.log(JSON.stringify(summary, null, 2));
@@ -1978,7 +2163,7 @@ if (format === "json") {
   console.log("xtalpi-pi-tools debug summary");
   console.log(`out_dir=${outDir} latest_only=${latestOnly} run_id=${selectedRunId || "(all)"}`);
   console.log(
-    `cases=${totals.cases} debug_events=${totals.debugEvents} turns=${totals.turns} ` +
+    `cases=${totals.cases} run_kind=${directRunKind} debug_events=${totals.debugEvents} turns=${totals.turns} ` +
       `tool_calls=${totals.toolCalls} recoveries=${totals.recoveries} recovery_rate=${totals.recoveryRate.toFixed(4)} ` +
       `empty_assistant_ends=${totals.emptyAssistantEnds} raw_tool_markup_final_answers=${totals.rawToolMarkupFinalAnswers} ` +
       `tool_envelope_final_answers=${totals.toolEnvelopeFinalAnswers} ` +
