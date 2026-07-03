@@ -67,6 +67,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - xtalpi runtime and provider-health diagnostics now redact common credential fields beyond Authorization/API keys, including token, password, cookie/session, and x-api-key shapes.
 - xtalpi runtime now short-circuits already-aborted caller signals without sending HTTP requests, classifies mid-flight caller cancellation as `request_aborted`, and keeps timeout coverage active through response body reads.
 - xtalpi response body reads now race against the provider timeout controller, with offline regression coverage proving body stalls classify as `request_timeout` instead of hanging.
+- xtalpi selected-tool ranking now carries recent user intent across continuation prompts such as "继续" / "continue", while still excluding untrusted tool results from the execution whitelist decision.
 
 ### Removed
 

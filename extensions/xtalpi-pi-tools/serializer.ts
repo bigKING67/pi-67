@@ -65,10 +65,16 @@ export type SerializedXtalpiContext = {
 };
 
 const MAX_TOOL_CALL_HISTORY_ARGUMENTS_CHARS = 4000;
+const MAX_TOOL_SELECTION_CONTEXT_CHARS = 4000;
+const MAX_TOOL_SELECTION_USER_MESSAGES = 4;
 const MAX_TOOL_SELECTION_SUMMARY_ITEMS = 12;
 const MAX_TOOL_SELECTION_REASON_CODES = 8;
 const TOOL_CALL_HISTORY_OPEN = "[previous_pi_tool_call]";
 const TOOL_CALL_HISTORY_CLOSE = "[/previous_pi_tool_call]";
+const CONTINUATION_PROMPT_PATTERN = new RegExp(
+  "^\\s*(?:继续上一轮|继续上一步|继续(?:呀|吧)?|接着(?:来|吧)?|下一步|然后呢|再来|往下|go on|continue|next|proceed)(?:\\s|$|[，。,.!！?？])",
+  "i",
+);
 
 function isJsonObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -108,6 +114,31 @@ function latestUserText(messages: MessageLike[]): string {
     }
   }
   return "";
+}
+
+function isContinuationPrompt(value: string): boolean {
+  return CONTINUATION_PROMPT_PATTERN.test(value.trim());
+}
+
+function truncateSelectionContext(value: string): string {
+  if (value.length <= MAX_TOOL_SELECTION_CONTEXT_CHARS) return value;
+  return value.slice(value.length - MAX_TOOL_SELECTION_CONTEXT_CHARS);
+}
+
+function recentUserText(messages: MessageLike[]): string {
+  const chunks: string[] = [];
+  for (let index = messages.length - 1; index >= 0 && chunks.length < MAX_TOOL_SELECTION_USER_MESSAGES; index -= 1) {
+    const message = messages[index];
+    if (message.role !== "user") continue;
+    const content = contentToText(message.content).trim();
+    if (content) chunks.push(content);
+  }
+  return truncateSelectionContext(chunks.reverse().join("\n"));
+}
+
+function toolSelectionPrompt(messages: MessageLike[]): string {
+  const latest = latestUserText(messages);
+  return isContinuationPrompt(latest) ? recentUserText(messages) || latest : latest;
 }
 
 function schemaType(value: unknown): string {
@@ -324,7 +355,7 @@ export function serializeContextForXtalpi(
   context: ContextLike,
   options: SerializeOptions,
 ): SerializedXtalpiContext {
-  const prompt = latestUserText(context.messages);
+  const prompt = toolSelectionPrompt(context.messages);
   const toolSelection = selectToolsWithSummary(context.tools, prompt, options.maxTools);
   const selectedTools = toolSelection.selectedTools;
   const selectedToolNames = toolSelection.selectedToolNames;
