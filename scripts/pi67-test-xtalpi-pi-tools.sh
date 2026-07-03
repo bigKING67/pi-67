@@ -20,6 +20,7 @@ const { pathToFileURL } = require("node:url");
   const errors = await import(ext("errors.ts"));
   const retry = await import(ext("retry.ts"));
   const responseNormalizer = await import(ext("response-normalizer.ts"));
+  const runtimeConfig = await import(ext("runtime-config.ts"));
   const serializer = await import(ext("serializer.ts"));
   const textSafety = await import(ext("text-safety.ts"));
   const validator = await import(ext("argument-validator.ts"));
@@ -326,6 +327,51 @@ const { pathToFileURL } = require("node:url");
       delete process.env.XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS;
     } else {
       process.env.XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS = previousMaxOutputEnv;
+    }
+  }
+
+  assert.equal(runtimeConfig.isPlaceholderKey(undefined), true);
+  assert.equal(runtimeConfig.isPlaceholderKey("YOUR_XTALPI_API_KEY"), true);
+  assert.equal(runtimeConfig.isPlaceholderKey("REPLACE_ME"), true);
+  assert.equal(runtimeConfig.isPlaceholderKey("changeme"), true);
+  assert.equal(runtimeConfig.isPlaceholderKey("realistic-test-key"), false);
+  assert.equal(runtimeConfig.normalizeBaseUrl("https://example.invalid/v1///"), "https://example.invalid/v1");
+  assert.equal(
+    runtimeConfig.endpointFor(
+      { baseUrl: "https://model.example.invalid/api/" },
+      { baseUrl: "https://runtime.example.invalid/api/" },
+    ),
+    "https://model.example.invalid/api/chat/completions",
+  );
+  assert.equal(
+    runtimeConfig.endpointFor(
+      {},
+      { baseUrl: "https://runtime.example.invalid/api/" },
+    ),
+    "https://runtime.example.invalid/api/chat/completions",
+  );
+  const previousPayloadMaxOutputEnv = process.env.XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS;
+  try {
+    delete process.env.XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS;
+    assert.deepEqual(
+      runtimeConfig.buildChatCompletionPayload(
+        { id: "deepseek-v4-pro", maxTokens: 2048 },
+        [{ role: "user", content: "hello" }],
+        { maxTokens: 4096, temperature: 0.2 },
+      ),
+      {
+        model: "deepseek-v4-pro",
+        messages: [{ role: "user", content: "hello" }],
+        stream: false,
+        max_tokens: 2048,
+        temperature: 0.2,
+      },
+    );
+  } finally {
+    if (previousPayloadMaxOutputEnv === undefined) {
+      delete process.env.XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS;
+    } else {
+      process.env.XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS = previousPayloadMaxOutputEnv;
     }
   }
 
