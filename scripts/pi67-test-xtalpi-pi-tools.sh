@@ -7,6 +7,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 node --no-warnings - "$REPO_ROOT" <<'NODE'
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
@@ -305,6 +306,47 @@ const { pathToFileURL } = require("node:url");
     assert.deepEqual(toolResult.toolCall.arguments, { path: "package.json" });
     assert.equal(toolChat.calls.length, 1);
 
+    const unsafePatternTool = {
+      name: "unsafe_pattern",
+      description: "Exercise bounded regex validation telemetry",
+      parameters: {
+        type: "object",
+        required: ["value"],
+        properties: { value: { type: "string", pattern: "^(a+)+$" } },
+      },
+    };
+    const warningDebugDir = fs.mkdtempSync(path.join(os.tmpdir(), "xtalpi-pi-tools-warning-debug."));
+    const warningDebugFile = path.join(warningDebugDir, "debug.jsonl");
+    try {
+      await withProviderTurnEnv({
+        XTALPI_PI_TOOLS_DEBUG: "1",
+        XTALPI_PI_TOOLS_DEBUG_PATH: warningDebugFile,
+      }, async () => {
+        const warningChat = makeProviderTurnChat([
+          { content: `<pi_tool_call>\n{"name":"unsafe_pattern","arguments":{"value":"${"a".repeat(2048)}!"}}\n</pi_tool_call>` },
+        ]);
+        const warningResult = await providerTurn.runProviderTurn({
+          model: providerTurnModel,
+          context: {
+            systemPrompt: "system base",
+            tools: [unsafePatternTool],
+            messages: [{ role: "user", content: "call unsafe_pattern once" }],
+          },
+          callChat: warningChat.callChat,
+        });
+        assert.equal(warningResult.kind, "tool_call");
+        const events = fs.readFileSync(warningDebugFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+        const warningEvent = events.find((event) => event.event === "tool_call");
+        assert.ok(warningEvent);
+        assert.equal(warningEvent.argument_validation_warning_count, 1);
+        assert.deepEqual(warningEvent.argument_validation_warning_codes, ["pattern_nested_quantifier"]);
+        assert.equal(warningEvent.data.argumentValidationWarnings[0].path, "arguments.value");
+        assert.ok(!JSON.stringify(warningEvent).includes("^(a+)+$"));
+      });
+    } finally {
+      fs.rmSync(warningDebugDir, { recursive: true, force: true });
+    }
+
     const hiddenAdminTool = {
       name: "hidden_admin",
       description: "Hidden admin tool",
@@ -598,6 +640,27 @@ const { pathToFileURL } = require("node:url");
     { value: `${"a".repeat(2048)}!` },
   );
   assert.equal(unsafePatternArgs.ok, true);
+  assert.deepEqual(unsafePatternArgs.warnings.map((warning) => warning.code), ["pattern_nested_quantifier"]);
+  assert.equal(unsafePatternArgs.warnings[0].path, "arguments.value");
+  assert.equal(unsafePatternArgs.warnings[0].patternChars, 7);
+  assert.equal(unsafePatternArgs.warnings[0].inputChars, 2049);
+  assert.ok(!JSON.stringify(unsafePatternArgs.warnings).includes("^(a+)+$"));
+
+  const invalidPatternArgs = validator.validateToolArguments(
+    {
+      name: "invalid_pattern",
+      parameters: {
+        type: "object",
+        required: ["value"],
+        properties: {
+          value: { type: "string", pattern: "[" },
+        },
+      },
+    },
+    { value: "ok" },
+  );
+  assert.equal(invalidPatternArgs.ok, true);
+  assert.deepEqual(invalidPatternArgs.warnings.map((warning) => warning.code), ["pattern_invalid_regex"]);
 
   const selectedToolNamesForDecision = ["read"];
   const selectedToolNameSet = new Set(selectedToolNamesForDecision);
@@ -673,6 +736,33 @@ const { pathToFileURL } = require("node:url");
     canRepair: true,
   });
   assert.equal(acceptedToolDecision.kind, "accept");
+  assert.deepEqual(acceptedToolDecision.argumentValidationWarnings, []);
+
+  const unsafeSelectedToolByName = new Map([
+    [
+      "unsafe_pattern",
+      {
+        name: "unsafe_pattern",
+        parameters: {
+          type: "object",
+          required: ["value"],
+          properties: { value: { type: "string", pattern: "^(a+)+$" } },
+        },
+      },
+    ],
+  ]);
+  const unsafePatternDecision = toolCallDecision.decideToolCallRequest({
+    requestedCall: { name: "unsafe_pattern", arguments: { value: `${"a".repeat(2048)}!` } },
+    selectedToolNames: new Set(["unsafe_pattern"]),
+    selectedToolNamesList: ["unsafe_pattern"],
+    selectedToolByName: unsafeSelectedToolByName,
+    canRepair: true,
+  });
+  assert.equal(unsafePatternDecision.kind, "accept");
+  assert.deepEqual(
+    unsafePatternDecision.argumentValidationWarnings.map((warning) => warning.code),
+    ["pattern_nested_quantifier"],
+  );
 
   const incompleteToolHistory = {
     messages: [
@@ -1060,6 +1150,29 @@ const { pathToFileURL } = require("node:url");
     assert.equal(errorEvent.error_category, "rate_limit");
     assert.equal(errorEvent.retryable, true);
     assert.equal(errorEvent.http_status, 429);
+
+    diagnostics.debugLog("tool_call", {
+      provider: "xtalpi-pi-tools",
+      model: "deepseek-v4-pro",
+      toolName: "unsafe_pattern",
+      argumentValidationWarningCount: 1,
+      argumentValidationWarningCodes: ["pattern_nested_quantifier"],
+      argumentValidationWarnings: [
+        {
+          code: "pattern_nested_quantifier",
+          path: "arguments.value",
+          patternChars: 7,
+          inputChars: 2049,
+        },
+      ],
+    });
+    const updatedDebugEvents = fs.readFileSync(debugFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    const toolCallEvent = updatedDebugEvents.at(-1);
+    assert.equal(toolCallEvent.event, "tool_call");
+    assert.equal(toolCallEvent.argument_validation_warning_count, 1);
+    assert.deepEqual(toolCallEvent.argument_validation_warning_codes, ["pattern_nested_quantifier"]);
+    assert.equal(toolCallEvent.data.argumentValidationWarnings[0].path, "arguments.value");
+    assert.ok(!JSON.stringify(toolCallEvent).includes("^(a+)+$"));
   } finally {
     if (previousDebugFlag === undefined) {
       delete process.env.XTALPI_PI_TOOLS_DEBUG;

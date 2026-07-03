@@ -144,6 +144,26 @@ writeCase(clean, "20260702-000001", "clean", {
         },
       },
     },
+    {
+      schema: "xtalpi-pi-tools.debug.v1",
+      event: "tool_call",
+      event_category: "tool_call",
+      selected_tool_count: 1,
+      argument_validation_warning_count: 1,
+      argument_validation_warning_codes: ["pattern_nested_quantifier"],
+      data: {
+        argumentValidationWarningCount: 1,
+        argumentValidationWarningCodes: ["pattern_nested_quantifier"],
+        argumentValidationWarnings: [
+          {
+            code: "pattern_nested_quantifier",
+            path: "arguments.value",
+            patternChars: 7,
+            inputChars: 2049,
+          },
+        ],
+      },
+    },
   ],
 });
 
@@ -358,8 +378,8 @@ NODE
     echo "$output"
     return 1
   fi
-  if [[ "$output" != *"tool_selection_clipped=true"* || "$output" != *"tool_selection_omitted=2-2"* || "$output" != *"tool_selection_valid=3-3"* || "$output" != *"tool_selection_prompt_source=recent_user_continuation"* ]]; then
-    echo "clean fixture output did not expose bounded tool-selection diagnostics"
+  if [[ "$output" != *"tool_selection_clipped=true"* || "$output" != *"tool_selection_omitted=2-2"* || "$output" != *"tool_selection_valid=3-3"* || "$output" != *"tool_selection_prompt_source=recent_user_continuation"* || "$output" != *"argument_validation_warnings=1"* || "$output" != *"pattern_nested_quantifier"* ]]; then
+    echo "clean fixture output did not expose bounded tool-selection or argument-validation diagnostics"
     echo "$output"
     return 1
   fi
@@ -824,6 +844,17 @@ function stringMetric(event, camelName, snakeName) {
   return typeof fromData === "string" ? fromData : undefined;
 }
 
+function stringArrayMetric(event, camelName, snakeName) {
+  const normalize = (value) => {
+    if (Array.isArray(value)) return value.map(String).filter(Boolean);
+    if (typeof value === "string") return value.split(",").map((item) => item.trim()).filter(Boolean);
+    return [];
+  };
+  const direct = normalize(event?.[snakeName]);
+  if (direct.length > 0) return direct;
+  return normalize(eventData(event)[camelName]);
+}
+
 function numberMetric(event, camelName, snakeName) {
   const direct = numberOrUndefined(event?.[snakeName]);
   if (direct !== undefined) return direct;
@@ -835,6 +866,28 @@ function booleanMetric(event, camelName, snakeName) {
   if (typeof direct === "boolean") return direct;
   const fromData = eventData(event)[camelName];
   return typeof fromData === "boolean" ? fromData : undefined;
+}
+
+function argumentValidationWarnings(event) {
+  const data = eventData(event);
+  return Array.isArray(data.argumentValidationWarnings) ? data.argumentValidationWarnings : [];
+}
+
+function argumentValidationWarningCount(event) {
+  const direct = numberMetric(
+    event,
+    "argumentValidationWarningCount",
+    "argument_validation_warning_count",
+  );
+  if (direct !== undefined) return direct;
+  return argumentValidationWarnings(event).length;
+}
+
+function argumentValidationWarningCodes(event) {
+  return uniqueStrings([
+    ...stringArrayMetric(event, "argumentValidationWarningCodes", "argument_validation_warning_codes"),
+    ...argumentValidationWarnings(event).map((warning) => warning?.code),
+  ]);
 }
 
 function collectRuntimeFingerprint(events) {
@@ -908,6 +961,8 @@ function summarizeCase(debugFileName) {
   const toolSelectionClippedValues = [];
   const toolSelectionOmittedCounts = [];
   const toolSelectionValidCounts = [];
+  let argumentValidationWarningTotal = 0;
+  const argumentValidationWarningCodeCounts = {};
   for (const event of debug.events) {
     if (typeof event.event === "string") increment(eventByName, event.event);
     if (event.event_category === "recovery" && typeof event.event === "string") {
@@ -922,6 +977,11 @@ function summarizeCase(debugFileName) {
     if (selectionOmittedCount !== undefined) toolSelectionOmittedCounts.push(selectionOmittedCount);
     const selectionValidCount = numberMetric(event, "toolSelectionValidCount", "tool_selection_valid_count");
     if (selectionValidCount !== undefined) toolSelectionValidCounts.push(selectionValidCount);
+    const warningCount = argumentValidationWarningCount(event);
+    if (warningCount > 0) argumentValidationWarningTotal += warningCount;
+    for (const code of argumentValidationWarningCodes(event)) {
+      increment(argumentValidationWarningCodeCounts, code);
+    }
   }
 
   const toolStartEvents = main.events.filter((event) => event.type === "tool_execution_start");
@@ -1004,6 +1064,8 @@ function summarizeCase(debugFileName) {
     providerErrorCategories,
     retryableProviderErrors,
     providerHttpStatuses: uniqueNumbers(providerHttpStatuses),
+    argumentValidationWarnings: argumentValidationWarningTotal,
+    argumentValidationWarningCodes: argumentValidationWarningCodeCounts,
     selectedToolCountMin: selectedToolCounts.length ? Math.min(...selectedToolCounts) : undefined,
     selectedToolCountMax: selectedToolCounts.length ? Math.max(...selectedToolCounts) : undefined,
     toolSelectionClipped: toolSelectionClippedValues.length ? toolSelectionClippedValues.includes(true) : undefined,
@@ -1042,10 +1104,12 @@ function summarizeSmokeSummaryFile(fileName) {
       postAgentEndLingerMaxSeconds: 0,
       providerErrors: 0,
       retryableProviderErrors: 0,
+      argumentValidationWarnings: 0,
       toolSelectionClippedCases: 0,
       toolSelectionOmittedCountMax: 0,
       providerErrorCodes: {},
       providerErrorCategories: {},
+      argumentValidationWarningCodes: {},
       selectedCases: [],
       caseNames: [],
       caseSet: buildCaseSet([]),
@@ -1098,10 +1162,12 @@ function summarizeSmokeSummaryFile(fileName) {
     postAgentEndLingerMaxSeconds: numberOrZero(totals.postAgentEndLingerMaxSeconds),
     providerErrors: numberOrZero(totals.providerErrors),
     retryableProviderErrors: numberOrZero(totals.retryableProviderErrors),
+    argumentValidationWarnings: numberOrZero(totals.argumentValidationWarnings),
     toolSelectionClippedCases: numberOrZero(totals.toolSelectionClippedCases),
     toolSelectionOmittedCountMax: numberOrZero(totals.toolSelectionOmittedCountMax),
     providerErrorCodes: objectOrUndefined(totals.providerErrorCodes) || {},
     providerErrorCategories: objectOrUndefined(totals.providerErrorCategories) || {},
+    argumentValidationWarningCodes: objectOrUndefined(totals.argumentValidationWarningCodes) || {},
     selectedCases: caseSet.normalizedCases,
     caseNames,
     caseSet,
@@ -1165,6 +1231,7 @@ function normalizeCaseForCompare(item) {
       : numberOrZero(item?.postAgentEndLingerSeconds),
     providerErrors: numberOrZero(item?.providerErrors),
     retryableProviderErrors: numberOrZero(item?.retryableProviderErrors),
+    argumentValidationWarnings: numberOrZero(item?.argumentValidationWarnings),
     toolSelectionClipped: item?.toolSelectionClipped === undefined ? undefined : boolValue(item?.toolSelectionClipped),
     toolSelectionOmittedCountMax: item?.toolSelectionOmittedCountMax === undefined
       ? undefined
@@ -1211,6 +1278,7 @@ function deltaSummary(base, head) {
     postAgentEndLingerMaxSeconds: deltaNumber(base.postAgentEndLingerMaxSeconds, head.postAgentEndLingerMaxSeconds),
     providerErrors: deltaNumber(base.providerErrors, head.providerErrors),
     retryableProviderErrors: deltaNumber(base.retryableProviderErrors, head.retryableProviderErrors),
+    argumentValidationWarnings: deltaNumber(base.argumentValidationWarnings, head.argumentValidationWarnings),
     toolSelectionClippedCases: deltaNumber(base.toolSelectionClippedCases, head.toolSelectionClippedCases),
     toolSelectionOmittedCountMax: deltaNumber(base.toolSelectionOmittedCountMax, head.toolSelectionOmittedCountMax),
   };
@@ -1263,6 +1331,7 @@ function buildCaseDeltas(baseArtifact, headArtifact) {
       "postAgentEndLingerSeconds",
       "providerErrors",
       "retryableProviderErrors",
+      "argumentValidationWarnings",
       "toolSelectionOmittedCountMax",
       "toolSelectionValidCountMax",
     ]);
@@ -1327,6 +1396,7 @@ function printCompare(baseRunId, headRunId) {
         `watchdog_timeouts_delta=${delta.watchdogTimeouts} ` +
         `timed_out_after_agent_end_delta=${delta.timedOutAfterAgentEnd} ` +
         `provider_errors_delta=${delta.providerErrors} retryable_provider_errors_delta=${delta.retryableProviderErrors} ` +
+        `argument_validation_warnings_delta=${delta.argumentValidationWarnings} ` +
         `tool_selection_clipped_cases_delta=${delta.toolSelectionClippedCases} ` +
         `tool_selection_omitted_count_max_delta=${delta.toolSelectionOmittedCountMax} ` +
         `debug_summary_status_delta=${delta.debugSummaryStatus}`,
@@ -1402,6 +1472,7 @@ function printHistory(limit) {
           `errors=${run.errors} process_lifecycle_failures=${run.processLifecycleFailures} ` +
           `watchdog_timeouts=${run.watchdogTimeouts} timed_out_after_agent_end=${run.timedOutAfterAgentEnd} ` +
           `provider_errors=${run.providerErrors} retryable_provider_errors=${run.retryableProviderErrors} ` +
+          `argument_validation_warnings=${run.argumentValidationWarnings} ` +
           `tool_selection_clipped_cases=${run.toolSelectionClippedCases} ` +
           `tool_selection_omitted_count_max=${run.toolSelectionOmittedCountMax} ` +
           `debug_summary_status=${run.debugSummaryStatus}` +
@@ -1662,10 +1733,12 @@ const totals = {
   postAgentEndLingerMaxSeconds: 0,
   providerErrors: 0,
   retryableProviderErrors: 0,
+  argumentValidationWarnings: 0,
   toolSelectionClippedCases: 0,
   toolSelectionOmittedCountMax: 0,
   providerErrorCodes: {},
   providerErrorCategories: {},
+  argumentValidationWarningCodes: {},
   recoveryByEvent: {},
 };
 
@@ -1688,6 +1761,7 @@ for (const item of cases) {
   totals.semanticFlowOkProcessFailures += item.semanticFlowOk && item.processLifecycleOk === false ? 1 : 0;
   totals.providerErrors += item.providerErrors;
   totals.retryableProviderErrors += item.retryableProviderErrors;
+  totals.argumentValidationWarnings += item.argumentValidationWarnings;
   totals.toolSelectionClippedCases += item.toolSelectionClipped === true ? 1 : 0;
   if (item.toolSelectionOmittedCountMax !== undefined) {
     totals.toolSelectionOmittedCountMax = Math.max(totals.toolSelectionOmittedCountMax, item.toolSelectionOmittedCountMax);
@@ -1700,6 +1774,9 @@ for (const item of cases) {
   }
   for (const [category, count] of Object.entries(item.providerErrorCategories)) {
     increment(totals.providerErrorCategories, category, count);
+  }
+  for (const [code, count] of Object.entries(item.argumentValidationWarningCodes)) {
+    increment(totals.argumentValidationWarningCodes, code, count);
   }
   for (const [event, count] of Object.entries(item.recoveryByEvent)) {
     increment(totals.recoveryByEvent, event, count);
@@ -1768,6 +1845,7 @@ if (format === "json") {
       `semantic_flow_ok_process_failures=${totals.semanticFlowOkProcessFailures} ` +
       `post_agent_end_linger_max_seconds=${totals.postAgentEndLingerMaxSeconds} ` +
       `provider_errors=${totals.providerErrors} retryable_provider_errors=${totals.retryableProviderErrors} ` +
+      `argument_validation_warnings=${totals.argumentValidationWarnings} ` +
       `tool_selection_clipped_cases=${totals.toolSelectionClippedCases} ` +
       `tool_selection_omitted_count_max=${totals.toolSelectionOmittedCountMax}`,
   );
@@ -1776,6 +1854,9 @@ if (format === "json") {
   }
   if (Object.keys(totals.providerErrorCategories).length > 0) {
     console.log(`provider_error_categories=${JSON.stringify(totals.providerErrorCategories)}`);
+  }
+  if (Object.keys(totals.argumentValidationWarningCodes).length > 0) {
+    console.log(`argument_validation_warning_codes=${JSON.stringify(totals.argumentValidationWarningCodes)}`);
   }
   if (Object.keys(totals.recoveryByEvent).length > 0) {
     console.log(`recovery_by_event=${JSON.stringify(totals.recoveryByEvent)}`);
@@ -1804,6 +1885,10 @@ if (format === "json") {
         ` provider_error_categories=${JSON.stringify(item.providerErrorCategories)}` +
         ` provider_http_statuses=${item.providerHttpStatuses.join(",") || "(none)"}`
       : "";
+    const argumentWarningText = item.argumentValidationWarnings > 0
+      ? ` argument_validation_warnings=${item.argumentValidationWarnings}` +
+        ` argument_validation_warning_codes=${JSON.stringify(item.argumentValidationWarningCodes)}`
+      : "";
     const lifecycleText = item.lifecyclePresent
       ? ` process_lifecycle_ok=${item.processLifecycleOk}` +
         ` timed_out_by_watchdog=${item.timedOutByWatchdog}` +
@@ -1817,7 +1902,7 @@ if (format === "json") {
         ` recoveries=${item.recoveries} empty_assistant_ends=${item.emptyAssistantEnds}` +
         ` raw_tool_markup_final_answer=${item.rawToolMarkupFinalAnswer}` +
         ` tool_envelope_final_answer=${item.toolEnvelopeFinalAnswer}${recoveryText}${toolText}${selectedText}${selectionText}` +
-        `${promptSourceText}${providerErrorText}${lifecycleText}` +
+        `${promptSourceText}${providerErrorText}${argumentWarningText}${lifecycleText}` +
         ` final_text_chars=${item.finalTextChars}`,
     );
   }

@@ -1,4 +1,7 @@
-import { validateToolArguments } from "./argument-validator.ts";
+import {
+  validateToolArguments,
+  type ArgumentValidationWarning,
+} from "./argument-validator.ts";
 import { jsonDeepEqual } from "./json-utils.ts";
 import type { JsonObject } from "./protocol.ts";
 import {
@@ -21,6 +24,7 @@ export type ToolCallRecoveryEvent =
 export type ToolCallDecision =
   | {
       kind: "accept";
+      argumentValidationWarnings: ArgumentValidationWarning[];
     }
   | {
       kind: "repair";
@@ -28,12 +32,14 @@ export type ToolCallDecision =
       prompt: string;
       toolName: string;
       errors?: string[];
+      argumentValidationWarnings?: ArgumentValidationWarning[];
     }
   | {
       kind: "final";
       text: string;
       toolName: string;
       errors?: string[];
+      argumentValidationWarnings?: ArgumentValidationWarning[];
     };
 
 function sameToolCall(left: ToolCallRequest, right: ToolCallRequest): boolean {
@@ -78,6 +84,7 @@ export function decideToolCallRequest(input: {
         prompt: buildInvalidToolArgumentsRepairPrompt(requestedCall.name, argumentValidation.errors),
         toolName: requestedCall.name,
         errors: argumentValidation.errors,
+        argumentValidationWarnings: argumentValidation.warnings,
       };
     }
 
@@ -88,6 +95,7 @@ export function decideToolCallRequest(input: {
         `参数错误：${argumentValidation.errors.join("; ")}`,
       toolName: requestedCall.name,
       errors: argumentValidation.errors,
+      argumentValidationWarnings: argumentValidation.warnings,
     };
   }
 
@@ -110,5 +118,5 @@ export function decideToolCallRequest(input: {
     };
   }
 
-  return { kind: "accept" };
+  return { kind: "accept", argumentValidationWarnings: argumentValidation.warnings };
 }

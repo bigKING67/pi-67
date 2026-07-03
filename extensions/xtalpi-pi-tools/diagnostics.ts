@@ -38,6 +38,12 @@ function booleanField(data: Record<string, unknown>, name: string): boolean | un
   return typeof value === "boolean" ? value : undefined;
 }
 
+function stringArrayField(data: Record<string, unknown>, name: string): string[] | undefined {
+  const value = data[name];
+  if (!Array.isArray(value)) return undefined;
+  return value.map(String).filter(Boolean).slice(0, 16);
+}
+
 function sanitizeData(data: Record<string, unknown>): Record<string, unknown> {
   try {
     const raw = JSON.stringify(data);
@@ -91,6 +97,8 @@ export function debugLog(event: string, data: Record<string, unknown>): void {
         error_category: stringField(safeData, "errorCategory"),
         retryable: booleanField(safeData, "retryable"),
         http_status: numberField(safeData, "httpStatus"),
+        argument_validation_warning_count: numberField(safeData, "argumentValidationWarningCount"),
+        argument_validation_warning_codes: stringArrayField(safeData, "argumentValidationWarningCodes"),
         data: safeData,
       })}\n`,
       "utf8",

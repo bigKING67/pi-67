@@ -78,6 +78,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - xtalpi response usage accounting and assistant-message normalization now live in `response-normalizer.ts`, giving the native tool-call compatibility path a smaller dedicated module with direct unit coverage.
 - Repeated-tool detection and object-valued schema `enum` checks now use JSON deep equality that ignores object key order, so argument reordering cannot bypass loop protection or fail valid enum matches.
 - Tool argument `pattern` validation now skips overlong or obviously unsafe regex cases, preventing untrusted tool schemas from stalling the local validator through pathological backtracking.
+- Skipped or invalid tool argument `pattern` checks now emit bounded debug telemetry and debug-summary counts without recording raw pattern text or argument values.
 
 ### Removed
 

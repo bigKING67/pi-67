@@ -203,6 +203,36 @@ const debugTelemetryOk =
       typeof event.event_category === "string",
   );
 const recoveryEvents = debugEvents.filter((event) => event.event_category === "recovery");
+function uniqueStrings(values) {
+  return [...new Set(values.map((value) => String(value || "")).filter(Boolean))].sort();
+}
+function eventData(event) {
+  return objectOrUndefined(event?.data) || {};
+}
+function argumentValidationWarningsForEvent(event) {
+  const warnings = eventData(event).argumentValidationWarnings;
+  return Array.isArray(warnings) ? warnings : [];
+}
+function argumentValidationWarningCount(event) {
+  const direct = numberOrUndefined(event.argument_validation_warning_count);
+  if (direct !== undefined) return direct;
+  const fromData = numberOrUndefined(eventData(event).argumentValidationWarningCount);
+  if (fromData !== undefined) return fromData;
+  return argumentValidationWarningsForEvent(event).length;
+}
+function argumentValidationWarningCodesForEvent(event) {
+  const direct = Array.isArray(event.argument_validation_warning_codes) ? event.argument_validation_warning_codes : [];
+  const fromData = Array.isArray(eventData(event).argumentValidationWarningCodes)
+    ? eventData(event).argumentValidationWarningCodes
+    : [];
+  const fromWarnings = argumentValidationWarningsForEvent(event).map((warning) => warning?.code);
+  return uniqueStrings([...direct, ...fromData, ...fromWarnings]);
+}
+const argumentValidationWarnings = debugEvents.reduce(
+  (sum, event) => sum + argumentValidationWarningCount(event),
+  0,
+);
+const argumentValidationWarningCodes = uniqueStrings(debugEvents.flatMap(argumentValidationWarningCodesForEvent));
 function toolSelectionNames(items) {
   return Array.isArray(items) ? items.map((item) => String(item?.name || "")).filter(Boolean) : [];
 }
@@ -405,6 +435,8 @@ console.log(JSON.stringify({
   missingFinalText,
   emptyAssistantEnds,
   recoveries,
+  argumentValidationWarnings,
+  argumentValidationWarningCodes,
   toolSelectionRequirement: toolSelectionRequirement || undefined,
   toolSelectionRequirementOk: toolSelectionRequirementResult.ok,
   toolSelectionFailures: toolSelectionRequirementResult.failures,
@@ -1448,8 +1480,10 @@ const debugSummary = {
     postAgentEndLingerMaxSeconds: 0,
     providerErrors: 1,
     retryableProviderErrors: providerHealth.retryable === true ? 1 : 0,
+    argumentValidationWarnings: 0,
     providerErrorCodes: { [providerErrorCode]: 1 },
     providerErrorCategories: { [providerErrorCategory]: 1 },
+    argumentValidationWarningCodes: {},
     recoveryByEvent: {},
     recoveryRate: 0,
   },

@@ -51,6 +51,8 @@ selected-tool 排序默认看最新用户意图；当最新消息是“继续 / 
 
 工具参数在交给 Pi 执行前会做轻量 schema 校验。当前校验覆盖 JSON Schema 常用子集：`required`、`properties`、基础 `type`、`enum`、`array.items`、`anyOf` / `oneOf`、`additionalProperties:false`，以及常见边界约束（字符串 `minLength` / `maxLength` / `pattern`，数字 `minimum` / `maximum` / `exclusiveMinimum` / `exclusiveMaximum` / `multipleOf`，数组 `minItems` / `maxItems`，对象 `minProperties` / `maxProperties`）。对象型 `enum` 比较会忽略 key 顺序，符合 JSON 语义；`pattern` 校验会跳过过长输入、过长 pattern 和明显嵌套量词 pattern，避免不可信工具 schema 让本地校验卡在正则回溯里。如果参数明显不匹配，会先要求模型修复为正确的 `<pi_tool_call>`，而不是把坏参数直接交给工具层。
 
+被跳过或无法编译的 `pattern` 不会静默消失：debug JSONL 会记录脱敏后的 `argument_validation_warning_count`、`argument_validation_warning_codes` 和有界 warning 摘要；debug-summary / smoke summary 会聚合 `argument_validation_warnings` 与 `argument_validation_warning_codes`，但不会记录原始 pattern 或参数值。
+
 这样晶泰侧不需要稳定支持 OpenAI tool calling，只需要稳定支持普通 chat completion。
 
 ## 默认配置
@@ -312,7 +314,7 @@ $HOME/tmp/xtalpi-pi-tools-smoke
 $HOME/tmp/xtalpi-pi-tools-smoke/<stamp>-summary.json
 ```
 
-摘要 schema 为 `xtalpi-pi-tools.smoke-summary.v1`，包含 provider、model、stamp、selected cases、稳定 `caseSet` 指纹（排序去重后的 canonical case 名称和 SHA-256）、case timeout、request timeout、max output tokens、failure count、provider-health preflight 状态、preflight timeout / attempts / retry delay、provider-error stop 策略和 stop reason、debug-summary gate 状态、总体 recoveries / recovery rate / raw markup final answer / process lifecycle failure / watchdog timeout 计数，以及逐 case telemetry。smoke 脚本会把本轮 selected cases 同时作为 `--expect-cases` 和 `--expect-case-names` 传给 debug-summary gate，避免同数量但不同 case 集合的 artifact 被误判为本轮通过。debug summary JSON 的逐 case telemetry 还包含 `runtimeFingerprint`，用于确认当轮实际协议版本、selected-tool hash、展示工具名、selected-tool ranking 是否被 `maxTools` 截断、被省略工具数量、请求超时、输出上限、工具结果截断上限和 recovery limits。
+摘要 schema 为 `xtalpi-pi-tools.smoke-summary.v1`，包含 provider、model、stamp、selected cases、稳定 `caseSet` 指纹（排序去重后的 canonical case 名称和 SHA-256）、case timeout、request timeout、max output tokens、failure count、provider-health preflight 状态、preflight timeout / attempts / retry delay、provider-error stop 策略和 stop reason、debug-summary gate 状态、总体 recoveries / recovery rate / raw markup final answer / process lifecycle failure / watchdog timeout / argument validation warning 计数，以及逐 case telemetry。smoke 脚本会把本轮 selected cases 同时作为 `--expect-cases` 和 `--expect-case-names` 传给 debug-summary gate，避免同数量但不同 case 集合的 artifact 被误判为本轮通过。debug summary JSON 的逐 case telemetry 还包含 `runtimeFingerprint`，用于确认当轮实际协议版本、selected-tool hash、展示工具名、selected-tool ranking 是否被 `maxTools` 截断、被省略工具数量、请求超时、输出上限、工具结果截断上限和 recovery limits。
 
 当 `XTALPI_PI_TOOLS_MAX_TOOLS` 很低时，`turn.start` debug telemetry 会在本地 JSONL 的 `data.toolSelectionSummary` 写入有界选择摘要，schema 为 `xtalpi-pi-tools.tool-selection.v1`。该摘要只包含工具名、去重后的原始 index、score、是否 selected 和 reason code，并在 `selected` / `omitted` 每组最多保留 12 项；不会写入工具 description、parameters 或用户 prompt 原文。顶层字段 `tool_selection_clipped`、`tool_selection_omitted_count`、`tool_selection_valid_count`、`tool_selection_prompt_source`、`tool_selection_prompt_chars` 和 `tool_selection_user_messages` 便于 grep 和 debug-summary 聚合。该摘要只进入本地 debug artifact，不会发送给晶泰模型；provider prompt 仍只展示实际 selected tools。
 

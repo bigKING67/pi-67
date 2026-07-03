@@ -9,6 +9,7 @@ import {
   type XtalpiChatResponse,
 } from "./chat-client.ts";
 import { debugLog } from "./diagnostics.ts";
+import type { ArgumentValidationWarning } from "./argument-validator.ts";
 import type { XtalpiProviderTurnResult } from "./output-message.ts";
 import { parseToolCall } from "./parser.ts";
 import {
@@ -41,6 +42,19 @@ export type ProviderTurnChatClient = (input: {
   options?: SimpleStreamOptions;
   runtimeConfig?: ProviderRuntimeConfig;
 }) => Promise<XtalpiChatResponse>;
+
+function argumentValidationTelemetry(warnings: readonly ArgumentValidationWarning[] | undefined): {
+  argumentValidationWarningCount: number;
+  argumentValidationWarningCodes: string[];
+  argumentValidationWarnings: readonly ArgumentValidationWarning[];
+} {
+  const safeWarnings = warnings ?? [];
+  return {
+    argumentValidationWarningCount: safeWarnings.length,
+    argumentValidationWarningCodes: [...new Set(safeWarnings.map((warning) => warning.code))].sort(),
+    argumentValidationWarnings: safeWarnings,
+  };
+}
 
 export async function runProviderTurn(input: {
   model: Model<Api>;
@@ -149,6 +163,7 @@ export async function runProviderTurn(input: {
         ...debugContext,
         toolName: toolDecision.toolName,
         errors: toolDecision.errors,
+        ...argumentValidationTelemetry(toolDecision.argumentValidationWarnings),
         ...recovery,
       });
       continue;
@@ -167,6 +182,7 @@ export async function runProviderTurn(input: {
       toolName: requestedCall.name,
       argsKeys: Object.keys(requestedCall.arguments),
       warnings: parsed.warnings,
+      ...argumentValidationTelemetry(toolDecision.argumentValidationWarnings),
     });
 
     return {

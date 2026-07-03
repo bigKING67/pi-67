@@ -10,13 +10,28 @@ const NESTED_QUANTIFIER_PATTERN = new RegExp(
   String.raw`\((?:[^()\\]|\\.)*(?:[+*]|\{\d+(?:,\d*)?\})(?:[^()\\]|\\.)*\)(?:[+*]|\{\d+(?:,\d*)?\})`,
 );
 
+export type ArgumentValidationWarningCode =
+  | "pattern_too_long"
+  | "pattern_input_too_long"
+  | "pattern_nested_quantifier"
+  | "pattern_invalid_regex";
+
+export type ArgumentValidationWarning = {
+  code: ArgumentValidationWarningCode;
+  path: string;
+  patternChars?: number;
+  inputChars?: number;
+};
+
 export type ArgumentValidationResult =
   | {
       ok: true;
+      warnings: ArgumentValidationWarning[];
     }
   | {
       ok: false;
       errors: string[];
+      warnings: ArgumentValidationWarning[];
     };
 
 function isPlainObject(value: unknown): value is JsonObject {
@@ -68,12 +83,30 @@ function pushError(errors: string[], maxErrors: number, message: string): void {
   if (errors.length < maxErrors) errors.push(message);
 }
 
-function shouldSkipPatternValidation(pattern: string, value: string): boolean {
-  return (
-    pattern.length > MAX_PATTERN_CHARS ||
-    value.length > MAX_PATTERN_INPUT_CHARS ||
-    NESTED_QUANTIFIER_PATTERN.test(pattern)
-  );
+function pushWarning(
+  warnings: ArgumentValidationWarning[],
+  maxWarnings: number,
+  warning: ArgumentValidationWarning,
+): void {
+  if (warnings.length < maxWarnings) warnings.push(warning);
+}
+
+function pushWarnings(
+  warnings: ArgumentValidationWarning[],
+  maxWarnings: number,
+  nextWarnings: readonly ArgumentValidationWarning[],
+): void {
+  for (const warning of nextWarnings) {
+    pushWarning(warnings, maxWarnings, warning);
+    if (warnings.length >= maxWarnings) return;
+  }
+}
+
+function patternSkipReason(pattern: string, value: string): ArgumentValidationWarningCode | undefined {
+  if (pattern.length > MAX_PATTERN_CHARS) return "pattern_too_long";
+  if (NESTED_QUANTIFIER_PATTERN.test(pattern)) return "pattern_nested_quantifier";
+  if (value.length > MAX_PATTERN_INPUT_CHARS) return "pattern_input_too_long";
+  return undefined;
 }
 
 function validateNumberConstraints(schema: JsonSchema, value: number, path: string, errors: string[], maxErrors: number): void {
@@ -113,7 +146,15 @@ function validateNumberConstraints(schema: JsonSchema, value: number, path: stri
   }
 }
 
-function validateStringConstraints(schema: JsonSchema, value: string, path: string, errors: string[], maxErrors: number): void {
+function validateStringConstraints(
+  schema: JsonSchema,
+  value: string,
+  path: string,
+  errors: string[],
+  maxErrors: number,
+  warnings: ArgumentValidationWarning[],
+  maxWarnings: number,
+): void {
   const minLength = integerKeyword(schema, "minLength");
   const maxLength = integerKeyword(schema, "maxLength");
 
@@ -127,13 +168,29 @@ function validateStringConstraints(schema: JsonSchema, value: string, path: stri
   }
   if (errors.length >= maxErrors) return;
 
-  if (typeof schema.pattern === "string" && !shouldSkipPatternValidation(schema.pattern, value)) {
+  if (typeof schema.pattern === "string") {
+    const skipReason = patternSkipReason(schema.pattern, value);
+    if (skipReason) {
+      pushWarning(warnings, maxWarnings, {
+        code: skipReason,
+        path,
+        patternChars: schema.pattern.length,
+        inputChars: value.length,
+      });
+      return;
+    }
+
     try {
       if (!new RegExp(schema.pattern).test(value)) {
         pushError(errors, maxErrors, `${path} must match pattern ${schema.pattern}`);
       }
     } catch {
-      // Invalid tool schemas should not block execution; Pi still owns final tool execution.
+      pushWarning(warnings, maxWarnings, {
+        code: "pattern_invalid_regex",
+        path,
+        patternChars: schema.pattern.length,
+        inputChars: value.length,
+      });
     }
   }
 }
@@ -152,21 +209,43 @@ function validateArrayConstraints(schema: JsonSchema, value: unknown[], path: st
   }
 }
 
-function validateValue(schema: JsonSchema, value: unknown, path: string, errors: string[], maxErrors: number): void {
+function validateValue(
+  schema: JsonSchema,
+  value: unknown,
+  path: string,
+  errors: string[],
+  maxErrors: number,
+  warnings: ArgumentValidationWarning[],
+  maxWarnings: number,
+): void {
   if (errors.length >= maxErrors) return;
 
   const anyOf = schemaList(schema.anyOf);
   if (anyOf.length > 0) {
-    if (!anyOf.some((item) => validateSubschema(item, value, path).ok)) {
+    let match: ArgumentValidationResult | undefined;
+    for (const item of anyOf) {
+      const result = validateSubschema(item, value, path, maxWarnings);
+      if (result.ok) {
+        match = result;
+        break;
+      }
+    }
+    if (!match) {
       errors.push(`${path} does not match any allowed schema`);
+    } else {
+      pushWarnings(warnings, maxWarnings, match.warnings);
     }
     return;
   }
 
   const oneOf = schemaList(schema.oneOf);
   if (oneOf.length > 0) {
-    const matches = oneOf.filter((item) => validateSubschema(item, value, path).ok).length;
-    if (matches !== 1) errors.push(`${path} must match exactly one allowed schema`);
+    const matches = oneOf.map((item) => validateSubschema(item, value, path, maxWarnings)).filter((item) => item.ok);
+    if (matches.length !== 1) {
+      errors.push(`${path} must match exactly one allowed schema`);
+    } else {
+      pushWarnings(warnings, maxWarnings, matches[0].warnings);
+    }
     return;
   }
 
@@ -182,7 +261,7 @@ function validateValue(schema: JsonSchema, value: unknown, path: string, errors:
   }
 
   if (typeof value === "string") {
-    validateStringConstraints(schema, value, path, errors, maxErrors);
+    validateStringConstraints(schema, value, path, errors, maxErrors, warnings, maxWarnings);
     if (errors.length >= maxErrors) return;
   }
 
@@ -195,7 +274,7 @@ function validateValue(schema: JsonSchema, value: unknown, path: string, errors:
     validateArrayConstraints(schema, value, path, errors, maxErrors);
     if (errors.length >= maxErrors) return;
     for (let index = 0; index < value.length && errors.length < maxErrors; index += 1) {
-      validateValue(schema.items, value[index], `${path}[${index}]`, errors, maxErrors);
+      validateValue(schema.items, value[index], `${path}[${index}]`, errors, maxErrors, warnings, maxWarnings);
     }
     return;
   }
@@ -206,14 +285,20 @@ function validateValue(schema: JsonSchema, value: unknown, path: string, errors:
   }
 
   if (isPlainObject(value)) {
-    validateObjectSchema(schema, value, path, errors, maxErrors);
+    validateObjectSchema(schema, value, path, errors, maxErrors, warnings, maxWarnings);
   }
 }
 
-function validateSubschema(schema: JsonSchema, value: unknown, path: string): ArgumentValidationResult {
+function validateSubschema(
+  schema: JsonSchema,
+  value: unknown,
+  path: string,
+  maxWarnings: number,
+): ArgumentValidationResult {
   const errors: string[] = [];
-  validateValue(schema, value, path, errors, 1);
-  return errors.length === 0 ? { ok: true } : { ok: false, errors };
+  const warnings: ArgumentValidationWarning[] = [];
+  validateValue(schema, value, path, errors, 1, warnings, maxWarnings);
+  return errors.length === 0 ? { ok: true, warnings } : { ok: false, errors, warnings };
 }
 
 function validateObjectSchema(
@@ -222,6 +307,8 @@ function validateObjectSchema(
   path: string,
   errors: string[],
   maxErrors: number,
+  warnings: ArgumentValidationWarning[],
+  maxWarnings: number,
 ): void {
   const required = Array.isArray(schema.required) ? schema.required.map(String) : [];
   for (const name of required) {
@@ -236,7 +323,7 @@ function validateObjectSchema(
     const propertyPath = `${path}.${name}`;
     const propertySchema = properties[name];
     if (isPlainObject(propertySchema)) {
-      validateValue(propertySchema, item, propertyPath, errors, maxErrors);
+      validateValue(propertySchema, item, propertyPath, errors, maxErrors, warnings, maxWarnings);
       if (errors.length >= maxErrors) return;
       continue;
     }
@@ -262,11 +349,13 @@ export function validateToolArguments(
   tool: ToolLike | undefined,
   argumentsObject: JsonObject,
   maxErrors = 8,
+  maxWarnings = 8,
 ): ArgumentValidationResult {
-  if (!tool || !isPlainObject(tool.parameters)) return { ok: true };
+  if (!tool || !isPlainObject(tool.parameters)) return { ok: true, warnings: [] };
 
   const schema = tool.parameters;
   const errors: string[] = [];
-  validateValue(schema, argumentsObject, "arguments", errors, maxErrors);
-  return errors.length === 0 ? { ok: true } : { ok: false, errors };
+  const warnings: ArgumentValidationWarning[] = [];
+  validateValue(schema, argumentsObject, "arguments", errors, maxErrors, warnings, maxWarnings);
+  return errors.length === 0 ? { ok: true, warnings } : { ok: false, errors, warnings };
 }
