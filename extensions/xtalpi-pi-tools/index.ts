@@ -375,9 +375,7 @@ async function fetchTextWithTimeout(
   }
 }
 
-function extractTextFromMessage(message: unknown): string {
-  if (!isObject(message)) return "";
-  const content = message.content;
+function contentTextFromMessageContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     return content
@@ -389,24 +387,44 @@ function extractTextFromMessage(message: unknown): string {
       .join("");
   }
 
-  const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
-  if (toolCalls.length > 0) {
-    const first = toolCalls.find(isObject);
-    const fn = isObject(first?.function) ? first.function : undefined;
-    const name = typeof fn?.name === "string" ? fn.name : "";
-    const rawArgs = typeof fn?.arguments === "string" ? fn.arguments : "{}";
-    let args: unknown = {};
-    try {
-      args = JSON.parse(rawArgs);
-    } catch {
-      args = {};
-    }
-    if (name) {
-      return `${TOOL_CALL_OPEN}\n${JSON.stringify({ name, arguments: isObject(args) ? args : {} })}\n${TOOL_CALL_CLOSE}`;
-    }
+  return "";
+}
+
+function serializeNativeToolCall(toolCall: unknown): string | undefined {
+  if (!isObject(toolCall)) return undefined;
+  const fn = isObject(toolCall.function) ? toolCall.function : undefined;
+  const name = typeof fn?.name === "string" ? fn.name.trim() : "";
+  const rawArgs = typeof fn?.arguments === "string" && fn.arguments.trim() ? fn.arguments.trim() : "{}";
+
+  let parsedArgs: unknown;
+  try {
+    parsedArgs = JSON.parse(rawArgs);
+  } catch {
+    return `${TOOL_CALL_OPEN}
+${JSON.stringify({
+  name,
+  arguments: {},
+  _invalid_native_arguments: safeBlockText(rawArgs, 2000),
+})}
+${TOOL_CALL_CLOSE}`;
   }
 
-  return "";
+  return `${TOOL_CALL_OPEN}
+${JSON.stringify({ name, arguments: parsedArgs })}
+${TOOL_CALL_CLOSE}`;
+}
+
+function nativeToolCallsText(message: Record<string, unknown>): string[] {
+  const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+  return toolCalls.map(serializeNativeToolCall).filter((item): item is string => Boolean(item));
+}
+
+function extractTextFromMessage(message: unknown): string {
+  if (!isObject(message)) return "";
+  const contentText = contentTextFromMessageContent(message.content).trim();
+  const toolCallTexts = nativeToolCallsText(message);
+  if (toolCallTexts.length === 0) return contentText;
+  return [contentText, ...toolCallTexts].filter(Boolean).join("\n\n");
 }
 
 async function callXtalpiChat(

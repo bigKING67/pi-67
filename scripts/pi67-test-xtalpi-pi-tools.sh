@@ -1014,6 +1014,143 @@ const { pathToFileURL } = require("node:url");
     global.fetch = originalFetch;
   }
 
+  process.env.XTALPI_PI_TOOLS_MAX_TOOLS = "8";
+  process.env.XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES = "2";
+  process.env.XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES = "4";
+
+  const nativeToolCallEnvelope = {
+    choices: [
+      {
+        message: {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            {
+              id: "call_native_read",
+              type: "function",
+              function: { name: "read", arguments: '{"path":"package.json"}' },
+            },
+          ],
+        },
+        finish_reason: "tool_calls",
+      },
+    ],
+    usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+  };
+  let nativeToolCallFetchCount = 0;
+  global.fetch = async () => {
+    nativeToolCallFetchCount += 1;
+    return new Response(JSON.stringify(nativeToolCallEnvelope), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const nativeToolCallStream = registeredProvider.streamSimple(
+      {
+        id: "deepseek-v4-pro",
+        maxTokens: 32768,
+        api: "xtalpi-pi-tools",
+        provider: "xtalpi-pi-tools",
+        baseUrl: "https://example.invalid/v1",
+      },
+      {
+        systemPrompt: "system base",
+        tools: [
+          { name: "read", description: "Read a file", parameters: { type: "object", required: ["path"], properties: { path: { type: "string" } } } },
+        ],
+        messages: [{ role: "user", content: "read package.json" }],
+      },
+      {},
+    );
+    const nativeToolCallFinal = await nativeToolCallStream.result();
+    assert.equal(nativeToolCallFetchCount, 1);
+    assert.equal(nativeToolCallFinal.stopReason, "toolUse");
+    const nativeToolCallBlocks = nativeToolCallFinal.content.filter((block) => block.type === "toolCall");
+    assert.equal(nativeToolCallBlocks.length, 1);
+    assert.equal(nativeToolCallBlocks[0].name, "read");
+    assert.deepEqual(nativeToolCallBlocks[0].arguments, { path: "package.json" });
+  } finally {
+    global.fetch = originalFetch;
+  }
+
+  const invalidNativeArgsThenFixed = [
+    {
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: null,
+            tool_calls: [
+              {
+                id: "call_native_noop_bad_args",
+                type: "function",
+                function: { name: "noop", arguments: '{"unterminated":' },
+              },
+            ],
+          },
+          finish_reason: "tool_calls",
+        },
+      ],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    },
+    {
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: '<pi_tool_call>\n{"name":"noop","arguments":{}}\n</pi_tool_call>',
+          },
+          finish_reason: "stop",
+        },
+      ],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    },
+  ];
+  const invalidNativeArgsRequests = [];
+  let invalidNativeArgsFetchCount = 0;
+  global.fetch = async (_input, init) => {
+    invalidNativeArgsRequests.push(JSON.parse(String(init?.body || "{}")));
+    const envelope = invalidNativeArgsThenFixed[Math.min(invalidNativeArgsFetchCount, invalidNativeArgsThenFixed.length - 1)];
+    invalidNativeArgsFetchCount += 1;
+    return new Response(JSON.stringify(envelope), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const invalidNativeArgsStream = registeredProvider.streamSimple(
+      {
+        id: "deepseek-v4-pro",
+        maxTokens: 32768,
+        api: "xtalpi-pi-tools",
+        provider: "xtalpi-pi-tools",
+        baseUrl: "https://example.invalid/v1",
+      },
+      {
+        systemPrompt: "system base",
+        tools: [
+          { name: "noop", description: "No-op test tool", parameters: { type: "object", properties: {} } },
+        ],
+        messages: [{ role: "user", content: "call noop" }],
+      },
+      {},
+    );
+    const invalidNativeArgsFinal = await invalidNativeArgsStream.result();
+    assert.equal(invalidNativeArgsFetchCount, 2);
+    assert.equal(invalidNativeArgsRequests.length, 2);
+    const repairPrompt = invalidNativeArgsRequests[1].messages.at(-1).content;
+    assert.match(repairPrompt, /xtalpi-pi-tools-invalid-tool-json-repair/);
+    assert.match(repairPrompt, /unknown top-level field/);
+    assert.equal(invalidNativeArgsFinal.stopReason, "toolUse");
+    const invalidNativeArgsToolCalls = invalidNativeArgsFinal.content.filter((block) => block.type === "toolCall");
+    assert.equal(invalidNativeArgsToolCalls.length, 1);
+    assert.equal(invalidNativeArgsToolCalls[0].name, "noop");
+    assert.deepEqual(invalidNativeArgsToolCalls[0].arguments, {});
+  } finally {
+    global.fetch = originalFetch;
+  }
+
   process.env.XTALPI_PI_TOOLS_MAX_TOOLS = "1";
   process.env.XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES = "2";
   process.env.XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES = "4";

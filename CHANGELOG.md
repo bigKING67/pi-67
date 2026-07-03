@@ -74,6 +74,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - Live xtalpi smoke now fails fast with a clear `PI_BIN` hint when the Pi executable is missing, instead of running provider preflight before an opaque process-launch failure.
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh --self-test` now exercises the main smoke runner offline with a fake `pi`, covering `PI_BIN` override, selected-case filtering, summary artifact writing, exact case-name debug-summary gates, and invalid-`PI_BIN` fail-fast behavior.
 - Live xtalpi smoke now requires an executable debug-summary helper before running provider preflight or cases, with `XTALPI_PI_TOOLS_SMOKE_DEBUG_SUMMARY_BIN` available for explicit test/runtime overrides.
+- Accidental native `assistant.tool_calls` returned by the upstream compatibility layer are now re-projected into the same local text protocol even when `content` is empty, and malformed native `function.arguments` fail into repair instead of silently executing `{}`.
 
 ### Removed
 

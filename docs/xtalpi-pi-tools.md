@@ -25,6 +25,8 @@
 
 Pi 本地解析该文本，转换成 Pi 原生 `toolCall` block，然后执行工具。工具结果下一轮作为普通 user 文本发给模型：
 
+如果上游 OpenAI-compatible 层在未收到 native tools 的情况下仍意外返回 `assistant.tool_calls`，provider 会把它重新投影成本地文本协议再走同一套 parser / selected-tool 白名单 / schema 校验。空 `content` 不会再导致 native tool call 被丢弃；坏的 native `function.arguments` 也不会静默降级成 `{}` 执行，而是转成可修复的无效协议响应。
+
 ```text
 <pi_tool_result>
 tool_call_id: ...
@@ -201,6 +203,7 @@ extensions/xtalpi-pi-tools/fixtures/replay-cases.json
 - tool result prompt-injection / 协议边界中和（含带属性与残缺协议标签变体、`[previous_pi_tool_call]` bracket markers）
 - tool metadata / repair prompt 协议边界中和
 - unknown-tool repair 只回显本轮 selected tools，不暴露未展示工具名
+- accidental native `assistant.tool_calls` 兼容层：空 `content` 可转成本地文本协议；坏 `function.arguments` 必须触发 repair，不能静默执行 `{}`
 - payload 不包含 `tools`、`tool_choice`、`parallel_tool_calls`、`thinking`、`reasoning_effort`
 - payload 不包含 `role=tool`
 - TypeScript error code/category union 与 provider error contract manifest 同步
