@@ -212,6 +212,14 @@ function boolText(value) {
   return value ? "yes" : "no";
 }
 
+function latencyText(run) {
+  return (
+    `request_latency_ms=${run?.requestLatencyMsMax ?? "?"}/${run?.requestLatencyMsAvg ?? "?"}/${run?.requestCount ?? "?"} ` +
+    `slow_requests=${run?.slowRequestCount ?? "?"} ` +
+    `slow_request_threshold_ms=${run?.slowRequestThresholdMs ?? "?"}`
+  );
+}
+
 function realPathMaybe(target) {
   try {
     return fs.realpathSync(target);
@@ -681,7 +689,8 @@ if (xtalpiSmoke.skipped) {
     if (latest) {
       console.log(
         `Latest     : ${latest.runId || "unknown"} run_kind=${latest.runKind || "unknown"} ` +
-          `ok=${latest.ok ?? "?"} failures=${latest.failures ?? "?"} cases=${latest.cases ?? "?"}`,
+          `ok=${latest.ok ?? "?"} failures=${latest.failures ?? "?"} cases=${latest.cases ?? "?"} ` +
+          latencyText(latest),
       );
     }
     const trend = xtalpiSmoke.strictTrendGate?.data;
@@ -694,6 +703,13 @@ if (xtalpiSmoke.skipped) {
       );
       if (trend.gateFailures?.length) {
         console.log(`Gate why   : ${trend.gateFailures.join("; ")}`);
+      }
+      const trendLatest = trend.runs?.[0];
+      if (trendLatest) {
+        console.log(
+          `Gate perf  : latest=${trendLatest.runId || "unknown"} ` +
+            latencyText(trendLatest),
+        );
       }
     } else if (xtalpiSmoke.strictTrendGate) {
       console.log(
@@ -716,6 +732,12 @@ if (xtalpiSmoke.skipped) {
           `provider_health=${drift.drift?.providerHealthChanged ?? "?"} ` +
           `quality_signals=${drift.drift?.qualitySignalsPresent ?? "?"}`,
       );
+      if (drift.qualityTotals) {
+        console.log(
+          `Drift perf : request_latency_ms_max=${drift.qualityTotals.requestLatencyMsMax ?? "?"} ` +
+            `slow_requests=${drift.qualityTotals.slowRequestCount ?? "?"}`,
+        );
+      }
     } else if (xtalpiSmoke.drift) {
       console.log(
         `Drift      : unavailable exit=${xtalpiSmoke.drift.exitCode ?? "?"} ` +

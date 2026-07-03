@@ -122,12 +122,15 @@ The resulting `xtalpiSmoke` block uses schema
 - `artifactDir`, `historyLimit`, `strictTrendLimit`, `driftLimit`, and command
   timeout
 - compact `history` data with newest run ids, `runKind`, selected cases,
-  recoveries, provider errors, and summary gate status
+  recoveries, provider errors, request latency, slow request counts, and summary
+  gate status
 - compact `strictTrendGate` data with `ok`, gate failures, run-kind counts, and
-  recovery trend
+  recovery trend, plus request latency / slow request telemetry for selected
+  trend runs
 - compact `drift` data for newest full-suite artifacts, including provider/model,
   case-set hash, runtime fingerprint hash, runtime bounds hash, provider-health
-  hash, quality signal totals, and drift booleans
+  hash, request-latency quality signal totals, per-run latency telemetry, and
+  drift booleans
 - `result`: `OK`, `ATTENTION`, `NO_ARTIFACTS`, or `UNAVAILABLE`
 
 `full-suite-strict` filters the trend gate to `runKind=full-suite` before
@@ -140,7 +143,10 @@ The drift block is observational rather than a gate: it can show historical
 runtime or provider-health changes even when the strict trend gate is currently
 green. Text output prints drift flags for provider/model, case-set,
 runtime-fingerprint, runtime-bounds, provider-health, and quality-signal
-presence.
+presence. When artifact summaries contain request telemetry, text output also
+prints compact `request_latency_ms=max/avg/count`, `slow_requests`, and
+`slow_request_threshold_ms` fields for the latest history and strict trend runs,
+plus drift-level request-latency quality totals.
 
 `NO_ARTIFACTS` is informational and does not by itself change the top-level
 status result. `ATTENTION` and `UNAVAILABLE` are reported as warnings with a

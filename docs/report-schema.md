@@ -259,7 +259,13 @@ directory. It calls debug-summary JSON modes and stores compact results:
           "runKind": "full-suite",
           "ok": true,
           "failures": 0,
-          "cases": 8
+          "cases": 8,
+          "requestCount": 18,
+          "requestLatencyMsMin": 1110,
+          "requestLatencyMsMax": 123058,
+          "requestLatencyMsAvg": 19574,
+          "slowRequestCount": 2,
+          "slowRequestThresholdMs": 60000
         }
       ]
     }
@@ -276,7 +282,17 @@ directory. It calls debug-summary JSON modes and stores compact results:
       "runKindCounts": {
         "full-suite": 3
       },
-      "gateFailures": []
+      "gateFailures": [],
+      "runs": [
+        {
+          "runId": "20260703-151935",
+          "requestCount": 18,
+          "requestLatencyMsMax": 123058,
+          "requestLatencyMsAvg": 19574,
+          "slowRequestCount": 2,
+          "slowRequestThresholdMs": 60000
+        }
+      ]
     }
   },
   "drift": {
@@ -295,6 +311,10 @@ directory. It calls debug-summary JSON modes and stores compact results:
         "providerHealthChanged": false,
         "qualitySignalsPresent": true
       },
+      "qualityTotals": {
+        "requestLatencyMsMax": 123058,
+        "slowRequestCount": 2
+      },
       "dimensions": {
         "runtimeFingerprints": [
           {
@@ -306,6 +326,9 @@ directory. It calls debug-summary JSON modes and stores compact results:
       "runs": [
         {
           "runId": "20260703-151935",
+          "requestLatencyMsMax": 123058,
+          "requestLatencyMsAvg": 19574,
+          "slowRequestCount": 2,
           "runtimeFingerprintSha256": "95eec8991ba8e52e",
           "runtimeBoundsSha256": "076487a98c40fedd",
           "providerHealthSha256": "b7d1db01e9af26c8"
@@ -336,13 +359,20 @@ bash ~/.pi/agent/scripts/pi67-report.sh --no-xtalpi-smoke
 The `strictTrendGate` block uses the `full-suite-strict` profile, which filters
 persisted summaries to `runKind=full-suite` before selecting newest N. The
 overall `history` block remains unfiltered so consumers can still see the latest
-targeted or preflight-failed diagnostic runs.
+targeted or preflight-failed diagnostic runs. Compact run entries preserve
+request-latency telemetry when it is present in smoke summaries:
+`requestCount`, `requestLatencyMsMin`, `requestLatencyMsMax`,
+`requestLatencyMsAvg`, `slowRequestCount`, and `slowRequestThresholdMs`. Older
+artifacts that predate latency telemetry may report these fields as `null`.
 
 The `drift` block is produced from `--drift <N> --run-kind full-suite`. It is a
 compact, read-only observability surface rather than a pass/fail gate: consumers
 can alert on `runtimeFingerprintChanged`, `runtimeBoundsChanged`, provider
 health signature changes, or historical quality-signal presence without
-weakening the strict full-suite trend gate.
+weakening the strict full-suite trend gate. `qualityTotals.requestLatencyMsMax`
+and `qualityTotals.slowRequestCount` expose whether recent full-suite artifacts
+contained slow model requests without turning drift into a default performance
+gate.
 
 ## Consumer guidance
 

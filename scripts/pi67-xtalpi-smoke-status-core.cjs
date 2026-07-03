@@ -34,6 +34,17 @@ function parseJson(text) {
   }
 }
 
+function compactRequestLatency(run) {
+  return {
+    requestCount: run?.requestCount ?? null,
+    requestLatencyMsMin: run?.requestLatencyMsMin ?? null,
+    requestLatencyMsMax: run?.requestLatencyMsMax ?? null,
+    requestLatencyMsAvg: run?.requestLatencyMsAvg ?? null,
+    slowRequestCount: run?.slowRequestCount ?? null,
+    slowRequestThresholdMs: run?.slowRequestThresholdMs ?? null,
+  };
+}
+
 function compactRun(run) {
   return {
     runId: run?.runId || null,
@@ -56,6 +67,7 @@ function compactRun(run) {
     timedOutAfterAgentEnd: run?.timedOutAfterAgentEnd ?? null,
     providerErrors: run?.providerErrors ?? null,
     retryableProviderErrors: run?.retryableProviderErrors ?? null,
+    ...compactRequestLatency(run),
     argumentValidationWarnings: run?.argumentValidationWarnings ?? null,
     debugSummaryStatus: run?.debugSummaryStatus ?? null,
     gateFailures: Array.isArray(run?.gateFailures) ? run.gateFailures : [],
@@ -122,6 +134,7 @@ function compactDriftRun(run) {
     recoveryRate: run?.recoveryRate ?? null,
     providerErrors: run?.providerErrors ?? null,
     retryableProviderErrors: run?.retryableProviderErrors ?? null,
+    ...compactRequestLatency(run),
     argumentValidationWarnings: run?.argumentValidationWarnings ?? null,
     rawToolMarkupFinalAnswers: run?.rawToolMarkupFinalAnswers ?? null,
     emptyAssistantEnds: run?.emptyAssistantEnds ?? null,

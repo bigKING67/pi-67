@@ -503,6 +503,152 @@ if (!Array.isArray(data.checks) || data.checks.length === 0) {
 ' /tmp/pi67-smoke-doctor-json.log
 pass "doctor JSON output parsed"
 
+section "Xtalpi smoke status core"
+XTALPI_SMOKE_FIXTURE_DIR="$TMP_ROOT/xtalpi-smoke-status-fixture"
+XTALPI_SMOKE_DEBUG_SUMMARY="$TMP_ROOT/xtalpi-debug-summary-fixture.sh"
+mkdir -p "$XTALPI_SMOKE_FIXTURE_DIR"
+cat > "$XTALPI_SMOKE_DEBUG_SUMMARY" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "${1:-}" in
+  --history)
+    cat <<'JSON'
+{
+  "schema": "xtalpi-pi-tools.smoke-history.v1",
+  "requested": 3,
+  "found": 1,
+  "totalArtifacts": 1,
+  "candidateArtifacts": 1,
+  "filteredOutArtifacts": 0,
+  "runs": [
+    {
+      "runId": "fixture-001",
+      "runKind": "full-suite",
+      "ok": true,
+      "failures": 0,
+      "cases": 8,
+      "requestCount": 3,
+      "requestLatencyMsMin": 111,
+      "requestLatencyMsMax": 2222,
+      "requestLatencyMsAvg": 777,
+      "slowRequestCount": 1,
+      "slowRequestThresholdMs": 600
+    }
+  ]
+}
+JSON
+    ;;
+  --trend-gate)
+    cat <<'JSON'
+{
+  "schema": "xtalpi-pi-tools.smoke-trend-gate.v1",
+  "requested": 3,
+  "found": 1,
+  "ok": true,
+  "gateFailures": [],
+  "history": {
+    "candidateArtifacts": 1,
+    "filteredOutArtifacts": 0,
+    "filter": {
+      "runKinds": ["full-suite"]
+    },
+    "runs": [
+      {
+        "runId": "fixture-001",
+        "runKind": "full-suite",
+        "ok": true,
+        "requestCount": 3,
+        "requestLatencyMsMin": 111,
+        "requestLatencyMsMax": 2222,
+        "requestLatencyMsAvg": 777,
+        "slowRequestCount": 1,
+        "slowRequestThresholdMs": 600
+      }
+    ]
+  }
+}
+JSON
+    ;;
+  --drift)
+    cat <<'JSON'
+{
+  "schema": "xtalpi-pi-tools.smoke-drift.v1",
+  "requested": 10,
+  "found": 1,
+  "candidateArtifacts": 1,
+  "filteredOutArtifacts": 0,
+  "filter": {
+    "runKinds": ["full-suite"]
+  },
+  "drift": {
+    "providerModelChanged": false,
+    "caseSetChanged": false,
+    "runtimeFingerprintChanged": false,
+    "runtimeBoundsChanged": false,
+    "providerHealthChanged": false,
+    "qualitySignalsPresent": true
+  },
+  "qualityTotals": {
+    "requestLatencyMsMax": 2222,
+    "slowRequestCount": 1
+  },
+  "runs": [
+    {
+      "runId": "fixture-001",
+      "runKind": "full-suite",
+      "requestCount": 3,
+      "requestLatencyMsMin": 111,
+      "requestLatencyMsMax": 2222,
+      "requestLatencyMsAvg": 777,
+      "slowRequestCount": 1,
+      "slowRequestThresholdMs": 600
+    }
+  ]
+}
+JSON
+    ;;
+  *)
+    echo "unexpected args: $*" >&2
+    exit 2
+    ;;
+esac
+SH
+chmod +x "$XTALPI_SMOKE_DEBUG_SUMMARY"
+node - "$REPO_ROOT" "$XTALPI_SMOKE_FIXTURE_DIR" "$XTALPI_SMOKE_DEBUG_SUMMARY" <<'NODE'
+const path = require("path");
+const [repoRoot, artifactDir, debugSummaryScript] = process.argv.slice(2);
+const { collectXtalpiSmokeStatus } = require(path.join(repoRoot, "scripts", "pi67-xtalpi-smoke-status-core.cjs"));
+const status = collectXtalpiSmokeStatus({
+  repoRoot,
+  artifactDir,
+  debugSummaryScript,
+  historyLimit: 3,
+  strictTrendLimit: 3,
+  driftLimit: 10,
+  timeoutMs: 5000,
+});
+const latest = status.history?.data?.runs?.[0];
+const trendLatest = status.strictTrendGate?.data?.runs?.[0];
+const driftLatest = status.drift?.data?.runs?.[0];
+const driftTotals = status.drift?.data?.qualityTotals;
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+assert(status.result === "OK", `unexpected status result: ${status.result}`);
+assert(latest?.requestLatencyMsMin === 111, "history requestLatencyMsMin was not preserved");
+assert(latest?.requestLatencyMsMax === 2222, "history requestLatencyMsMax was not preserved");
+assert(latest?.requestLatencyMsAvg === 777, "history requestLatencyMsAvg was not preserved");
+assert(latest?.requestCount === 3, "history requestCount was not preserved");
+assert(latest?.slowRequestCount === 1, "history slowRequestCount was not preserved");
+assert(latest?.slowRequestThresholdMs === 600, "history slowRequestThresholdMs was not preserved");
+assert(trendLatest?.requestLatencyMsMax === 2222, "trend request latency was not preserved");
+assert(driftLatest?.slowRequestCount === 1, "drift run slow request count was not preserved");
+assert(driftTotals?.requestLatencyMsMax === 2222, "drift quality total request latency was not preserved");
+assert(driftTotals?.slowRequestCount === 1, "drift quality total slow request count was not preserved");
+NODE
+pass "xtalpi smoke status core preserves latency telemetry"
+
 section "Status summary"
 PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-status.sh" \
   --repo-root "$REPO_ROOT" \
