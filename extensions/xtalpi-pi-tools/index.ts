@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type {
   Api,
@@ -26,7 +25,6 @@ import {
   EMPTY_USAGE,
   PROVIDER_ID,
   PROVIDER_NAME,
-  PROTOCOL_VERSION,
   type UsageSummary,
   type XtalpiChatMessage,
 } from "./protocol.ts";
@@ -39,9 +37,6 @@ import {
   buildRepeatedToolRepairPrompt,
   buildUnknownToolRepairPrompt,
   envInt,
-  maxEmptyRetries,
-  maxRepairRetries,
-  maxTotalRecoveries,
 } from "./retry.ts";
 import {
   addUsage,
@@ -54,7 +49,6 @@ import {
   endpointFor,
   isPlaceholderKey,
   loadRuntimeConfig,
-  resolveMaxOutputTokens,
   resolveRequestTimeoutMs,
   type ProviderRuntimeConfig,
 } from "./runtime-config.ts";
@@ -68,6 +62,7 @@ import {
   emitToolCallBlock,
 } from "./stream.ts";
 import { safeBlockText } from "./text-safety.ts";
+import { buildTurnDebugContext } from "./turn-debug-context.ts";
 
 type ChatResponse = {
   content: string;
@@ -299,10 +294,6 @@ function makeToolCallId(name: string): string {
   return `pi_tool_${safeName}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function hashSelectedToolNames(names: string[]): string {
-  return createHash("sha256").update(names.join("\n")).digest("hex").slice(0, 16);
-}
-
 async function runProviderTurn(
   model: Model<Api>,
   context: Context,
@@ -317,33 +308,18 @@ async function runProviderTurn(
   const contextLike = context as unknown as ContextLike;
   const serializedContext = serializeContextForXtalpi(contextLike, { maxTools, maxToolResultChars });
   const names = serializedContext.selectedToolNames;
-  const selectedToolNames = [...names].sort();
   const selectedToolByName = new Map(serializedContext.selectedTools.map((tool) => [tool.name, tool]));
   const messages = serializedContext.messages;
   const lastCompletedCall = latestToolCallWithResult(contextLike);
-  const debugContext = {
-    provider: PROVIDER_ID,
-    model: model.id,
-    protocolVersion: PROTOCOL_VERSION,
-    selectedToolCount: serializedContext.selectedTools.length,
-    selectedToolNames,
-    selectedToolNamesHash: hashSelectedToolNames(selectedToolNames),
-    availableToolCount: contextLike.tools?.length ?? 0,
+  const debugContext = buildTurnDebugContext({
+    model,
+    context: contextLike,
+    serializedContext,
     maxTools,
-    toolSelectionClipped: serializedContext.toolSelectionSummary.clipped,
-    toolSelectionOmittedCount: serializedContext.toolSelectionSummary.omittedToolCount,
-    toolSelectionValidCount: serializedContext.toolSelectionSummary.validToolCount,
-    toolSelectionPromptSource: serializedContext.toolSelectionPromptSource,
-    toolSelectionPromptChars: serializedContext.toolSelectionPromptChars,
-    toolSelectionUserMessageCount: serializedContext.toolSelectionUserMessageCount,
-    toolSelectionSummary: serializedContext.toolSelectionSummary,
     maxToolResultChars,
-    maxOutputTokens: resolveMaxOutputTokens(model, options),
-    requestTimeoutMs: resolveRequestTimeoutMs(options),
-    maxEmptyRetries: maxEmptyRetries(),
-    maxRepairRetries: maxRepairRetries(),
-    maxTotalRecoveries: maxTotalRecoveries(),
-  };
+    options,
+  });
+  const selectedToolNames = debugContext.selectedToolNames;
   debugLog("turn.start", debugContext);
 
   let emptyRetries = 0;
@@ -361,7 +337,7 @@ async function runProviderTurn(
     const raw = response.content.trim();
 
     if (!raw) {
-      if (emptyRetries < maxEmptyRetries() && totalRecoveries < maxTotalRecoveries()) {
+      if (emptyRetries < debugContext.maxEmptyRetries && totalRecoveries < debugContext.maxTotalRecoveries) {
         emptyRetries += 1;
         totalRecoveries += 1;
         messages.push({ role: "user", content: buildEmptyResponseRepairPrompt() });
@@ -380,13 +356,13 @@ async function runProviderTurn(
 
     const parsed = parseToolCall(raw);
     if (parsed.kind === "error") {
-      if (repairRetries < maxRepairRetries() && totalRecoveries < maxTotalRecoveries()) {
+      if (repairRetries < debugContext.maxRepairRetries && totalRecoveries < debugContext.maxTotalRecoveries) {
         repairRetries += 1;
         totalRecoveries += 1;
         const repairPrompt = parsed.code === "function_style_tool_call"
-          ? buildFunctionStyleToolRepairPrompt(parsed.raw, [...names].sort())
+          ? buildFunctionStyleToolRepairPrompt(parsed.raw, selectedToolNames)
           : parsed.code === "raw_protocol_markup"
-            ? buildRawProtocolMarkupRepairPrompt(parsed.raw, [...names].sort())
+            ? buildRawProtocolMarkupRepairPrompt(parsed.raw, selectedToolNames)
             : buildInvalidToolJsonRepairPrompt(parsed.message, parsed.raw);
         messages.push({ role: "assistant", content: raw.slice(0, 4000) });
         messages.push({ role: "user", content: repairPrompt });
@@ -430,11 +406,11 @@ async function runProviderTurn(
     };
 
     if (names.size === 0 || !names.has(requestedCall.name)) {
-      if (repairRetries < maxRepairRetries() && totalRecoveries < maxTotalRecoveries()) {
+      if (repairRetries < debugContext.maxRepairRetries && totalRecoveries < debugContext.maxTotalRecoveries) {
         repairRetries += 1;
         totalRecoveries += 1;
         messages.push({ role: "assistant", content: raw.slice(0, 4000) });
-        messages.push({ role: "user", content: buildUnknownToolRepairPrompt(requestedCall.name, [...names].sort()) });
+        messages.push({ role: "user", content: buildUnknownToolRepairPrompt(requestedCall.name, selectedToolNames) });
         debugLog("recovery.unknown_tool", {
           ...debugContext,
           toolName: requestedCall.name,
@@ -446,7 +422,7 @@ async function runProviderTurn(
 
       return {
         kind: "final",
-        text: `xtalpi-pi-tools 请求了不可用工具：${requestedCall.name}。本轮可用工具：${[...names].sort().join(", ") || "(none)"}`,
+        text: `xtalpi-pi-tools 请求了不可用工具：${requestedCall.name}。本轮可用工具：${selectedToolNames.join(", ") || "(none)"}`,
         usage: accumulatedUsage,
         responseModel,
       };
@@ -454,7 +430,7 @@ async function runProviderTurn(
 
     const argumentValidation = validateToolArguments(selectedToolByName.get(requestedCall.name), requestedCall.arguments);
     if (!argumentValidation.ok) {
-      if (repairRetries < maxRepairRetries() && totalRecoveries < maxTotalRecoveries()) {
+      if (repairRetries < debugContext.maxRepairRetries && totalRecoveries < debugContext.maxTotalRecoveries) {
         repairRetries += 1;
         totalRecoveries += 1;
         messages.push({ role: "assistant", content: raw.slice(0, 4000) });
@@ -483,7 +459,7 @@ async function runProviderTurn(
     }
 
     if (lastCompletedCall && isSameToolCall(lastCompletedCall, requestedCall)) {
-      if (repairRetries < maxRepairRetries() && totalRecoveries < maxTotalRecoveries()) {
+      if (repairRetries < debugContext.maxRepairRetries && totalRecoveries < debugContext.maxTotalRecoveries) {
         repairRetries += 1;
         totalRecoveries += 1;
         messages.push({ role: "assistant", content: raw.slice(0, 4000) });

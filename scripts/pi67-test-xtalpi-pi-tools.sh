@@ -23,6 +23,7 @@ const { pathToFileURL } = require("node:url");
   const runtimeConfig = await import(ext("runtime-config.ts"));
   const serializer = await import(ext("serializer.ts"));
   const textSafety = await import(ext("text-safety.ts"));
+  const turnDebugContext = await import(ext("turn-debug-context.ts"));
   const validator = await import(ext("argument-validator.ts"));
   const provider = await import(ext("index.ts"));
   const replayFixtures = JSON.parse(
@@ -640,6 +641,62 @@ const { pathToFileURL } = require("node:url");
   assert.ok(!selectedSummaryJson.includes("Hidden admin tool"));
   assert.ok(!selectedSummaryJson.includes("Run a shell command"));
   assert.ok(!selectedContext.toolSelectionSummary.omitted.some((item) => Object.prototype.hasOwnProperty.call(item, "description")));
+
+  const turnDebugEnvNames = [
+    "XTALPI_PI_TOOLS_TIMEOUT_MS",
+    "XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS",
+    "XTALPI_PI_TOOLS_MAX_EMPTY_RETRIES",
+    "XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES",
+    "XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES",
+  ];
+  const previousTurnDebugEnv = Object.fromEntries(turnDebugEnvNames.map((name) => [name, process.env[name]]));
+  try {
+    process.env.XTALPI_PI_TOOLS_TIMEOUT_MS = "6543";
+    process.env.XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS = "512";
+    process.env.XTALPI_PI_TOOLS_MAX_EMPTY_RETRIES = "3";
+    process.env.XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES = "5";
+    process.env.XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES = "7";
+
+    assert.deepEqual(turnDebugContext.sortedToolNames(new Set(["read", "bash"])), ["bash", "read"]);
+    assert.equal(turnDebugContext.hashSelectedToolNames(["bash", "read"]), "6a70afa4db1339c9");
+    const turnDebug = turnDebugContext.buildTurnDebugContext({
+      model: { id: "deepseek-v4-pro", maxTokens: 32768 },
+      context: {
+        tools: [
+          { name: "read" },
+          { name: "hidden_admin" },
+          { name: "bash" },
+        ],
+        messages: [],
+      },
+      serializedContext: selectedContext,
+      maxTools: 1,
+      maxToolResultChars: 2000,
+      options: { maxTokens: 4096, timeoutMs: 1234 },
+    });
+    assert.equal(turnDebug.provider, "xtalpi-pi-tools");
+    assert.equal(turnDebug.model, "deepseek-v4-pro");
+    assert.deepEqual(turnDebug.selectedToolNames, ["read"]);
+    assert.match(turnDebug.selectedToolNamesHash, /^[a-f0-9]{16}$/);
+    assert.equal(turnDebug.availableToolCount, 3);
+    assert.equal(turnDebug.toolSelectionClipped, true);
+    assert.equal(turnDebug.toolSelectionOmittedCount, 2);
+    assert.equal(turnDebug.toolSelectionValidCount, 3);
+    assert.equal(turnDebug.maxToolResultChars, 2000);
+    assert.equal(turnDebug.maxOutputTokens, 512);
+    assert.equal(turnDebug.requestTimeoutMs, 6543);
+    assert.equal(turnDebug.maxEmptyRetries, 3);
+    assert.equal(turnDebug.maxRepairRetries, 5);
+    assert.equal(turnDebug.maxTotalRecoveries, 7);
+  } finally {
+    for (const name of turnDebugEnvNames) {
+      if (previousTurnDebugEnv[name] === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = previousTurnDebugEnv[name];
+      }
+    }
+  }
 
   const continuationSelectionContext = serializer.serializeContextForXtalpi(
     {
