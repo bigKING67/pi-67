@@ -30,14 +30,16 @@ import {
 } from "./protocol.ts";
 import {
   buildEmptyResponseRepairPrompt,
-  buildFunctionStyleToolRepairPrompt,
   buildInvalidToolArgumentsRepairPrompt,
-  buildInvalidToolJsonRepairPrompt,
-  buildRawProtocolMarkupRepairPrompt,
   buildRepeatedToolRepairPrompt,
   buildUnknownToolRepairPrompt,
   envInt,
 } from "./retry.ts";
+import {
+  buildParseErrorRepairPlan,
+  canRecoverEmptyResponse,
+  canRecoverRepair,
+} from "./recovery-decision.ts";
 import {
   addUsage,
   extractTextFromMessage,
@@ -337,7 +339,7 @@ async function runProviderTurn(
     const raw = response.content.trim();
 
     if (!raw) {
-      if (emptyRetries < debugContext.maxEmptyRetries && totalRecoveries < debugContext.maxTotalRecoveries) {
+      if (canRecoverEmptyResponse({ emptyRetries, totalRecoveries }, debugContext)) {
         emptyRetries += 1;
         totalRecoveries += 1;
         messages.push({ role: "user", content: buildEmptyResponseRepairPrompt() });
@@ -356,22 +358,13 @@ async function runProviderTurn(
 
     const parsed = parseToolCall(raw);
     if (parsed.kind === "error") {
-      if (repairRetries < debugContext.maxRepairRetries && totalRecoveries < debugContext.maxTotalRecoveries) {
+      if (canRecoverRepair({ repairRetries, totalRecoveries }, debugContext)) {
         repairRetries += 1;
         totalRecoveries += 1;
-        const repairPrompt = parsed.code === "function_style_tool_call"
-          ? buildFunctionStyleToolRepairPrompt(parsed.raw, selectedToolNames)
-          : parsed.code === "raw_protocol_markup"
-            ? buildRawProtocolMarkupRepairPrompt(parsed.raw, selectedToolNames)
-            : buildInvalidToolJsonRepairPrompt(parsed.message, parsed.raw);
+        const repairPlan = buildParseErrorRepairPlan(parsed, selectedToolNames);
         messages.push({ role: "assistant", content: raw.slice(0, 4000) });
-        messages.push({ role: "user", content: repairPrompt });
-        const recoveryEvent = parsed.code === "function_style_tool_call"
-          ? "recovery.function_style_tool_call"
-          : parsed.code === "raw_protocol_markup"
-            ? "recovery.raw_protocol_markup"
-            : "recovery.invalid_tool_json";
-        debugLog(recoveryEvent, {
+        messages.push({ role: "user", content: repairPlan.prompt });
+        debugLog(repairPlan.event, {
           ...debugContext,
           code: parsed.code,
           repairRetries,
@@ -406,7 +399,7 @@ async function runProviderTurn(
     };
 
     if (names.size === 0 || !names.has(requestedCall.name)) {
-      if (repairRetries < debugContext.maxRepairRetries && totalRecoveries < debugContext.maxTotalRecoveries) {
+      if (canRecoverRepair({ repairRetries, totalRecoveries }, debugContext)) {
         repairRetries += 1;
         totalRecoveries += 1;
         messages.push({ role: "assistant", content: raw.slice(0, 4000) });
@@ -430,7 +423,7 @@ async function runProviderTurn(
 
     const argumentValidation = validateToolArguments(selectedToolByName.get(requestedCall.name), requestedCall.arguments);
     if (!argumentValidation.ok) {
-      if (repairRetries < debugContext.maxRepairRetries && totalRecoveries < debugContext.maxTotalRecoveries) {
+      if (canRecoverRepair({ repairRetries, totalRecoveries }, debugContext)) {
         repairRetries += 1;
         totalRecoveries += 1;
         messages.push({ role: "assistant", content: raw.slice(0, 4000) });
@@ -459,7 +452,7 @@ async function runProviderTurn(
     }
 
     if (lastCompletedCall && isSameToolCall(lastCompletedCall, requestedCall)) {
-      if (repairRetries < debugContext.maxRepairRetries && totalRecoveries < debugContext.maxTotalRecoveries) {
+      if (canRecoverRepair({ repairRetries, totalRecoveries }, debugContext)) {
         repairRetries += 1;
         totalRecoveries += 1;
         messages.push({ role: "assistant", content: raw.slice(0, 4000) });

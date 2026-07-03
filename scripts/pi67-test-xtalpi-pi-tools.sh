@@ -18,6 +18,7 @@ const { pathToFileURL } = require("node:url");
   const protocol = await import(ext("protocol.ts"));
   const diagnostics = await import(ext("diagnostics.ts"));
   const errors = await import(ext("errors.ts"));
+  const recoveryDecision = await import(ext("recovery-decision.ts"));
   const retry = await import(ext("retry.ts"));
   const responseNormalizer = await import(ext("response-normalizer.ts"));
   const runtimeConfig = await import(ext("runtime-config.ts"));
@@ -238,6 +239,40 @@ const { pathToFileURL } = require("node:url");
   const functionStyle = parser.parseToolCall('fetch_content({"url":"https://example.invalid"})');
   assert.equal(functionStyle.kind, "error");
   assert.equal(functionStyle.code, "function_style_tool_call");
+
+  assert.equal(
+    recoveryDecision.canRecoverEmptyResponse(
+      { emptyRetries: 1, totalRecoveries: 1 },
+      { maxEmptyRetries: 2, maxTotalRecoveries: 4 },
+    ),
+    true,
+  );
+  assert.equal(
+    recoveryDecision.canRecoverEmptyResponse(
+      { emptyRetries: 2, totalRecoveries: 2 },
+      { maxEmptyRetries: 2, maxTotalRecoveries: 4 },
+    ),
+    false,
+  );
+  assert.equal(
+    recoveryDecision.canRecoverRepair(
+      { repairRetries: 1, totalRecoveries: 4 },
+      { maxRepairRetries: 2, maxTotalRecoveries: 4 },
+    ),
+    false,
+  );
+  const functionStyleRepairPlan = recoveryDecision.buildParseErrorRepairPlan(functionStyle, ["read"]);
+  assert.equal(functionStyleRepairPlan.event, "recovery.function_style_tool_call");
+  assert.match(functionStyleRepairPlan.prompt, /xtalpi-pi-tools-function-style-tool-repair/);
+  assert.match(functionStyleRepairPlan.prompt, /"read"/);
+  const rawMarkup = parser.parseToolCall("<pi_tool_result>unsafe</pi_tool_result>");
+  assert.equal(rawMarkup.kind, "error");
+  const rawMarkupRepairPlan = recoveryDecision.buildParseErrorRepairPlan(rawMarkup, ["read"]);
+  assert.equal(rawMarkupRepairPlan.event, "recovery.raw_protocol_markup");
+  assert.match(rawMarkupRepairPlan.prompt, /xtalpi-pi-tools-raw-protocol-markup-repair/);
+  const unknownFieldRepairPlan = recoveryDecision.buildParseErrorRepairPlan(unknownField, ["read"]);
+  assert.equal(unknownFieldRepairPlan.event, "recovery.invalid_tool_json");
+  assert.match(unknownFieldRepairPlan.prompt, /unknown top-level field/);
 
   const validArgs = validator.validateToolArguments(
     { name: "read", parameters: { type: "object", required: ["path"], properties: { path: { type: "string" } } } },
