@@ -8,7 +8,6 @@ import type {
   SimpleStreamOptions,
   ToolCall,
 } from "@earendil-works/pi-ai";
-import { validateToolArguments } from "./argument-validator.ts";
 import { debugLog, safeErrorMessage } from "./diagnostics.ts";
 import {
   XtalpiProviderError,
@@ -30,9 +29,6 @@ import {
 } from "./protocol.ts";
 import {
   buildEmptyResponseRepairPrompt,
-  buildInvalidToolArgumentsRepairPrompt,
-  buildRepeatedToolRepairPrompt,
-  buildUnknownToolRepairPrompt,
   envInt,
 } from "./retry.ts";
 import {
@@ -64,6 +60,7 @@ import {
   emitToolCallBlock,
 } from "./stream.ts";
 import { safeBlockText } from "./text-safety.ts";
+import { decideToolCallRequest } from "./tool-call-decision.ts";
 import { buildTurnDebugContext } from "./turn-debug-context.ts";
 
 type ChatResponse = {
@@ -262,10 +259,6 @@ async function callXtalpiChat(
   return { content, usage, responseModel, finishReason };
 }
 
-function isSameToolCall(a: ToolCall, b: ToolCall): boolean {
-  return a.name === b.name && JSON.stringify(a.arguments) === JSON.stringify(b.arguments);
-}
-
 function latestToolCallWithResult(context: ContextLike): ToolCall | undefined {
   let latestCall: ToolCall | undefined;
   let hasResultAfterLatestCall = false;
@@ -398,79 +391,34 @@ async function runProviderTurn(
       arguments: parsed.call.arguments,
     };
 
-    if (names.size === 0 || !names.has(requestedCall.name)) {
-      if (canRecoverRepair({ repairRetries, totalRecoveries }, debugContext)) {
-        repairRetries += 1;
-        totalRecoveries += 1;
-        messages.push({ role: "assistant", content: raw.slice(0, 4000) });
-        messages.push({ role: "user", content: buildUnknownToolRepairPrompt(requestedCall.name, selectedToolNames) });
-        debugLog("recovery.unknown_tool", {
-          ...debugContext,
-          toolName: requestedCall.name,
-          repairRetries,
-          totalRecoveries,
-        });
-        continue;
-      }
+    const toolDecision = decideToolCallRequest({
+      requestedCall,
+      selectedToolNames: names,
+      selectedToolNamesList: selectedToolNames,
+      selectedToolByName,
+      lastCompletedCall,
+      canRepair: canRecoverRepair({ repairRetries, totalRecoveries }, debugContext),
+    });
 
-      return {
-        kind: "final",
-        text: `xtalpi-pi-tools 请求了不可用工具：${requestedCall.name}。本轮可用工具：${selectedToolNames.join(", ") || "(none)"}`,
-        usage: accumulatedUsage,
-        responseModel,
-      };
+    if (toolDecision.kind === "repair") {
+      repairRetries += 1;
+      totalRecoveries += 1;
+      messages.push({ role: "assistant", content: raw.slice(0, 4000) });
+      messages.push({ role: "user", content: toolDecision.prompt });
+      debugLog(toolDecision.event, {
+        ...debugContext,
+        toolName: toolDecision.toolName,
+        errors: toolDecision.errors,
+        repairRetries,
+        totalRecoveries,
+      });
+      continue;
     }
 
-    const argumentValidation = validateToolArguments(selectedToolByName.get(requestedCall.name), requestedCall.arguments);
-    if (!argumentValidation.ok) {
-      if (canRecoverRepair({ repairRetries, totalRecoveries }, debugContext)) {
-        repairRetries += 1;
-        totalRecoveries += 1;
-        messages.push({ role: "assistant", content: raw.slice(0, 4000) });
-        messages.push({
-          role: "user",
-          content: buildInvalidToolArgumentsRepairPrompt(requestedCall.name, argumentValidation.errors),
-        });
-        debugLog("recovery.invalid_tool_arguments", {
-          ...debugContext,
-          toolName: requestedCall.name,
-          errors: argumentValidation.errors,
-          repairRetries,
-          totalRecoveries,
-        });
-        continue;
-      }
-
+    if (toolDecision.kind === "final") {
       return {
         kind: "final",
-        text:
-          `xtalpi-pi-tools 请求了参数不符合 schema 的工具调用：${requestedCall.name}。\n\n` +
-          `参数错误：${argumentValidation.errors.join("; ")}`,
-        usage: accumulatedUsage,
-        responseModel,
-      };
-    }
-
-    if (lastCompletedCall && isSameToolCall(lastCompletedCall, requestedCall)) {
-      if (canRecoverRepair({ repairRetries, totalRecoveries }, debugContext)) {
-        repairRetries += 1;
-        totalRecoveries += 1;
-        messages.push({ role: "assistant", content: raw.slice(0, 4000) });
-        messages.push({ role: "user", content: buildRepeatedToolRepairPrompt(requestedCall.name) });
-        debugLog("recovery.repeated_tool", {
-          ...debugContext,
-          toolName: requestedCall.name,
-          repairRetries,
-          totalRecoveries,
-        });
-        continue;
-      }
-
-      return {
-        kind: "final",
-        text:
-          `xtalpi-pi-tools 检测到模型在工具结果返回后仍重复请求同一个工具：${requestedCall.name}。\n\n` +
-          "为避免重复执行工具或卡住，本轮已停止自动工具调用。请基于上方已有工具结果继续，或把任务拆小后重试。",
+        text: toolDecision.text,
         usage: accumulatedUsage,
         responseModel,
       };
