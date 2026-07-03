@@ -76,6 +76,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - Live xtalpi smoke now requires an executable debug-summary helper before running provider preflight or cases, with `XTALPI_PI_TOOLS_SMOKE_DEBUG_SUMMARY_BIN` available for explicit test/runtime overrides.
 - Accidental native `assistant.tool_calls` returned by the upstream compatibility layer are now re-projected into the same local text protocol even when `content` is empty, and malformed native `function.arguments` fail into repair instead of silently executing `{}`.
 - xtalpi response usage accounting and assistant-message normalization now live in `response-normalizer.ts`, giving the native tool-call compatibility path a smaller dedicated module with direct unit coverage.
+- Repeated-tool detection and object-valued schema `enum` checks now use JSON deep equality that ignores object key order, so argument reordering cannot bypass loop protection or fail valid enum matches.
 
 ### Removed
 

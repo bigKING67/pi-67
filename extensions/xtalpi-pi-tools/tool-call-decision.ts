@@ -1,4 +1,5 @@
 import { validateToolArguments } from "./argument-validator.ts";
+import { jsonDeepEqual } from "./json-utils.ts";
 import type { JsonObject } from "./protocol.ts";
 import {
   buildInvalidToolArgumentsRepairPrompt,
@@ -36,7 +37,7 @@ export type ToolCallDecision =
     };
 
 function sameToolCall(left: ToolCallRequest, right: ToolCallRequest): boolean {
-  return left.name === right.name && JSON.stringify(left.arguments) === JSON.stringify(right.arguments);
+  return left.name === right.name && jsonDeepEqual(left.arguments, right.arguments);
 }
 
 export function decideToolCallRequest(input: {

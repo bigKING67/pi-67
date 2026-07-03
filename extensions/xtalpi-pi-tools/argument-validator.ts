@@ -1,4 +1,5 @@
 import type { JsonObject } from "./protocol.ts";
+import { jsonDeepEqual } from "./json-utils.ts";
 import type { ToolLike } from "./serializer.ts";
 
 type JsonSchema = Record<string, unknown>;
@@ -45,10 +46,6 @@ function schemaTypes(schema: JsonSchema): string[] {
   if (typeof schema.type === "string") return [schema.type];
   if (Array.isArray(schema.type)) return schema.type.filter((item): item is string => typeof item === "string");
   return [];
-}
-
-function jsonEqual(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function numericKeyword(schema: JsonSchema, name: string): number | undefined {
@@ -165,7 +162,7 @@ function validateValue(schema: JsonSchema, value: unknown, path: string, errors:
     return;
   }
 
-  if (Array.isArray(schema.enum) && !schema.enum.some((item) => jsonEqual(item, value))) {
+  if (Array.isArray(schema.enum) && !schema.enum.some((item) => jsonDeepEqual(item, value))) {
     errors.push(`${path} must be one of ${schema.enum.map((item) => JSON.stringify(item)).join(", ")}`);
     return;
   }

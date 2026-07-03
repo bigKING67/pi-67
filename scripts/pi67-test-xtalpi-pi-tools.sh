@@ -21,6 +21,7 @@ const { pathToFileURL } = require("node:url");
   const providerTurn = await import(ext("provider-turn.ts"));
   const diagnostics = await import(ext("diagnostics.ts"));
   const errors = await import(ext("errors.ts"));
+  const jsonUtils = await import(ext("json-utils.ts"));
   const recoveryDecision = await import(ext("recovery-decision.ts"));
   const retry = await import(ext("retry.ts"));
   const responseNormalizer = await import(ext("response-normalizer.ts"));
@@ -565,6 +566,24 @@ const { pathToFileURL } = require("node:url");
   assert.match(constrainedErrors, /arguments\.ratio must be < 1/);
   assert.match(constrainedErrors, /arguments\.items must contain at most 2 item/);
   assert.match(constrainedErrors, /arguments\.extra is not allowed by schema/);
+  assert.equal(jsonUtils.jsonDeepEqual({ b: 2, a: { y: 4, x: 3 } }, { a: { x: 3, y: 4 }, b: 2 }), true);
+  assert.equal(jsonUtils.jsonDeepEqual([{ b: 2, a: 1 }], [{ a: 1, b: 2 }]), true);
+  assert.equal(jsonUtils.jsonDeepEqual([{ b: 2, a: 1 }], [{ b: 2 }, { a: 1 }]), false);
+
+  const enumObjectArgs = validator.validateToolArguments(
+    {
+      name: "enum_object",
+      parameters: {
+        type: "object",
+        required: ["payload"],
+        properties: {
+          payload: { enum: [{ a: 1, b: { c: 2 } }] },
+        },
+      },
+    },
+    { payload: { b: { c: 2 }, a: 1 } },
+  );
+  assert.equal(enumObjectArgs.ok, true);
 
   const selectedToolNamesForDecision = ["read"];
   const selectedToolNameSet = new Set(selectedToolNamesForDecision);
@@ -615,6 +634,22 @@ const { pathToFileURL } = require("node:url");
   });
   assert.equal(repeatedToolDecision.kind, "final");
   assert.match(repeatedToolDecision.text, /重复请求同一个工具/);
+  const repeatedToolReorderedArgsDecision = toolCallDecision.decideToolCallRequest({
+    requestedCall: {
+      name: "read",
+      arguments: { nested: { y: 2, x: 1 }, list: [{ b: 2, a: 1 }], path: "package.json" },
+    },
+    selectedToolNames: selectedToolNameSet,
+    selectedToolNamesList: selectedToolNamesForDecision,
+    selectedToolByName,
+    lastCompletedCall: {
+      name: "read",
+      arguments: { path: "package.json", list: [{ a: 1, b: 2 }], nested: { x: 1, y: 2 } },
+    },
+    canRepair: false,
+  });
+  assert.equal(repeatedToolReorderedArgsDecision.kind, "final");
+  assert.match(repeatedToolReorderedArgsDecision.text, /重复请求同一个工具/);
 
   const acceptedToolDecision = toolCallDecision.decideToolCallRequest({
     requestedCall: { name: "read", arguments: { path: "package.json" } },
