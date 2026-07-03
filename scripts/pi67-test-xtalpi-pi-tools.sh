@@ -30,6 +30,7 @@ const { pathToFileURL } = require("node:url");
   const providerErrorContract = JSON.parse(
     fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "provider-error-contract.json"), "utf8"),
   );
+  const debugSummaryCore = require(path.join(repoRoot, "scripts", "pi67-xtalpi-debug-summary-core.cjs"));
   const errorsSource = fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "errors.ts"), "utf8");
   const providerSource = fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "index.ts"), "utf8");
 
@@ -93,6 +94,64 @@ const { pathToFileURL } = require("node:url");
     if (expected.kind === "error") {
       assert.equal(actual.code, expected.code, fixture.name);
     }
+  }
+
+  assert.deepEqual(debugSummaryCore.sortedUniqueStrings([" read ", "bash", "read", "", "bash"]), ["bash", "read"]);
+  const debugCaseSet = debugSummaryCore.buildCaseSet(["read", "bash", "read"]);
+  assert.equal(debugCaseSet.schema, "xtalpi-pi-tools.case-set.v1");
+  assert.deepEqual(debugCaseSet.selectedCases, ["read", "bash", "read"]);
+  assert.deepEqual(debugCaseSet.normalizedCases, ["bash", "read"]);
+  assert.equal(debugCaseSet.canonical, "bash,read");
+  assert.match(debugCaseSet.sha256, /^[a-f0-9]{64}$/);
+  assert.deepEqual(
+    debugSummaryCore.normalizeCaseSet(
+      { schema: "custom.case-set", selectedCases: ["raw"], normalizedCases: [" z ", "a", "a"] },
+      ["fallback"],
+    ),
+    {
+      schema: "custom.case-set",
+      selectedCases: ["raw"],
+      normalizedCases: ["a", "z"],
+      count: 2,
+      canonical: "a,z",
+      sha256: debugSummaryCore.buildCaseSet(["a", "z"]).sha256,
+    },
+  );
+  assert.deepEqual(debugSummaryCore.normalizeCaseSet(null, ["fallback"]).normalizedCases, ["fallback"]);
+  assert.equal(debugSummaryCore.containsRawPiToolMarkup("plain final answer"), false);
+  assert.equal(debugSummaryCore.isRawToolMarkupFinalAnswer("<pi_tool_call>{}</pi_tool_call>"), true);
+  assert.equal(debugSummaryCore.isToolEnvelopeOnlyFinalAnswer("<pi_tool_call>{}</pi_tool_call>"), true);
+  assert.equal(
+    debugSummaryCore.stripPiToolEnvelopes("<pi_tool_call>{}</pi_tool_call>\nnormal final answer"),
+    "normal final answer",
+  );
+  assert.deepEqual(debugSummaryCore.uniqueStrings(["b", "", "a", "b", 1]), ["a", "b"]);
+  assert.deepEqual(debugSummaryCore.uniqueNumbers([2, Number.NaN, 1, 2, "3"]), [1, 2]);
+  assert.deepEqual(debugSummaryCore.uniqueBooleans([true, false, true, 0]), [false, true]);
+  assert.equal(debugSummaryCore.numberOrZero("5"), 5);
+  assert.equal(debugSummaryCore.numberOrZero("nope"), 0);
+  assert.equal(debugSummaryCore.numberOrUndefined("nope"), undefined);
+  assert.deepEqual(debugSummaryCore.objectOrUndefined({ ok: true }), { ok: true });
+  assert.equal(debugSummaryCore.objectOrUndefined([]), undefined);
+
+  const debugSummaryCoreTmp = fs.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", "xtalpi-debug-core-test."));
+  try {
+    const jsonlFile = path.join(debugSummaryCoreTmp, "events.jsonl");
+    fs.writeFileSync(jsonlFile, '{"ok":true}\nnot-json\n{"ok":false}\n');
+    assert.deepEqual(debugSummaryCore.readJsonl(jsonlFile), {
+      events: [{ ok: true }, { ok: false }],
+      parseErrors: 1,
+    });
+    assert.deepEqual(debugSummaryCore.readJsonl(path.join(debugSummaryCoreTmp, "missing.jsonl")), {
+      events: [],
+      parseErrors: 0,
+    });
+    const jsonFile = path.join(debugSummaryCoreTmp, "value.json");
+    fs.writeFileSync(jsonFile, '{"ok":true}\n');
+    assert.deepEqual(debugSummaryCore.readJsonFile(jsonFile), { ok: true, value: { ok: true } });
+    assert.equal(debugSummaryCore.readJsonFile(path.join(debugSummaryCoreTmp, "missing.json")).ok, false);
+  } finally {
+    fs.rmSync(debugSummaryCoreTmp, { recursive: true, force: true });
   }
 
   async function assertProviderReplayFixture(fixture, registeredProvider, originalFetch) {
