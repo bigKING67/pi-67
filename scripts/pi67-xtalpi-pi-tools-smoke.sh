@@ -793,6 +793,152 @@ if (data.postAgentEndLingerSeconds !== 30) throw new Error("unexpected postAgent
   REQUESTED_CASES=()
   REQUESTED_CASE_FILTER_ACTIVE=0
 
+  local smoke_script="$SCRIPT_DIR/pi67-xtalpi-pi-tools-smoke.sh"
+  local fake_pi="$tmp_dir/fake-pi"
+  local fake_pi_log="$tmp_dir/fake-pi-invocations.jsonl"
+  local runner_out_dir="$tmp_dir/runner-out"
+  local runner_summary="$tmp_dir/runner-summary.json"
+  local runner_output
+  local invalid_output
+  local invalid_status=0
+
+  node - "$fake_pi" <<'NODE'
+const fs = require("fs");
+const file = process.argv[2];
+const source = `#!/usr/bin/env node
+const fs = require("fs");
+
+const args = process.argv.slice(2);
+
+function optionValue(flag) {
+  const index = args.indexOf(flag);
+  if (index >= 0) return args[index + 1] || "";
+  const prefix = flag + "=";
+  const found = args.find((item) => item.startsWith(prefix));
+  return found ? found.slice(prefix.length) : "";
+}
+
+const noTools = args.includes("--no-tools");
+const tools = noTools
+  ? []
+  : optionValue("--tools").split(",").map((tool) => tool.trim()).filter(Boolean);
+const selected = tools.includes("read")
+  ? ["read"]
+  : tools.includes("bash")
+    ? ["bash"]
+    : tools.includes("web_fetch")
+      ? ["web_fetch"]
+      : [];
+
+if (process.env.FAKE_PI_LOG) {
+  fs.appendFileSync(process.env.FAKE_PI_LOG, JSON.stringify({
+    args,
+    noTools,
+    tools,
+    selected,
+    prompt: optionValue("-p").slice(0, 80),
+  }) + "\\n");
+}
+
+if (process.env.XTALPI_PI_TOOLS_DEBUG_PATH) {
+  fs.appendFileSync(process.env.XTALPI_PI_TOOLS_DEBUG_PATH, JSON.stringify({
+    schema: "xtalpi-pi-tools.debug.v1",
+    event: "turn.start",
+    event_category: "turn",
+    selected_tool_count: selected.length,
+    data: {
+      selectedToolNames: selected,
+    },
+  }) + "\\n");
+}
+
+for (const toolName of selected) {
+  const toolArgs = toolName === "bash"
+    ? { command: "pwd" }
+    : toolName === "read"
+      ? { path: "package.json" }
+      : { url: "https://example.invalid" };
+  console.log(JSON.stringify({ type: "tool_execution_start", toolName, args: toolArgs }));
+}
+
+console.log(JSON.stringify({
+  type: "agent_end",
+  messages: [{
+    role: "assistant",
+    content: [{ type: "text", text: selected.length ? "fake final answer using " + selected.join(",") : "fake no-tool final answer" }],
+    stopReason: "stop",
+  }],
+}));
+`;
+fs.writeFileSync(file, source);
+fs.chmodSync(file, 0o755);
+NODE
+
+  if ! runner_output="$(env \
+    PI_BIN="$fake_pi" \
+    OUT_DIR="$runner_out_dir" \
+    XTALPI_PI_TOOLS_SMOKE_PREFLIGHT=0 \
+    XTALPI_PI_TOOLS_SMOKE_SUMMARY_FILE="$runner_summary" \
+    FAKE_PI_LOG="$fake_pi_log" \
+    CASE_TIMEOUT_SECONDS=10 \
+    "$smoke_script" --case no-tool,read 2>&1)"; then
+    echo "$runner_output"
+    return 1
+  fi
+
+  if ! node - "$runner_summary" "$fake_pi_log" <<'NODE'; then
+const fs = require("fs");
+const [summaryFile, logFile] = process.argv.slice(2);
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+const summary = JSON.parse(fs.readFileSync(summaryFile, "utf8"));
+const invocations = fs.readFileSync(logFile, "utf8").trim().split(/\n/).filter(Boolean).map((line) => JSON.parse(line));
+assert(summary.schema === "xtalpi-pi-tools.smoke-summary.v1", "unexpected smoke summary schema");
+assert(summary.ok === true, "runner summary should pass");
+assert(summary.failures === 0, "runner failures should be zero");
+assert(summary.providerHealthPreflight === false, "runner self-test should not call provider preflight");
+assert(JSON.stringify(summary.selectedCases) === JSON.stringify(["no-tool", "read"]), "selected case order drifted");
+assert(summary.caseSet?.canonical === "no-tool,read", "case set canonical should reflect selected cases");
+assert(summary.debugSummary?.gates?.expectCases === 2, "debug summary did not receive expect-cases");
+assert(
+  JSON.stringify(summary.debugSummary?.gates?.expectCaseNames) === JSON.stringify(["no-tool", "read"]),
+  "debug summary did not receive exact selected case names",
+);
+assert(Array.isArray(summary.debugSummary?.gateFailures) && summary.debugSummary.gateFailures.length === 0, "debug gate failures present");
+assert(summary.debugSummary?.totals?.cases === 2, "debug summary should include only selected cases");
+const caseNames = (summary.debugSummary?.cases || []).map((item) => item.caseName).sort();
+assert(JSON.stringify(caseNames) === JSON.stringify(["no-tool", "read"]), "debug summary case names drifted");
+assert(invocations.length === 2, "fake PI should be invoked exactly once per selected case");
+assert(invocations.some((item) => item.noTools === true && item.selected.length === 0), "no-tool case did not use --no-tools");
+assert(invocations.some((item) => item.tools.join(",") === "read" && item.selected.join(",") === "read"), "read case did not use PI_BIN with --tools read");
+assert(!invocations.some((item) => item.tools.includes("bash")), "unselected bash case should not run");
+NODE
+    echo "$runner_output"
+    return 1
+  fi
+
+  invalid_output="$(env \
+    PI_BIN="$tmp_dir/not-a-pi" \
+    OUT_DIR="$tmp_dir/invalid-run" \
+    XTALPI_PI_TOOLS_SMOKE_PREFLIGHT=1 \
+    "$smoke_script" --case no-tool 2>&1)"
+  invalid_status=$?
+  if [ "$invalid_status" -ne 2 ]; then
+    echo "expected invalid PI_BIN runner check to exit 2, got $invalid_status"
+    echo "$invalid_output"
+    return 1
+  fi
+  if [[ "$invalid_output" != *"pi executable not found or not executable"* ]]; then
+    echo "invalid PI_BIN runner check did not print the expected fail-fast hint"
+    echo "$invalid_output"
+    return 1
+  fi
+  if [ -d "$tmp_dir/invalid-run" ]; then
+    echo "invalid PI_BIN runner check should fail before creating the smoke output directory"
+    return 1
+  fi
+
   echo "xtalpi-pi-tools smoke self-test passed"
 }
 

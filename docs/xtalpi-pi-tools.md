@@ -206,11 +206,12 @@ extensions/xtalpi-pi-tools/fixtures/replay-cases.json
 - TypeScript error code/category union 与 provider error contract manifest 同步
 - smoke summarizer self-test：`all:` / `only:` 工具边界、low-`maxTools` tool-selection clipping telemetry、raw markup final answer 和 tool-result-injection canary 缺失负向样例
 - smoke continuation self-test：多轮 session case 必须在第二轮 `继续` 时暴露 `tool_selection_prompt_source=recent_user_continuation`，并仍只执行 selected `read`
+- smoke runner self-test：用 fake `pi` 离线验证 `PI_BIN` override、`--case` case 过滤、summary artifact、`--expect-cases` / `--expect-case-names` debug-summary gate 传参，以及无效 `PI_BIN` fail-fast 路径
 - debug-summary self-test：case 数、recovery 阈值和 raw markup final answer threshold gate 负向样例
 - provider error contract validator self-test：已知坏 contract 的 manifest、code 集合、category、retryability、HTTP 映射和 range 顺序负向样例
 - provider-level body-read timeout regression：即使 `response.text()` 不响应 `AbortSignal`，也必须在 `XTALPI_PI_TOOLS_TIMEOUT_MS` 内归类为 `request_timeout`
 
-只验证 smoke/debug-summary gate 本身，不调用真实模型：
+只验证 smoke runner、smoke/debug-summary gate 本身，不调用真实模型：
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --self-test

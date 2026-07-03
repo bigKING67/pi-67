@@ -72,6 +72,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - Live xtalpi smoke now includes a two-turn `tool-selection-continuation` case that uses a temporary session plus low `XTALPI_PI_TOOLS_MAX_TOOLS` to prove `继续` selects the prior user-intended `read` tool and emits `recent_user_continuation` telemetry.
 - Live xtalpi smoke now passes the exact selected case names into its immediate debug-summary gate, so same-count case-set drift cannot pass the run-level smoke gate.
 - Live xtalpi smoke now fails fast with a clear `PI_BIN` hint when the Pi executable is missing, instead of running provider preflight before an opaque process-launch failure.
+- `scripts/pi67-xtalpi-pi-tools-smoke.sh --self-test` now exercises the main smoke runner offline with a fake `pi`, covering `PI_BIN` override, selected-case filtering, summary artifact writing, exact case-name debug-summary gates, and invalid-`PI_BIN` fail-fast behavior.
 
 ### Removed
 
