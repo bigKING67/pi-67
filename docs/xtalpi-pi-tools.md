@@ -314,11 +314,13 @@ $HOME/tmp/xtalpi-pi-tools-smoke
 $HOME/tmp/xtalpi-pi-tools-smoke/<stamp>-summary.json
 ```
 
-摘要 schema 为 `xtalpi-pi-tools.smoke-summary.v1`，包含 provider、model、stamp、selected cases、稳定 `caseSet` 指纹（排序去重后的 canonical case 名称和 SHA-256）、`runKind`（`full-suite` / `targeted` / `preflight-failed` / `empty`）、case timeout、request timeout、max output tokens、failure count、provider-health preflight 状态、preflight timeout / attempts / retry delay、provider-error stop 策略和 stop reason、debug-summary gate 状态、总体 recoveries / recovery rate / raw markup final answer / process lifecycle failure / watchdog timeout / argument validation warning 计数，以及逐 case telemetry。smoke 脚本会把本轮 selected cases 同时作为 `--expect-cases` 和 `--expect-case-names` 传给 debug-summary gate，避免同数量但不同 case 集合的 artifact 被误判为本轮通过。debug summary JSON 的逐 case telemetry 还包含 `runtimeFingerprint`，用于确认当轮实际协议版本、selected-tool hash、展示工具名、selected-tool ranking 是否被 `maxTools` 截断、被省略工具数量、请求超时、输出上限、工具结果截断上限和 recovery limits。
+摘要 schema 为 `xtalpi-pi-tools.smoke-summary.v1`，包含 provider、model、stamp、selected cases、稳定 `caseSet` 指纹（排序去重后的 canonical case 名称和 SHA-256）、`runKind`（`full-suite` / `targeted` / `preflight-failed` / `empty`）、case timeout、request timeout、max output tokens、failure count、provider-health preflight 状态、preflight timeout / attempts / retry delay、provider-error stop 策略和 stop reason、debug-summary gate 状态、总体 recoveries / recovery rate / raw markup final answer / process lifecycle failure / watchdog timeout / request latency / slow request / argument validation warning 计数，以及逐 case telemetry。smoke 脚本会把本轮 selected cases 同时作为 `--expect-cases` 和 `--expect-case-names` 传给 debug-summary gate，避免同数量但不同 case 集合的 artifact 被误判为本轮通过。debug summary JSON 的逐 case telemetry 还包含 `runtimeFingerprint` 与 `requestLatencyMs*`，用于确认当轮实际协议版本、selected-tool hash、展示工具名、selected-tool ranking 是否被 `maxTools` 截断、被省略工具数量、请求超时、输出上限、工具结果截断上限、recovery limits，以及模型请求本身是否接近 timeout。
 
 当 `XTALPI_PI_TOOLS_MAX_TOOLS` 很低时，`turn.start` debug telemetry 会在本地 JSONL 的 `data.toolSelectionSummary` 写入有界选择摘要，schema 为 `xtalpi-pi-tools.tool-selection.v1`。该摘要只包含工具名、去重后的原始 index、score、是否 selected 和 reason code，并在 `selected` / `omitted` 每组最多保留 12 项；不会写入工具 description、parameters 或用户 prompt 原文。顶层字段 `tool_selection_clipped`、`tool_selection_omitted_count`、`tool_selection_valid_count`、`tool_selection_prompt_source`、`tool_selection_prompt_chars` 和 `tool_selection_user_messages` 便于 grep 和 debug-summary 聚合。该摘要只进入本地 debug artifact，不会发送给晶泰模型；provider prompt 仍只展示实际 selected tools。
 
 provider 调用失败会写入结构化 debug telemetry：`errorCode`、`errorCategory`、`retryable` 和可选 `httpStatus`。常见代码包括 `api_key_missing`、`config_error`、`request_timeout`、`request_aborted`、`network_error`、`http_401`、`http_403`、`http_408`、`http_429`、`http_5xx`、`http_error`、`non_json_response` 和 `malformed_response`。debug summary 会汇总 `provider_errors`、`retryable_provider_errors`、`provider_error_codes` 和 `provider_error_categories`，且默认要求 `provider_errors=0`。这样可以把晶泰限流/鉴权/上游错误和 Pi 工具协议质量回归分开判断。
+
+debug summary 还会从每个 debug JSONL 的 `request` 到后续 `response` / `error.provider` 时间戳计算请求延迟，输出 `request_latency_ms=max/avg/count`、`slow_requests` 和 `slow_request_threshold_ms`。当前 slow request 默认阈值是 `60000` ms；默认只作为观测和 retention quality signal，不会让 trend gate 自动失败。需要做性能专项审计时，可以显式加 `--max-request-latency-ms N` 或 `--max-slow-requests N`，让 direct summary / trend gate 在模型请求延迟超过阈值时失败。这样既能暴露“冒烟全绿但模型首包接近 timeout”的风险，也避免把晶泰服务侧偶发慢响应硬编码进默认 release gate。
 
 如果 Pi 上层在请求开始前或请求中途取消 `AbortSignal`，provider 会归类为 `request_aborted` 并停止本轮；请求开始前已取消的 signal 会在本地短路，不会继续发起晶泰 HTTP 请求。HTTP timeout 覆盖完整 fetch 与 response body 读取阶段，避免只收到 headers 但 body 卡住时绕过 `XTALPI_PI_TOOLS_TIMEOUT_MS`。
 
@@ -336,7 +338,7 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   "$HOME/tmp/xtalpi-pi-tools-smoke"
 ```
 
-`--history` 读取 `<stamp>-summary.json`，按最新优先输出每轮 `ok`、`failures`、`cases`、`run_kind`、`selected_cases`、`case_set_sha256`、`recoveries`、`recovery_rate`、raw markup final answer、empty assistant end、error、provider error、process lifecycle failure 和 watchdog timeout 计数；它会忽略同目录下的 `<stamp>-debug-summary.json` 中间产物，避免把 debug-summary 自身误当成 smoke run。旧 summary 如果没有 `runKind`，debug-summary 会根据 `caseSet`、`providerHealth` 和 `stopReason` 现场回推分类。
+`--history` 读取 `<stamp>-summary.json`，按最新优先输出每轮 `ok`、`failures`、`cases`、`run_kind`、`selected_cases`、`case_set_sha256`、`recoveries`、`recovery_rate`、raw markup final answer、empty assistant end、error、provider error、request latency、slow request、process lifecycle failure 和 watchdog timeout 计数；它会忽略同目录下的 `<stamp>-debug-summary.json` 中间产物，避免把 debug-summary 自身误当成 smoke run。旧 summary 如果没有 `runKind`，debug-summary 会根据 `caseSet`、`providerHealth` 和 `stopReason` 现场回推分类。
 
 `--history`、`--trend-gate` 和 `--drift` 支持 `--run-kind LIST` 先按 `runKind` 过滤 persisted summary artifacts，再选择 newest N；`--require-run-kind LIST` 会要求 history / trend-gate selected runs 的 `runKind` 属于指定集合。`scripts/pi67-report.sh` 和 `scripts/pi67-status.sh` 也会默认读取同一 smoke artifact 目录，写入 / 输出 compact `xtalpiSmoke` 状态：最近 3 次整体 history、每轮 `runKind`、`--trend-gate 3 --profile full-suite-strict` 的结果，以及最近 10 次 full-suite artifact 的 drift 摘要。该状态只读本地 artifact，不运行 live smoke，也不改写历史文件；使用 `--no-xtalpi-smoke` 可关闭，或用 `--xtalpi-smoke-dir DIR` 指向非默认目录。
 
@@ -442,6 +444,17 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   --max-recoveries 1 \
   --max-recovery-rate 0.1 \
   --max-recovery-case-runs 1 \
+  "$HOME/tmp/xtalpi-pi-tools-smoke"
+```
+
+性能专项复核可以显式限制 request latency。该限制不会被内置 profile 默认启用，适合在排查 provider 慢响应、发布前性能抽检或比较多轮 full-suite artifact 时临时加上：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
+  --trend-gate 3 \
+  --profile full-suite-strict \
+  --max-request-latency-ms 150000 \
+  --max-slow-requests 0 \
   "$HOME/tmp/xtalpi-pi-tools-smoke"
 ```
 

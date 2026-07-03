@@ -25,6 +25,8 @@ MAX_EMPTY_ASSISTANT_ENDS=""
 MAX_RAW_TOOL_MARKUP_FINAL_ANSWERS=""
 MAX_RECOVERIES=""
 MAX_RECOVERY_RATE=""
+MAX_REQUEST_LATENCY_MS=""
+MAX_SLOW_REQUESTS=""
 RUN_KIND_FILTER=""
 REQUIRE_RUN_KIND=""
 REQUIRE_STABLE_RUNTIME_FINGERPRINT="0"
@@ -64,6 +66,8 @@ Gate options:
   --max-tool-envelope-final-answers N       alias for --max-raw-tool-markup-final-answers
   --max-recoveries N
   --max-recovery-rate N           recoveries / turns
+  --max-request-latency-ms N      fail if selected run/case max request latency exceeds N
+  --max-slow-requests N           fail if selected run/case slow request count exceeds N
   --fail-on-recovery-increase     fail if the newest run has more recoveries or a higher recovery rate
   --max-recovery-case-runs N      fail if one case has recoveries in more than N selected runs
   --require-stable-runtime         require stable runtime fingerprint and runtime bounds across --trend-gate runs
@@ -176,6 +180,7 @@ writeCase(clean, "20260702-000001", "clean", {
   debugEvents: [
     {
       schema: "xtalpi-pi-tools.debug.v1",
+      ts: "2026-07-02T00:00:00.000Z",
       event: "turn.start",
       event_category: "turn",
       selected_tool_count: 1,
@@ -200,6 +205,30 @@ writeCase(clean, "20260702-000001", "clean", {
           omitted: [{ name: "hidden_admin", index: 1, score: 0, selected: false, reasonCodes: [] }],
         },
       },
+    },
+    {
+      schema: "xtalpi-pi-tools.debug.v1",
+      ts: "2026-07-02T00:00:00.000Z",
+      event: "request",
+      event_category: "request",
+    },
+    {
+      schema: "xtalpi-pi-tools.debug.v1",
+      ts: "2026-07-02T00:00:01.500Z",
+      event: "response",
+      event_category: "response",
+    },
+    {
+      schema: "xtalpi-pi-tools.debug.v1",
+      ts: "2026-07-02T00:00:02.000Z",
+      event: "request",
+      event_category: "request",
+    },
+    {
+      schema: "xtalpi-pi-tools.debug.v1",
+      ts: "2026-07-02T00:01:04.000Z",
+      event: "response",
+      event_category: "response",
     },
     {
       schema: "xtalpi-pi-tools.debug.v1",
@@ -279,6 +308,13 @@ writeCase(providerError, "20260702-000007", "http-429", {
   debugEvents: [
     {
       schema: "xtalpi-pi-tools.debug.v1",
+      ts: "2026-07-02T00:00:00.000Z",
+      event: "request",
+      event_category: "request",
+    },
+    {
+      schema: "xtalpi-pi-tools.debug.v1",
+      ts: "2026-07-02T00:01:01.000Z",
       event: "error.provider",
       event_category: "error",
       event_kind: "provider",
@@ -318,6 +354,7 @@ function writeSummary(
     maxOutputTokens = 1024,
     providerHealth,
     runtimeFingerprint,
+    requestLatencyTotals,
   } = {},
 ) {
   const defaultRuntimeFingerprint = runtimeFingerprint || {
@@ -414,13 +451,33 @@ function writeSummary(
         toolEnvelopeFinalAnswers: 0,
         piToolStarts: 6,
         errors,
+        ...(requestLatencyTotals ? {
+          requestCount: requestLatencyTotals.requestCount,
+          requestLatencyMsMin: requestLatencyTotals.requestLatencyMsMin,
+          requestLatencyMsMax: requestLatencyTotals.requestLatencyMsMax,
+          requestLatencyMsAvg: requestLatencyTotals.requestLatencyMsAvg,
+          slowRequestCount: requestLatencyTotals.slowRequestCount,
+          slowRequestThresholdMs: requestLatencyTotals.slowRequestThresholdMs,
+        } : {}),
       },
       cases: caseItemsWithRuntime,
     },
   }, null, 2)}\n`);
 }
 writeSummary("20260702-000001", { ok: true, failures: 0, recoveries: 0 });
-writeSummary("20260702-000002", { ok: true, failures: 0, recoveries: 2 });
+writeSummary("20260702-000002", {
+  ok: true,
+  failures: 0,
+  recoveries: 2,
+  requestLatencyTotals: {
+    requestCount: 2,
+    requestLatencyMsMin: 1500,
+    requestLatencyMsMax: 62000,
+    requestLatencyMsAvg: 31750,
+    slowRequestCount: 1,
+    slowRequestThresholdMs: 60000,
+  },
+});
 writeSummary("20260702-000003", { ok: false, failures: 1, recoveries: 1, raw: 1 });
 fs.writeFileSync(path.join(history, "20260702-000004-debug-summary.json"), "{}\n");
 
@@ -602,6 +659,36 @@ writeSummary("20260702-000001", {
   failures: 0,
   recoveries: 0,
 });
+
+const latencyTrend = ensureDir("latency-trend");
+writeSummary("20260702-000001", {
+  dir: latencyTrend,
+  ok: true,
+  failures: 0,
+  recoveries: 0,
+  requestLatencyTotals: {
+    requestCount: 1,
+    requestLatencyMsMin: 1500,
+    requestLatencyMsMax: 1500,
+    requestLatencyMsAvg: 1500,
+    slowRequestCount: 0,
+    slowRequestThresholdMs: 60000,
+  },
+});
+writeSummary("20260702-000002", {
+  dir: latencyTrend,
+  ok: true,
+  failures: 0,
+  recoveries: 0,
+  requestLatencyTotals: {
+    requestCount: 2,
+    requestLatencyMsMin: 2000,
+    requestLatencyMsMax: 62000,
+    requestLatencyMsAvg: 32000,
+    slowRequestCount: 1,
+    slowRequestThresholdMs: 60000,
+  },
+});
 NODE
 
   if ! output="$("$SCRIPT_PATH" --run-id 20260702-000001 --expect-cases 1 --expect-case-names clean --max-errors 0 --max-empty-assistant-ends 0 --max-raw-tool-markup-final-answers 0 --max-recoveries 0 "$tmp_dir/clean" 2>&1)"; then
@@ -610,6 +697,33 @@ NODE
   fi
   if [[ "$output" != *"tool_selection_clipped=true"* || "$output" != *"tool_selection_omitted=2-2"* || "$output" != *"tool_selection_valid=3-3"* || "$output" != *"tool_selection_prompt_source=recent_user_continuation"* || "$output" != *"argument_validation_warnings=1"* || "$output" != *"pattern_nested_quantifier"* ]]; then
     echo "clean fixture output did not expose bounded tool-selection or argument-validation diagnostics"
+    echo "$output"
+    return 1
+  fi
+  if [[ "$output" != *"request_latency_ms=62000/31750/2"* || "$output" != *"slow_requests=1"* || "$output" != *"slow_request_threshold_ms=60000"* ]]; then
+    echo "clean fixture output did not expose request latency diagnostics"
+    echo "$output"
+    return 1
+  fi
+
+  if output="$("$SCRIPT_PATH" --run-id 20260702-000001 --max-request-latency-ms 60000 "$tmp_dir/clean" 2>&1)"; then
+    echo "expected direct request latency gate to fail"
+    echo "$output"
+    return 1
+  fi
+  if [[ "$output" != *"expected request_latency_ms_max<=60000, got 62000"* ]]; then
+    echo "direct request latency gate did not expose expected failure"
+    echo "$output"
+    return 1
+  fi
+
+  if output="$("$SCRIPT_PATH" --run-id 20260702-000001 --max-slow-requests 0 "$tmp_dir/clean" 2>&1)"; then
+    echo "expected direct slow request gate to fail"
+    echo "$output"
+    return 1
+  fi
+  if [[ "$output" != *"expected slow_requests<=0, got 1"* ]]; then
+    echo "direct slow request gate did not expose expected failure"
     echo "$output"
     return 1
   fi
@@ -696,6 +810,9 @@ assert(data.runs[1].recoveries === 2, "recovery run was not visible");
 assert(data.runs[1].caseSet.schema === "xtalpi-pi-tools.case-set.v1", "case set schema missing");
 assert(data.runs[1].caseSet.canonical === "read", "case set canonical should use stable case names");
 assert(/^[a-f0-9]{64}$/.test(data.runs[1].caseSet.sha256), "case set hash missing");
+assert(data.runs[1].requestCount === 2, "persisted request count was not preserved");
+assert(data.runs[1].requestLatencyMsMax === 62000, "persisted request latency max was not preserved");
+assert(data.runs[1].slowRequestCount === 1, "persisted slow request count was not preserved");
 NODE
     return 1
   fi
@@ -1011,6 +1128,28 @@ NODE
     return 1
   fi
 
+  if output="$("$SCRIPT_PATH" --trend-gate 2 --max-request-latency-ms 60000 "$tmp_dir/latency-trend" 2>&1)"; then
+    echo "expected latency threshold trend gate to fail"
+    echo "$output"
+    return 1
+  fi
+  if [[ "$output" != *"expected request_latency_ms_max<=60000, got 62000"* ]]; then
+    echo "latency threshold trend gate did not expose expected failure"
+    echo "$output"
+    return 1
+  fi
+
+  if output="$("$SCRIPT_PATH" --trend-gate 2 --max-slow-requests 0 "$tmp_dir/latency-trend" 2>&1)"; then
+    echo "expected slow request trend gate to fail"
+    echo "$output"
+    return 1
+  fi
+  if [[ "$output" != *"expected slow_requests<=0, got 1"* ]]; then
+    echo "slow request trend gate did not expose expected failure"
+    echo "$output"
+    return 1
+  fi
+
   if output="$("$SCRIPT_PATH" --trend-gate 2 "$tmp_dir/history" 2>&1)"; then
     echo "expected failed/raw history trend gate to fail"
     echo "$output"
@@ -1124,6 +1263,22 @@ while [ "$#" -gt 0 ]; do
       MAX_RECOVERY_RATE="${2:-}"
       shift 2
       ;;
+    --max-request-latency-ms)
+      if [ "$#" -lt 2 ]; then
+        echo "xtalpi-pi-tools debug summary: --max-request-latency-ms requires N" >&2
+        exit 2
+      fi
+      MAX_REQUEST_LATENCY_MS="${2:-}"
+      shift 2
+      ;;
+    --max-slow-requests)
+      if [ "$#" -lt 2 ]; then
+        echo "xtalpi-pi-tools debug summary: --max-slow-requests requires N" >&2
+        exit 2
+      fi
+      MAX_SLOW_REQUESTS="${2:-}"
+      shift 2
+      ;;
     --fail-on-recovery-increase)
       FAIL_ON_RECOVERY_INCREASE="1"
       shift
@@ -1219,6 +1374,8 @@ node - \
   "$MAX_RAW_TOOL_MARKUP_FINAL_ANSWERS" \
   "$MAX_RECOVERIES" \
   "$MAX_RECOVERY_RATE" \
+  "$MAX_REQUEST_LATENCY_MS" \
+  "$MAX_SLOW_REQUESTS" \
   "$RUN_KIND_FILTER" \
   "$REQUIRE_RUN_KIND" \
   "$REQUIRE_STABLE_RUNTIME_FINGERPRINT" \
@@ -1254,6 +1411,8 @@ const [
   maxRawToolMarkupFinalAnswersRaw,
   maxRecoveriesRaw,
   maxRecoveryRateRaw,
+  maxRequestLatencyMsRaw,
+  maxSlowRequestsRaw,
   runKindFilterRaw,
   requireRunKindRaw,
   requireStableRuntimeFingerprintRaw,
@@ -1382,6 +1541,8 @@ function compactObject(value) {
   return Object.fromEntries(Object.entries(value).filter(([, child]) => child !== undefined));
 }
 
+const SLOW_REQUEST_THRESHOLD_MS = 60000;
+
 const runKindFilter = parseRunKindList(runKindFilterRaw, "--run-kind");
 const requireRunKinds = parseRunKindList(requireRunKindRaw, "--require-run-kind");
 const requireStableRuntimeFingerprint = requireStableRuntimeFingerprintRaw === "1";
@@ -1411,6 +1572,8 @@ const gates = {
   ),
   maxRecoveries: optionalNumber(maxRecoveriesRaw, "--max-recoveries"),
   maxRecoveryRate: optionalNumber(maxRecoveryRateRaw, "--max-recovery-rate"),
+  maxRequestLatencyMs: optionalNumber(maxRequestLatencyMsRaw, "--max-request-latency-ms"),
+  maxSlowRequests: optionalNumber(maxSlowRequestsRaw, "--max-slow-requests"),
   requireStableRuntimeFingerprint,
   requireStableRuntimeBounds,
 };
@@ -1436,6 +1599,10 @@ if (
   (!Number.isInteger(maxRecoveryCaseRuns) || maxRecoveryCaseRuns < 0)
 ) {
   console.error("xtalpi-pi-tools debug summary: --max-recovery-case-runs must be a non-negative integer");
+  process.exit(2);
+}
+if (gates.maxSlowRequests !== undefined && !Number.isInteger(gates.maxSlowRequests)) {
+  console.error("xtalpi-pi-tools debug summary: --max-slow-requests must be a non-negative integer");
   process.exit(2);
 }
 const compareMode = compareBaseRunId !== "" || compareHeadRunId !== "";
@@ -1496,6 +1663,8 @@ if (retentionReport && (
   maxRawToolMarkupFinalAnswersRaw !== "" ||
   maxRecoveriesRaw !== "" ||
   maxRecoveryRateRaw !== "" ||
+  maxRequestLatencyMsRaw !== "" ||
+  maxSlowRequestsRaw !== "" ||
   requireStableRuntimeFingerprint ||
   requireStableRuntimeBounds
 )) {
@@ -1587,6 +1756,44 @@ function argumentValidationWarningCodes(event) {
     ...stringArrayMetric(event, "argumentValidationWarningCodes", "argument_validation_warning_codes"),
     ...argumentValidationWarnings(event).map((warning) => warning?.code),
   ]);
+}
+
+function eventTimestampMs(event) {
+  if (typeof event?.ts !== "string" || event.ts.trim() === "") return undefined;
+  const value = Date.parse(event.ts);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function collectRequestLatencySummary(events) {
+  const latencies = [];
+
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index];
+    if (event?.event !== "request") continue;
+    const requestTs = eventTimestampMs(event);
+    if (requestTs === undefined) continue;
+
+    for (let cursor = index + 1; cursor < events.length; cursor += 1) {
+      const terminal = events[cursor];
+      if (terminal?.event !== "response" && terminal?.event !== "error.provider") continue;
+      const terminalTs = eventTimestampMs(terminal);
+      if (terminalTs !== undefined && terminalTs >= requestTs) {
+        latencies.push(terminalTs - requestTs);
+      }
+      break;
+    }
+  }
+
+  const requestCount = latencies.length;
+  const requestLatencyMsTotal = latencies.reduce((sum, value) => sum + value, 0);
+  return {
+    requestCount,
+    requestLatencyMsMin: requestCount > 0 ? Math.min(...latencies) : 0,
+    requestLatencyMsMax: requestCount > 0 ? Math.max(...latencies) : 0,
+    requestLatencyMsAvg: requestCount > 0 ? Math.round(requestLatencyMsTotal / requestCount) : 0,
+    slowRequestCount: latencies.filter((value) => value >= SLOW_REQUEST_THRESHOLD_MS).length,
+    slowRequestThresholdMs: SLOW_REQUEST_THRESHOLD_MS,
+  };
 }
 
 function collectRuntimeFingerprint(events) {
@@ -1806,6 +2013,7 @@ function summarizeCase(debugFileName) {
     if (httpStatus !== undefined) providerHttpStatuses.push(httpStatus);
     if (booleanMetric(event, "retryable", "retryable") === true) retryableProviderErrors += 1;
   }
+  const requestLatency = collectRequestLatencySummary(debug.events);
 
   return {
     ...inferCaseParts(debugFileName),
@@ -1846,6 +2054,7 @@ function summarizeCase(debugFileName) {
     providerHttpStatuses: uniqueNumbers(providerHttpStatuses),
     argumentValidationWarnings: argumentValidationWarningTotal,
     argumentValidationWarningCodes: argumentValidationWarningCodeCounts,
+    ...requestLatency,
     selectedToolCountMin: selectedToolCounts.length ? Math.min(...selectedToolCounts) : undefined,
     selectedToolCountMax: selectedToolCounts.length ? Math.max(...selectedToolCounts) : undefined,
     toolSelectionClipped: toolSelectionClippedValues.length ? toolSelectionClippedValues.includes(true) : undefined,
@@ -1884,6 +2093,12 @@ function summarizeSmokeSummaryFile(fileName) {
       postAgentEndLingerMaxSeconds: 0,
       providerErrors: 0,
       retryableProviderErrors: 0,
+      requestCount: 0,
+      requestLatencyMsMin: 0,
+      requestLatencyMsMax: 0,
+      requestLatencyMsAvg: 0,
+      slowRequestCount: 0,
+      slowRequestThresholdMs: SLOW_REQUEST_THRESHOLD_MS,
       argumentValidationWarnings: 0,
       toolSelectionClippedCases: 0,
       toolSelectionOmittedCountMax: 0,
@@ -1959,6 +2174,12 @@ function summarizeSmokeSummaryFile(fileName) {
     postAgentEndLingerMaxSeconds: numberOrZero(totals.postAgentEndLingerMaxSeconds),
     providerErrors: numberOrZero(totals.providerErrors),
     retryableProviderErrors: numberOrZero(totals.retryableProviderErrors),
+    requestCount: numberOrZero(totals.requestCount),
+    requestLatencyMsMin: numberOrZero(totals.requestLatencyMsMin),
+    requestLatencyMsMax: numberOrZero(totals.requestLatencyMsMax),
+    requestLatencyMsAvg: numberOrZero(totals.requestLatencyMsAvg),
+    slowRequestCount: numberOrZero(totals.slowRequestCount),
+    slowRequestThresholdMs: numberOrZero(totals.slowRequestThresholdMs) || SLOW_REQUEST_THRESHOLD_MS,
     argumentValidationWarnings: numberOrZero(totals.argumentValidationWarnings),
     toolSelectionClippedCases: numberOrZero(totals.toolSelectionClippedCases),
     toolSelectionOmittedCountMax: numberOrZero(totals.toolSelectionOmittedCountMax),
@@ -2035,6 +2256,11 @@ function normalizeCaseForCompare(item) {
       : numberOrZero(item?.postAgentEndLingerSeconds),
     providerErrors: numberOrZero(item?.providerErrors),
     retryableProviderErrors: numberOrZero(item?.retryableProviderErrors),
+    requestCount: numberOrZero(item?.requestCount),
+    requestLatencyMsMin: numberOrZero(item?.requestLatencyMsMin),
+    requestLatencyMsMax: numberOrZero(item?.requestLatencyMsMax),
+    requestLatencyMsAvg: numberOrZero(item?.requestLatencyMsAvg),
+    slowRequestCount: numberOrZero(item?.slowRequestCount),
     argumentValidationWarnings: numberOrZero(item?.argumentValidationWarnings),
     toolSelectionClipped: item?.toolSelectionClipped === undefined ? undefined : boolValue(item?.toolSelectionClipped),
     toolSelectionOmittedCountMax: item?.toolSelectionOmittedCountMax === undefined
@@ -2082,6 +2308,11 @@ function deltaSummary(base, head) {
     postAgentEndLingerMaxSeconds: deltaNumber(base.postAgentEndLingerMaxSeconds, head.postAgentEndLingerMaxSeconds),
     providerErrors: deltaNumber(base.providerErrors, head.providerErrors),
     retryableProviderErrors: deltaNumber(base.retryableProviderErrors, head.retryableProviderErrors),
+    requestCount: deltaNumber(base.requestCount, head.requestCount),
+    requestLatencyMsMin: deltaNumber(base.requestLatencyMsMin, head.requestLatencyMsMin),
+    requestLatencyMsMax: deltaNumber(base.requestLatencyMsMax, head.requestLatencyMsMax),
+    requestLatencyMsAvg: deltaNumber(base.requestLatencyMsAvg, head.requestLatencyMsAvg),
+    slowRequestCount: deltaNumber(base.slowRequestCount, head.slowRequestCount),
     argumentValidationWarnings: deltaNumber(base.argumentValidationWarnings, head.argumentValidationWarnings),
     toolSelectionClippedCases: deltaNumber(base.toolSelectionClippedCases, head.toolSelectionClippedCases),
     toolSelectionOmittedCountMax: deltaNumber(base.toolSelectionOmittedCountMax, head.toolSelectionOmittedCountMax),
@@ -2135,6 +2366,11 @@ function buildCaseDeltas(baseArtifact, headArtifact) {
       "postAgentEndLingerSeconds",
       "providerErrors",
       "retryableProviderErrors",
+      "requestCount",
+      "requestLatencyMsMin",
+      "requestLatencyMsMax",
+      "requestLatencyMsAvg",
+      "slowRequestCount",
       "argumentValidationWarnings",
       "toolSelectionOmittedCountMax",
       "toolSelectionValidCountMax",
@@ -2200,6 +2436,7 @@ function printCompare(baseRunId, headRunId) {
         `watchdog_timeouts_delta=${delta.watchdogTimeouts} ` +
         `timed_out_after_agent_end_delta=${delta.timedOutAfterAgentEnd} ` +
         `provider_errors_delta=${delta.providerErrors} retryable_provider_errors_delta=${delta.retryableProviderErrors} ` +
+        `request_latency_ms_max_delta=${delta.requestLatencyMsMax} slow_requests_delta=${delta.slowRequestCount} ` +
         `argument_validation_warnings_delta=${delta.argumentValidationWarnings} ` +
         `tool_selection_clipped_cases_delta=${delta.toolSelectionClippedCases} ` +
         `tool_selection_omitted_count_max_delta=${delta.toolSelectionOmittedCountMax} ` +
@@ -2310,6 +2547,9 @@ function aggregateDriftSignals(runs) {
     timedOutAfterAgentEnd: 0,
     providerErrors: 0,
     retryableProviderErrors: 0,
+    requestCount: 0,
+    requestLatencyMsMax: 0,
+    slowRequestCount: 0,
     argumentValidationWarnings: 0,
   };
   const providerErrorCodes = {};
@@ -2329,6 +2569,9 @@ function aggregateDriftSignals(runs) {
     totals.timedOutAfterAgentEnd += numberOrZero(run.timedOutAfterAgentEnd);
     totals.providerErrors += numberOrZero(run.providerErrors);
     totals.retryableProviderErrors += numberOrZero(run.retryableProviderErrors);
+    totals.requestCount += numberOrZero(run.requestCount);
+    totals.requestLatencyMsMax = Math.max(totals.requestLatencyMsMax, numberOrZero(run.requestLatencyMsMax));
+    totals.slowRequestCount += numberOrZero(run.slowRequestCount);
     totals.argumentValidationWarnings += numberOrZero(run.argumentValidationWarnings);
     for (const [code, count] of Object.entries(objectOrUndefined(run.providerErrorCodes) || {})) {
       increment(providerErrorCodes, code, count);
@@ -2371,6 +2614,11 @@ function compactDriftRun(run) {
     timedOutAfterAgentEnd: run.timedOutAfterAgentEnd,
     providerErrors: run.providerErrors,
     retryableProviderErrors: run.retryableProviderErrors,
+    requestCount: run.requestCount,
+    requestLatencyMsMax: run.requestLatencyMsMax,
+    requestLatencyMsAvg: run.requestLatencyMsAvg,
+    slowRequestCount: run.slowRequestCount,
+    slowRequestThresholdMs: run.slowRequestThresholdMs,
     providerErrorCodes: run.providerErrorCodes,
     providerErrorCategories: run.providerErrorCategories,
     argumentValidationWarnings: run.argumentValidationWarnings,
@@ -2445,6 +2693,7 @@ function hasQualitySignal(run) {
     "timedOutAfterAgentEnd",
     "providerErrors",
     "retryableProviderErrors",
+    "slowRequestCount",
     "argumentValidationWarnings",
   ].some((field) => numberOrZero(run[field]) > 0);
 }
@@ -2481,6 +2730,11 @@ function compactRetentionRun(run, groupedFiles, retainReasons) {
     timedOutAfterAgentEnd: run.timedOutAfterAgentEnd,
     providerErrors: run.providerErrors,
     retryableProviderErrors: run.retryableProviderErrors,
+    requestCount: run.requestCount,
+    requestLatencyMsMax: run.requestLatencyMsMax,
+    requestLatencyMsAvg: run.requestLatencyMsAvg,
+    slowRequestCount: run.slowRequestCount,
+    slowRequestThresholdMs: run.slowRequestThresholdMs,
     argumentValidationWarnings: run.argumentValidationWarnings,
     qualitySignalPresent: hasQualitySignal(run),
     parseError: run.parseError || null,
@@ -2709,6 +2963,7 @@ function buildDrift(limit) {
         "timedOutAfterAgentEnd",
         "providerErrors",
         "retryableProviderErrors",
+        "slowRequestCount",
         "argumentValidationWarnings",
       ].some((field) => numberOrZero(qualityTotals[field]) > 0),
     },
@@ -2771,6 +3026,9 @@ function printDrift(limit) {
         processLifecycleFailures: drift.qualityTotals.processLifecycleFailures,
         providerErrors: drift.qualityTotals.providerErrors,
         retryableProviderErrors: drift.qualityTotals.retryableProviderErrors,
+        requestCount: drift.qualityTotals.requestCount,
+        requestLatencyMsMax: drift.qualityTotals.requestLatencyMsMax,
+        slowRequestCount: drift.qualityTotals.slowRequestCount,
         argumentValidationWarnings: drift.qualityTotals.argumentValidationWarnings,
       })}`,
     );
@@ -2785,6 +3043,7 @@ function printDrift(limit) {
           `runtime_bounds_sha256=${run.runtimeBoundsSha256 || "(missing)"} ` +
           `recoveries=${run.recoveries} recovery_rate=${numberOrZero(run.recoveryRate).toFixed(4)} ` +
           `provider_errors=${run.providerErrors} retryable_provider_errors=${run.retryableProviderErrors} ` +
+          `request_latency_ms_max=${run.requestLatencyMsMax} slow_requests=${run.slowRequestCount} ` +
           `argument_validation_warnings=${run.argumentValidationWarnings} raw_tool_markup_final_answers=${run.rawToolMarkupFinalAnswers} ` +
           `empty_assistant_ends=${run.emptyAssistantEnds} process_lifecycle_failures=${run.processLifecycleFailures}` +
           providerHealthText,
@@ -2839,6 +3098,8 @@ function printHistory(limit) {
           `errors=${run.errors} process_lifecycle_failures=${run.processLifecycleFailures} ` +
           `watchdog_timeouts=${run.watchdogTimeouts} timed_out_after_agent_end=${run.timedOutAfterAgentEnd} ` +
           `provider_errors=${run.providerErrors} retryable_provider_errors=${run.retryableProviderErrors} ` +
+          `request_latency_ms=${run.requestLatencyMsMax}/${run.requestLatencyMsAvg}/${run.requestCount} ` +
+          `slow_requests=${run.slowRequestCount} ` +
           `argument_validation_warnings=${run.argumentValidationWarnings} ` +
           `tool_selection_clipped_cases=${run.toolSelectionClippedCases} ` +
           `tool_selection_omitted_count_max=${run.toolSelectionOmittedCountMax} ` +
@@ -2925,6 +3186,8 @@ function evaluateTrendGate(history) {
     maxToolEnvelopeFinalAnswers: gates.maxRawToolMarkupFinalAnswers ?? 0,
     maxRecoveries: gates.maxRecoveries,
     maxRecoveryRate: gates.maxRecoveryRate,
+    maxRequestLatencyMs: gates.maxRequestLatencyMs,
+    maxSlowRequests: gates.maxSlowRequests,
     maxRecoveryCaseRuns,
     failOnRecoveryIncrease,
     requireStableRuntimeFingerprint: gates.requireStableRuntimeFingerprint,
@@ -2996,6 +3259,19 @@ function evaluateTrendGate(history) {
     if (hardLimits.maxRecoveryRate !== undefined && run.recoveryRate > hardLimits.maxRecoveryRate) {
       gateFailures.push(
         `${run.runId}: expected recovery_rate<=${hardLimits.maxRecoveryRate}, got ${run.recoveryRate.toFixed(4)}`,
+      );
+    }
+    if (
+      hardLimits.maxRequestLatencyMs !== undefined &&
+      run.requestLatencyMsMax > hardLimits.maxRequestLatencyMs
+    ) {
+      gateFailures.push(
+        `${run.runId}: expected request_latency_ms_max<=${hardLimits.maxRequestLatencyMs}, got ${run.requestLatencyMsMax}`,
+      );
+    }
+    if (hardLimits.maxSlowRequests !== undefined && run.slowRequestCount > hardLimits.maxSlowRequests) {
+      gateFailures.push(
+        `${run.runId}: expected slow_requests<=${hardLimits.maxSlowRequests}, got ${run.slowRequestCount}`,
       );
     }
   }
@@ -3196,6 +3472,12 @@ const totals = {
   postAgentEndLingerMaxSeconds: 0,
   providerErrors: 0,
   retryableProviderErrors: 0,
+  requestCount: 0,
+  requestLatencyMsMin: 0,
+  requestLatencyMsMax: 0,
+  requestLatencyMsAvg: 0,
+  slowRequestCount: 0,
+  slowRequestThresholdMs: SLOW_REQUEST_THRESHOLD_MS,
   argumentValidationWarnings: 0,
   toolSelectionClippedCases: 0,
   toolSelectionOmittedCountMax: 0,
@@ -3204,6 +3486,7 @@ const totals = {
   argumentValidationWarningCodes: {},
   recoveryByEvent: {},
 };
+let requestLatencyMsTotal = 0;
 
 for (const item of cases) {
   totals.debugEvents += item.debugEvents;
@@ -3224,6 +3507,15 @@ for (const item of cases) {
   totals.semanticFlowOkProcessFailures += item.semanticFlowOk && item.processLifecycleOk === false ? 1 : 0;
   totals.providerErrors += item.providerErrors;
   totals.retryableProviderErrors += item.retryableProviderErrors;
+  if (item.requestCount > 0) {
+    totals.requestLatencyMsMin = totals.requestCount === 0
+      ? item.requestLatencyMsMin
+      : Math.min(totals.requestLatencyMsMin, item.requestLatencyMsMin);
+    totals.requestLatencyMsMax = Math.max(totals.requestLatencyMsMax, item.requestLatencyMsMax);
+    requestLatencyMsTotal += item.requestLatencyMsAvg * item.requestCount;
+  }
+  totals.requestCount += item.requestCount;
+  totals.slowRequestCount += item.slowRequestCount;
   totals.argumentValidationWarnings += item.argumentValidationWarnings;
   totals.toolSelectionClippedCases += item.toolSelectionClipped === true ? 1 : 0;
   if (item.toolSelectionOmittedCountMax !== undefined) {
@@ -3247,6 +3539,7 @@ for (const item of cases) {
 }
 
 totals.recoveryRate = totals.turns > 0 ? totals.recoveries / totals.turns : 0;
+totals.requestLatencyMsAvg = totals.requestCount > 0 ? Math.round(requestLatencyMsTotal / totals.requestCount) : 0;
 const directCaseSet = buildCaseSet(cases.map((item) => item.caseName));
 const directRunKind = classifyRunKind(directCaseSet);
 
@@ -3294,6 +3587,14 @@ if (gates.maxRecoveries !== undefined && totals.recoveries > gates.maxRecoveries
 if (gates.maxRecoveryRate !== undefined && totals.recoveryRate > gates.maxRecoveryRate) {
   gateFailures.push(`expected recovery_rate<=${gates.maxRecoveryRate}, got ${totals.recoveryRate.toFixed(4)}`);
 }
+if (gates.maxRequestLatencyMs !== undefined && totals.requestLatencyMsMax > gates.maxRequestLatencyMs) {
+  gateFailures.push(
+    `expected request_latency_ms_max<=${gates.maxRequestLatencyMs}, got ${totals.requestLatencyMsMax}`,
+  );
+}
+if (gates.maxSlowRequests !== undefined && totals.slowRequestCount > gates.maxSlowRequests) {
+  gateFailures.push(`expected slow_requests<=${gates.maxSlowRequests}, got ${totals.slowRequestCount}`);
+}
 
 const summary = { outDir, latestOnly, runId: selectedRunId, caseSet: directCaseSet, runKind: directRunKind, gates, gateFailures, totals, cases };
 
@@ -3313,6 +3614,8 @@ if (format === "json") {
       `semantic_flow_ok_process_failures=${totals.semanticFlowOkProcessFailures} ` +
       `post_agent_end_linger_max_seconds=${totals.postAgentEndLingerMaxSeconds} ` +
       `provider_errors=${totals.providerErrors} retryable_provider_errors=${totals.retryableProviderErrors} ` +
+      `request_latency_ms=${totals.requestLatencyMsMax}/${totals.requestLatencyMsAvg}/${totals.requestCount} ` +
+      `slow_requests=${totals.slowRequestCount} slow_request_threshold_ms=${totals.slowRequestThresholdMs} ` +
       `argument_validation_warnings=${totals.argumentValidationWarnings} ` +
       `tool_selection_clipped_cases=${totals.toolSelectionClippedCases} ` +
       `tool_selection_omitted_count_max=${totals.toolSelectionOmittedCountMax}`,
@@ -3357,6 +3660,10 @@ if (format === "json") {
       ? ` argument_validation_warnings=${item.argumentValidationWarnings}` +
         ` argument_validation_warning_codes=${JSON.stringify(item.argumentValidationWarningCodes)}`
       : "";
+    const requestLatencyText =
+      ` request_latency_ms=${item.requestLatencyMsMax}/${item.requestLatencyMsAvg}/${item.requestCount}` +
+      ` slow_requests=${item.slowRequestCount}` +
+      ` slow_request_threshold_ms=${item.slowRequestThresholdMs}`;
     const lifecycleText = item.lifecyclePresent
       ? ` process_lifecycle_ok=${item.processLifecycleOk}` +
         ` timed_out_by_watchdog=${item.timedOutByWatchdog}` +
@@ -3370,7 +3677,7 @@ if (format === "json") {
         ` recoveries=${item.recoveries} empty_assistant_ends=${item.emptyAssistantEnds}` +
         ` raw_tool_markup_final_answer=${item.rawToolMarkupFinalAnswer}` +
         ` tool_envelope_final_answer=${item.toolEnvelopeFinalAnswer}${recoveryText}${toolText}${selectedText}${selectionText}` +
-        `${promptSourceText}${providerErrorText}${argumentWarningText}${lifecycleText}` +
+        `${promptSourceText}${providerErrorText}${argumentWarningText}${requestLatencyText}${lifecycleText}` +
         ` final_text_chars=${item.finalTextChars}`,
     );
   }
