@@ -2,7 +2,7 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PI_BIN="${PI_BIN:-$(which pi)}"
+PI_BIN="${PI_BIN:-$(command -v pi 2>/dev/null || true)}"
 PI_AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
 PROVIDER="${PROVIDER:-xtalpi-pi-tools}"
 MODEL="${MODEL:-deepseek-v4-pro}"
@@ -59,6 +59,7 @@ Environment:
   XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_ATTEMPTS     Provider health preflight attempts. Default: 2.
   XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_RETRY_DELAY_MS Delay between preflight retryable attempts. Default: 1000.
   XTALPI_PI_TOOLS_SMOKE_CASES                  Comma-separated case filter, same values as --case.
+  PI_BIN                                       Pi executable override. Default: command -v pi.
 EOF
 }
 
@@ -839,6 +840,11 @@ if [ -n "${XTALPI_PI_TOOLS_SMOKE_CASES:-}" ]; then
   if ! add_case_filter "$XTALPI_PI_TOOLS_SMOKE_CASES"; then
     exit 2
   fi
+fi
+
+if [ -z "$PI_BIN" ] || [ ! -x "$PI_BIN" ]; then
+  echo "xtalpi-pi-tools smoke: pi executable not found or not executable; set PI_BIN=/path/to/pi" >&2
+  exit 2
 fi
 
 mkdir -p "$OUT_DIR"
