@@ -19,6 +19,7 @@ const { pathToFileURL } = require("node:url");
   const diagnostics = await import(ext("diagnostics.ts"));
   const errors = await import(ext("errors.ts"));
   const retry = await import(ext("retry.ts"));
+  const responseNormalizer = await import(ext("response-normalizer.ts"));
   const serializer = await import(ext("serializer.ts"));
   const textSafety = await import(ext("text-safety.ts"));
   const validator = await import(ext("argument-validator.ts"));
@@ -323,6 +324,51 @@ const { pathToFileURL } = require("node:url");
   assert.equal(timeoutError.code, "request_timeout");
   assert.equal(timeoutError.category, contractMetadata("request_timeout").category);
   assert.equal(timeoutError.retryable, contractMetadata("request_timeout").retryable);
+
+  assert.deepEqual(
+    responseNormalizer.addUsage(
+      { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 10 },
+      { input: 5, output: 6, cacheRead: 7, cacheWrite: 8, totalTokens: 26 },
+    ),
+    { input: 6, output: 8, cacheRead: 10, cacheWrite: 12, totalTokens: 36 },
+  );
+  assert.deepEqual(
+    responseNormalizer.usageFromResponse({
+      prompt_tokens: 3,
+      completion_tokens: 4,
+      prompt_cache_hit_tokens: 5,
+      prompt_cache_miss_tokens: 6,
+      total_tokens: 18,
+    }),
+    { input: 3, output: 4, cacheRead: 5, cacheWrite: 6, totalTokens: 18 },
+  );
+  assert.equal(
+    responseNormalizer.toPiUsage({ input: 1, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 10 }).cost.total,
+    0,
+  );
+  const normalizedNativeToolCall = responseNormalizer.extractTextFromMessage({
+    content: "",
+    tool_calls: [
+      {
+        type: "function",
+        function: { name: "read", arguments: '{"path":"package.json"}' },
+      },
+    ],
+  });
+  assert.match(normalizedNativeToolCall, /<pi_tool_call>/);
+  assert.match(normalizedNativeToolCall, /"name":"read"/);
+  assert.match(normalizedNativeToolCall, /"path":"package\.json"/);
+  const normalizedBadNativeToolCall = responseNormalizer.extractTextFromMessage({
+    content: null,
+    tool_calls: [
+      {
+        type: "function",
+        function: { name: "noop", arguments: '<pi_tool_call name="bash"\n{"unterminated":' },
+      },
+    ],
+  });
+  assert.match(normalizedBadNativeToolCall, /"_invalid_native_arguments"/);
+  assert.ok(normalizedBadNativeToolCall.includes("[literal pi_tool_call open tag]"));
 
   const debugDir = fs.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", "xtalpi-pi-tools-debug-test."));
   const debugFile = path.join(debugDir, "debug.jsonl");
