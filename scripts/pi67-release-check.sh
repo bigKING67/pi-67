@@ -126,6 +126,12 @@ else
   fail "Windows PowerShell update/doctor/report/smoke entrypoints are missing or not documented"
 fi
 
+if grep -q "read-package" "$XTALPI_PI_TOOLS_SMOKE_PS" && grep -q "fffind-package" "$XTALPI_PI_TOOLS_SMOKE_PS" && grep -q "batch-web-fetch-example" "$XTALPI_PI_TOOLS_SMOKE_PS" && grep -q "seq-thinking-status" "$XTALPI_PI_TOOLS_SMOKE_PS" && grep -q "read-package,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found" "$REPO_ROOT/README.md" && grep -q "read-package,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found" "$XTALPI_PI_TOOLS_DOC"; then
+  pass "PowerShell xtalpi targeted smoke covers expanded low-risk extension cases"
+else
+  fail "PowerShell xtalpi targeted smoke expanded cases are missing or not documented"
+fi
+
 if grep -q "pi67-update.sh" "$REPO_ROOT/README.md" && grep -q "pi67-update.sh" "$REPO_ROOT/docs/full-install.md" && grep -q "pi67-update.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-update.ps1" "$REPO_ROOT/docs/full-install.md"; then
   pass "update workflow is documented"
 else

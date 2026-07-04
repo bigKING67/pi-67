@@ -452,6 +452,10 @@ extension 工具识别不是写死名单：provider 每轮从 Pi runtime 的 `co
 即可识别并展示；如果工具被 `XTALPI_PI_TOOLS_MAX_TOOLS` 截断或当前 mode/flag 禁用，
 它不会进入本轮执行白名单。新增工具建议先用 `--tools new_tool_name` 做 targeted smoke，
 不要直接放进 full-suite release gate。
+当前离线回归里也有一个 MCP direct-tool 形态的 `dyn_echo_ping` fixture，用来证明
+未来 MCP direct tool 进入 `context.tools` 后会被 selected-tool ranking 选中并作为
+本地 Pi 工具调用返回；真实 MCP server 的连接、鉴权和 cache 刷新仍由 `pi-mcp-adapter`
+负责。
 
 Windows PowerShell 的一等验证入口是 repo/endpoint contract smoke：
 
@@ -465,12 +469,14 @@ targeted live runner 验证低风险 extension 工具链路：
 
 ```powershell
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -ListCases
-.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "mcp-status,subagent-list,recall-not-found"
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
 ```
 
-这个 PowerShell runner 只覆盖 `mcp-status`、`subagent-list`、`recall-not-found`
-三条低风险 targeted case。完整 xtalpi full-suite runner 目前仍是 Bash 脚本；Windows
-上只有在显式具备 Bash-compatible shell 时才运行下面的 full-suite/live case，不要把
+这个 PowerShell runner 覆盖 `read-package`、`fffind-package`、`ffgrep-package`、
+`batch-web-fetch-example`、`seq-thinking-status`、`mcp-status`、`subagent-list`
+和 `recall-not-found` 这些低风险 targeted case，并为 FFF / sequential-thinking
+使用临时隔离状态。完整 xtalpi full-suite runner 目前仍是 Bash 脚本；Windows 上
+只有在显式具备 Bash-compatible shell 时才运行下面的 full-suite/live case，不要把
 Git Bash 当成默认前置条件。下面 Bash 命令均假设已经在 agent repo 根目录。
 
 显式启动：
@@ -495,7 +501,8 @@ bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh
 
 targeted extension smoke 还覆盖 `fffind-package`、`ffgrep-package`、
 `batch-web-fetch-example`、`seq-thinking-status`、`mcp-status`、`subagent-list`
-和 `recall-not-found`。这些 case 默认不进入 full-suite；它们用于按需证明具体
+和 `recall-not-found`；PowerShell runner 额外提供 `read-package` 作为
+Windows-native cwd-relative path 基线。以上 case 默认不进入 full-suite；它们用于按需证明具体
 extension tool 的真实 `tool_execution_start` 链路，同时避免 MCP 认证、子代理执行、
 observational-memory 真实内容、图片生成或交互 UI 混入常规发布门。
 

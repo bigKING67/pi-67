@@ -27,7 +27,7 @@ If xtalpi targeted tool calling changed and a live xtalpi key is available on
 Windows, also run:
 
 ```powershell
-.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "mcp-status,subagent-list,recall-not-found"
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
 ```
 
 macOS/Linux and full release gate:
@@ -45,7 +45,7 @@ Expected result:
 - release metadata is internally consistent
 - Windows PowerShell smoke passes on a PowerShell runtime when Windows-facing files changed
 - Windows PowerShell doctor/report run on a PowerShell runtime when Windows install/update diagnostics changed
-- PowerShell xtalpi targeted smoke self-test passes; live targeted smoke passes when xtalpi credentials are available
+- PowerShell xtalpi targeted smoke self-test passes; live targeted smoke covers read, FFF, batch fetch, sequential-thinking status, MCP, subagent, and recall when xtalpi credentials are available
 - xtalpi provider error-contract and debug-summary/profile self-tests pass
 - smoke test passes locally
 - clean artifact smoke passes for the current worktree candidate

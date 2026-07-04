@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 # PowerShell-native targeted xtalpi-pi-tools live smoke for Windows users.
-# This runner intentionally covers only low-risk extension cases; the Bash
-# runner remains the full-suite gate.
+# This runner intentionally covers only low-risk targeted cases; the Bash runner
+# remains the full-suite gate.
 
 [CmdletBinding()]
 param(
@@ -33,11 +33,16 @@ pi67-xtalpi-pi-tools-smoke.ps1 runs low-risk xtalpi live smoke cases from
 PowerShell without Bash.
 
 Usage:
-  .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 [-Case "mcp-status,subagent-list"]
+  .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 [-Case "read-package,fffind-package"]
   .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -ListCases
   .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest
 
 Supported cases:
+  read-package
+  fffind-package
+  ffgrep-package
+  batch-web-fetch-example
+  seq-thinking-status
   mcp-status
   subagent-list
   recall-not-found
@@ -67,24 +72,73 @@ $RepoRoot = (Resolve-Path (Join-Path $ScriptDir "..")).Path
 $ArtifactCorePath = Join-Path $ScriptDir "pi67-xtalpi-smoke-artifact-core.cjs"
 $ProviderHealthScript = Join-Path $ScriptDir "pi67-xtalpi-provider-health.mjs"
 
-$AvailableCases = @("mcp-status", "subagent-list", "recall-not-found")
+$AvailableCases = @(
+  "read-package",
+  "fffind-package",
+  "ffgrep-package",
+  "batch-web-fetch-example",
+  "seq-thinking-status",
+  "mcp-status",
+  "subagent-list",
+  "recall-not-found"
+)
 $CaseDefinitions = @{
+  "read-package" = [ordered]@{
+    tool = "read"
+    expectedTools = @("read")
+    requiredFinalText = @("EXTENSION_SMOKE_READ_PACKAGE_OK", "pi-extensions")
+    argCheck = "read-package"
+    prompt = "This is targeted portability smoke. Use only the read tool to read the current workspace relative path package.json. The read path argument must be exactly `"package.json`"; do not use any absolute path. Do not call bash, web_fetch, fffind, ffgrep, or any other tool. Final answer must include EXTENSION_SMOKE_READ_PACKAGE_OK and pi-extensions."
+  }
+  "fffind-package" = [ordered]@{
+    tool = "fffind"
+    expectedTools = @("fffind")
+    requiredFinalText = @("EXTENSION_SMOKE_FFFIND_OK", "package.json")
+    envKind = "fff"
+    argCheck = "fffind-package"
+    prompt = "This is targeted extension smoke. Use only the fffind tool to find package.json in the current workspace. The fffind pattern argument must be exactly `"package.json`"; limit must not exceed 5. Do not call read, bash, ffgrep, web_fetch, or any other tool. Final answer must include EXTENSION_SMOKE_FFFIND_OK and package.json."
+  }
+  "ffgrep-package" = [ordered]@{
+    tool = "ffgrep"
+    expectedTools = @("ffgrep")
+    requiredFinalText = @("EXTENSION_SMOKE_FFGREP_OK", "pi-extensions")
+    envKind = "fff"
+    argCheck = "ffgrep-package"
+    prompt = "This is targeted extension smoke. Use only the ffgrep tool to search for pi-extensions in the current workspace relative path package.json. The ffgrep pattern argument must be exactly `"pi-extensions`"; path must be exactly `"package.json`"; limit must not exceed 5. Do not call read, bash, fffind, web_fetch, or any other tool. Final answer must include EXTENSION_SMOKE_FFGREP_OK and pi-extensions."
+  }
+  "batch-web-fetch-example" = [ordered]@{
+    tool = "batch_web_fetch"
+    expectedTools = @("batch_web_fetch")
+    requiredFinalText = @("EXTENSION_SMOKE_BATCH_FETCH_OK", "Example Domain")
+    argCheck = "batch-web-fetch-example"
+    prompt = "This is targeted extension smoke. Use only the batch_web_fetch tool to read https://example.com/. The requests array must contain only this URL, with maxChars 1000 and timeoutMs 20000 on that request. Do not call web_fetch, read, bash, or any other tool. Final answer must include EXTENSION_SMOKE_BATCH_FETCH_OK and Example Domain."
+  }
+  "seq-thinking-status" = [ordered]@{
+    tool = "get_thinking_status"
+    expectedTools = @("get_thinking_status")
+    requiredFinalText = @("EXTENSION_SMOKE_SEQ_STATUS_OK")
+    envKind = "seq-thinking"
+    prompt = "This is targeted extension smoke. Use only the get_thinking_status tool to read the sequential-thinking storage status. Do not call process_thought, sequential_think, get_thinking_history, read, bash, or any other tool. Final answer must include EXTENSION_SMOKE_SEQ_STATUS_OK."
+  }
   "mcp-status" = [ordered]@{
     tool = "mcp"
     expectedTools = @("mcp")
     requiredFinalText = @("EXTENSION_SMOKE_MCP_STATUS_OK", "MCP")
+    argCheck = "mcp-status"
     prompt = "This is targeted extension smoke. Use only the mcp tool to inspect MCP gateway/status. Arguments must be an empty object {}. Do not connect, auth, or call any MCP server/tool. Do not call read, bash, web_fetch, or any other tool. Final answer must include EXTENSION_SMOKE_MCP_STATUS_OK and MCP."
   }
   "subagent-list" = [ordered]@{
     tool = "subagent"
     expectedTools = @("subagent")
     requiredFinalText = @("EXTENSION_SMOKE_SUBAGENT_LIST_OK")
+    argCheck = "subagent-list"
     prompt = "This is targeted extension smoke. Use only the subagent tool for the read-only management action list. Arguments must be {`"action`":`"list`"}. Do not execute agent, task, chain, tasks, parallel, resume, interrupt, or append-step. Do not start child agents. Do not call read, bash, web_fetch, or any other tool. Final answer must include EXTENSION_SMOKE_SUBAGENT_LIST_OK."
   }
   "recall-not-found" = [ordered]@{
     tool = "recall"
     expectedTools = @("recall")
     requiredFinalText = @("EXTENSION_SMOKE_RECALL_NOT_FOUND_OK")
+    argCheck = "recall-not-found"
     prompt = "This is targeted extension smoke. Use only the recall tool to query observation id `"deadbeef0000`". This id is a smoke sentinel and may return not found. Do not call read, bash, web_fetch, or any other tool. Do not search other memory. Final answer must include EXTENSION_SMOKE_RECALL_NOT_FOUND_OK."
   }
 }
@@ -182,6 +236,108 @@ function Get-FinalAssistantText {
   return ($parts -join "`n")
 }
 
+function Get-ObjectValue {
+  param([object]$Value, [string]$Name)
+  if ($null -eq $Value) { return $null }
+  if ($Value -is [System.Collections.IDictionary]) {
+    if ($Value.Contains($Name)) { return $Value[$Name] }
+    return $null
+  }
+  $property = $Value.PSObject.Properties[$Name]
+  if ($null -ne $property) { return $property.Value }
+  return $null
+}
+
+function Get-ToolStartByName {
+  param([object[]]$ToolStarts, [string]$ToolName)
+  $matches = @($ToolStarts | Where-Object { $_.toolName -eq $ToolName })
+  if ($matches.Count -eq 0) { return $null }
+  return $matches[0]
+}
+
+function Get-PropertyCount {
+  param([object]$Value)
+  if ($null -eq $Value) { return 0 }
+  if ($Value -is [System.Collections.IDictionary]) { return $Value.Count }
+  return @($Value.PSObject.Properties).Count
+}
+
+function Test-LimitAtMost {
+  param([object]$ArgsValue, [int]$Max, [string]$Label, [System.Collections.Generic.List[string]]$Failures)
+  $limitValue = Get-ObjectValue $ArgsValue "limit"
+  if ($null -eq $limitValue -or [string]::IsNullOrWhiteSpace([string]$limitValue)) { return }
+  $limit = 0
+  if (-not [int]::TryParse([string]$limitValue, [ref]$limit) -or $limit -gt $Max) {
+    $Failures.Add(("{0} limit must be <= {1}, got {2}" -f $Label, $Max, ($limitValue | ConvertTo-Json -Compress -Depth 4)))
+  }
+}
+
+function Test-CaseToolArgs {
+  param([string]$CaseName, [object[]]$ToolStarts)
+  $failures = New-Object System.Collections.Generic.List[string]
+
+  switch ($CaseName) {
+    "read-package" {
+      $event = Get-ToolStartByName $ToolStarts "read"
+      $path = Get-ObjectValue $event.args "path"
+      if ($path -ne "package.json") { $failures.Add(("read.path must equal package.json, got {0}" -f ($path | ConvertTo-Json -Compress -Depth 4))) }
+    }
+    "fffind-package" {
+      $event = Get-ToolStartByName $ToolStarts "fffind"
+      $pattern = Get-ObjectValue $event.args "pattern"
+      if ($pattern -ne "package.json") { $failures.Add(("fffind.pattern must equal package.json, got {0}" -f ($pattern | ConvertTo-Json -Compress -Depth 4))) }
+      Test-LimitAtMost $event.args 5 "fffind" $failures
+    }
+    "ffgrep-package" {
+      $event = Get-ToolStartByName $ToolStarts "ffgrep"
+      $pattern = Get-ObjectValue $event.args "pattern"
+      $path = Get-ObjectValue $event.args "path"
+      if ($pattern -ne "pi-extensions") { $failures.Add(("ffgrep.pattern must equal pi-extensions, got {0}" -f ($pattern | ConvertTo-Json -Compress -Depth 4))) }
+      if ($path -ne "package.json") { $failures.Add(("ffgrep.path must equal package.json, got {0}" -f ($path | ConvertTo-Json -Compress -Depth 4))) }
+      Test-LimitAtMost $event.args 5 "ffgrep" $failures
+    }
+    "batch-web-fetch-example" {
+      $event = Get-ToolStartByName $ToolStarts "batch_web_fetch"
+      $rawRequests = Get-ObjectValue $event.args "requests"
+      if ($null -eq $rawRequests) {
+        $failures.Add("batch_web_fetch.requests must be present")
+      } else {
+        $requests = @($rawRequests)
+        if ($requests.Count -ne 1) {
+          $failures.Add(("batch_web_fetch.requests must contain exactly one request, got {0}" -f $requests.Count))
+        } else {
+          $request = $requests[0]
+          $url = Get-ObjectValue $request "url"
+          $maxChars = Get-ObjectValue $request "maxChars"
+          $timeoutMs = Get-ObjectValue $request "timeoutMs"
+          if ($url -ne "https://example.com/") { $failures.Add(("batch_web_fetch request url must equal https://example.com/, got {0}" -f ($url | ConvertTo-Json -Compress -Depth 4))) }
+          if ([string]$maxChars -ne "1000") { $failures.Add(("batch_web_fetch maxChars must equal 1000, got {0}" -f ($maxChars | ConvertTo-Json -Compress -Depth 4))) }
+          if ([string]$timeoutMs -ne "20000") { $failures.Add(("batch_web_fetch timeoutMs must equal 20000, got {0}" -f ($timeoutMs | ConvertTo-Json -Compress -Depth 4))) }
+        }
+      }
+    }
+    "mcp-status" {
+      $event = Get-ToolStartByName $ToolStarts "mcp"
+      if ((Get-PropertyCount $event.args) -ne 0) { $failures.Add(("mcp args must be empty object, got {0}" -f ($event.args | ConvertTo-Json -Compress -Depth 6))) }
+    }
+    "subagent-list" {
+      $event = Get-ToolStartByName $ToolStarts "subagent"
+      $action = Get-ObjectValue $event.args "action"
+      if ($action -ne "list") { $failures.Add(("subagent.action must equal list, got {0}" -f ($action | ConvertTo-Json -Compress -Depth 4))) }
+    }
+    "recall-not-found" {
+      $event = Get-ToolStartByName $ToolStarts "recall"
+      $id = Get-ObjectValue $event.args "id"
+      if ($id -ne "deadbeef0000") { $failures.Add(("recall.id must equal deadbeef0000, got {0}" -f ($id | ConvertTo-Json -Compress -Depth 4))) }
+    }
+  }
+
+  return [ordered]@{
+    ok = $failures.Count -eq 0
+    failures = @($failures)
+  }
+}
+
 function Summarize-CaseArtifact {
   param(
     [string]$CaseName,
@@ -201,6 +357,7 @@ function Summarize-CaseArtifact {
   $expectedTools = @($Definition.expectedTools)
   $unexpectedTools = @($actualToolNames | Where-Object { $expectedTools -notcontains $_ } | Select-Object -Unique)
   $missingTools = @($expectedTools | Where-Object { $actualToolNames -notcontains $_ })
+  $argExpectation = Test-CaseToolArgs ([string]$Definition.argCheck) $toolStarts
   $finalText = Get-FinalAssistantText $events
   $missingFinalText = @($Definition.requiredFinalText | Where-Object { -not $finalText.Contains($_) })
   $errors = @($events | Where-Object { $_.type -eq "error" -or $_.message.stopReason -eq "error" -or $_.message.errorMessage })
@@ -214,7 +371,7 @@ function Summarize-CaseArtifact {
   $rawMarkup = Contains-RawPiToolMarkup $finalText
   $finalAnswerOk = $finalText.Trim().Length -gt 0 -and -not $rawMarkup -and $missingFinalText.Count -eq 0
   $toolExpectationOk = $missingTools.Count -eq 0 -and $unexpectedTools.Count -eq 0
-  $ok = $ExitStatus -eq 0 -and -not $TimedOut -and $toolExpectationOk -and $finalAnswerOk -and $errors.Count -eq 0 -and $debugTelemetryOk
+  $ok = $ExitStatus -eq 0 -and -not $TimedOut -and $toolExpectationOk -and $argExpectation.ok -and $finalAnswerOk -and $errors.Count -eq 0 -and $debugTelemetryOk
 
   return [ordered]@{
     schema = "xtalpi-pi-tools.powershell-case-summary.v1"
@@ -228,6 +385,8 @@ function Summarize-CaseArtifact {
     missingTools = $missingTools
     unexpectedTools = $unexpectedTools
     toolStarts = @($toolStarts | ForEach-Object { "{0}:{1}" -f $_.toolName, ($_.args | ConvertTo-Json -Compress -Depth 8) })
+    argExpectationOk = $argExpectation.ok
+    argExpectationFailures = @($argExpectation.failures)
     debugTelemetryOk = $debugTelemetryOk
     debugEventCount = $debugEvents.Count
     requiredFinalText = @($Definition.requiredFinalText)
@@ -280,6 +439,20 @@ function Invoke-PiCase {
     XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS = [string]$ResolvedMaxOutputTokens
     XTALPI_PI_TOOLS_DEBUG = "1"
     XTALPI_PI_TOOLS_DEBUG_PATH = $debugFile
+  }
+  switch ([string]$Definition.envKind) {
+    "fff" {
+      $envMap["PI_FFF_MODE"] = "tools-only"
+      $envMap["FFF_FRECENCY_DB"] = Join-Path $ResolvedOutDir ("{0}-fff-frecency.db" -f $Stamp)
+      $envMap["FFF_HISTORY_DB"] = Join-Path $ResolvedOutDir ("{0}-fff-history.db" -f $Stamp)
+    }
+    "seq-thinking" {
+      $storageDir = Join-Path $ResolvedOutDir ("{0}-seq-thinking-status-storage" -f $Stamp)
+      New-Item -ItemType Directory -Force -Path $storageDir | Out-Null
+      $envMap["MCP_STORAGE_DIR"] = $storageDir
+      $envMap["SEQ_THINK_MAX_BYTES"] = "51200"
+      $envMap["SEQ_THINK_MAX_LINES"] = "2000"
+    }
   }
 
   $startedAt = Get-Date
@@ -346,6 +519,25 @@ function Run-SelfTest {
     $summary = Summarize-CaseArtifact "mcp-status" $CaseDefinitions["mcp-status"] $out $err $debug 0 1 $false
     if ($summary.ok -ne $true) { throw "expected good fixture to pass" }
 
+    $fixtures = @(
+      @{ name = "read-package"; tool = "read"; args = @{ path = "package.json" }; final = "EXTENSION_SMOKE_READ_PACKAGE_OK pi-extensions" },
+      @{ name = "fffind-package"; tool = "fffind"; args = @{ pattern = "package.json"; limit = 5 }; final = "EXTENSION_SMOKE_FFFIND_OK package.json" },
+      @{ name = "ffgrep-package"; tool = "ffgrep"; args = @{ pattern = "pi-extensions"; path = "package.json"; limit = 5 }; final = "EXTENSION_SMOKE_FFGREP_OK pi-extensions" },
+      @{ name = "batch-web-fetch-example"; tool = "batch_web_fetch"; args = @{ requests = @(@{ url = "https://example.com/"; maxChars = 1000; timeoutMs = 20000 }) }; final = "EXTENSION_SMOKE_BATCH_FETCH_OK Example Domain" },
+      @{ name = "seq-thinking-status"; tool = "get_thinking_status"; args = @{}; final = "EXTENSION_SMOKE_SEQ_STATUS_OK" },
+      @{ name = "subagent-list"; tool = "subagent"; args = @{ action = "list" }; final = "EXTENSION_SMOKE_SUBAGENT_LIST_OK" },
+      @{ name = "recall-not-found"; tool = "recall"; args = @{ id = "deadbeef0000" }; final = "EXTENSION_SMOKE_RECALL_NOT_FOUND_OK" }
+    )
+    foreach ($fixture in $fixtures) {
+      $fixtureOut = Join-Path $tmp ("{0}.jsonl" -f $fixture.name)
+      @(
+        @{ type = "tool_execution_start"; toolName = $fixture.tool; args = $fixture.args },
+        @{ type = "agent_end"; messages = @(@{ role = "assistant"; content = @(@{ type = "text"; text = $fixture.final }) }) }
+      ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 12 } | Set-Content -LiteralPath $fixtureOut -Encoding UTF8
+      $fixtureSummary = Summarize-CaseArtifact $fixture.name $CaseDefinitions[$fixture.name] $fixtureOut $err $debug 0 1 $false
+      if ($fixtureSummary.ok -ne $true) { throw ("expected fixture {0} to pass" -f $fixture.name) }
+    }
+
     $badOut = Join-Path $tmp "bad.jsonl"
     @(
       @{ type = "tool_execution_start"; toolName = "bash"; args = @{ command = "pwd" } },
@@ -361,6 +553,14 @@ function Run-SelfTest {
     ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 8 } | Set-Content -LiteralPath $markupOut -Encoding UTF8
     $markup = Summarize-CaseArtifact "mcp-status" $CaseDefinitions["mcp-status"] $markupOut $err $debug 0 1 $false
     if ($markup.ok -eq $true) { throw "expected raw markup fixture to fail" }
+
+    $badArgsOut = Join-Path $tmp "bad-args.jsonl"
+    @(
+      @{ type = "tool_execution_start"; toolName = "read"; args = @{ path = "$HOME/.pi/agent/package.json" } },
+      @{ type = "agent_end"; messages = @(@{ role = "assistant"; content = @(@{ type = "text"; text = "EXTENSION_SMOKE_READ_PACKAGE_OK pi-extensions" }) }) }
+    ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 8 } | Set-Content -LiteralPath $badArgsOut -Encoding UTF8
+    $badArgs = Summarize-CaseArtifact "read-package" $CaseDefinitions["read-package"] $badArgsOut $err $debug 0 1 $false
+    if ($badArgs.ok -eq $true) { throw "expected bad read.path fixture to fail" }
   } finally {
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
   }

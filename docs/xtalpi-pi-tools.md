@@ -307,13 +307,15 @@ Windows 还可以用 PowerShell-native targeted live runner 验证低风险 exte
 ```powershell
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -ListCases
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest
-.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "mcp-status,subagent-list,recall-not-found"
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
 ```
 
-PowerShell runner 当前只覆盖 `mcp-status`、`subagent-list`、`recall-not-found`
-三条低风险 targeted case。完整 xtalpi full-suite runner 目前仍是 Bash 脚本；
-Windows 上只有在显式具备 Bash-compatible shell 时才运行，不把 Git Bash 当成默认
-前置条件。下面 Bash 命令均假设已经在 agent repo 根目录。
+PowerShell runner 当前覆盖 `read-package`、`fffind-package`、`ffgrep-package`、
+`batch-web-fetch-example`、`seq-thinking-status`、`mcp-status`、`subagent-list`
+和 `recall-not-found` 这些低风险 targeted case；它不会跑 Bash-only 的 full-suite、
+multi-turn 或 adversarial fixture case。完整 xtalpi full-suite runner 目前仍是 Bash
+脚本；Windows 上只有在显式具备 Bash-compatible shell 时才运行，不把 Git Bash
+当成默认前置条件。下面 Bash 命令均假设已经在 agent repo 根目录。
 
 只验证 smoke runner、smoke/debug-summary gate 本身，不调用真实模型：
 
@@ -364,7 +366,7 @@ case 要求 `read.path` 严格等于 cwd-relative `package.json`，不依赖
 或 Linux/macOS 的 `~/.pi/agent` 路径时不需要改 prompt。Windows 用户先用
 PowerShell `.\scripts\pi67-smoke.ps1 -Ci` 验证 repo metadata、JSON、Node helpers
 和 xtalpi `/chat/completions` endpoint contract；低风险 live targeted case 可用
-`.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "mcp-status,subagent-list,recall-not-found"`。
+`.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"`。
 这些 PowerShell 入口不要求额外 Unix-like shell。
 
 覆盖：
@@ -399,6 +401,13 @@ targeted extension cases 覆盖：
 - `recall-not-found`：只允许执行 `recall({"id":"deadbeef0000"})`，用 sentinel
   12 位 hex id 验证 observational-memory recall 工具链路；预期可以返回 not found，
   不读取真实 observation 内容。
+
+另有离线 provider-turn 回归使用 MCP direct-tool 形态的 `dyn_echo_ping` fixture，
+验证“运行时新增工具已经进入 `context.tools`”这一边界：`xtalpi-pi-tools` 会从当前
+turn 的工具表里选中该动态工具、只把选中的工具暴露给模型，并把模型输出重新映射为
+本地 Pi tool call。真实 MCP server 的连接、OAuth、metadata cache 刷新和 direct-tool
+注册仍由 `pi-mcp-adapter` 负责；因此新增 MCP 工具的现场验证顺序是先让 adapter
+刷新出 direct tool，再用 `--tools <new_tool_name>` 做 targeted smoke。
 
 冒烟脚本会校验预期工具是否真的执行：无工具 case 必须没有 `tool_execution_start`；`bash` / `read` / web-read / tool-selection-clipping / tool-selection-continuation / tool-result-injection / targeted extension case 必须出现对应工具执行事件，避免把函数式伪调用文本或空工具路径误判为成功。package metadata 相关 case 还要求实际 `read.path` 等于 `package.json`，避免模型自行构造用户机器绝对路径却被误判为可移植通过。web-read case 通过 `--tools web_fetch,read` 和 `only:web_fetch,read` gate 限制实际工具边界，并要求最终答案包含 `Example Domain` 与本地包名 `pi-extensions`，避免把 404 / 空内容或只执行了工具但没有读懂结果误判为通过；tool-selection-clipping case 通过 `--tools read,bash,web_fetch` 加 per-case `XTALPI_PI_TOOLS_MAX_TOOLS=1` 验证 selected-tool clipping，要求实际只执行 `read`，且 debug telemetry 中 `tool_selection_clipped=true`、omitted tools 至少包含 `bash` 和 `web_fetch`；tool-selection-continuation case 复用同一临时 session 跑两轮，第一轮 `--no-tools` 只建立最近 user intent，第二轮 `继续` 才开启 `read,bash,web_fetch` 并强制 `XTALPI_PI_TOOLS_MAX_TOOLS=1`，要求实际只执行 `read`，且 debug telemetry 中至少一轮满足 `tool_selection_prompt_source=recent_user_continuation`、`tool_selection_user_messages>=2`；tool-result-injection case 通过 `--tools read` 和 `only:read` gate 证明 hostile tool output 不会诱导额外工具执行。
 

@@ -1334,6 +1334,67 @@ const { pathToFileURL } = require("node:url");
   assert.ok(hiddenFutureAvailableNames.includes('"future_extension_tool"'));
   assert.ok(!hiddenFutureAvailableNames.includes('"future_hidden_tool"'));
 
+  const dynamicMcpDirectTools = [
+    {
+      name: "dyn_echo_ping",
+      description: "MCP direct tool registered from a future server metadata cache",
+      parameters: {
+        type: "object",
+        required: ["text"],
+        properties: {
+          text: { type: "string", description: "Ping text" },
+        },
+      },
+    },
+    {
+      name: "mcp",
+      description: "MCP gateway proxy tool",
+      parameters: { type: "object", properties: {} },
+    },
+  ];
+  const dynamicMcpDirectContext = serializer.serializeContextForXtalpi(
+    {
+      systemPrompt: "system base",
+      tools: dynamicMcpDirectTools,
+      messages: [{ role: "user", content: "请使用 dyn_echo_ping 发送 text=hello，验证动态 MCP direct tool。" }],
+    },
+    {
+      maxTools: 1,
+      maxToolResultChars: 2000,
+    },
+  );
+  assert.deepEqual([...dynamicMcpDirectContext.selectedToolNames], ["dyn_echo_ping"]);
+  assert.ok(dynamicMcpDirectContext.messages[0].content.includes("- dyn_echo_ping:"));
+  assert.ok(!dynamicMcpDirectContext.messages[0].content.includes("- mcp:"));
+  assert.equal(dynamicMcpDirectContext.toolSelectionSummary.totalToolCount, dynamicMcpDirectTools.length);
+  assert.equal(dynamicMcpDirectContext.toolSelectionSummary.clipped, true);
+
+  await withProviderTurnEnv({
+    XTALPI_PI_TOOLS_MAX_TOOLS: "1",
+    XTALPI_PI_TOOLS_MAX_EMPTY_RETRIES: "0",
+    XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES: "0",
+    XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES: "0",
+  }, async () => {
+    const dynamicMcpDirectChat = makeProviderTurnChat([
+      { content: '<pi_tool_call>\n{"name":"dyn_echo_ping","arguments":{"text":"hello"}}\n</pi_tool_call>' },
+    ]);
+    const dynamicMcpDirectResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: {
+        systemPrompt: "system base",
+        tools: dynamicMcpDirectTools,
+        messages: [{ role: "user", content: "请调用 dyn_echo_ping，text 是 hello。" }],
+      },
+      callChat: dynamicMcpDirectChat.callChat,
+    });
+    assert.equal(dynamicMcpDirectResult.kind, "tool_call");
+    assert.equal(dynamicMcpDirectResult.toolCall.name, "dyn_echo_ping");
+    assert.deepEqual(dynamicMcpDirectResult.toolCall.arguments, { text: "hello" });
+    assert.match(dynamicMcpDirectChat.calls[0][0].content, /Available Pi tools \(1\/2/);
+    assert.match(dynamicMcpDirectChat.calls[0][0].content, /- dyn_echo_ping:/);
+    assert.ok(!dynamicMcpDirectChat.calls[0][0].content.includes("- mcp:"));
+  });
+
   const turnDebugEnvNames = [
     "XTALPI_PI_TOOLS_TIMEOUT_MS",
     "XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS",

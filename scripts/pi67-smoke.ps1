@@ -351,6 +351,16 @@ Run-Check "PowerShell update/doctor/report/smoke entrypoints are documented" {
   Assert-ContentContains (RepoPath "docs/xtalpi-pi-tools.md") "PowerShell"
 }
 
+Run-Check "PowerShell xtalpi targeted smoke expanded cases are documented" {
+  $expandedCaseSet = "read-package,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
+  Assert-ContentContains (RepoPath "scripts/pi67-xtalpi-pi-tools-smoke.ps1") "read-package"
+  Assert-ContentContains (RepoPath "scripts/pi67-xtalpi-pi-tools-smoke.ps1") "fffind-package"
+  Assert-ContentContains (RepoPath "scripts/pi67-xtalpi-pi-tools-smoke.ps1") "batch-web-fetch-example"
+  Assert-ContentContains (RepoPath "scripts/pi67-xtalpi-pi-tools-smoke.ps1") "seq-thinking-status"
+  Assert-ContentContains (RepoPath "README.md") $expandedCaseSet
+  Assert-ContentContains (RepoPath "docs/xtalpi-pi-tools.md") $expandedCaseSet
+}
+
 Section "Portability"
 if ($GitAvailable) {
   Run-Check "git diff --check passed" {
