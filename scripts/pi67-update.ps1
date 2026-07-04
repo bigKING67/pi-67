@@ -141,18 +141,36 @@ function Invoke-External {
     [switch]$Echo
   )
 
-  $output = & $FilePath @Arguments 2>&1
-  $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+  # Windows PowerShell 5.1 can promote native stderr lines into ErrorRecord
+  # objects when 2>&1 is used. Git writes normal fetch progress to stderr, so
+  # temporarily relax ErrorActionPreference and decide success from LASTEXITCODE.
+  $oldErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = "Continue"
+    $output = & $FilePath @Arguments 2>&1
+    $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+  } finally {
+    $ErrorActionPreference = $oldErrorActionPreference
+  }
+
+  $lines = @($output | ForEach-Object {
+    if ($_ -is [System.Management.Automation.ErrorRecord]) {
+      $_.ToString()
+    } else {
+      [string]$_
+    }
+  })
+
   if ($Echo) {
-    foreach ($line in $output) {
+    foreach ($line in $lines) {
       Write-Host $line
     }
   }
   if ($exitCode -ne 0) {
-    $excerpt = ($output | Select-Object -First 30) -join "`n"
+    $excerpt = ($lines | Select-Object -First 30) -join "`n"
     throw ("command failed with exit {0}: {1} {2}`n{3}" -f $exitCode, $FilePath, ($Arguments -join " "), $excerpt)
   }
-  return @($output)
+  return $lines
 }
 
 function Invoke-Git {
