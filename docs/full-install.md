@@ -462,6 +462,15 @@ The PowerShell updater:
 5. Syncs npm dependencies when `package.json` differs from `~/.pi/agent/npm/package.json`.
 6. Runs `scripts\pi67-smoke.ps1 -Ci` after the update.
 
+`npm sync` is skipped when the copied `npm/package.json` already matches the
+repo `package.json`. When it does run, the updater uses npm's local cache first
+and disables audit/fund checks for a faster day-to-day update. To skip npm for a
+known-good local dependency set:
+
+```powershell
+.\scripts\pi67-update.ps1 -NoNpm
+```
+
 On macOS/Linux, or when you explicitly want the fuller Bash doctor/report flow:
 
 ```bash

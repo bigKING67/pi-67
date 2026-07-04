@@ -30,6 +30,7 @@ PI_AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
 PI_NPM_DIR="$PI_AGENT_DIR/npm"
 SHARED_SKILLS_DIR="${SHARED_SKILLS_DIR:-$HOME/.agents/skills}"
 SKILL_SOURCE_DIR="$REPO_ROOT/shared-skills"
+NPM_INSTALL_ARGS=(install --ignore-scripts --no-audit --no-fund --prefer-offline)
 
 REMOTE="origin"
 BRANCH=""
@@ -492,14 +493,14 @@ sync_npm() {
   run_cmd mkdir -p "$PI_NPM_DIR"
   if [ "$DRY_RUN" = true ]; then
     say "  ${CYAN}DRY-RUN${NC} copy $repo_pkg -> $agent_pkg"
-    say "  ${CYAN}DRY-RUN${NC} npm install --ignore-scripts in $PI_NPM_DIR"
+    say "  ${CYAN}DRY-RUN${NC} npm ${NPM_INSTALL_ARGS[*]} in $PI_NPM_DIR"
     return
   fi
 
   cp "$repo_pkg" "$agent_pkg"
   (
     cd "$PI_NPM_DIR"
-    npm install --ignore-scripts
+    npm "${NPM_INSTALL_ARGS[@]}"
   )
   pass "npm packages synced in $PI_NPM_DIR"
 }
@@ -534,7 +535,7 @@ check_npm_status() {
   elif [ "$repo_hash" = "$agent_hash" ]; then
     pass "npm package.json already synced"
   else
-    warn "npm package.json differs; update would run npm install --ignore-scripts"
+    warn "npm package.json differs; update would run npm ${NPM_INSTALL_ARGS[*]}"
   fi
 }
 

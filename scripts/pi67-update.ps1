@@ -98,6 +98,7 @@ if (-not $SkillsDir) {
 }
 
 $NpmDir = Join-Path $AgentDir "npm"
+$NpmInstallArgs = @("install", "--ignore-scripts", "--no-audit", "--no-fund", "--prefer-offline")
 $KnownMigrationConflictPaths = @(
   "settings.json",
   "extensions/xtalpi-compat/index.ts"
@@ -557,13 +558,13 @@ function Sync-Npm {
 
   if ($DryRun) {
     Write-Host ("  DRY-RUN copy {0} -> {1}" -f $repoPackage, $agentPackage) -ForegroundColor Cyan
-    Write-Host ("  DRY-RUN npm install --ignore-scripts in {0}" -f $NpmDir) -ForegroundColor Cyan
+    Write-Host ("  DRY-RUN npm {0} in {1}" -f ($NpmInstallArgs -join " "), $NpmDir) -ForegroundColor Cyan
     return
   }
 
   New-Item -ItemType Directory -Force -Path $NpmDir | Out-Null
   Copy-Item -LiteralPath $repoPackage -Destination $agentPackage -Force
-  Invoke-PlannedExternal "npm" @("install", "--ignore-scripts") -WorkingDirectory $NpmDir | Out-Null
+  Invoke-PlannedExternal "npm" $NpmInstallArgs -WorkingDirectory $NpmDir | Out-Null
   Write-Pass ("npm packages synced in {0}" -f $NpmDir)
 }
 

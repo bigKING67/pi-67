@@ -561,6 +561,14 @@ PowerShell updater 会：
 5. 如果 `package.json` 和 `~/.pi/agent/npm/package.json` 不一致，自动同步 npm 依赖
 6. 运行 `scripts\pi67-smoke.ps1 -Ci` 复核 repo/update contract
 
+`npm sync` 只在依赖清单变化或显式强制时运行；成功同步后再次更新应显示
+`npm package.json already synced` 并跳过。若只是临时想快速拉代码、确认当前依赖
+已经可用，可用：
+
+```powershell
+.\scripts\pi67-update.ps1 -NoNpm
+```
+
 Bash updater 额外运行 doctor 并覆盖写入 `~/.pi/agent/pi67-report.json`。
 
 如果你安装的是旧版，还没有 PowerShell updater，Windows 首次用一次性 bootstrap：

@@ -23,6 +23,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 ### Changed
 
 - Default provider is now `xtalpi-pi-tools` with `deepseek-v4-pro` and thinking off.
+- Update helpers now run npm sync with `--no-audit --no-fund --prefer-offline` and continue skipping npm entirely when `npm/package.json` already matches the repo `package.json`.
 - Windows documentation now treats PowerShell as the primary path and stops presenting an extra Unix-like shell as the default Windows entrypoint.
 - `models.example.json` now keeps only one xtalpi provider template: `xtalpi-pi-tools`.
 - `scripts/pi67-configure.sh` migrates old `xtalpi` / `xtalpi-tools` keys and baseUrl into `xtalpi-pi-tools`, then removes old xtalpi provider entries by default.

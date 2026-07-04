@@ -504,6 +504,16 @@ Windows PowerShell:
 .\scripts\pi67-update.ps1
 ```
 
+If the update spends most time in `--- npm sync ---`, it means the repo
+`package.json` and `npm/package.json` differed or npm was explicitly forced.
+After one successful sync, later updates should print `npm package.json already
+synced` and skip npm. For a quick code-only update when dependencies are already
+known-good:
+
+```powershell
+.\scripts\pi67-update.ps1 -NoNpm
+```
+
 If you intentionally do not want local config migration in that run:
 
 ```powershell
