@@ -66,7 +66,7 @@ Expected result:
    - `docs/skill-migration-schema.md` if `scripts/pi67-migrate-skills.sh --json` behavior changed
    - `docs/external-skill-sync-schema.md` if `scripts/pi67-sync-external-skills.sh --json` behavior changed
    - `docs/skill-governance.md` if skill registry, migration, or external sync behavior changed
-   - update workflow docs if `scripts/pi67-update.sh` changed
+   - update workflow docs if `scripts/pi67-update.sh` or `scripts/pi67-update.ps1` changed
    - release artifact docs if `scripts/pi67-release-artifact-smoke.sh` changed
 5. Run:
 
@@ -189,6 +189,15 @@ cd pi-67
 ```
 
 Update existing install:
+
+Windows PowerShell:
+
+```powershell
+Set-Location $env:USERPROFILE\.pi\agent
+.\scripts\pi67-update.ps1
+```
+
+macOS/Linux:
 
 ```bash
 cd /path/to/pi-67

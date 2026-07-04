@@ -241,6 +241,7 @@ $RequiredFiles = @(
   "docs/troubleshooting.md",
   "docs/xtalpi-pi-tools.md",
   "scripts/pi67-smoke.ps1",
+  "scripts/pi67-update.ps1",
   "scripts/pi67-release-check.sh",
   "scripts/pi67-xtalpi-pi-tools-smoke.ps1",
   "scripts/pi67-xtalpi-smoke-status-core.cjs",
@@ -329,10 +330,13 @@ Run-Check "xtalpi-pi-tools endpoint contract uses chat/completions" {
 }
 
 Section "PowerShell documentation"
-Run-Check "PowerShell smoke is documented" {
+Run-Check "PowerShell update/smoke entrypoints are documented" {
   Assert-ContentContains (RepoPath "README.md") "pi67-smoke.ps1"
   Assert-ContentContains (RepoPath "docs/full-install.md") "pi67-smoke.ps1"
   Assert-ContentContains (RepoPath "docs/release.md") "pi67-smoke.ps1"
+  Assert-ContentContains (RepoPath "README.md") "pi67-update.ps1"
+  Assert-ContentContains (RepoPath "docs/full-install.md") "pi67-update.ps1"
+  Assert-ContentContains (RepoPath "docs/release.md") "pi67-update.ps1"
   Assert-ContentContains (RepoPath "README.md") "pi67-xtalpi-pi-tools-smoke.ps1"
   Assert-ContentContains (RepoPath "docs/full-install.md") "pi67-xtalpi-pi-tools-smoke.ps1"
   Assert-ContentContains (RepoPath "docs/release.md") "pi67-xtalpi-pi-tools-smoke.ps1"
@@ -366,6 +370,7 @@ if ($GitAvailable) {
     "docs/troubleshooting.md",
     "docs/xtalpi-pi-tools.md",
     "scripts/pi67-smoke.ps1",
+    "scripts/pi67-update.ps1",
     "scripts/pi67-release-check.sh",
     "scripts/pi67-xtalpi-pi-tools-smoke.ps1",
     ".github/workflows/ci.yml"

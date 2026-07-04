@@ -13,6 +13,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `scripts/pi67-test-xtalpi-pi-tools.sh` protocol/unit coverage for parser, serializer, and no-native-tools payload invariants.
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh` live smoke coverage for no-tool, bash, read, and web/read tasks.
 - `scripts/pi67-smoke.ps1` as a PowerShell-native Windows smoke entrypoint for repo metadata, JSON, Node helper, xtalpi endpoint-contract, documentation, and portability checks.
+- `scripts/pi67-update.ps1` as a PowerShell-native Windows updater that preserves local config, syncs npm/shared skills, runs PowerShell smoke, and auto-backs up narrow known xtalpi migration conflicts before pulling.
 - `scripts/pi67-xtalpi-pi-tools-debug-summary.sh` for summarizing live smoke debug telemetry and recovery events.
 - `scripts/pi67-validate-xtalpi-provider-error-contract.mjs` for standalone provider error contract validation.
 - `extensions/xtalpi-pi-tools/fixtures/replay-cases.json` for parser/provider replay regression cases.

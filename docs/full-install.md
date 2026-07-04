@@ -37,8 +37,21 @@ Set-Location $env:USERPROFILE\.pi\agent
 `scripts\pi67-smoke.ps1` is a PowerShell-native repository validation. It does
 not call Bash and it does not write local Pi config.
 
-Until the install/update/doctor scripts have full PowerShell counterparts, use
-this minimal in-place bootstrap on a Windows laptop after cloning:
+For day-to-day updates on Windows, use the PowerShell-native updater:
+
+```powershell
+Set-Location $env:USERPROFILE\.pi\agent
+.\scripts\pi67-update.ps1
+```
+
+It runs a safe fast-forward Git update, keeps existing local runtime config
+files, creates missing config files from examples only when needed, syncs npm
+dependencies, and runs the PowerShell smoke. During the one-time
+`xtalpi-compat` -> `xtalpi-pi-tools` migration, it can auto-backup and restore
+the narrow known tracked conflict files before pulling.
+
+Until install/doctor scripts have full PowerShell counterparts, use this minimal
+in-place bootstrap on a Windows laptop after cloning:
 
 ```powershell
 Set-Location $env:USERPROFILE\.pi\agent
@@ -79,7 +92,7 @@ image-gen.json
 ```
 
 This keeps Windows usage on native PowerShell while the older Bash scripts remain
-the fuller macOS/Linux automation path.
+the fuller macOS/Linux install/doctor automation path.
 
 ### macOS/Linux Bash path
 
@@ -427,33 +440,66 @@ The normal doctor only checks MCP commands and local paths. `--deep-mcp` briefly
 
 If your installed pi-67 already includes the updater:
 
-```bash
-bash ~/.pi/agent/scripts/pi67-update.sh
+Windows PowerShell:
+
+```powershell
+Set-Location $env:USERPROFILE\.pi\agent
+.\scripts\pi67-update.ps1
 ```
 
-For an in-place checkout, this is equivalent to:
+For an in-place checkout, the Git update portion is equivalent to:
 
 ```bash
 git -C ~/.pi/agent pull --ff-only
 ```
 
-The updater:
+The PowerShell updater:
 
 1. Runs `git pull --ff-only` in the pi-67 checkout.
 2. Keeps local runtime config files.
 3. Creates newly introduced local config files from `.example` templates only when missing.
-4. Runs `pi67-configure.sh --no-prompt --no-doctor` to apply safe non-interactive local config migrations, including old `xtalpi` / `xtalpi-tools` to `xtalpi-pi-tools`.
+4. Applies the safe non-interactive `xtalpi` / `xtalpi-tools` to `xtalpi-pi-tools` local config migration directly in PowerShell.
 5. Syncs npm dependencies when `package.json` differs from `~/.pi/agent/npm/package.json`.
-6. Runs doctor after the update.
-7. Overwrites `~/.pi/agent/pi67-report.json`.
+6. Runs `scripts\pi67-smoke.ps1 -Ci` after the update.
+
+On macOS/Linux, or when you explicitly want the fuller Bash doctor/report flow:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-update.sh
+```
+
+The Bash updater additionally runs doctor and writes `~/.pi/agent/pi67-report.json`.
 
 If you need to skip local config migration for one update:
+
+```powershell
+.\scripts\pi67-update.ps1 -NoConfigure
+```
+
+macOS/Linux:
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-update.sh --no-configure
 ```
 
-For an older install that does not have `pi67-update.sh` yet:
+For an older install that does not have the updater yet:
+
+Windows PowerShell, one-time bootstrap:
+
+```powershell
+Set-Location $env:USERPROFILE\.pi\agent
+$Stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$BackupDir = Join-Path $env:USERPROFILE ".pi\agent-backups\pre-update-$Stamp"
+New-Item -ItemType Directory -Force $BackupDir | Out-Null
+Copy-Item .\settings.json (Join-Path $BackupDir "settings.json") -ErrorAction SilentlyContinue
+Copy-Item .\extensions\xtalpi-compat\index.ts (Join-Path $BackupDir "xtalpi-compat-index.ts") -ErrorAction SilentlyContinue
+git diff -- settings.json extensions/xtalpi-compat/index.ts | Set-Content -Path (Join-Path $BackupDir "local.diff") -Encoding UTF8
+git restore -- settings.json extensions/xtalpi-compat/index.ts
+git pull --ff-only
+.\scripts\pi67-update.ps1
+```
+
+macOS/Linux:
 
 ```bash
 cd /path/to/pi-67
@@ -463,11 +509,23 @@ bash scripts/pi67-update.sh
 
 Preview without changing files:
 
+```powershell
+.\scripts\pi67-update.ps1 -DryRun
+```
+
+macOS/Linux:
+
 ```bash
 bash ~/.pi/agent/scripts/pi67-update.sh --dry-run
 ```
 
 Check update readiness without pulling, running doctor, or writing files:
+
+```powershell
+.\scripts\pi67-update.ps1 -CheckOnly
+```
+
+macOS/Linux:
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-update.sh --check-only
@@ -482,6 +540,12 @@ bash ~/.pi/agent/scripts/pi67-status.sh
 ```
 
 If the checkout has local edits, the updater stops by default. Commit or stash them first. If you intentionally want to proceed:
+
+```powershell
+.\scripts\pi67-update.ps1 -AllowDirty
+```
+
+macOS/Linux:
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-update.sh --allow-dirty

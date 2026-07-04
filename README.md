@@ -130,11 +130,11 @@ Set-Location $env:USERPROFILE\.pi\agent
 做 repo metadata、JSON、xtalpi endpoint contract、Node helper 和 portability
 检查，不要求额外 Unix-like shell，也不依赖本机 `/Users/...` 或 npm package 绝对路径。
 
-当前 full install / update / doctor 自动化主链路仍是 Bash 脚本；Windows 机器上
-如果尚未使用兼容 shell 跑过安装器，可以先按上面的 in-place checkout 作为
-`$env:USERPROFILE\.pi\agent`，再手动从 `.example` 复制本地配置文件并安装 npm
-依赖。后续需要补齐的是 PowerShell-native install/update/doctor wrapper，而不是
-把额外 Unix-like shell 作为 Windows 默认心智。
+Windows 更新入口是 PowerShell-native 的 `scripts\pi67-update.ps1`。它会执行
+fast-forward Git 更新、保留本地 `models.json` / `auth.json` / `mcp.json` /
+`image-gen.json`、同步缺失模板和 npm 依赖，并在更新后运行 PowerShell smoke。
+doctor/full install 的最完整自动化主链路仍是 Bash；Windows 不再需要把额外
+Unix-like shell 当成日常更新前置条件。
 
 macOS/Linux：
 
@@ -417,6 +417,7 @@ pi-67/
 │   ├── pi67-sync-external-skills.sh
 │   ├── pi67-test-skill-governance.sh
 │   ├── pi67-update.sh
+│   ├── pi67-update.ps1
 │   ├── pi67-uninstall.sh
 │   ├── pi67-xtalpi-pi-tools.sh
 │   ├── pi67-test-xtalpi-pi-tools.sh
@@ -508,7 +509,38 @@ bash ./scripts/pi67-xtalpi-pi-tools-debug-summary.sh --latest
 
 ## 更新
 
-如果已经安装过较新的 pi-67，直接运行：
+Windows PowerShell：
+
+```powershell
+Set-Location $env:USERPROFILE\.pi\agent
+.\scripts\pi67-update.ps1
+```
+
+这个入口是一键日常更新：默认执行 `git pull --ff-only`，保留已有本地 key/config，
+只在 `models.json` / `mcp.json` / `auth.json` / `image-gen.json` 缺失时从
+`.example` 创建。遇到这次 `xtalpi-compat` -> `xtalpi-pi-tools` 迁移里的已知
+tracked 冲突时，它会先备份到 `$env:USERPROFILE\.pi\agent-backups\pre-update-*`，
+再只恢复这些已知迁移文件后继续更新；其他 tracked 本地改动仍会停止，避免误覆盖。
+
+预览但不写入：
+
+```powershell
+.\scripts\pi67-update.ps1 -DryRun
+```
+
+只检查当前是否需要更新：
+
+```powershell
+.\scripts\pi67-update.ps1 -CheckOnly
+```
+
+如果执行策略阻止脚本：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\pi67-update.ps1
+```
+
+macOS/Linux：
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-update.sh
@@ -520,17 +552,33 @@ bash ~/.pi/agent/scripts/pi67-update.sh
 bash ~/.pi/agent/scripts/pi67-status.sh
 ```
 
-它会：
+PowerShell updater 会：
 
 1. 在 pi-67 仓库中执行 `git pull --ff-only`
 2. 保留本地 `models.json` / `mcp.json` / `auth.json` / `image-gen.json`
 3. 如果新增本地配置模板，只复制缺失文件，不覆盖已有配置
-4. 自动运行 `pi67-configure.sh --no-prompt --no-doctor` 做非交互配置迁移，例如把旧 `xtalpi` / `xtalpi-tools` 迁移到 `xtalpi-pi-tools`
+4. 直接在 PowerShell 里做非交互配置迁移，例如把旧 `xtalpi` / `xtalpi-tools` 迁移到 `xtalpi-pi-tools`
 5. 如果 `package.json` 和 `~/.pi/agent/npm/package.json` 不一致，自动同步 npm 依赖
-6. 运行 doctor 复核 readiness
-7. 覆盖写入 `~/.pi/agent/pi67-report.json`
+6. 运行 `scripts\pi67-smoke.ps1 -Ci` 复核 repo/update contract
 
-如果你安装的是旧版，还没有 `pi67-update.sh`，第一次这样更新：
+Bash updater 额外运行 doctor 并覆盖写入 `~/.pi/agent/pi67-report.json`。
+
+如果你安装的是旧版，还没有 PowerShell updater，Windows 首次用一次性 bootstrap：
+
+```powershell
+Set-Location $env:USERPROFILE\.pi\agent
+$Stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$BackupDir = Join-Path $env:USERPROFILE ".pi\agent-backups\pre-update-$Stamp"
+New-Item -ItemType Directory -Force $BackupDir | Out-Null
+Copy-Item .\settings.json (Join-Path $BackupDir "settings.json") -ErrorAction SilentlyContinue
+Copy-Item .\extensions\xtalpi-compat\index.ts (Join-Path $BackupDir "xtalpi-compat-index.ts") -ErrorAction SilentlyContinue
+git diff -- settings.json extensions/xtalpi-compat/index.ts | Set-Content -Path (Join-Path $BackupDir "local.diff") -Encoding UTF8
+git restore -- settings.json extensions/xtalpi-compat/index.ts
+git pull --ff-only
+.\scripts\pi67-update.ps1
+```
+
+如果你安装的是旧版，还没有 `pi67-update.sh`，macOS/Linux 第一次这样更新：
 
 ```bash
 cd pi-67

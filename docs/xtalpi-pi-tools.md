@@ -289,7 +289,17 @@ Set-Location $env:USERPROFILE\.pi\agent
 .\scripts\pi67-smoke.ps1 -Ci
 ```
 
-它验证 repo metadata、JSON、Node helpers、PowerShell portability 和 xtalpi
+Windows 日常更新使用 PowerShell-native updater：
+
+```powershell
+.\scripts\pi67-update.ps1
+```
+
+它会保留本地 key/config，并在 `xtalpi-compat` -> `xtalpi-pi-tools` 迁移期间把
+`settings.json` 和 `extensions/xtalpi-compat/index.ts` 这类已知冲突先备份到
+`$env:USERPROFILE\.pi\agent-backups\pre-update-*`，再继续 fast-forward 更新。
+
+`pi67-smoke.ps1` 验证 repo metadata、JSON、Node helpers、PowerShell portability 和 xtalpi
 `/chat/completions` endpoint contract，不调用真实模型，也不需要 Bash。
 Windows 还可以用 PowerShell-native targeted live runner 验证低风险 extension
 工具链路：

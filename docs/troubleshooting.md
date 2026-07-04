@@ -415,13 +415,50 @@ it until Pi works after reinstalling.
 
 ## Update stops because the checkout is dirty
 
-`pi67-update.sh` defaults to safe fast-forward updates. If the pi-67 checkout has local edits, it stops before pulling:
+`pi67-update.ps1` / `pi67-update.sh` default to safe fast-forward updates.
+On Windows, use the PowerShell-native updater first:
+
+```powershell
+Set-Location $env:USERPROFILE\.pi\agent
+.\scripts\pi67-update.ps1
+```
+
+If execution policy blocks local scripts:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\pi67-update.ps1
+```
+
+During the `xtalpi-compat` -> `xtalpi-pi-tools` migration, the PowerShell
+updater auto-backs up and restores only the narrow known tracked conflict files:
+
+```text
+settings.json
+extensions/xtalpi-compat/index.ts
+```
+
+Backups are written under:
+
+```text
+%USERPROFILE%\.pi\agent-backups\pre-update-*
+```
+
+Other tracked local edits still stop the update before pulling. The Bash updater
+also stops on dirty checkouts by default:
 
 ```text
 repo has local changes
 ```
 
 Recommended fix:
+
+```powershell
+Set-Location $env:USERPROFILE\.pi\agent
+git status --short
+git diff --stat
+```
+
+macOS/Linux:
 
 ```bash
 cd /path/to/pi-67
@@ -431,11 +468,23 @@ git diff --stat
 
 Then either commit or stash your local edits. If you intentionally want to proceed with a dirty checkout:
 
+```powershell
+.\scripts\pi67-update.ps1 -AllowDirty
+```
+
+macOS/Linux:
+
 ```bash
 bash ~/.pi/agent/scripts/pi67-update.sh --allow-dirty
 ```
 
 To inspect update readiness without pulling or writing files:
+
+```powershell
+.\scripts\pi67-update.ps1 -CheckOnly
+```
+
+macOS/Linux:
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-update.sh --check-only
@@ -449,13 +498,40 @@ Normal updates also run a no-prompt local config migration step. This keeps exis
 bash ~/.pi/agent/scripts/pi67-update.sh
 ```
 
+Windows PowerShell:
+
+```powershell
+.\scripts\pi67-update.ps1
+```
+
 If you intentionally do not want local config migration in that run:
+
+```powershell
+.\scripts\pi67-update.ps1 -NoConfigure
+```
+
+macOS/Linux:
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-update.sh --no-configure
 ```
 
-For a machine that has not received the updater yet:
+For a Windows machine that has not received the PowerShell updater yet:
+
+```powershell
+Set-Location $env:USERPROFILE\.pi\agent
+$Stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$BackupDir = Join-Path $env:USERPROFILE ".pi\agent-backups\pre-update-$Stamp"
+New-Item -ItemType Directory -Force $BackupDir | Out-Null
+Copy-Item .\settings.json (Join-Path $BackupDir "settings.json") -ErrorAction SilentlyContinue
+Copy-Item .\extensions\xtalpi-compat\index.ts (Join-Path $BackupDir "xtalpi-compat-index.ts") -ErrorAction SilentlyContinue
+git diff -- settings.json extensions/xtalpi-compat/index.ts | Set-Content -Path (Join-Path $BackupDir "local.diff") -Encoding UTF8
+git restore -- settings.json extensions/xtalpi-compat/index.ts
+git pull --ff-only
+.\scripts\pi67-update.ps1
+```
+
+macOS/Linux machine that has not received the updater yet:
 
 ```bash
 cd /path/to/pi-67
