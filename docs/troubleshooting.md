@@ -154,7 +154,13 @@ This copies any existing `xtalpi` / `xtalpi-tools` key into `xtalpi-pi-tools` an
 For a live smoke test:
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh
+```
+
+On Windows PowerShell, run the low-risk targeted smoke instead:
+
+```powershell
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "mcp-status,subagent-list,recall-not-found"
 ```
 
 If the task is time-critical and xtalpi continues returning empty content, temporarily switch to another configured provider:

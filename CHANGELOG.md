@@ -93,6 +93,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - Static xtalpi tests now prove future extension tools are discovered from dynamic `context.tools`, serialized into the selected-tool prompt, accepted by the local whitelist, and withheld from repair prompts when omitted.
 - Live xtalpi targeted extension smoke now adds `mcp-status`, `subagent-list`, and `recall-not-found` for low-risk gateway/management/not-found tool paths without moving those tools into the default full-suite gate.
 - xtalpi docs now present the Windows PowerShell repo/endpoint contract smoke before Bash-only live smoke commands, and use repo-relative script paths for portability.
+- Windows users now have `scripts/pi67-xtalpi-pi-tools-smoke.ps1` for PowerShell-native low-risk xtalpi targeted live smoke of `mcp-status`, `subagent-list`, and `recall-not-found`.
 - Accidental native `assistant.tool_calls` returned by the upstream compatibility layer are now re-projected into the same local text protocol even when `content` is empty, and malformed native `function.arguments` fail into repair instead of silently executing `{}`.
 - xtalpi response usage accounting and assistant-message normalization now live in `response-normalizer.ts`, giving the native tool-call compatibility path a smaller dedicated module with direct unit coverage.
 - Repeated-tool detection and object-valued schema `enum` checks now use JSON deep equality that ignores object key order, so argument reordering cannot bypass loop protection or fail valid enum matches.

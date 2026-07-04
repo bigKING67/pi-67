@@ -18,6 +18,14 @@ PowerShell smoke for Windows-facing changes:
 
 ```powershell
 .\scripts\pi67-smoke.ps1 -Ci
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest
+```
+
+If xtalpi targeted tool calling changed and a live xtalpi key is available on
+Windows, also run:
+
+```powershell
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "mcp-status,subagent-list,recall-not-found"
 ```
 
 macOS/Linux and full release gate:
@@ -34,6 +42,7 @@ Expected result:
 
 - release metadata is internally consistent
 - Windows PowerShell smoke passes on a PowerShell runtime when Windows-facing files changed
+- PowerShell xtalpi targeted smoke self-test passes; live targeted smoke passes when xtalpi credentials are available
 - xtalpi provider error-contract and debug-summary/profile self-tests pass
 - smoke test passes locally
 - clean artifact smoke passes for the current worktree candidate
@@ -63,6 +72,7 @@ Expected result:
 
 ```powershell
 .\scripts\pi67-smoke.ps1 -Ci
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest
 ```
 
 ```bash
@@ -197,6 +207,7 @@ bash ~/.pi/agent/scripts/pi67-configure.sh --prompt-secrets
 ### Verification
 
 - `.\scripts\pi67-smoke.ps1 -Ci` on Windows PowerShell / PowerShell Core
+- `.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest` on Windows PowerShell / PowerShell Core
 - `bash scripts/pi67-smoke.sh --ci`
 - GitHub Actions CI: passed
 

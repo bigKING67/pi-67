@@ -291,9 +291,19 @@ Set-Location $env:USERPROFILE\.pi\agent
 
 它验证 repo metadata、JSON、Node helpers、PowerShell portability 和 xtalpi
 `/chat/completions` endpoint contract，不调用真实模型，也不需要 Bash。
-下面的 xtalpi live smoke runner 目前仍是 Bash 脚本；Windows 上只有在显式具备
-Bash-compatible shell 时才运行，不把 Git Bash 当成默认前置条件。命令均假设已经在
-agent repo 根目录。
+Windows 还可以用 PowerShell-native targeted live runner 验证低风险 extension
+工具链路：
+
+```powershell
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -ListCases
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "mcp-status,subagent-list,recall-not-found"
+```
+
+PowerShell runner 当前只覆盖 `mcp-status`、`subagent-list`、`recall-not-found`
+三条低风险 targeted case。完整 xtalpi full-suite runner 目前仍是 Bash 脚本；
+Windows 上只有在显式具备 Bash-compatible shell 时才运行，不把 Git Bash 当成默认
+前置条件。下面 Bash 命令均假设已经在 agent repo 根目录。
 
 只验证 smoke runner、smoke/debug-summary gate 本身，不调用真实模型：
 
@@ -343,7 +353,9 @@ case 要求 `read.path` 严格等于 cwd-relative `package.json`，不依赖
 因此安装到不同 HOME、Windows PowerShell 的 `$env:USERPROFILE\.pi\agent`
 或 Linux/macOS 的 `~/.pi/agent` 路径时不需要改 prompt。Windows 用户先用
 PowerShell `.\scripts\pi67-smoke.ps1 -Ci` 验证 repo metadata、JSON、Node helpers
-和 xtalpi `/chat/completions` endpoint contract；该验证入口不要求额外 Unix-like shell。
+和 xtalpi `/chat/completions` endpoint contract；低风险 live targeted case 可用
+`.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "mcp-status,subagent-list,recall-not-found"`。
+这些 PowerShell 入口不要求额外 Unix-like shell。
 
 覆盖：
 
@@ -398,13 +410,13 @@ $HOME/tmp/xtalpi-pi-tools-smoke/<stamp>-provider-health.json
 
 preflight 只会对瞬时可重试失败做立即重试，例如 `request_timeout`、`network_error`、`http_408`、`http_5xx`、`non_json_response` 或 `malformed_response`；`http_429` 会标记为 retryable，但不会立即重试，避免在限流窗口里继续消耗请求。
 
-provider 错误代码、分类、`retryable` 语义和 provider-health immediate retry 策略的真源是 `extensions/xtalpi-pi-tools/provider-error-contract.json`。这份 contract 同时包含 `requiredCodes`、`allowedCategories`、`requiredHttpStatus` 和 `classificationSamples` 自描述 manifest；运行时 `xtalpi-pi-tools` provider、`scripts/pi67-xtalpi-provider-health.mjs` 和 validator 都读取同一份 manifest，避免 `http_429`、timeout/network、protocol failure 等分类在 TS runtime、preflight 脚本和 release gate 之间漂移。修改这份 contract 后先运行 `node ~/.pi/agent/scripts/pi67-validate-xtalpi-provider-error-contract.mjs --self-test` 和 `node ~/.pi/agent/scripts/pi67-validate-xtalpi-provider-error-contract.mjs`；它会验证 error code 集合、category、retryability/immediate-retry 语义、HTTP exact/range 映射和 range 顺序，并用已知坏 contract 样例证明 validator 本身会失败。
+provider 错误代码、分类、`retryable` 语义和 provider-health immediate retry 策略的真源是 `extensions/xtalpi-pi-tools/provider-error-contract.json`。这份 contract 同时包含 `requiredCodes`、`allowedCategories`、`requiredHttpStatus` 和 `classificationSamples` 自描述 manifest；运行时 `xtalpi-pi-tools` provider、`scripts/pi67-xtalpi-provider-health.mjs` 和 validator 都读取同一份 manifest，避免 `http_429`、timeout/network、protocol failure 等分类在 TS runtime、preflight 脚本和 release gate 之间漂移。修改这份 contract 后先在 agent repo 根目录运行 `node ./scripts/pi67-validate-xtalpi-provider-error-contract.mjs --self-test` 和 `node ./scripts/pi67-validate-xtalpi-provider-error-contract.mjs`；它会验证 error code 集合、category、retryability/immediate-retry 语义、HTTP exact/range 映射和 range 顺序，并用已知坏 contract 样例证明 validator 本身会失败。
 
 如果 preflight 失败（例如 `api_key_missing`、`network_error`、`http_401`、`http_429`、`http_5xx`、`non_json_response`），smoke 会跳过正式 case，并仍写入 `<stamp>-summary.json`，其中 `debugSummary.totals.providerErrors=1`、`providerHealth` 包含脱敏后的结构化失败原因、`attempts` 尝试明细和 `retrySuppressedReason`。这比等完整 Pi 工具 loop 在每个 case 里超时更快。需要绕过 preflight 直接跑 case 时：
 
 ```bash
 XTALPI_PI_TOOLS_SMOKE_PREFLIGHT=0 \
-  bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
+  bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh
 ```
 
 当某个 case 出现 provider error（例如 `network_error`、`http_429`、`http_5xx`）时，live smoke 默认停止剩余 case，避免上游不可达时继续消耗整套工具流时间；已执行的 case 仍会进入 debug summary 和 `<stamp>-summary.json`。需要一次性收集所有 case 的失败形态时，可以显式关闭：
@@ -412,7 +424,7 @@ XTALPI_PI_TOOLS_SMOKE_PREFLIGHT=0 \
 ```bash
 XTALPI_PI_TOOLS_SMOKE_STOP_ON_PROVIDER_ERROR=0 \
   CASE_TIMEOUT_SECONDS=180 \
-  bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
+  bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh
 ```
 
 每个 case 还会写入 `<stamp>-<case>.lifecycle.json`，记录 `exitStatus`、`elapsedSeconds`、`caseTimeoutSeconds`、`timedOutByWatchdog`、`agentEndElapsedSeconds` 和 `postAgentEndLingerSeconds`。这把两类失败分开：

@@ -242,6 +242,7 @@ $RequiredFiles = @(
   "docs/xtalpi-pi-tools.md",
   "scripts/pi67-smoke.ps1",
   "scripts/pi67-release-check.sh",
+  "scripts/pi67-xtalpi-pi-tools-smoke.ps1",
   "scripts/pi67-xtalpi-smoke-status-core.cjs",
   "scripts/pi67-xtalpi-provider-health.mjs",
   "scripts/pi67-validate-xtalpi-provider-error-contract.mjs",
@@ -332,6 +333,9 @@ Run-Check "PowerShell smoke is documented" {
   Assert-ContentContains (RepoPath "README.md") "pi67-smoke.ps1"
   Assert-ContentContains (RepoPath "docs/full-install.md") "pi67-smoke.ps1"
   Assert-ContentContains (RepoPath "docs/release.md") "pi67-smoke.ps1"
+  Assert-ContentContains (RepoPath "README.md") "pi67-xtalpi-pi-tools-smoke.ps1"
+  Assert-ContentContains (RepoPath "docs/full-install.md") "pi67-xtalpi-pi-tools-smoke.ps1"
+  Assert-ContentContains (RepoPath "docs/release.md") "pi67-xtalpi-pi-tools-smoke.ps1"
   Assert-ContentContains (RepoPath "docs/xtalpi-pi-tools.md") "PowerShell"
 }
 
@@ -363,6 +367,7 @@ if ($GitAvailable) {
     "docs/xtalpi-pi-tools.md",
     "scripts/pi67-smoke.ps1",
     "scripts/pi67-release-check.sh",
+    "scripts/pi67-xtalpi-pi-tools-smoke.ps1",
     ".github/workflows/ci.yml"
   )
   Run-Check "Windows smoke release files are tracked or staged" {

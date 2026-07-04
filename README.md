@@ -421,6 +421,7 @@ pi-67/
 │   ├── pi67-xtalpi-pi-tools.sh
 │   ├── pi67-test-xtalpi-pi-tools.sh
 │   ├── pi67-xtalpi-pi-tools-smoke.sh
+│   ├── pi67-xtalpi-pi-tools-smoke.ps1
 │   ├── pi67-xtalpi-pi-tools-debug-summary.sh
 │   └── pi67-xtalpi-provider-health.mjs
 └── templates/
@@ -447,9 +448,18 @@ Set-Location $env:USERPROFILE\.pi\agent
 .\scripts\pi67-smoke.ps1 -Ci
 ```
 
-它不需要 Bash，也不依赖任何个人机器绝对路径。xtalpi live smoke runner 目前仍是
-Bash 脚本；Windows 上只有在显式具备 Bash-compatible shell 时才运行下面的 live case，
-不要把 Git Bash 当成默认前置条件。下面命令均假设已经在 agent repo 根目录。
+它不需要 Bash，也不依赖任何个人机器绝对路径。Windows 还可以用 PowerShell-native
+targeted live runner 验证低风险 extension 工具链路：
+
+```powershell
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -ListCases
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "mcp-status,subagent-list,recall-not-found"
+```
+
+这个 PowerShell runner 只覆盖 `mcp-status`、`subagent-list`、`recall-not-found`
+三条低风险 targeted case。完整 xtalpi full-suite runner 目前仍是 Bash 脚本；Windows
+上只有在显式具备 Bash-compatible shell 时才运行下面的 full-suite/live case，不要把
+Git Bash 当成默认前置条件。下面 Bash 命令均假设已经在 agent repo 根目录。
 
 显式启动：
 
