@@ -1265,6 +1265,75 @@ const { pathToFileURL } = require("node:url");
   assert.ok(!selectedSummaryJson.includes("Run a shell command"));
   assert.ok(!selectedContext.toolSelectionSummary.omitted.some((item) => Object.prototype.hasOwnProperty.call(item, "description")));
 
+  const futureExtensionTool = {
+    name: "future_extension_tool",
+    description: "Future extension tool that inspects synthetic widgets",
+    parameters: {
+      type: "object",
+      required: ["query"],
+      properties: {
+        query: { type: "string", description: "Synthetic widget query" },
+      },
+    },
+  };
+  const hiddenFutureTool = {
+    name: "future_hidden_tool",
+    description: "Hidden future tool that must not be exposed when omitted",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+      },
+    },
+  };
+  const futureContext = serializer.serializeContextForXtalpi(
+    {
+      systemPrompt: "system base",
+      tools: [
+        hiddenFutureTool,
+        futureExtensionTool,
+        { name: "read", description: "Read a file", parameters: { type: "object", properties: { path: { type: "string" } } } },
+      ],
+      messages: [{ role: "user", content: "请使用 future_extension_tool inspect synthetic widgets，query 是 alpha。" }],
+    },
+    {
+      maxTools: 1,
+      maxToolResultChars: 2000,
+    },
+  );
+  assert.deepEqual([...futureContext.selectedToolNames], ["future_extension_tool"]);
+  assert.ok(futureContext.messages[0].content.includes("- future_extension_tool:"));
+  assert.ok(!futureContext.messages[0].content.includes("- future_hidden_tool:"));
+  assert.equal(futureContext.toolSelectionSummary.clipped, true);
+  assert.equal(futureContext.toolSelectionSummary.totalToolCount, 3);
+  assert.equal(futureContext.toolSelectionSummary.omittedToolCount, 2);
+
+  const futureSelectedToolNamesList = [...futureContext.selectedToolNames];
+  const futureSelectedToolByName = new Map(futureContext.selectedTools.map((tool) => [tool.name, tool]));
+  const acceptedFutureToolDecision = toolCallDecision.decideToolCallRequest({
+    requestedCall: { name: "future_extension_tool", arguments: { query: "alpha" } },
+    selectedToolNames: futureContext.selectedToolNames,
+    selectedToolNamesList: futureSelectedToolNamesList,
+    selectedToolByName: futureSelectedToolByName,
+    canRepair: true,
+  });
+  assert.equal(acceptedFutureToolDecision.kind, "accept");
+  assert.deepEqual(acceptedFutureToolDecision.argumentValidationWarnings, []);
+
+  const hiddenFutureToolDecision = toolCallDecision.decideToolCallRequest({
+    requestedCall: { name: "future_hidden_tool", arguments: { query: "alpha" } },
+    selectedToolNames: futureContext.selectedToolNames,
+    selectedToolNamesList: futureSelectedToolNamesList,
+    selectedToolByName: futureSelectedToolByName,
+    canRepair: true,
+  });
+  assert.equal(hiddenFutureToolDecision.kind, "repair");
+  assert.equal(hiddenFutureToolDecision.event, "recovery.unknown_tool");
+  assert.match(hiddenFutureToolDecision.prompt, /xtalpi-pi-tools-unknown-tool-repair/);
+  const hiddenFutureAvailableNames = hiddenFutureToolDecision.prompt.split("Available tool names:\n")[1] || "";
+  assert.ok(hiddenFutureAvailableNames.includes('"future_extension_tool"'));
+  assert.ok(!hiddenFutureAvailableNames.includes('"future_hidden_tool"'));
+
   const turnDebugEnvNames = [
     "XTALPI_PI_TOOLS_TIMEOUT_MS",
     "XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS",

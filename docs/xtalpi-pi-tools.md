@@ -104,6 +104,21 @@ pi-67 时把晶泰 provider 误切到 Responses API。
 一定“可调用”：必须同时满足 Pi 已注册进 `context.tools`、没有被当前 mode/flag 禁用、并且
 selected-tool 白名单把该工具展示给模型。
 
+`xtalpi-pi-tools` 不维护固定 extension allowlist。每一轮都会从 Pi runtime 传入的
+`context.tools` 动态读取工具名、描述和参数 schema，再按当前 user prompt 做 selected-tool
+ranking。因此以后安装新 extension 时，只要它在当前 turn 通过 `registerTool` 出现在
+`context.tools`，provider 不需要改代码就能识别；若 `XTALPI_PI_TOOLS_MAX_TOOLS`
+设置过低，且 prompt 没提到新工具名或语义，新工具可能被本轮 omitted，这表示它没有展示给模型，
+不是 provider 不认识它。被 omitted 的工具即使被模型猜中名称也不会执行，unknown-tool repair
+只会列出本轮 selected tool names。
+
+新增 extension 的验收顺序建议：
+
+1. 先跑静态覆盖面审计，确认 package 已安装且存在 model-callable surface。
+2. 用 `--tools new_tool_name` 加一个 targeted smoke，只允许该工具执行。
+3. 验证通过后再考虑是否需要进入常规 release gate；交互、写入、浏览器、图片、子代理、
+   长循环或外部认证类工具默认保留 targeted-only，不进入 full-suite。
+
 只读覆盖面审计：
 
 ```bash
@@ -253,6 +268,9 @@ extensions/xtalpi-pi-tools/fixtures/replay-cases.json
 - tool result prompt-injection / 协议边界中和（含带属性与残缺协议标签变体、`[previous_pi_tool_call]` bracket markers）
 - tool metadata / repair prompt 协议边界中和
 - unknown-tool repair 只回显本轮 selected tools，不暴露未展示工具名
+- future extension dynamic discovery：未知的新工具只要出现在 `context.tools` 且被 prompt
+  选中，就会被序列化、纳入 selected-tool whitelist 并通过本地参数校验；未展示的新工具会走
+  unknown-tool repair
 - accidental native `assistant.tool_calls` 兼容层：空 `content` 可转成本地文本协议；坏 `function.arguments` 必须触发 repair，不能静默执行 `{}`
 - payload 不包含 `tools`、`tool_choice`、`parallel_tool_calls`、`thinking`、`reasoning_effort`
 - payload 不包含 `role=tool`
@@ -264,39 +282,56 @@ extensions/xtalpi-pi-tools/fixtures/replay-cases.json
 - provider error contract validator self-test：已知坏 contract 的 manifest、code 集合、category、retryability、HTTP 映射和 range 顺序负向样例
 - provider-level body-read timeout regression：即使 `response.text()` 不响应 `AbortSignal`，也必须在 `XTALPI_PI_TOOLS_TIMEOUT_MS` 内归类为 `request_timeout`
 
+Windows PowerShell 的一等验证入口是 repo/endpoint contract smoke：
+
+```powershell
+Set-Location $env:USERPROFILE\.pi\agent
+.\scripts\pi67-smoke.ps1 -Ci
+```
+
+它验证 repo metadata、JSON、Node helpers、PowerShell portability 和 xtalpi
+`/chat/completions` endpoint contract，不调用真实模型，也不需要 Bash。
+下面的 xtalpi live smoke runner 目前仍是 Bash 脚本；Windows 上只有在显式具备
+Bash-compatible shell 时才运行，不把 Git Bash 当成默认前置条件。命令均假设已经在
+agent repo 根目录。
+
 只验证 smoke runner、smoke/debug-summary gate 本身，不调用真实模型：
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --self-test
-bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --self-test
-node ~/.pi/agent/scripts/pi67-xtalpi-provider-health.mjs --self-test
-node ~/.pi/agent/scripts/pi67-validate-xtalpi-provider-error-contract.mjs --self-test
-node ~/.pi/agent/scripts/pi67-validate-xtalpi-provider-error-contract.mjs
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --self-test
+bash ./scripts/pi67-xtalpi-pi-tools-debug-summary.sh --self-test
+node ./scripts/pi67-xtalpi-provider-health.mjs --self-test
+node ./scripts/pi67-validate-xtalpi-provider-error-contract.mjs --self-test
+node ./scripts/pi67-validate-xtalpi-provider-error-contract.mjs
 ```
 
 ## 真实冒烟测试
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh
 ```
 
 定位单个慢 case 或排查外部 provider 波动时，可以只跑目标 case：
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --list-cases
-bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --case web-read
-bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --case no-tool,read
-bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --case tool-selection-clipping
-bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --case tool-selection-continuation
-bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --case tool-result-injection
-bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --case fffind-package,ffgrep-package
-bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --case batch-web-fetch-example
-bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --case seq-thinking-status
-XTALPI_PI_TOOLS_SMOKE_CASES=web-read bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --list-cases
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case web-read
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case no-tool,read
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case tool-selection-clipping
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case tool-selection-continuation
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case tool-result-injection
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case fffind-package,ffgrep-package
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case batch-web-fetch-example
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case seq-thinking-status
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case mcp-status
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case subagent-list
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case recall-not-found
+XTALPI_PI_TOOLS_SMOKE_CASES=web-read bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh
 ```
 
-`fffind-package`、`ffgrep-package`、`batch-web-fetch-example` 和
-`seq-thinking-status` 是 targeted-only extension live smoke case；默认不加入
+`fffind-package`、`ffgrep-package`、`batch-web-fetch-example`、`seq-thinking-status`、
+`mcp-status`、`subagent-list` 和 `recall-not-found` 是 targeted-only extension
+live smoke case；默认不加入
 8-case full-suite，避免常规发布门被文件索引、外部 fetch 或 extension 专项
 状态放慢。需要验证 xtalpi-pi-tools 对 extension tools 的真实调用链路时显式
 用 `--case` 选择它们。
@@ -306,10 +341,9 @@ live smoke 子进程默认以脚本所在仓库根目录作为 `PI_AGENT_DIR` / 
 case 要求 `read.path` 严格等于 cwd-relative `package.json`，不依赖
 `$HOME/.pi/agent`、Mac `/Users/...` 路径或 npm package 的物理安装目录，
 因此安装到不同 HOME、Windows PowerShell 的 `$env:USERPROFILE\.pi\agent`
-或 Linux/macOS 的 `~/.pi/agent` 路径时不需要改 prompt。Windows 用户可以
-先用 `.\scripts\pi67-smoke.ps1 -Ci` 验证 repo metadata、JSON、Node helpers
-和 xtalpi `/chat/completions` endpoint contract；该验证入口不要求额外
-Unix-like shell。
+或 Linux/macOS 的 `~/.pi/agent` 路径时不需要改 prompt。Windows 用户先用
+PowerShell `.\scripts\pi67-smoke.ps1 -Ci` 验证 repo metadata、JSON、Node helpers
+和 xtalpi `/chat/completions` endpoint contract；该验证入口不要求额外 Unix-like shell。
 
 覆盖：
 
@@ -335,6 +369,14 @@ targeted extension cases 覆盖：
 - `seq-thinking-status`：只允许执行 `get_thinking_status`，并通过临时
   `MCP_STORAGE_DIR` 隔离 sequential-thinking 存储状态，不读取或写入用户默认
   thinking history；不依赖当前 Pi help 中的 `--seq-think-*` flag 展示。
+- `mcp-status`：只允许执行 `mcp({})`，查看 MCP gateway/status；不 connect、
+  auth 或 call 任意 MCP server/tool。该 case 覆盖 `pi-mcp-adapter` 的 gateway
+  工具链路，不证明 dynamic direct MCP tools 已可调用。
+- `subagent-list`：只允许执行 `subagent({"action":"list"})`，读取 agent/chain
+  管理列表；不执行 agent、task、chain、parallel、resume、interrupt 或 append-step。
+- `recall-not-found`：只允许执行 `recall({"id":"deadbeef0000"})`，用 sentinel
+  12 位 hex id 验证 observational-memory recall 工具链路；预期可以返回 not found，
+  不读取真实 observation 内容。
 
 冒烟脚本会校验预期工具是否真的执行：无工具 case 必须没有 `tool_execution_start`；`bash` / `read` / web-read / tool-selection-clipping / tool-selection-continuation / tool-result-injection / targeted extension case 必须出现对应工具执行事件，避免把函数式伪调用文本或空工具路径误判为成功。package metadata 相关 case 还要求实际 `read.path` 等于 `package.json`，避免模型自行构造用户机器绝对路径却被误判为可移植通过。web-read case 通过 `--tools web_fetch,read` 和 `only:web_fetch,read` gate 限制实际工具边界，并要求最终答案包含 `Example Domain` 与本地包名 `pi-extensions`，避免把 404 / 空内容或只执行了工具但没有读懂结果误判为通过；tool-selection-clipping case 通过 `--tools read,bash,web_fetch` 加 per-case `XTALPI_PI_TOOLS_MAX_TOOLS=1` 验证 selected-tool clipping，要求实际只执行 `read`，且 debug telemetry 中 `tool_selection_clipped=true`、omitted tools 至少包含 `bash` 和 `web_fetch`；tool-selection-continuation case 复用同一临时 session 跑两轮，第一轮 `--no-tools` 只建立最近 user intent，第二轮 `继续` 才开启 `read,bash,web_fetch` 并强制 `XTALPI_PI_TOOLS_MAX_TOOLS=1`，要求实际只执行 `read`，且 debug telemetry 中至少一轮满足 `tool_selection_prompt_source=recent_user_continuation`、`tool_selection_user_messages>=2`；tool-result-injection case 通过 `--tools read` 和 `only:read` gate 证明 hostile tool output 不会诱导额外工具执行。
 

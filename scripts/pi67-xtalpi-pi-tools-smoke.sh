@@ -49,6 +49,9 @@ AVAILABLE_CASES=(
   ffgrep-package
   batch-web-fetch-example
   seq-thinking-status
+  mcp-status
+  subagent-list
+  recall-not-found
 )
 REQUESTED_CASES=()
 SELECTED_CASES=()
@@ -88,7 +91,7 @@ print_cases() {
 
 case_name_is_valid() {
   case "$1" in
-    no-tool | bash | read | bash-read | web-read | tool-selection-clipping | tool-selection-continuation | tool-result-injection | fffind-package | ffgrep-package | batch-web-fetch-example | seq-thinking-status) return 0 ;;
+    no-tool | bash | read | bash-read | web-read | tool-selection-clipping | tool-selection-continuation | tool-result-injection | fffind-package | ffgrep-package | batch-web-fetch-example | seq-thinking-status | mcp-status | subagent-list | recall-not-found) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -361,6 +364,9 @@ const requiredFinalTextByCase = {
   "ffgrep-package": ["EXTENSION_SMOKE_FFGREP_OK", "pi-extensions"],
   "batch-web-fetch-example": ["EXTENSION_SMOKE_BATCH_FETCH_OK", "Example Domain"],
   "seq-thinking-status": ["EXTENSION_SMOKE_SEQ_STATUS_OK"],
+  "mcp-status": ["EXTENSION_SMOKE_MCP_STATUS_OK", "MCP"],
+  "subagent-list": ["EXTENSION_SMOKE_SUBAGENT_LIST_OK"],
+  "recall-not-found": ["EXTENSION_SMOKE_RECALL_NOT_FOUND_OK"],
 };
 const requiredFinalText = requiredFinalTextByCase[caseName] || [];
 const missingFinalText = requiredFinalText.filter((text) => !finalText.includes(text));
@@ -892,7 +898,18 @@ const noTools = args.includes("--no-tools");
 const tools = noTools
   ? []
   : optionValue("--tools").split(",").map((tool) => tool.trim()).filter(Boolean);
-const selected = ["read", "bash", "web_fetch", "fffind", "ffgrep", "batch_web_fetch", "get_thinking_status"].filter((tool) => tools.includes(tool)).slice(0, 1);
+const selected = [
+  "read",
+  "bash",
+  "web_fetch",
+  "fffind",
+  "ffgrep",
+  "batch_web_fetch",
+  "get_thinking_status",
+  "mcp",
+  "subagent",
+  "recall",
+].filter((tool) => tools.includes(tool)).slice(0, 1);
 
 if (process.env.FAKE_PI_LOG) {
   fs.appendFileSync(process.env.FAKE_PI_LOG, JSON.stringify({
@@ -938,7 +955,13 @@ for (const toolName of selected) {
             ? { pattern: "pi-extensions", path: "package.json", limit: 5 }
             : toolName === "batch_web_fetch"
               ? { requests: [{ url: "https://example.com/", maxChars: 1000, timeoutMs: 20000 }] }
-              : {};
+              : toolName === "mcp"
+                ? {}
+                : toolName === "subagent"
+                  ? { action: "list" }
+                  : toolName === "recall"
+                    ? { id: "deadbeef0000" }
+                    : {};
   console.log(JSON.stringify({ type: "tool_execution_start", toolName, args: toolArgs }));
 }
 
@@ -950,6 +973,12 @@ const finalText = selected.includes("fffind")
       ? "EXTENSION_SMOKE_BATCH_FETCH_OK Example Domain"
       : selected.includes("get_thinking_status")
         ? "EXTENSION_SMOKE_SEQ_STATUS_OK"
+        : selected.includes("mcp")
+          ? "EXTENSION_SMOKE_MCP_STATUS_OK MCP"
+          : selected.includes("subagent")
+            ? "EXTENSION_SMOKE_SUBAGENT_LIST_OK"
+            : selected.includes("recall")
+              ? "EXTENSION_SMOKE_RECALL_NOT_FOUND_OK"
         : selected.length
           ? "fake final answer using " + selected.join(",")
           : "fake no-tool final answer";
@@ -1023,7 +1052,7 @@ NODE
     XTALPI_PI_TOOLS_SMOKE_SUMMARY_FILE="$extension_runner_summary" \
     FAKE_PI_LOG="$extension_fake_pi_log" \
     CASE_TIMEOUT_SECONDS=10 \
-    "$smoke_script" --case fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status 2>&1)"; then
+    "$smoke_script" --case fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found 2>&1)"; then
     echo "$extension_runner_output"
     return 1
   fi
@@ -1039,15 +1068,26 @@ const invocations = fs.readFileSync(logFile, "utf8").trim().split(/\n/).filter(B
 const byTool = new Map(invocations.map((item) => [item.selected[0], item]));
 assert(summary.ok === true, "extension runner summary should pass");
 assert(
-  JSON.stringify(summary.selectedCases) === JSON.stringify(["fffind-package", "ffgrep-package", "batch-web-fetch-example", "seq-thinking-status"]),
+  JSON.stringify(summary.selectedCases) === JSON.stringify([
+    "fffind-package",
+    "ffgrep-package",
+    "batch-web-fetch-example",
+    "seq-thinking-status",
+    "mcp-status",
+    "subagent-list",
+    "recall-not-found",
+  ]),
   "extension selected case order drifted",
 );
 assert(summary.runKind === "targeted", "extension smoke should be classified as targeted");
-assert(invocations.length === 4, "fake PI should be invoked once per extension case");
+assert(invocations.length === 7, "fake PI should be invoked once per extension case");
 assert(byTool.has("fffind"), "fffind case did not select fffind");
 assert(byTool.has("ffgrep"), "ffgrep case did not select ffgrep");
 assert(byTool.has("batch_web_fetch"), "batch_web_fetch case did not select batch_web_fetch");
 assert(byTool.has("get_thinking_status"), "seq-thinking case did not select get_thinking_status");
+assert(byTool.has("mcp"), "mcp-status case did not select mcp");
+assert(byTool.has("subagent"), "subagent-list case did not select subagent");
+assert(byTool.has("recall"), "recall-not-found case did not select recall");
 for (const tool of ["fffind", "ffgrep"]) {
   const item = byTool.get(tool);
   assert(!item.args.includes("--fff-mode"), `${tool} case should not pass --fff-mode`);
@@ -1062,6 +1102,9 @@ assert(!seqItem.args.some((arg) => arg.includes("seq-think-storage-dir")), "seq-
 assert(seqItem.env.MCP_STORAGE_DIR.includes("seq-thinking-status-storage"), "seq-thinking case should export MCP_STORAGE_DIR");
 assert(seqItem.env.SEQ_THINK_MAX_BYTES === "51200", "seq-thinking case should export SEQ_THINK_MAX_BYTES");
 assert(seqItem.env.SEQ_THINK_MAX_LINES === "2000", "seq-thinking case should export SEQ_THINK_MAX_LINES");
+assert(JSON.stringify(byTool.get("mcp").selected) === JSON.stringify(["mcp"]), "mcp case should select only mcp");
+assert(byTool.get("subagent").prompt.includes('{"action":"list"}'), "subagent case should require action=list");
+assert(byTool.get("recall").prompt.includes("deadbeef0000"), "recall case should use sentinel id");
 NODE
     echo "$extension_runner_output"
     return 1
@@ -1808,6 +1851,12 @@ run_selected_case_with_env \
   "这是 targeted extension smoke。请只使用 get_thinking_status 工具读取 sequential-thinking 的内容无关存储状态；不要调用 process_thought、sequential_think、get_thinking_history、read、bash 或其他工具。最后用一句话总结，必须原样包含 EXTENSION_SMOKE_SEQ_STATUS_OK。" \
   "all:get_thinking_status;only:get_thinking_status" \
   --tools get_thinking_status || failures=$((failures + 1))
+
+run_selected_case "mcp-status" "这是 targeted extension smoke。请只使用 mcp 工具查看 MCP gateway/status，参数必须是空对象 {}。不要 connect、auth、call 任何 MCP server/tool，不要调用 read、bash、web_fetch 或其他工具。最后用一句话总结，必须原样包含 EXTENSION_SMOKE_MCP_STATUS_OK 和 MCP。" "all:mcp;only:mcp" --tools mcp || failures=$((failures + 1))
+
+run_selected_case "subagent-list" "这是 targeted extension smoke。请只使用 subagent 工具执行只读 management action list，参数必须是 {\"action\":\"list\"}。不要执行 agent、task、chain、tasks、parallel、resume、interrupt 或 append-step，不要触发子代理运行，不要调用 read、bash、web_fetch 或其他工具。最后用一句话总结，必须原样包含 EXTENSION_SMOKE_SUBAGENT_LIST_OK。" "all:subagent;only:subagent" --tools subagent || failures=$((failures + 1))
+
+run_selected_case "recall-not-found" "这是 targeted extension smoke。请只使用 recall 工具查询 observation id \"deadbeef0000\"；该 id 是 smoke sentinel，结果可以是 not found。不要调用 read、bash、web_fetch 或其他工具，不要尝试搜索其他 memory。最后用一句话总结，必须原样包含 EXTENSION_SMOKE_RECALL_NOT_FOUND_OK。" "all:recall;only:recall" --tools recall || failures=$((failures + 1))
 
 run_selected_case_with_max_tools 1 "tool-selection-clipping" "请使用 read 工具读取当前工作区相对路径 package.json；read 的 path 参数必须严格等于 \"package.json\"，不要使用绝对路径。然后用一句话说出包名和版本。本 case 用于验证本地工具选择截断遥测；只根据可用工具完成任务。" "all:read;only:read" --tools read,bash,web_fetch || failures=$((failures + 1))
 
