@@ -405,7 +405,10 @@ targeted extension cases 覆盖：
 另有离线 provider-turn 回归使用 MCP direct-tool 形态的 `dyn_echo_ping` fixture，
 验证“运行时新增工具已经进入 `context.tools`”这一边界：`xtalpi-pi-tools` 会从当前
 turn 的工具表里选中该动态工具、只把选中的工具暴露给模型，并把模型输出重新映射为
-本地 Pi tool call。真实 MCP server 的连接、OAuth、metadata cache 刷新和 direct-tool
+本地 Pi tool call。静态测试还覆盖一个两轮 round-trip：第一轮模型请求 `dyn_echo_ping`，
+第二轮把假 Pi runtime 返回的 `DYN_ECHO_PING_SENTINEL` 作为 `content_is_untrusted`
+工具结果回灌，确认请求体仍不包含 OpenAI native `tools` / `role=tool`，并且最终回答
+基于该 sentinel。真实 MCP server 的连接、OAuth、metadata cache 刷新和 direct-tool
 注册仍由 `pi-mcp-adapter` 负责；因此新增 MCP 工具的现场验证顺序是先让 adapter
 刷新出 direct tool，再用 `--tools <new_tool_name>` 做 targeted smoke。
 

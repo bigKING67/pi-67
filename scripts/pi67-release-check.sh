@@ -237,6 +237,12 @@ else
   fail "xtalpi-pi-tools provider error contract is not documented"
 fi
 
+if grep -q "dyn_echo_ping" "$XTALPI_PI_TOOLS_TEST" && grep -q "DYN_ECHO_PING_SENTINEL" "$XTALPI_PI_TOOLS_TEST" && grep -q "round-trip" "$REPO_ROOT/README.md" && grep -q "DYN_ECHO_PING_SENTINEL" "$XTALPI_PI_TOOLS_DOC"; then
+  pass "xtalpi-pi-tools dynamic MCP direct-tool round-trip regression is documented"
+else
+  fail "xtalpi-pi-tools dynamic MCP direct-tool round-trip regression is missing or not documented"
+fi
+
 if grep -q '"defaultProvider": "xtalpi-pi-tools"' "$REPO_ROOT/settings.json" && grep -q '"xtalpi-pi-tools"' "$REPO_ROOT/models.example.json" && ! grep -q '"xtalpi-tools"' "$REPO_ROOT/models.example.json"; then
   pass "xtalpi-pi-tools is the only xtalpi provider template"
 else

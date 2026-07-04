@@ -454,8 +454,9 @@ extension 工具识别不是写死名单：provider 每轮从 Pi runtime 的 `co
 不要直接放进 full-suite release gate。
 当前离线回归里也有一个 MCP direct-tool 形态的 `dyn_echo_ping` fixture，用来证明
 未来 MCP direct tool 进入 `context.tools` 后会被 selected-tool ranking 选中并作为
-本地 Pi 工具调用返回；真实 MCP server 的连接、鉴权和 cache 刷新仍由 `pi-mcp-adapter`
-负责。
+本地 Pi 工具调用返回；同时还有一个两轮 round-trip 回归，覆盖“模型请求动态工具 ->
+Pi 本地工具结果以不可信文本回灌 -> 模型基于 sentinel 给最终回答”的闭环。真实 MCP
+server 的连接、鉴权和 cache 刷新仍由 `pi-mcp-adapter` 负责。
 
 Windows PowerShell 的一等验证入口是 repo/endpoint contract smoke：
 

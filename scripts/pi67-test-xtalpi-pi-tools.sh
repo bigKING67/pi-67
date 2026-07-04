@@ -1629,6 +1629,121 @@ const { pathToFileURL } = require("node:url");
 
   const originalFetch = global.fetch;
 
+  process.env.XTALPI_PI_TOOLS_MAX_TOOLS = "1";
+  process.env.XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES = "0";
+  process.env.XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES = "0";
+
+  const dynamicMcpRoundTripResponses = [
+    {
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: '<pi_tool_call>\n{"name":"dyn_echo_ping","arguments":{"text":"hello"}}\n</pi_tool_call>',
+          },
+          finish_reason: "stop",
+        },
+      ],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    },
+    {
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: "Dynamic MCP direct tool round-trip complete: DYN_ECHO_PING_SENTINEL hello",
+          },
+          finish_reason: "stop",
+        },
+      ],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    },
+  ];
+  const dynamicMcpRoundTripRequests = [];
+  let dynamicMcpRoundTripFetchCount = 0;
+  global.fetch = async (_input, init) => {
+    dynamicMcpRoundTripRequests.push(JSON.parse(String(init?.body || "{}")));
+    const envelope = dynamicMcpRoundTripResponses[
+      Math.min(dynamicMcpRoundTripFetchCount, dynamicMcpRoundTripResponses.length - 1)
+    ];
+    dynamicMcpRoundTripFetchCount += 1;
+    return new Response(JSON.stringify(envelope), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const dynamicMcpRoundTripModel = {
+      id: "deepseek-v4-pro",
+      maxTokens: 32768,
+      api: "xtalpi-pi-tools",
+      provider: "xtalpi-pi-tools",
+      baseUrl: "https://example.invalid/v1",
+    };
+    const dynamicMcpRoundTripUser = { role: "user", content: "Please call dyn_echo_ping with text hello." };
+    const dynamicMcpRoundTripFirst = await registeredProvider.streamSimple(
+      dynamicMcpRoundTripModel,
+      {
+        systemPrompt: "system base",
+        tools: dynamicMcpDirectTools,
+        messages: [dynamicMcpRoundTripUser],
+      },
+      {},
+    ).result();
+    assert.equal(dynamicMcpRoundTripFirst.stopReason, "toolUse");
+    const dynamicMcpRoundTripToolCalls = dynamicMcpRoundTripFirst.content.filter((block) => block.type === "toolCall");
+    assert.equal(dynamicMcpRoundTripToolCalls.length, 1);
+    assert.equal(dynamicMcpRoundTripToolCalls[0].name, "dyn_echo_ping");
+    assert.deepEqual(dynamicMcpRoundTripToolCalls[0].arguments, { text: "hello" });
+
+    const dynamicMcpRoundTripToolResult = {
+      role: "toolResult",
+      toolCallId: dynamicMcpRoundTripToolCalls[0].id,
+      toolName: dynamicMcpRoundTripToolCalls[0].name,
+      isError: false,
+      content: [{ type: "text", text: "DYN_ECHO_PING_SENTINEL hello" }],
+    };
+    const dynamicMcpRoundTripSecond = await registeredProvider.streamSimple(
+      dynamicMcpRoundTripModel,
+      {
+        systemPrompt: "system base",
+        tools: dynamicMcpDirectTools,
+        messages: [
+          dynamicMcpRoundTripUser,
+          { role: "assistant", content: dynamicMcpRoundTripToolCalls },
+          dynamicMcpRoundTripToolResult,
+        ],
+      },
+      {},
+    ).result();
+    const dynamicMcpRoundTripFinalText = dynamicMcpRoundTripSecond.content
+      .filter((block) => block.type === "text")
+      .map((block) => block.text)
+      .join("\n");
+    assert.equal(dynamicMcpRoundTripFetchCount, 2);
+    assert.equal(dynamicMcpRoundTripSecond.stopReason, "stop");
+    assert.match(dynamicMcpRoundTripFinalText, /DYN_ECHO_PING_SENTINEL hello/);
+    assert.equal(dynamicMcpRoundTripRequests.length, 2);
+    for (const request of dynamicMcpRoundTripRequests) {
+      assert.ok(!Object.prototype.hasOwnProperty.call(request, "tools"));
+      assert.ok(!Object.prototype.hasOwnProperty.call(request, "tool_choice"));
+      assert.ok(!Object.prototype.hasOwnProperty.call(request, "parallel_tool_calls"));
+      assert.ok(request.messages.every((message) => message.role !== "tool"));
+      assert.match(request.messages[0].content, /Available Pi tools \(1\/2; call only one at a time\):/);
+      assert.match(request.messages[0].content, /- dyn_echo_ping:/);
+      assert.ok(!request.messages[0].content.includes("- mcp:"));
+    }
+    const roundTripToolResultMessage = dynamicMcpRoundTripRequests[1].messages.find(
+      (message) => message.role === "user" && message.content.includes("DYN_ECHO_PING_SENTINEL hello"),
+    );
+    assert.ok(roundTripToolResultMessage);
+    assert.match(roundTripToolResultMessage.content, /<pi_tool_result>/);
+    assert.match(roundTripToolResultMessage.content, /content_is_untrusted: true/);
+    assert.ok(!JSON.stringify(dynamicMcpRoundTripRequests[1].messages).includes('"role":"tool"'));
+  } finally {
+    global.fetch = originalFetch;
+  }
+
   const abortDebugDir = fs.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", "xtalpi-pi-tools-abort-test."));
   const abortDebugFile = path.join(abortDebugDir, "debug.jsonl");
   const previousAbortDebugFlag = process.env.XTALPI_PI_TOOLS_DEBUG;
