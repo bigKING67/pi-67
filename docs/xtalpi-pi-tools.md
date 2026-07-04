@@ -120,8 +120,9 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-tool-coverage-audit.sh --include pi-rules-l
 - command / shortcut / hook only，例如 `/btw`、`/rewind`、`/simplify`
 - dynamic tools，例如 `pi-mcp-adapter` 的 direct MCP tools，实际名称取决于
   `mcp.json`、metadata cache、环境变量和认证状态
-- missing expected targets，例如用户手动指定 `--include pi-rules-loader` 时，如果当前
-  `settings.json` 没安装独立 package，会显示为 `missing`
+- local hook-only extensions，例如手动指定 `--include pi-rules-loader` 时会检查
+  `extensions/pi-rules-loader`，该 extension 只注入 rules index，不是 model-callable
+  tool
 
 该脚本是静态审计，不执行 extension tool，不打开浏览器，不触发子代理，不发起图片生成，
 也不读取 cookie/session store。高风险或交互型工具需要单独的 targeted smoke，例如：

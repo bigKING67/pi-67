@@ -226,6 +226,12 @@ const KNOWN = {
     risk: "low",
     notes: ["installed theme surface, not an xtalpi tool-calling target"],
   },
+  "local:extensions/pi-rules-loader": {
+    packageName: "pi-rules-loader",
+    safeSmoke: "hook-only; injects rule index into system prompt, not directly model-callable",
+    risk: "low",
+    notes: ["local extension loaded from extensions/pi-rules-loader rather than npm packages"],
+  },
 };
 
 const TARGET_ALIASES = {
@@ -247,7 +253,7 @@ const TARGET_ALIASES = {
   "pi-mcp-adapter": "npm:pi-mcp-adapter",
   "pi-markdown-preview": "npm:pi-markdown-preview",
   "@juicesharp/rpiv-ask-user-question": "npm:@juicesharp/rpiv-ask-user-question",
-  "pi-rules-loader": "npm:pi-rules-loader",
+  "pi-rules-loader": "local:extensions/pi-rules-loader",
 };
 
 function readJson(file) {
@@ -276,6 +282,14 @@ function specToDir(spec) {
   if (spec.startsWith("git:github.com/")) return path.join(agentDir, "git", "github.com", spec.slice("git:github.com/".length));
   if (spec.startsWith("local:")) return path.resolve(agentDir, spec.slice("local:".length));
   return path.join(agentDir, "npm", "node_modules", spec);
+}
+
+function fallbackPackageName(spec, known = {}) {
+  if (known.packageName) return known.packageName;
+  return spec
+    .replace(/^npm:/, "")
+    .replace(/^git:github\.com\//, "")
+    .replace(/^local:/, "");
 }
 
 function walkFiles(dir) {
@@ -377,7 +391,7 @@ function packageEntry(spec, source) {
       source,
       installed: false,
       root: displayPath(root),
-      packageName: spec.replace(/^npm:/, "").replace(/^git:github\.com\//, ""),
+      packageName: fallbackPackageName(spec, known),
       version: null,
       modelCallableTools: [],
       commands: [],
@@ -443,7 +457,7 @@ function packageEntry(spec, source) {
     source,
     installed,
     root: displayPath(root),
-    packageName: pkg.name || spec.replace(/^npm:/, "").replace(/^git:github\.com\//, ""),
+    packageName: pkg.name || fallbackPackageName(spec, known),
     version: pkg.version || null,
     modelCallableTools: tools,
     commands,
