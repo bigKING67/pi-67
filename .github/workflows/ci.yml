@@ -17,6 +17,12 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Install Pi extension dependencies
+        run: |
+          mkdir -p npm
+          cp package.json npm/package.json
+          npm --prefix npm install --ignore-scripts
+
       - name: Run pi-67 smoke
         run: bash scripts/pi67-smoke.sh --ci
 
