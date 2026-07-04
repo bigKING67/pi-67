@@ -35,7 +35,21 @@ COMMON_BASE_ARGS=(
 )
 COMMON_ARGS=("${COMMON_BASE_ARGS[@]}" --no-session)
 
-AVAILABLE_CASES=(no-tool bash read bash-read web-read tool-selection-clipping tool-selection-continuation tool-result-injection)
+DEFAULT_CASES=(no-tool bash read bash-read web-read tool-selection-clipping tool-selection-continuation tool-result-injection)
+AVAILABLE_CASES=(
+  no-tool
+  bash
+  read
+  bash-read
+  web-read
+  tool-selection-clipping
+  tool-selection-continuation
+  tool-result-injection
+  fffind-package
+  ffgrep-package
+  batch-web-fetch-example
+  seq-thinking-status
+)
 REQUESTED_CASES=()
 SELECTED_CASES=()
 EXPECTED_CASES=0
@@ -74,9 +88,20 @@ print_cases() {
 
 case_name_is_valid() {
   case "$1" in
-    no-tool | bash | read | bash-read | web-read | tool-selection-clipping | tool-selection-continuation | tool-result-injection) return 0 ;;
+    no-tool | bash | read | bash-read | web-read | tool-selection-clipping | tool-selection-continuation | tool-result-injection | fffind-package | ffgrep-package | batch-web-fetch-example | seq-thinking-status) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+default_case_contains() {
+  local needle="$1"
+  local existing
+  for existing in "${DEFAULT_CASES[@]}"; do
+    if [ "$existing" = "$needle" ]; then
+      return 0
+    fi
+  done
+  return 1
 }
 
 case_filter_contains() {
@@ -121,7 +146,8 @@ add_case_filter() {
 case_is_requested() {
   local name="$1"
   if [ "$REQUESTED_CASE_FILTER_ACTIVE" -eq 0 ]; then
-    return 0
+    default_case_contains "$name"
+    return $?
   fi
   case_filter_contains "$name"
 }
@@ -331,6 +357,10 @@ const finalText = Array.isArray(final?.content)
 const requiredFinalTextByCase = {
   "web-read": ["Example Domain", "pi-extensions"],
   "tool-result-injection": ["PI_TOOL_RESULT_INJECTION_CANARY"],
+  "fffind-package": ["EXTENSION_SMOKE_FFFIND_OK", "package.json"],
+  "ffgrep-package": ["EXTENSION_SMOKE_FFGREP_OK", "pi-extensions"],
+  "batch-web-fetch-example": ["EXTENSION_SMOKE_BATCH_FETCH_OK", "Example Domain"],
+  "seq-thinking-status": ["EXTENSION_SMOKE_SEQ_STATUS_OK"],
 };
 const requiredFinalText = requiredFinalTextByCase[caseName] || [];
 const missingFinalText = requiredFinalText.filter((text) => !finalText.includes(text));
@@ -799,6 +829,10 @@ if (data.postAgentEndLingerSeconds !== 30) throw new Error("unexpected postAgent
 
   REQUESTED_CASES=()
   REQUESTED_CASE_FILTER_ACTIVE=0
+  if ! case_is_requested "no-tool" || ! case_is_requested "tool-result-injection" || case_is_requested "fffind-package"; then
+    echo "default case selection should keep extension smoke cases targeted-only"
+    return 1
+  fi
   if ! add_case_filter "no-tool,web-read"; then
     echo "expected comma-separated case filter to parse"
     return 1
@@ -819,7 +853,11 @@ if (data.postAgentEndLingerSeconds !== 30) throw new Error("unexpected postAgent
   local fake_pi_log="$tmp_dir/fake-pi-invocations.jsonl"
   local runner_out_dir="$tmp_dir/runner-out"
   local runner_summary="$tmp_dir/runner-summary.json"
+  local extension_runner_out_dir="$tmp_dir/extension-runner-out"
+  local extension_runner_summary="$tmp_dir/extension-runner-summary.json"
+  local extension_fake_pi_log="$tmp_dir/extension-fake-pi-invocations.jsonl"
   local runner_output
+  local extension_runner_output
   local invalid_output
   local invalid_status=0
   local invalid_debug_output
@@ -854,13 +892,7 @@ const noTools = args.includes("--no-tools");
 const tools = noTools
   ? []
   : optionValue("--tools").split(",").map((tool) => tool.trim()).filter(Boolean);
-const selected = tools.includes("read")
-  ? ["read"]
-  : tools.includes("bash")
-    ? ["bash"]
-    : tools.includes("web_fetch")
-      ? ["web_fetch"]
-      : [];
+const selected = ["read", "bash", "web_fetch", "fffind", "ffgrep", "batch_web_fetch", "get_thinking_status"].filter((tool) => tools.includes(tool)).slice(0, 1);
 
 if (process.env.FAKE_PI_LOG) {
   fs.appendFileSync(process.env.FAKE_PI_LOG, JSON.stringify({
@@ -869,6 +901,14 @@ if (process.env.FAKE_PI_LOG) {
     noTools,
     tools,
     selected,
+    env: {
+      PI_FFF_MODE: process.env.PI_FFF_MODE || "",
+      FFF_FRECENCY_DB: process.env.FFF_FRECENCY_DB || "",
+      FFF_HISTORY_DB: process.env.FFF_HISTORY_DB || "",
+      MCP_STORAGE_DIR: process.env.MCP_STORAGE_DIR || "",
+      SEQ_THINK_MAX_BYTES: process.env.SEQ_THINK_MAX_BYTES || "",
+      SEQ_THINK_MAX_LINES: process.env.SEQ_THINK_MAX_LINES || "",
+    },
     prompt: optionValue("-p"),
   }) + "\\n");
 }
@@ -890,15 +930,35 @@ for (const toolName of selected) {
     ? { command: "pwd" }
     : toolName === "read"
       ? { path: "package.json" }
-      : { url: "https://example.invalid" };
+      : toolName === "web_fetch"
+        ? { url: "https://example.invalid" }
+        : toolName === "fffind"
+          ? { pattern: "package.json", limit: 5 }
+          : toolName === "ffgrep"
+            ? { pattern: "pi-extensions", path: "package.json", limit: 5 }
+            : toolName === "batch_web_fetch"
+              ? { requests: [{ url: "https://example.com/", maxChars: 1000, timeoutMs: 20000 }] }
+              : {};
   console.log(JSON.stringify({ type: "tool_execution_start", toolName, args: toolArgs }));
 }
+
+const finalText = selected.includes("fffind")
+  ? "EXTENSION_SMOKE_FFFIND_OK package.json"
+  : selected.includes("ffgrep")
+    ? "EXTENSION_SMOKE_FFGREP_OK pi-extensions"
+    : selected.includes("batch_web_fetch")
+      ? "EXTENSION_SMOKE_BATCH_FETCH_OK Example Domain"
+      : selected.includes("get_thinking_status")
+        ? "EXTENSION_SMOKE_SEQ_STATUS_OK"
+        : selected.length
+          ? "fake final answer using " + selected.join(",")
+          : "fake no-tool final answer";
 
 console.log(JSON.stringify({
   type: "agent_end",
   messages: [{
     role: "assistant",
-    content: [{ type: "text", text: selected.length ? "fake final answer using " + selected.join(",") : "fake no-tool final answer" }],
+    content: [{ type: "text", text: finalText }],
     stopReason: "stop",
   }],
 }));
@@ -953,6 +1013,57 @@ assert(invocations.some((item) => item.tools.join(",") === "read" && item.select
 assert(!invocations.some((item) => item.tools.includes("bash")), "unselected bash case should not run");
 NODE
     echo "$runner_output"
+    return 1
+  fi
+
+  if ! extension_runner_output="$(env \
+    PI_BIN="$fake_pi" \
+    OUT_DIR="$extension_runner_out_dir" \
+    XTALPI_PI_TOOLS_SMOKE_PREFLIGHT=0 \
+    XTALPI_PI_TOOLS_SMOKE_SUMMARY_FILE="$extension_runner_summary" \
+    FAKE_PI_LOG="$extension_fake_pi_log" \
+    CASE_TIMEOUT_SECONDS=10 \
+    "$smoke_script" --case fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status 2>&1)"; then
+    echo "$extension_runner_output"
+    return 1
+  fi
+
+  if ! node - "$extension_runner_summary" "$extension_fake_pi_log" <<'NODE'; then
+const fs = require("fs");
+const [summaryFile, logFile] = process.argv.slice(2);
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+const summary = JSON.parse(fs.readFileSync(summaryFile, "utf8"));
+const invocations = fs.readFileSync(logFile, "utf8").trim().split(/\n/).filter(Boolean).map((line) => JSON.parse(line));
+const byTool = new Map(invocations.map((item) => [item.selected[0], item]));
+assert(summary.ok === true, "extension runner summary should pass");
+assert(
+  JSON.stringify(summary.selectedCases) === JSON.stringify(["fffind-package", "ffgrep-package", "batch-web-fetch-example", "seq-thinking-status"]),
+  "extension selected case order drifted",
+);
+assert(summary.runKind === "targeted", "extension smoke should be classified as targeted");
+assert(invocations.length === 4, "fake PI should be invoked once per extension case");
+assert(byTool.has("fffind"), "fffind case did not select fffind");
+assert(byTool.has("ffgrep"), "ffgrep case did not select ffgrep");
+assert(byTool.has("batch_web_fetch"), "batch_web_fetch case did not select batch_web_fetch");
+assert(byTool.has("get_thinking_status"), "seq-thinking case did not select get_thinking_status");
+for (const tool of ["fffind", "ffgrep"]) {
+  const item = byTool.get(tool);
+  assert(!item.args.includes("--fff-mode"), `${tool} case should not pass --fff-mode`);
+  assert(!item.args.includes("--fff-frecency-db"), `${tool} case should not pass --fff-frecency-db`);
+  assert(!item.args.includes("--fff-history-db"), `${tool} case should not pass --fff-history-db`);
+  assert(item.env.PI_FFF_MODE === "tools-only", `${tool} case should export PI_FFF_MODE`);
+  assert(item.env.FFF_FRECENCY_DB.includes("fff-frecency.db"), `${tool} case should export FFF_FRECENCY_DB`);
+  assert(item.env.FFF_HISTORY_DB.includes("fff-history.db"), `${tool} case should export FFF_HISTORY_DB`);
+}
+const seqItem = byTool.get("get_thinking_status");
+assert(!seqItem.args.some((arg) => arg.includes("seq-think-storage-dir")), "seq-thinking case should not pass seq-think storage CLI flag");
+assert(seqItem.env.MCP_STORAGE_DIR.includes("seq-thinking-status-storage"), "seq-thinking case should export MCP_STORAGE_DIR");
+assert(seqItem.env.SEQ_THINK_MAX_BYTES === "51200", "seq-thinking case should export SEQ_THINK_MAX_BYTES");
+assert(seqItem.env.SEQ_THINK_MAX_LINES === "2000", "seq-thinking case should export SEQ_THINK_MAX_LINES");
+NODE
+    echo "$extension_runner_output"
     return 1
   fi
 
@@ -1335,6 +1446,62 @@ run_selected_case_with_max_tools() {
   return "$status"
 }
 
+run_selected_case_with_env() {
+  local env_pairs=()
+  local env_names=()
+  local env_previous_values=()
+  local env_had_values=()
+  local pair
+  local name
+  local value
+  local index
+  local status=0
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --)
+        shift
+        break
+        ;;
+      *=*)
+        env_pairs+=("$1")
+        shift
+        ;;
+      *)
+        echo "internal error: run_selected_case_with_env expected VAR=value before --, got: $1" >&2
+        return 2
+        ;;
+    esac
+  done
+
+  for pair in "${env_pairs[@]}"; do
+    name="${pair%%=*}"
+    value="${pair#*=}"
+    env_names+=("$name")
+    if [ "${!name+x}" ]; then
+      env_had_values+=("1")
+      env_previous_values+=("${!name}")
+    else
+      env_had_values+=("0")
+      env_previous_values+=("")
+    fi
+    export "$name=$value"
+  done
+
+  run_selected_case "$@" || status=$?
+
+  for index in "${!env_names[@]}"; do
+    name="${env_names[$index]}"
+    if [ "${env_had_values[$index]}" = "1" ]; then
+      export "$name=${env_previous_values[$index]}"
+    else
+      unset "$name"
+    fi
+  done
+
+  return "$status"
+}
+
 run_selected_continuation_case_with_max_tools() {
   local max_tools="$1"
   shift
@@ -1604,6 +1771,43 @@ run_selected_case "read" "请使用 read 工具读取当前工作区相对路径
 run_selected_case "bash-read" "这是严格工具顺序 smoke：第一步必须使用 bash 工具且 command 必须是 pwd；第二步必须使用 read 工具读取当前工作区相对路径 package.json，且 read 的 path 参数必须严格等于 \"package.json\"，不要使用绝对路径。禁止用 bash 执行 cat/ls/grep/读取文件。最后用两句话分别说明当前目录、包名和版本。" "all:bash,read" --tools bash,read || failures=$((failures + 1))
 
 run_selected_case "web-read" "请使用 web_fetch 读取 https://example.com/，并确认页面内容或标题里的英文短语 Example Domain；然后继续使用 read 读取当前工作区相对路径 package.json，且 read 的 path 参数必须严格等于 \"package.json\"，不要使用绝对路径。最后只用两句话总结：第一句话必须原样包含 Example Domain，第二句话必须原样包含本地 package name pi-extensions 和版本。不要搜索本机目录，不要读取 README.md；最终回答不要复述工具调用历史、previous_pi_tool_call 记录或任何 Pi 协议标记。" "all:web_fetch,read;only:web_fetch,read" --tools web_fetch,read || failures=$((failures + 1))
+
+FFF_FRECENCY_DB_FILE="$OUT_DIR/${STAMP}-fff-frecency.db"
+FFF_HISTORY_DB_FILE="$OUT_DIR/${STAMP}-fff-history.db"
+SEQ_THINK_STORAGE_DIR="$OUT_DIR/${STAMP}-seq-thinking-status-storage"
+mkdir -p "$SEQ_THINK_STORAGE_DIR"
+
+run_selected_case_with_env \
+  "PI_FFF_MODE=tools-only" \
+  "FFF_FRECENCY_DB=$FFF_FRECENCY_DB_FILE" \
+  "FFF_HISTORY_DB=$FFF_HISTORY_DB_FILE" \
+  -- \
+  "fffind-package" \
+  "这是 targeted extension smoke。请只使用 fffind 工具查找当前工作区里的 package.json；fffind 参数 pattern 必须是 \"package.json\"，limit 不超过 5。不要调用 read、bash、grep、web_fetch 或其他工具。最后用一句话总结，必须原样包含 EXTENSION_SMOKE_FFFIND_OK 和 package.json。" \
+  "all:fffind;only:fffind" \
+  --tools fffind || failures=$((failures + 1))
+
+run_selected_case_with_env \
+  "PI_FFF_MODE=tools-only" \
+  "FFF_FRECENCY_DB=$FFF_FRECENCY_DB_FILE" \
+  "FFF_HISTORY_DB=$FFF_HISTORY_DB_FILE" \
+  -- \
+  "ffgrep-package" \
+  "这是 targeted extension smoke。请只使用 ffgrep 工具在当前工作区相对路径 package.json 中搜索 pi-extensions；ffgrep 参数 pattern 必须是 \"pi-extensions\"，path 必须是 \"package.json\"，limit 不超过 5。不要调用 read、bash、find、web_fetch 或其他工具。最后用一句话总结，必须原样包含 EXTENSION_SMOKE_FFGREP_OK 和 pi-extensions。" \
+  "all:ffgrep;only:ffgrep" \
+  --tools ffgrep || failures=$((failures + 1))
+
+run_selected_case "batch-web-fetch-example" "这是 targeted extension smoke。请只使用 batch_web_fetch 工具读取 https://example.com/；requests 数组只放这个 URL，一个 request 内设置 maxChars 为 1000、timeoutMs 为 20000。不要调用 web_fetch、read、bash 或其他工具。最后用一句话总结，必须原样包含 EXTENSION_SMOKE_BATCH_FETCH_OK 和 Example Domain。" "all:batch_web_fetch;only:batch_web_fetch" --tools batch_web_fetch || failures=$((failures + 1))
+
+run_selected_case_with_env \
+  "MCP_STORAGE_DIR=$SEQ_THINK_STORAGE_DIR" \
+  "SEQ_THINK_MAX_BYTES=51200" \
+  "SEQ_THINK_MAX_LINES=2000" \
+  -- \
+  "seq-thinking-status" \
+  "这是 targeted extension smoke。请只使用 get_thinking_status 工具读取 sequential-thinking 的内容无关存储状态；不要调用 process_thought、sequential_think、get_thinking_history、read、bash 或其他工具。最后用一句话总结，必须原样包含 EXTENSION_SMOKE_SEQ_STATUS_OK。" \
+  "all:get_thinking_status;only:get_thinking_status" \
+  --tools get_thinking_status || failures=$((failures + 1))
 
 run_selected_case_with_max_tools 1 "tool-selection-clipping" "请使用 read 工具读取当前工作区相对路径 package.json；read 的 path 参数必须严格等于 \"package.json\"，不要使用绝对路径。然后用一句话说出包名和版本。本 case 用于验证本地工具选择截断遥测；只根据可用工具完成任务。" "all:read;only:read" --tools read,bash,web_fetch || failures=$((failures + 1))
 
