@@ -19,3 +19,18 @@ jobs:
 
       - name: Run pi-67 smoke
         run: bash scripts/pi67-smoke.sh --ci
+
+  windows-powershell-smoke:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Run pi-67 PowerShell smoke
+        shell: pwsh
+        run: .\scripts\pi67-smoke.ps1 -Ci

@@ -20,6 +20,69 @@ Missing API keys, local MCP repositories, or optional binaries are expected on a
 
 ## Install
 
+### Windows PowerShell first path
+
+On Windows, use PowerShell as the primary entrypoint. Do not assume an extra
+Unix-like shell is available.
+
+```powershell
+npm install -g @earendil-works/pi-coding-agent
+pi --version
+
+git clone https://github.com/bigKING67/pi-67.git $env:USERPROFILE\.pi\agent
+Set-Location $env:USERPROFILE\.pi\agent
+.\scripts\pi67-smoke.ps1 -Ci
+```
+
+`scripts\pi67-smoke.ps1` is a PowerShell-native repository validation. It does
+not call Bash and it does not write local Pi config.
+
+Until the install/update/doctor scripts have full PowerShell counterparts, use
+this minimal in-place bootstrap on a Windows laptop after cloning:
+
+```powershell
+Set-Location $env:USERPROFILE\.pi\agent
+
+foreach ($name in "models", "mcp", "auth", "image-gen") {
+  $source = ".\$name.example.json"
+  $target = ".\$name.json"
+  if (-not (Test-Path -LiteralPath $target)) {
+    Copy-Item -LiteralPath $source -Destination $target
+  }
+}
+
+$skillsRoot = Join-Path $env:USERPROFILE ".agents\skills"
+New-Item -ItemType Directory -Force -Path $skillsRoot | Out-Null
+Get-ChildItem -LiteralPath ".\shared-skills" -Directory | ForEach-Object {
+  $target = Join-Path $skillsRoot $_.Name
+  if (-not (Test-Path -LiteralPath $target)) {
+    Copy-Item -LiteralPath $_.FullName -Destination $target -Recurse
+  }
+}
+
+New-Item -ItemType Directory -Force -Path ".\npm" | Out-Null
+Copy-Item -LiteralPath ".\package.json" -Destination ".\npm\package.json" -Force
+Push-Location ".\npm"
+npm install --ignore-scripts
+Pop-Location
+
+.\scripts\pi67-smoke.ps1 -Ci
+```
+
+Then fill the local config files in `$env:USERPROFILE\.pi\agent`:
+
+```text
+models.json
+mcp.json
+auth.json
+image-gen.json
+```
+
+This keeps Windows usage on native PowerShell while the older Bash scripts remain
+the fuller macOS/Linux automation path.
+
+### macOS/Linux Bash path
+
 Recommended in-place install:
 
 ```bash
@@ -413,6 +476,16 @@ bash ~/.pi/agent/scripts/pi67-update.sh --allow-dirty
 ```
 
 ## Smoke test
+
+Windows PowerShell:
+
+```powershell
+.\scripts\pi67-smoke.ps1 -Ci
+```
+
+This checks release metadata, JSON, Node helper syntax/self-tests, the xtalpi
+`/chat/completions` endpoint contract, documentation coverage, Git portability,
+and tracked/staged release files without invoking Bash.
 
 For repository maintenance and CI:
 

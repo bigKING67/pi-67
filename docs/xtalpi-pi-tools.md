@@ -305,8 +305,11 @@ live smoke 子进程默认以脚本所在仓库根目录作为 `PI_AGENT_DIR` / 
 运行；非标准安装路径可显式设置 `PI_AGENT_DIR=/path/to/agent`。read 类
 case 要求 `read.path` 严格等于 cwd-relative `package.json`，不依赖
 `$HOME/.pi/agent`、Mac `/Users/...` 路径或 npm package 的物理安装目录，
-因此安装到不同 HOME、Linux/macOS/Windows Git Bash 路径时不需要改
-prompt。
+因此安装到不同 HOME、Windows PowerShell 的 `$env:USERPROFILE\.pi\agent`
+或 Linux/macOS 的 `~/.pi/agent` 路径时不需要改 prompt。Windows 用户可以
+先用 `.\scripts\pi67-smoke.ps1 -Ci` 验证 repo metadata、JSON、Node helpers
+和 xtalpi `/chat/completions` endpoint contract；该验证入口不要求额外
+Unix-like shell。
 
 覆盖：
 

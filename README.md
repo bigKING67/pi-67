@@ -99,6 +99,8 @@ bash ~/.pi/agent/scripts/pi67-check-external-skills.sh \
 
 ### 前置条件
 
+Windows 用户默认使用 PowerShell；macOS/Linux 用户继续使用 Bash 示例。
+
 ```bash
 # 已安装 pi
 npm install -g @earendil-works/pi-coding-agent
@@ -107,7 +109,34 @@ npm install -g @earendil-works/pi-coding-agent
 pi --version
 ```
 
+PowerShell 等价命令：
+
+```powershell
+npm install -g @earendil-works/pi-coding-agent
+pi --version
+```
+
 ### 推荐：原地 checkout 到 `~/.pi/agent`
+
+Windows PowerShell：
+
+```powershell
+git clone https://github.com/bigKING67/pi-67.git $env:USERPROFILE\.pi\agent
+Set-Location $env:USERPROFILE\.pi\agent
+.\scripts\pi67-smoke.ps1 -Ci
+```
+
+`scripts\pi67-smoke.ps1` 是 Windows 的一等验证入口：它用 PowerShell + Node.js
+做 repo metadata、JSON、xtalpi endpoint contract、Node helper 和 portability
+检查，不要求额外 Unix-like shell，也不依赖本机 `/Users/...` 或 npm package 绝对路径。
+
+当前 full install / update / doctor 自动化主链路仍是 Bash 脚本；Windows 机器上
+如果尚未使用兼容 shell 跑过安装器，可以先按上面的 in-place checkout 作为
+`$env:USERPROFILE\.pi\agent`，再手动从 `.example` 复制本地配置文件并安装 npm
+依赖。后续需要补齐的是 PowerShell-native install/update/doctor wrapper，而不是
+把额外 Unix-like shell 作为 Windows 默认心智。
+
+macOS/Linux：
 
 ```bash
 git clone https://github.com/bigKING67/pi-67.git ~/.pi/agent
@@ -118,6 +147,19 @@ cd ~/.pi/agent
 这种模式下不会把 Pi runtime 资产创建成 symlink；`AGENTS.md`、`rules/`、`shared-skills/`、`scripts/` 等都是当前 checkout 的 tracked assets。安装器会把 `shared-skills/` 复制到 `~/.agents/skills`。`models.json`、`mcp.json`、`auth.json`、`image-gen.json`、`sessions/`、`npm/` 等本机运行态会被 ignored。
 
 长期维护流：
+
+Windows PowerShell：
+
+```powershell
+Set-Location $env:USERPROFILE\.pi\agent
+git status --short --branch
+.\scripts\pi67-smoke.ps1 -Ci
+git add <scoped files>
+git commit -m "..."
+git push origin main
+```
+
+macOS/Linux：
 
 ```bash
 cd ~/.pi/agent
@@ -369,6 +411,7 @@ pi-67/
 │   ├── pi67-report.sh
 │   ├── pi67-restore.sh
 │   ├── pi67-skill-audit.sh
+│   ├── pi67-smoke.ps1
 │   ├── pi67-smoke.sh
 │   ├── pi67-status.sh
 │   ├── pi67-sync-external-skills.sh
@@ -496,6 +539,14 @@ bash ~/.pi/agent/scripts/pi67-update.sh --no-configure
 pi-67 自身版本以 `VERSION` 为准，`package.json.version` 与它保持一致。用户可见变更记录在 `CHANGELOG.md`，发布流程见 `docs/release.md`。
 
 发布或修改安装链路前运行：
+
+Windows PowerShell 入口：
+
+```powershell
+.\scripts\pi67-smoke.ps1 -Ci
+```
+
+macOS/Linux 和当前 CI 主链路：
 
 ```bash
 bash scripts/pi67-release-check.sh

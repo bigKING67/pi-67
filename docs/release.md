@@ -14,6 +14,14 @@ Do not use the upstream Pi CLI version as the pi-67 release version. Pi itself h
 
 Before tagging or publishing release notes:
 
+PowerShell smoke for Windows-facing changes:
+
+```powershell
+.\scripts\pi67-smoke.ps1 -Ci
+```
+
+macOS/Linux and full release gate:
+
 ```bash
 bash scripts/pi67-release-check.sh
 bash scripts/pi67-smoke.sh --ci
@@ -25,6 +33,7 @@ git status --short
 Expected result:
 
 - release metadata is internally consistent
+- Windows PowerShell smoke passes on a PowerShell runtime when Windows-facing files changed
 - xtalpi provider error-contract and debug-summary/profile self-tests pass
 - smoke test passes locally
 - clean artifact smoke passes for the current worktree candidate
@@ -51,6 +60,10 @@ Expected result:
    - update workflow docs if `scripts/pi67-update.sh` changed
    - release artifact docs if `scripts/pi67-release-artifact-smoke.sh` changed
 5. Run:
+
+```powershell
+.\scripts\pi67-smoke.ps1 -Ci
+```
 
 ```bash
 bash scripts/pi67-release-check.sh
@@ -149,6 +162,16 @@ Do not tag before CI passes on the release commit.
 
 Fresh install:
 
+Windows PowerShell:
+
+```powershell
+git clone https://github.com/bigKING67/pi-67.git $env:USERPROFILE\.pi\agent
+Set-Location $env:USERPROFILE\.pi\agent
+.\scripts\pi67-smoke.ps1 -Ci
+```
+
+macOS/Linux:
+
 ```bash
 git clone https://github.com/bigKING67/pi-67.git
 cd pi-67
@@ -173,6 +196,7 @@ bash ~/.pi/agent/scripts/pi67-configure.sh --prompt-secrets
 
 ### Verification
 
+- `.\scripts\pi67-smoke.ps1 -Ci` on Windows PowerShell / PowerShell Core
 - `bash scripts/pi67-smoke.sh --ci`
 - GitHub Actions CI: passed
 
