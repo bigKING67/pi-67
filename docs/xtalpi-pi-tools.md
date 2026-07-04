@@ -97,6 +97,38 @@ selected-tool 排序默认看最新用户意图；当最新消息是“继续 / 
 `scripts/pi67-release-check.sh` 会校验这个 endpoint contract，防止未来更新
 pi-67 时把晶泰 provider 误切到 Responses API。
 
+## Extension / tool coverage 审计
+
+`xtalpi-pi-tools` 只负责把当前 turn 的 Pi 工具协议展示给晶泰模型，并把模型返回的
+`<pi_tool_call>` 转回 Pi 原生工具调用。某个 extension package “已安装”不等于当前 turn
+一定“可调用”：必须同时满足 Pi 已注册进 `context.tools`、没有被当前 mode/flag 禁用、并且
+selected-tool 白名单把该工具展示给模型。
+
+只读覆盖面审计：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-tool-coverage-audit.sh
+bash ~/.pi/agent/scripts/pi67-xtalpi-tool-coverage-audit.sh --json
+bash ~/.pi/agent/scripts/pi67-xtalpi-tool-coverage-audit.sh --include pi-rules-loader
+```
+
+审计脚本会从 `settings.json` 的 `packages` 出发，解析本地 `npm/node_modules` 和
+`git/github.com` package，区分：
+
+- model-callable tools，例如 `subagent`、`fffind`、`web_fetch`、`advisor`、
+  `plan_mode_question`、`preview_export`、`mcp`
+- command / shortcut / hook only，例如 `/btw`、`/rewind`、`/simplify`
+- dynamic tools，例如 `pi-mcp-adapter` 的 direct MCP tools，实际名称取决于
+  `mcp.json`、metadata cache、环境变量和认证状态
+- missing expected targets，例如用户手动指定 `--include pi-rules-loader` 时，如果当前
+  `settings.json` 没安装独立 package，会显示为 `missing`
+
+该脚本是静态审计，不执行 extension tool，不打开浏览器，不触发子代理，不发起图片生成，
+也不读取 cookie/session store。高风险或交互型工具需要单独的 targeted smoke，例如：
+`ask_user_question` 需要 UI 和用户响应，`image_gen` 需要 image provider 配置，
+`subagent` / `until_done_*` 需要隔离工作区和明确写入边界，`mcp` direct tools 需要先确认
+MCP server 配置和授权。
+
 ## 启动方式
 
 普通启动：

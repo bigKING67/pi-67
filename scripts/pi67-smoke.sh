@@ -211,6 +211,9 @@ fi
 if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-pi-tools-debug-summary.sh" ]; then
   bash -n "$REPO_ROOT/scripts/pi67-xtalpi-pi-tools-debug-summary.sh"
 fi
+if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-tool-coverage-audit.sh" ]; then
+  bash -n "$REPO_ROOT/scripts/pi67-xtalpi-tool-coverage-audit.sh"
+fi
 if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-smoke-status-core.cjs" ]; then
   node --check "$REPO_ROOT/scripts/pi67-xtalpi-smoke-status-core.cjs" >/dev/null
 fi
@@ -706,6 +709,26 @@ if (!missing) throw new Error("missing legacy-only skill audit entry");
 if (missing.classification !== "stale_broken_link") throw new Error(`unexpected classification: ${missing.classification}`);
 ' /tmp/pi67-smoke-skill-audit-json.log
 pass "skill audit JSON output parsed"
+
+section "xtalpi-pi-tools extension coverage audit"
+bash "$REPO_ROOT/scripts/pi67-xtalpi-tool-coverage-audit.sh" \
+  --agent-dir "$REPO_ROOT" >/tmp/pi67-smoke-xtalpi-tool-coverage.log
+pass "xtalpi-pi-tools extension coverage text output completed"
+
+bash "$REPO_ROOT/scripts/pi67-xtalpi-tool-coverage-audit.sh" \
+  --agent-dir "$REPO_ROOT" \
+  --json >/tmp/pi67-smoke-xtalpi-tool-coverage-json.log
+node -e '
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (data.schemaId !== "pi67-xtalpi-tool-coverage-audit/v1") throw new Error(`unexpected schemaId: ${data.schemaId}`);
+if (!data.summary || data.summary.total < 1 || data.summary.installed < 1) throw new Error("coverage audit summary is empty");
+for (const spec of ["npm:@ff-labs/pi-fff", "npm:pi-smart-fetch", "npm:pi-mcp-adapter"]) {
+  const entry = data.entries.find((candidate) => candidate.spec === spec);
+  if (!entry || entry.installed !== true) throw new Error(`coverage audit did not find installed package: ${spec}`);
+}
+' /tmp/pi67-smoke-xtalpi-tool-coverage-json.log
+pass "xtalpi-pi-tools extension coverage JSON output parsed"
 
 section "Skill governance helper tests"
 "$REPO_ROOT/scripts/pi67-test-skill-governance.sh" \
