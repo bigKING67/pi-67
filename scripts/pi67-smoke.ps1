@@ -240,6 +240,8 @@ $RequiredFiles = @(
   "docs/release.md",
   "docs/troubleshooting.md",
   "docs/xtalpi-pi-tools.md",
+  "scripts/pi67-doctor.ps1",
+  "scripts/pi67-report.ps1",
   "scripts/pi67-smoke.ps1",
   "scripts/pi67-update.ps1",
   "scripts/pi67-release-check.sh",
@@ -330,13 +332,19 @@ Run-Check "xtalpi-pi-tools endpoint contract uses chat/completions" {
 }
 
 Section "PowerShell documentation"
-Run-Check "PowerShell update/smoke entrypoints are documented" {
+Run-Check "PowerShell update/doctor/report/smoke entrypoints are documented" {
   Assert-ContentContains (RepoPath "README.md") "pi67-smoke.ps1"
   Assert-ContentContains (RepoPath "docs/full-install.md") "pi67-smoke.ps1"
   Assert-ContentContains (RepoPath "docs/release.md") "pi67-smoke.ps1"
   Assert-ContentContains (RepoPath "README.md") "pi67-update.ps1"
   Assert-ContentContains (RepoPath "docs/full-install.md") "pi67-update.ps1"
   Assert-ContentContains (RepoPath "docs/release.md") "pi67-update.ps1"
+  Assert-ContentContains (RepoPath "README.md") "pi67-doctor.ps1"
+  Assert-ContentContains (RepoPath "docs/full-install.md") "pi67-doctor.ps1"
+  Assert-ContentContains (RepoPath "docs/release.md") "pi67-doctor.ps1"
+  Assert-ContentContains (RepoPath "README.md") "pi67-report.ps1"
+  Assert-ContentContains (RepoPath "docs/full-install.md") "pi67-report.ps1"
+  Assert-ContentContains (RepoPath "docs/release.md") "pi67-report.ps1"
   Assert-ContentContains (RepoPath "README.md") "pi67-xtalpi-pi-tools-smoke.ps1"
   Assert-ContentContains (RepoPath "docs/full-install.md") "pi67-xtalpi-pi-tools-smoke.ps1"
   Assert-ContentContains (RepoPath "docs/release.md") "pi67-xtalpi-pi-tools-smoke.ps1"
@@ -369,6 +377,8 @@ if ($GitAvailable) {
     "docs/release.md",
     "docs/troubleshooting.md",
     "docs/xtalpi-pi-tools.md",
+    "scripts/pi67-doctor.ps1",
+    "scripts/pi67-report.ps1",
     "scripts/pi67-smoke.ps1",
     "scripts/pi67-update.ps1",
     "scripts/pi67-release-check.sh",

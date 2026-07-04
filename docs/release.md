@@ -18,6 +18,8 @@ PowerShell smoke for Windows-facing changes:
 
 ```powershell
 .\scripts\pi67-smoke.ps1 -Ci
+.\scripts\pi67-doctor.ps1 -Json
+.\scripts\pi67-report.ps1 -Operation manual
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest
 ```
 
@@ -42,6 +44,7 @@ Expected result:
 
 - release metadata is internally consistent
 - Windows PowerShell smoke passes on a PowerShell runtime when Windows-facing files changed
+- Windows PowerShell doctor/report run on a PowerShell runtime when Windows install/update diagnostics changed
 - PowerShell xtalpi targeted smoke self-test passes; live targeted smoke passes when xtalpi credentials are available
 - xtalpi provider error-contract and debug-summary/profile self-tests pass
 - smoke test passes locally
@@ -72,6 +75,8 @@ Expected result:
 
 ```powershell
 .\scripts\pi67-smoke.ps1 -Ci
+.\scripts\pi67-doctor.ps1 -Json
+.\scripts\pi67-report.ps1 -Operation manual
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest
 ```
 

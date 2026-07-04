@@ -514,6 +514,27 @@ known-good:
 .\scripts\pi67-update.ps1 -NoNpm
 ```
 
+The PowerShell updater writes `~/.pi/agent/pi67-report.json` after smoke and
+embeds `scripts\pi67-doctor.ps1 -Json` by default. If report generation itself
+fails, the update should continue with a warning; regenerate the report manually:
+
+```powershell
+.\scripts\pi67-report.ps1 -Operation manual
+.\scripts\pi67-doctor.ps1
+```
+
+To skip report generation for one update:
+
+```powershell
+.\scripts\pi67-update.ps1 -NoReport
+```
+
+To write the report but skip embedded doctor collection:
+
+```powershell
+.\scripts\pi67-update.ps1 -NoDoctor
+```
+
 If you intentionally do not want local config migration in that run:
 
 ```powershell
@@ -603,6 +624,18 @@ is a current-state report. It is overwritten on every install/update, so there i
 ```bash
 ./install.sh --no-report
 bash ~/.pi/agent/scripts/pi67-update.sh --no-report
+```
+
+Windows PowerShell:
+
+```powershell
+.\scripts\pi67-update.ps1 -NoReport
+```
+
+Regenerate it manually:
+
+```powershell
+.\scripts\pi67-report.ps1 -Operation manual
 ```
 
 The schema contract is documented in:

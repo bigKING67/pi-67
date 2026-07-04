@@ -13,7 +13,9 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `scripts/pi67-test-xtalpi-pi-tools.sh` protocol/unit coverage for parser, serializer, and no-native-tools payload invariants.
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh` live smoke coverage for no-tool, bash, read, and web/read tasks.
 - `scripts/pi67-smoke.ps1` as a PowerShell-native Windows smoke entrypoint for repo metadata, JSON, Node helper, xtalpi endpoint-contract, documentation, and portability checks.
-- `scripts/pi67-update.ps1` as a PowerShell-native Windows updater that preserves local config, syncs npm/shared skills, runs PowerShell smoke, and auto-backs up narrow known xtalpi migration conflicts before pulling.
+- `scripts/pi67-update.ps1` as a PowerShell-native Windows updater that preserves local config, syncs npm/shared skills, runs PowerShell smoke, writes `pi67-report.json`, and auto-backs up narrow known xtalpi migration conflicts before pulling.
+- `scripts/pi67-doctor.ps1` as a PowerShell-native Windows readiness doctor for local config, npm sync, shared skills, Node engine warnings, and the xtalpi `/chat/completions` endpoint contract.
+- `scripts/pi67-report.ps1` as a PowerShell-native report writer that emits `pi67-report/v2` and embeds the PowerShell doctor by default.
 - `scripts/pi67-xtalpi-pi-tools-debug-summary.sh` for summarizing live smoke debug telemetry and recovery events.
 - `scripts/pi67-validate-xtalpi-provider-error-contract.mjs` for standalone provider error contract validation.
 - `extensions/xtalpi-pi-tools/fixtures/replay-cases.json` for parser/provider replay regression cases.
@@ -24,6 +26,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 - Default provider is now `xtalpi-pi-tools` with `deepseek-v4-pro` and thinking off.
 - Update helpers now run npm sync with `--no-audit --no-fund --prefer-offline` and continue skipping npm entirely when `npm/package.json` already matches the repo `package.json`.
+- PowerShell update `-CheckOnly` now reports `pi67-report.json` freshness, and `-NoReport` / `-NoDoctor` allow faster or lower-risk Windows update runs.
 - Windows documentation now treats PowerShell as the primary path and stops presenting an extra Unix-like shell as the default Windows entrypoint.
 - `models.example.json` now keeps only one xtalpi provider template: `xtalpi-pi-tools`.
 - `scripts/pi67-configure.sh` migrates old `xtalpi` / `xtalpi-tools` keys and baseUrl into `xtalpi-pi-tools`, then removes old xtalpi provider entries by default.

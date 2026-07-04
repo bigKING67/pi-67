@@ -1,6 +1,8 @@
 # pi-67 Report Schema
 
-`~/.pi/agent/pi67-report.json` is the machine-readable current-state report written by `scripts/pi67-report.sh` after install/update.
+`~/.pi/agent/pi67-report.json` is the machine-readable current-state report
+written by `scripts/pi67-report.sh` or `scripts/pi67-report.ps1` after
+install/update.
 
 The report is intentionally a single overwritten file. It is not an append-only history log.
 
@@ -37,7 +39,7 @@ Compatibility rule:
 | `schemaVersion` | number | stable | Report schema version. Current value: `2`. |
 | `schemaId` | string | stable | Schema identifier. Current value: `pi67-report/v2`. |
 | `generatedAt` | string | stable | ISO timestamp for report generation. |
-| `generatedBy` | string | stable | Script that generated the report. |
+| `generatedBy` | string | stable | Script that generated the report, such as `scripts/pi67-report.sh` or `scripts/pi67-report.ps1`. |
 | `operation` | string | stable | One of `install`, `update`, or `manual` by convention. |
 | `pi67Version` | string | legacy-stable | Legacy alias for `pi67.version`. |
 | `packageVersion` | string/null | legacy-stable | Legacy alias for `pi67.packageVersion`. |
@@ -95,6 +97,10 @@ This block is intentionally explicit so downstream tools do not assume report hi
 | `doctorTimeoutMs` | number | Timeout used for doctor JSON collection. |
 | `doctorDeepMcp` | boolean | Whether report generation requested doctor `--deep-mcp`. |
 | `mcpTimeoutMs` | number | Per-server timeout passed to deep MCP doctor mode. |
+
+PowerShell reports set `doctorDeepMcp` to `false` and `mcpTimeoutMs` to `0`;
+the PowerShell reporter embeds `scripts/pi67-doctor.ps1 -Json` unless
+`-NoDoctor` is used.
 
 ## `repository`
 
@@ -204,6 +210,9 @@ When doctor runs successfully with `--json`, this block includes the doctor resu
 
 The embedded doctor schema is documented in `docs/doctor-schema.md`. Consumers that depend on structured doctor metadata should require `doctor.schemaVersion >= 2` when `doctor.skipped !== true`.
 
+On Windows, `generatedBy` may be `scripts/pi67-doctor.ps1`. It uses the same
+`pi67-doctor/v2` schema but does not perform deep MCP startup probing.
+
 When doctor is skipped:
 
 ```json
@@ -236,6 +245,9 @@ The reporter intentionally stores byte counts instead of raw stdout/stderr to av
 `scripts/pi67-report.sh` includes a read-only smoke artifact summary by default.
 It does not run live smoke cases and does not write to the smoke artifact
 directory. It calls debug-summary JSON modes and stores compact results:
+
+`scripts/pi67-report.ps1` currently omits `xtalpiSmoke`; consumers should treat
+that field as optional.
 
 ```json
 {

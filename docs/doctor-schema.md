@@ -1,6 +1,7 @@
 # pi-67 Doctor Schema
 
-`scripts/pi67-doctor.sh --json` emits the machine-readable readiness result for a pi-67 install.
+`scripts/pi67-doctor.sh --json` and `scripts/pi67-doctor.ps1 -Json` emit the
+machine-readable readiness result for a pi-67 install.
 
 Doctor answers one question: is the full configuration installed, and which local capabilities still need keys, paths, or binaries?
 
@@ -107,6 +108,12 @@ Messages are intended for display and troubleshooting. Do not parse specific wor
 | `skillList` | boolean | Whether doctor ran `pi skill list`. |
 
 Normal doctor mode only checks MCP commands and paths. `--deep-mcp` is opt-in because it starts local MCP server processes.
+
+The PowerShell doctor is Windows-native and intentionally does not start MCP
+servers. It emits the same `schemaId`/`schemaVersion` contract, sets
+`diagnostics.deepMcp` to `false`, and focuses on local files, config JSON,
+xtalpi provider settings, npm sync state, Node engine readiness, shared-skill
+copies, and the `/chat/completions` endpoint contract.
 
 By default, doctor reports pi-67 bundled shared skills that differ from
 installed global skills as `WARN`, not `FAIL`, because the global

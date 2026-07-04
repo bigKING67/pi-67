@@ -46,12 +46,12 @@ Set-Location $env:USERPROFILE\.pi\agent
 
 It runs a safe fast-forward Git update, keeps existing local runtime config
 files, creates missing config files from examples only when needed, syncs npm
-dependencies, and runs the PowerShell smoke. During the one-time
-`xtalpi-compat` -> `xtalpi-pi-tools` migration, it can auto-backup and restore
-the narrow known tracked conflict files before pulling.
+dependencies, runs the PowerShell smoke, and writes `pi67-report.json`.
+During the one-time `xtalpi-compat` -> `xtalpi-pi-tools` migration, it can
+auto-backup and restore the narrow known tracked conflict files before pulling.
 
-Until install/doctor scripts have full PowerShell counterparts, use this minimal
-in-place bootstrap on a Windows laptop after cloning:
+For a fresh in-place Windows laptop checkout, this is the minimal bootstrap
+equivalent of the Bash installer:
 
 ```powershell
 Set-Location $env:USERPROFILE\.pi\agent
@@ -76,10 +76,12 @@ Get-ChildItem -LiteralPath ".\shared-skills" -Directory | ForEach-Object {
 New-Item -ItemType Directory -Force -Path ".\npm" | Out-Null
 Copy-Item -LiteralPath ".\package.json" -Destination ".\npm\package.json" -Force
 Push-Location ".\npm"
-npm install --ignore-scripts
+npm install --ignore-scripts --no-audit --no-fund --prefer-offline
 Pop-Location
 
 .\scripts\pi67-smoke.ps1 -Ci
+.\scripts\pi67-doctor.ps1
+.\scripts\pi67-report.ps1 -Operation manual
 ```
 
 Then fill the local config files in `$env:USERPROFILE\.pi\agent`:
@@ -91,8 +93,8 @@ auth.json
 image-gen.json
 ```
 
-This keeps Windows usage on native PowerShell while the older Bash scripts remain
-the fuller macOS/Linux install/doctor automation path.
+This keeps Windows usage on native PowerShell. The Bash installer remains the
+fuller macOS/Linux path and the path for linked/symlink installs.
 
 ### macOS/Linux Bash path
 
@@ -282,7 +284,18 @@ The report includes:
 
 The machine-readable field contract is documented in `docs/report-schema.md`. Current reports use schema `pi67-report/v2`. Embedded doctor JSON is documented in `docs/doctor-schema.md`.
 
-Use `--no-report` on install/update if you do not want the report file.
+Use `--no-report` on Bash install/update or `-NoReport` on PowerShell update if
+you do not want the update to write the report:
+
+```powershell
+.\scripts\pi67-update.ps1 -NoReport
+```
+
+To regenerate the current report manually on Windows:
+
+```powershell
+.\scripts\pi67-report.ps1 -Operation manual
+```
 
 ## Local config files
 
@@ -405,6 +418,13 @@ Run:
 bash ~/.pi/agent/scripts/pi67-doctor.sh
 ```
 
+Windows PowerShell:
+
+```powershell
+Set-Location $env:USERPROFILE\.pi\agent
+.\scripts\pi67-doctor.ps1
+```
+
 Doctor warnings are normal on a new machine. They show what needs local setup.
 
 Automation-friendly doctor modes:
@@ -412,6 +432,13 @@ Automation-friendly doctor modes:
 ```bash
 bash ~/.pi/agent/scripts/pi67-doctor.sh --quiet
 bash ~/.pi/agent/scripts/pi67-doctor.sh --json
+```
+
+Windows PowerShell:
+
+```powershell
+.\scripts\pi67-doctor.ps1 -Quiet
+.\scripts\pi67-doctor.ps1 -Json
 ```
 
 `--quiet` prints only the summary and final result. `--json` emits a stable machine-readable object with `result`, `counts`, and per-check `checks[]` entries.
@@ -461,6 +488,7 @@ The PowerShell updater:
 4. Applies the safe non-interactive `xtalpi` / `xtalpi-tools` to `xtalpi-pi-tools` local config migration directly in PowerShell.
 5. Syncs npm dependencies when `package.json` differs from `~/.pi/agent/npm/package.json`.
 6. Runs `scripts\pi67-smoke.ps1 -Ci` after the update.
+7. Writes `~/.pi/agent/pi67-report.json` and embeds `scripts\pi67-doctor.ps1 -Json` unless `-NoDoctor` is used.
 
 `npm sync` is skipped when the copied `npm/package.json` already matches the
 repo `package.json`. When it does run, the updater uses npm's local cache first
@@ -471,13 +499,25 @@ known-good local dependency set:
 .\scripts\pi67-update.ps1 -NoNpm
 ```
 
-On macOS/Linux, or when you explicitly want the fuller Bash doctor/report flow:
+On macOS/Linux, or when you explicitly want the Bash update/status tooling:
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-update.sh
 ```
 
-The Bash updater additionally runs doctor and writes `~/.pi/agent/pi67-report.json`.
+The Bash updater also runs doctor and writes `~/.pi/agent/pi67-report.json`.
+
+If you want the PowerShell updater to skip report generation:
+
+```powershell
+.\scripts\pi67-update.ps1 -NoReport
+```
+
+If you want the report but not the embedded doctor result:
+
+```powershell
+.\scripts\pi67-update.ps1 -NoDoctor
+```
 
 If you need to skip local config migration for one update:
 

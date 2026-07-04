@@ -16,6 +16,8 @@ param(
   [switch]$ForceNpm,
   [switch]$NoConfigure,
   [switch]$NoSmoke,
+  [switch]$NoReport,
+  [switch]$NoDoctor,
   [switch]$AllowDirty,
   [switch]$NoAutoResolveKnownConflicts,
   [switch]$Help
@@ -42,6 +44,8 @@ Options:
   -ForceNpm           Run npm install even when package.json did not change.
   -NoConfigure        Skip local config template sync and xtalpi migration.
   -NoSmoke            Skip PowerShell smoke after update.
+  -NoReport           Skip pi67-report.json generation.
+  -NoDoctor           Do not embed PowerShell doctor output in the report.
   -AllowDirty         Let git attempt the update with local tracked edits.
   -NoAutoResolveKnownConflicts
                        Do not auto-backup/restore known migration conflicts.
@@ -596,6 +600,60 @@ function Invoke-Smoke {
   Invoke-PlannedExternal $psExe @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $smoke, "-Ci") | Out-Null
 }
 
+function Invoke-Report {
+  if ($NoReport) {
+    Write-Warn "report skipped by -NoReport"
+    return
+  }
+
+  Write-Section "pi-67 report"
+  $reporter = Join-Path (Join-Path $RepoRoot "scripts") "pi67-report.ps1"
+  if (-not (Test-Path -LiteralPath $reporter -PathType Leaf)) {
+    Write-Warn "PowerShell report script missing"
+    return
+  }
+
+  $psExe = "powershell"
+  if (Test-CommandExists "pwsh") {
+    $psExe = "pwsh"
+  } elseif (-not (Test-CommandExists "powershell")) {
+    Write-Warn "no child PowerShell executable found; skipped report"
+    return
+  }
+
+  $args = @(
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    $reporter,
+    "-RepoRoot",
+    $RepoRoot,
+    "-AgentDir",
+    $AgentDir,
+    "-SkillsDir",
+    $SkillsDir,
+    "-Operation",
+    "update"
+  )
+  if ($NoDoctor) {
+    $args += "-NoDoctor"
+  }
+
+  if ($DryRun) {
+    Write-Host ("  DRY-RUN {0} {1}" -f $psExe, ($args -join " ")) -ForegroundColor Cyan
+    return
+  }
+
+  try {
+    Invoke-PlannedExternal $psExe $args | Out-Null
+    Write-Pass ("report written: {0}" -f (Join-Path $AgentDir "pi67-report.json"))
+  } catch {
+    Write-Warn "report generation failed; rerun scripts/pi67-report.ps1 manually for details"
+    Write-Warn $_.Exception.Message
+  }
+}
+
 function Backup-And-RestoreKnownMigrationConflicts {
   param([string[]]$TrackedStatus)
 
@@ -646,6 +704,67 @@ function Backup-And-RestoreKnownMigrationConflicts {
   Invoke-Git (@("restore", "--") + $KnownMigrationConflictPaths) | Out-Null
   Write-Pass "known migration conflicts restored from HEAD after backup"
   return $true
+}
+
+function Show-ReportStatus {
+  param(
+    [string]$CurrentVersion,
+    [string]$CurrentShort,
+    [bool]$CurrentDirty
+  )
+
+  Write-Section "report status"
+  if ($NoReport) {
+    Write-Warn "report generation disabled by -NoReport"
+    return
+  }
+
+  $reportPath = Join-Path $AgentDir "pi67-report.json"
+  if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) {
+    Write-Warn ("report missing; update would write {0}" -f $reportPath)
+    return
+  }
+
+  try {
+    $report = Read-JsonFile $reportPath
+  } catch {
+    Write-Warn ("report is not valid JSON: {0}" -f $_.Exception.Message)
+    return
+  }
+
+  Write-Info ("Report path : {0}" -f $reportPath)
+  Write-Info ("Generated   : {0}" -f $(if ($report.generatedAt) { $report.generatedAt } else { "unknown" }))
+  Write-Info ("Schema      : {0}" -f $(if ($report.schemaVersion) { $report.schemaVersion } else { "missing" }))
+  Write-Info ("Version     : {0}" -f $(if ($report.pi67Version) { $report.pi67Version } else { "unknown" }))
+  Write-Info ("Commit      : {0}" -f $(if ($report.repository.shortCommit) { $report.repository.shortCommit } else { "unknown" }))
+  if ($report.doctor) {
+    $doctorResult = if ($report.doctor.skipped -eq $true) { "SKIPPED" } elseif ($report.doctor.result) { $report.doctor.result } else { "unknown" }
+    Write-Info ("Doctor      : {0}" -f $doctorResult)
+  }
+
+  $staleReasons = @()
+  if ([int]($report.schemaVersion -as [int]) -lt 2) {
+    $staleReasons += "schemaVersion < 2"
+  }
+  if ([string]$report.pi67Version -ne [string]$CurrentVersion) {
+    $staleReasons += ("version {0} != {1}" -f $(if ($report.pi67Version) { $report.pi67Version } else { "unknown" }), $CurrentVersion)
+  }
+  if ([string]$report.repository.shortCommit -ne [string]$CurrentShort) {
+    $staleReasons += ("commit {0} != {1}" -f $(if ($report.repository.shortCommit) { $report.repository.shortCommit } else { "unknown" }), $CurrentShort)
+  }
+  if ([bool]$report.repository.dirty -ne $CurrentDirty) {
+    $staleReasons += ("dirty {0} != {1}" -f ([bool]$report.repository.dirty), $CurrentDirty)
+  }
+  if ($report.doctor -and $report.doctor.skipped -ne $true -and [int]($report.doctor.schemaVersion -as [int]) -lt 2) {
+    $staleReasons += "doctor schemaVersion < 2"
+  }
+
+  if ($staleReasons.Count -gt 0) {
+    Write-Warn ("report is stale: {0}" -f ($staleReasons -join "; "))
+    Write-Info "update would overwrite the report after smoke"
+  } else {
+    Write-Pass "report matches current checkout"
+  }
 }
 
 function Show-CheckOnly {
@@ -716,6 +835,14 @@ function Show-CheckOnly {
       Write-Warn "npm package.json differs or -ForceNpm is set; npm sync would run"
     }
   }
+
+  $currentVersion = ""
+  $versionPath = Join-Path $RepoRoot "VERSION"
+  if (Test-Path -LiteralPath $versionPath -PathType Leaf) {
+    $currentVersion = (Get-Content -LiteralPath $versionPath -Raw).Trim()
+  }
+  $currentDirty = ($allStatus.Count -gt 0)
+  Show-ReportStatus $currentVersion $localShort $currentDirty
 
   Write-Pass "check-only completed without writing files"
 }
@@ -792,6 +919,7 @@ try {
   Sync-SharedSkills
   Sync-Npm
   Invoke-Smoke
+  Invoke-Report
 
   Write-Host ""
   Write-Host "pi-67 PowerShell update finished" -ForegroundColor Green

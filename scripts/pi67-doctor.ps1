@@ -1,0 +1,584 @@
+#!/usr/bin/env pwsh
+# PowerShell-native pi-67 readiness diagnostics for Windows users.
+# This intentionally avoids Bash and does not print secrets.
+
+[CmdletBinding()]
+param(
+  [string]$RepoRoot,
+  [string]$AgentDir,
+  [string]$SkillsDir,
+  [switch]$Json,
+  [switch]$Quiet,
+  [switch]$SkillList,
+  [switch]$StrictSharedSkills,
+  [switch]$Help
+)
+
+$ErrorActionPreference = "Stop"
+
+function Show-Usage {
+  @"
+pi67-doctor.ps1 checks whether a PowerShell pi-67 installation is ready.
+
+Usage:
+  .\scripts\pi67-doctor.ps1 [options]
+
+Options:
+  -RepoRoot DIR        pi-67 checkout. Defaults to this script's repo.
+  -AgentDir DIR        Pi agent dir. Defaults to `$HOME\.pi\agent.
+  -SkillsDir DIR       Shared skills dir. Defaults to `$HOME\.agents\skills.
+  -Json                Print machine-readable JSON only.
+  -Quiet               Print only summary in text mode.
+  -SkillList           Also run `pi skill list` when pi is available.
+  -StrictSharedSkills  Treat missing shared skill copies as FAIL.
+  -Help                Show this help.
+
+The PowerShell doctor does not start MCP servers. Use the Bash doctor
+--deep-mcp path when deep stdio MCP probing is required.
+"@
+}
+
+if ($Help) {
+  Show-Usage
+  exit 0
+}
+
+function Get-HomePath {
+  if ($env:USERPROFILE) { return $env:USERPROFILE }
+  if ($HOME) { return $HOME }
+  return [Environment]::GetFolderPath("UserProfile")
+}
+
+function Resolve-ScriptPath {
+  if ($PSCommandPath) { return $PSCommandPath }
+  return $MyInvocation.MyCommand.Path
+}
+
+$HomePath = Get-HomePath
+$ScriptPath = Resolve-ScriptPath
+$ScriptDir = Split-Path -Parent $ScriptPath
+
+if (-not $RepoRoot) {
+  $RepoRoot = (Resolve-Path (Join-Path $ScriptDir "..")).Path
+} else {
+  $RepoRoot = (Resolve-Path $RepoRoot).Path
+}
+
+if (-not $AgentDir) {
+  $AgentDir = Join-Path (Join-Path $HomePath ".pi") "agent"
+}
+
+if (-not $SkillsDir) {
+  $SkillsDir = Join-Path (Join-Path $HomePath ".agents") "skills"
+}
+
+$NpmDir = Join-Path $AgentDir "npm"
+$script:PassCount = 0
+$script:WarnCount = 0
+$script:FailCount = 0
+$script:Checks = @()
+
+function Add-Check {
+  param(
+    [Parameter(Mandatory = $true)][ValidateSet("PASS", "WARN", "FAIL")][string]$Level,
+    [Parameter(Mandatory = $true)][string]$Message
+  )
+
+  switch ($Level) {
+    "PASS" { $script:PassCount += 1 }
+    "WARN" { $script:WarnCount += 1 }
+    "FAIL" { $script:FailCount += 1 }
+  }
+
+  $script:Checks += [ordered]@{
+    level = $Level
+    message = $Message
+  }
+
+  if (-not $Json -and -not $Quiet) {
+    $color = switch ($Level) {
+      "PASS" { "Green" }
+      "WARN" { "Yellow" }
+      "FAIL" { "Red" }
+    }
+    Write-Host ("  {0} {1}" -f $Level, $Message) -ForegroundColor $color
+  }
+}
+
+function Pass { param([string]$Message) Add-Check -Level "PASS" -Message $Message }
+function Warn { param([string]$Message) Add-Check -Level "WARN" -Message $Message }
+function Fail { param([string]$Message) Add-Check -Level "FAIL" -Message $Message }
+
+function Section {
+  param([string]$Name)
+  if (-not $Json -and -not $Quiet) {
+    Write-Host ""
+    Write-Host ("--- {0} ---" -f $Name) -ForegroundColor Cyan
+  }
+}
+
+function Test-CommandExists {
+  param([string]$Name)
+  return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
+}
+
+function Invoke-External {
+  param(
+    [Parameter(Mandatory = $true)][string]$FilePath,
+    [string[]]$Arguments = @(),
+    [string]$WorkingDirectory = $RepoRoot
+  )
+
+  $oldErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = "Continue"
+    Push-Location $WorkingDirectory
+    try {
+      $output = & $FilePath @Arguments 2>&1
+      $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+    } finally {
+      Pop-Location
+    }
+  } finally {
+    $ErrorActionPreference = $oldErrorActionPreference
+  }
+
+  $lines = @($output | ForEach-Object {
+    if ($_ -is [System.Management.Automation.ErrorRecord]) { $_.ToString() } else { [string]$_ }
+  })
+
+  return [ordered]@{
+    exitCode = $exitCode
+    output = $lines
+    text = ($lines -join "`n")
+  }
+}
+
+function RepoPath {
+  param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Parts)
+  $path = $RepoRoot
+  foreach ($part in $Parts) {
+    $path = Join-Path $path $part
+  }
+  return $path
+}
+
+function AgentPath {
+  param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Parts)
+  $path = $AgentDir
+  foreach ($part in $Parts) {
+    $path = Join-Path $path $part
+  }
+  return $path
+}
+
+function Read-JsonFile {
+  param([string]$Path)
+  return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+}
+
+function Test-JsonFile {
+  param([string]$Path, [string]$Label)
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    Fail ("missing JSON: {0}" -f $Label)
+    return $false
+  }
+  try {
+    Read-JsonFile $Path | Out-Null
+    Pass ("valid JSON: {0}" -f $Label)
+    return $true
+  } catch {
+    Fail ("invalid JSON: {0}: {1}" -f $Label, $_.Exception.Message)
+    return $false
+  }
+}
+
+function Get-FileHashValue {
+  param([string]$Path)
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    return "missing"
+  }
+  return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Get-JsonPropertyValue {
+  param([object]$Object, [string]$Name)
+  if ($null -eq $Object) { return $null }
+  $prop = $Object.PSObject.Properties[$Name]
+  if ($prop) { return $prop.Value }
+  return $null
+}
+
+function Test-Placeholder {
+  param([object]$Value)
+  if ($null -eq $Value) { return $true }
+  $text = [string]$Value
+  return ($text -eq "" -or $text.Contains("YOUR_") -or $text.Contains("REPLACE_") -or $text -eq "changeme")
+}
+
+function ConvertTo-Semver {
+  param([string]$Value)
+  if (-not $Value) { return $null }
+  $text = $Value.Trim()
+  if ($text.StartsWith("v")) { $text = $text.Substring(1) }
+  $m = [regex]::Match($text, '([0-9]+)\.([0-9]+)\.([0-9]+)')
+  if (-not $m.Success) { return $null }
+  return New-Object System.Version -ArgumentList @([int]$m.Groups[1].Value, [int]$m.Groups[2].Value, [int]$m.Groups[3].Value)
+}
+
+function Test-NodeEngine {
+  param([string]$CurrentNodeVersion, [string]$EngineRange)
+  $current = ConvertTo-Semver $CurrentNodeVersion
+  if (-not $current -or -not $EngineRange) { return $true }
+
+  $matches = [regex]::Matches($EngineRange, '>=\s*([0-9]+\.[0-9]+\.[0-9]+)')
+  foreach ($match in $matches) {
+    $required = ConvertTo-Semver $match.Groups[1].Value
+    if ($required -and $current.CompareTo($required) -lt 0) {
+      return $false
+    }
+  }
+  return $true
+}
+
+function Get-NpmPackageJsonPath {
+  param([string]$PackageName)
+  $parts = $PackageName -split "/"
+  if ($parts.Count -eq 2 -and $PackageName.StartsWith("@")) {
+    return Join-Path (Join-Path (Join-Path $NpmDir "node_modules") $parts[0]) (Join-Path $parts[1] "package.json")
+  }
+  return Join-Path (Join-Path (Join-Path $NpmDir "node_modules") $PackageName) "package.json"
+}
+
+function Detect-InstallMode {
+  try {
+    $repoReal = (Resolve-Path $RepoRoot).ProviderPath
+    $agentReal = (Resolve-Path $AgentDir).ProviderPath
+    if ($repoReal -eq $agentReal) { return "in-place" }
+  } catch {
+  }
+  return "linked"
+}
+
+$InstallMode = Detect-InstallMode
+
+if (-not $Json) {
+  Write-Host ""
+  Write-Host "pi-67 PowerShell doctor" -ForegroundColor Cyan
+  Write-Host ("Repository : {0}" -f $RepoRoot)
+  Write-Host ("Agent dir  : {0}" -f $AgentDir)
+  Write-Host ("Skills dir : {0}" -f $SkillsDir)
+  Write-Host ("Mode       : {0}" -f $InstallMode)
+}
+
+Section "Required tools"
+$NodeVersion = ""
+if (Test-CommandExists "node") {
+  $nodeResult = Invoke-External "node" @("-v")
+  if ($nodeResult.exitCode -eq 0) {
+    $NodeVersion = ($nodeResult.output | Select-Object -First 1)
+    Pass ("node found: {0}" -f $NodeVersion)
+  } else {
+    Fail "node exists but failed to run"
+  }
+} else {
+  Fail "node is required"
+}
+
+if (Test-CommandExists "npm") {
+  $npmResult = Invoke-External "npm" @("-v")
+  if ($npmResult.exitCode -eq 0) {
+    Pass ("npm found: {0}" -f (($npmResult.output | Select-Object -First 1)))
+  } else {
+    Warn "npm exists but failed to run"
+  }
+} else {
+  Warn "npm not found; dependency sync will not work"
+}
+
+if (Test-CommandExists "git") {
+  Pass "git found"
+} else {
+  Fail "git is required for update/status checks"
+}
+
+if (Test-CommandExists "pi") {
+  $piVersion = Invoke-External "pi" @("--version")
+  if ($piVersion.exitCode -eq 0) {
+    Pass ("pi found: {0}" -f (($piVersion.output | Select-Object -First 1)))
+  } else {
+    Warn "pi exists but --version failed"
+  }
+} else {
+  Warn "pi command not found on PATH"
+}
+
+Section "Repository"
+if (Test-Path -LiteralPath (RepoPath ".git")) {
+  Pass "repository is a git checkout"
+} else {
+  Fail "repository .git directory missing"
+}
+
+$versionPath = RepoPath "VERSION"
+$packagePath = RepoPath "package.json"
+$version = ""
+if (Test-Path -LiteralPath $versionPath -PathType Leaf) {
+  $version = (Get-Content -LiteralPath $versionPath -Raw).Trim()
+  if ($version -match '^[0-9]+\.[0-9]+\.[0-9]+') {
+    Pass ("VERSION is semver-like: {0}" -f $version)
+  } else {
+    Warn ("VERSION is not semver-like: {0}" -f $version)
+  }
+} else {
+  Fail "VERSION missing"
+}
+
+if (Test-JsonFile $packagePath "package.json") {
+  $pkg = Read-JsonFile $packagePath
+  if ($pkg.version -eq $version) {
+    Pass "package.json version matches VERSION"
+  } else {
+    Fail ("package.json version {0} does not match VERSION {1}" -f $pkg.version, $version)
+  }
+}
+
+Section "Tracked assets"
+$requiredFiles = @(
+  "AGENTS.md",
+  "settings.json",
+  "models.example.json",
+  "mcp.example.json",
+  "auth.example.json",
+  "image-gen.example.json",
+  "scripts/pi67-update.ps1",
+  "scripts/pi67-doctor.ps1",
+  "scripts/pi67-report.ps1",
+  "scripts/pi67-smoke.ps1",
+  "scripts/pi67-xtalpi-pi-tools-smoke.ps1",
+  "extensions/xtalpi-pi-tools/runtime-config.ts"
+)
+foreach ($file in $requiredFiles) {
+  if (Test-Path -LiteralPath (RepoPath $file) -PathType Leaf) {
+    Pass ("required file exists: {0}" -f $file)
+  } else {
+    Fail ("required file missing: {0}" -f $file)
+  }
+}
+
+Section "Local config"
+$localJson = @(
+  @("models.json", (AgentPath "models.json")),
+  @("mcp.json", (AgentPath "mcp.json")),
+  @("auth.json", (AgentPath "auth.json")),
+  @("image-gen.json", (AgentPath "image-gen.json")),
+  @("settings.json", (AgentPath "settings.json"))
+)
+foreach ($entry in $localJson) {
+  Test-JsonFile $entry[1] $entry[0] | Out-Null
+}
+
+$modelsPath = AgentPath "models.json"
+if (Test-Path -LiteralPath $modelsPath -PathType Leaf) {
+  try {
+    $models = Read-JsonFile $modelsPath
+    $xtalpiProvider = Get-JsonPropertyValue $models.providers "xtalpi-pi-tools"
+    if ($xtalpiProvider) {
+      Pass "models.json has provider xtalpi-pi-tools"
+      $api = Get-JsonPropertyValue $xtalpiProvider "api"
+      if ($api -eq "xtalpi-pi-tools") {
+        Pass "xtalpi-pi-tools api field is correct"
+      } else {
+        Fail ("xtalpi-pi-tools api field is {0}" -f $api)
+      }
+      $baseUrl = Get-JsonPropertyValue $xtalpiProvider "baseUrl"
+      if ($baseUrl -eq "https://sciencetoken-api.xtalpi.xyz/proxy/openai/v1") {
+        Pass "xtalpi-pi-tools baseUrl is OpenAI v1 root"
+      } else {
+        Warn ("xtalpi-pi-tools baseUrl differs: {0}" -f $baseUrl)
+      }
+      $apiKey = Get-JsonPropertyValue $xtalpiProvider "apiKey"
+      if (Test-Placeholder $apiKey) {
+        Warn "xtalpi-pi-tools apiKey is missing or placeholder"
+      } else {
+        Pass "xtalpi-pi-tools apiKey is configured"
+      }
+    } else {
+      Fail "models.json missing provider xtalpi-pi-tools"
+    }
+  } catch {
+    Fail ("could not inspect models.json: {0}" -f $_.Exception.Message)
+  }
+}
+
+$settingsPath = AgentPath "settings.json"
+if (Test-Path -LiteralPath $settingsPath -PathType Leaf) {
+  try {
+    $settings = Read-JsonFile $settingsPath
+    if ($settings.defaultProvider -eq "xtalpi-pi-tools") {
+      Pass "defaultProvider is xtalpi-pi-tools"
+    } else {
+      Warn ("defaultProvider is {0}; expected xtalpi-pi-tools" -f $settings.defaultProvider)
+    }
+  } catch {
+    Fail ("could not inspect settings.json: {0}" -f $_.Exception.Message)
+  }
+}
+
+Section "npm sync"
+$agentPackage = Join-Path $NpmDir "package.json"
+if ((Get-FileHashValue $packagePath) -eq (Get-FileHashValue $agentPackage)) {
+  Pass "npm package.json already synced"
+} else {
+  Warn "npm package.json differs; run pi67-update.ps1 without -NoNpm"
+}
+
+if (Test-Path -LiteralPath $packagePath -PathType Leaf) {
+  $repoPkg = Read-JsonFile $packagePath
+  $dependencies = @()
+  if ($repoPkg.dependencies) {
+    $dependencies = @($repoPkg.dependencies.PSObject.Properties | ForEach-Object { $_.Name })
+  }
+  $missing = @()
+  $engineWarnings = @()
+  foreach ($dep in $dependencies) {
+    $depPackageJson = Get-NpmPackageJsonPath $dep
+    if (-not (Test-Path -LiteralPath $depPackageJson -PathType Leaf)) {
+      $missing += $dep
+      continue
+    }
+    try {
+      $depPkg = Read-JsonFile $depPackageJson
+      $engineNode = Get-JsonPropertyValue $depPkg.engines "node"
+      if ($engineNode -and $NodeVersion -and -not (Test-NodeEngine $NodeVersion $engineNode)) {
+        $engineWarnings += ("{0} requires node {1}" -f $dep, $engineNode)
+      }
+    } catch {
+      $missing += $dep
+    }
+  }
+  if ($missing.Count -eq 0) {
+    Pass ("npm dependencies installed: {0}/{0}" -f $dependencies.Count)
+  } else {
+    Warn ("missing npm dependencies: {0}" -f (($missing | Select-Object -First 12) -join ", "))
+  }
+  if ($engineWarnings.Count -eq 0) {
+    Pass "installed npm dependency node engines are satisfied"
+  } else {
+    foreach ($warning in ($engineWarnings | Select-Object -First 8)) {
+      Warn ("node engine warning: {0}; current {1}" -f $warning, $NodeVersion)
+    }
+  }
+}
+
+Section "Shared skills"
+$sourceSkillsRoot = RepoPath "shared-skills"
+if (-not (Test-Path -LiteralPath $sourceSkillsRoot -PathType Container)) {
+  Fail "shared-skills source directory missing"
+} else {
+  $sourceSkills = @(Get-ChildItem -LiteralPath $sourceSkillsRoot -Directory)
+  Pass ("shared skill sources found: {0}" -f $sourceSkills.Count)
+  $missingSkills = @()
+  foreach ($skill in $sourceSkills) {
+    $target = Join-Path $SkillsDir $skill.Name
+    if (-not (Test-Path -LiteralPath (Join-Path $target "SKILL.md") -PathType Leaf)) {
+      $missingSkills += $skill.Name
+    }
+  }
+  if ($missingSkills.Count -eq 0) {
+    Pass "all bundled shared skills have installed copies"
+  } else {
+    $message = "missing installed shared skills: {0}" -f (($missingSkills | Select-Object -First 12) -join ", ")
+    if ($StrictSharedSkills) { Fail $message } else { Warn $message }
+  }
+}
+
+Section "xtalpi endpoint contract"
+$runtimeConfig = RepoPath "extensions/xtalpi-pi-tools/runtime-config.ts"
+$providerHealth = RepoPath "scripts/pi67-xtalpi-provider-health.mjs"
+if ((Test-Path -LiteralPath $runtimeConfig -PathType Leaf) -and (Test-Path -LiteralPath $providerHealth -PathType Leaf)) {
+  $runtimeText = Get-Content -LiteralPath $runtimeConfig -Raw
+  $healthText = Get-Content -LiteralPath $providerHealth -Raw
+  if ($runtimeText.Contains("/chat/completions") -and $healthText.Contains("/chat/completions")) {
+    Pass "xtalpi-pi-tools uses /chat/completions"
+  } else {
+    Fail "xtalpi-pi-tools chat/completions endpoint marker missing"
+  }
+  if ($runtimeText.Contains("/responses") -or $healthText.Contains("/responses") -or $runtimeText.Contains("/response/completions") -or $healthText.Contains("/response/completions")) {
+    Fail "xtalpi-pi-tools contains disallowed responses endpoint marker"
+  } else {
+    Pass "xtalpi-pi-tools does not use responses endpoint markers"
+  }
+}
+
+if ($SkillList) {
+  Section "Pi skill list"
+  if (Test-CommandExists "pi") {
+    $skillResult = Invoke-External "pi" @("skill", "list") $AgentDir
+    if ($skillResult.exitCode -eq 0) {
+      $text = $skillResult.text
+      if ($text -match "(duplicate|conflict|skipped|auto \(user\))") {
+        Warn "pi skill list reported duplicate/conflict/skipped/auto-user warnings"
+      } else {
+        Pass "pi skill list completed without obvious duplicate/conflict warnings"
+      }
+    } else {
+      Warn "pi skill list failed"
+    }
+  } else {
+    Warn "pi command not found; skipped pi skill list"
+  }
+}
+
+$result = if ($script:FailCount -gt 0) {
+  "NOT READY"
+} elseif ($script:WarnCount -gt 0) {
+  "READY WITH WARNINGS"
+} else {
+  "READY"
+}
+
+if ($Json) {
+  [ordered]@{
+    schemaVersion = 2
+    schemaId = "pi67-doctor/v2"
+    generatedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    generatedBy = "scripts/pi67-doctor.ps1"
+    pi67 = [ordered]@{
+      version = $version
+    }
+    diagnostics = [ordered]@{
+      deepMcp = $false
+      mcpTimeoutMs = 0
+      skillList = [bool]$SkillList
+      strictSharedSkills = [bool]$StrictSharedSkills
+    }
+    installMode = $InstallMode
+    repository = $RepoRoot
+    agentDir = $AgentDir
+    agent = [ordered]@{
+      dir = $AgentDir
+      installMode = $InstallMode
+    }
+    result = $result
+    counts = [ordered]@{
+      pass = $script:PassCount
+      warn = $script:WarnCount
+      fail = $script:FailCount
+    }
+    checks = $script:Checks
+  } | ConvertTo-Json -Depth 8
+} else {
+  Write-Host ""
+  Write-Host "Summary" -ForegroundColor Cyan
+  Write-Host ("  PASS: {0}" -f $script:PassCount)
+  Write-Host ("  WARN: {0}" -f $script:WarnCount)
+  Write-Host ("  FAIL: {0}" -f $script:FailCount)
+  $color = if ($result -eq "NOT READY") { "Red" } elseif ($result -eq "READY WITH WARNINGS") { "Yellow" } else { "Green" }
+  Write-Host ("Result: {0}" -f $result) -ForegroundColor $color
+}
+
+if ($script:FailCount -gt 0) {
+  exit 1
+}
+exit 0
