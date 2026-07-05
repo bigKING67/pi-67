@@ -1365,6 +1365,27 @@ const { pathToFileURL } = require("node:url");
     ),
   );
 
+  const substringMentionContext = serializer.serializeContextForXtalpi(
+    {
+      systemPrompt: "system base",
+      tools: [
+        { name: "read", description: "Read a file", parameters: { type: "object", properties: { path: { type: "string" } } } },
+        { name: "preview_export", description: "Export markdown preview", parameters: { type: "object", properties: { path: { type: "string" } } } },
+      ],
+      messages: [{ role: "user", content: "请使用 preview_export 导出 README.md 预览。" }],
+    },
+    {
+      maxTools: 1,
+      maxToolResultChars: 2000,
+    },
+  );
+  assert.deepEqual([...substringMentionContext.selectedToolNames], ["preview_export"]);
+  assert.ok(substringMentionContext.messages[0].content.includes("- preview_export:"));
+  assert.ok(!substringMentionContext.messages[0].content.includes("- read:"));
+  const omittedReadFromSubstring = substringMentionContext.toolSelectionSummary.omitted.find((item) => item.name === "read");
+  assert.ok(omittedReadFromSubstring);
+  assert.ok(!omittedReadFromSubstring.reasonCodes.includes("prompt_tool_name"));
+
   const dynamicMcpDirectTools = [
     {
       name: "dyn_echo_ping",

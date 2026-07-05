@@ -66,9 +66,21 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function toolNameMentionPattern(toolName: string): RegExp {
+  return new RegExp(
+    `(^|[^${TOOL_NAME_BOUNDARY_CHARS}])(${escapeRegExp(toolName)})(?=$|[^${TOOL_NAME_BOUNDARY_CHARS}])`,
+    "gi",
+  );
+}
+
+function hasToolNameMention(toolName: string, prompt: string): boolean {
+  if (!toolName) return false;
+  return toolNameMentionPattern(toolName).test(prompt);
+}
+
 function hasForbiddenToolMention(toolName: string, prompt: string): boolean {
   if (!toolName) return false;
-  const pattern = new RegExp(`(^|[^${TOOL_NAME_BOUNDARY_CHARS}])(${escapeRegExp(toolName)})(?=$|[^${TOOL_NAME_BOUNDARY_CHARS}])`, "gi");
+  const pattern = toolNameMentionPattern(toolName);
   for (const match of prompt.matchAll(pattern)) {
     const prefixLength = match[1]?.length ?? 0;
     const start = (match.index ?? 0) + prefixLength;
@@ -140,7 +152,7 @@ function scoreTool(tool: ToolLike, prompt: string): ToolScore {
   };
 
   if (CORE_TOOL_NAMES.has(tool.name)) addScore(25, "core_tool");
-  if (promptLower.includes(tool.name.toLowerCase())) addScore(100, "prompt_tool_name");
+  if (hasToolNameMention(tool.name, prompt)) addScore(100, "prompt_tool_name");
   if (hasForbiddenToolMention(tool.name, prompt)) addScore(FORBIDDEN_TOOL_MENTION_PENALTY, "prompt_tool_forbidden");
 
   for (const token of promptLower.split(/[^a-z0-9_\-\u4e00-\u9fff/.]+/i)) {
