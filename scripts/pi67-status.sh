@@ -533,6 +533,20 @@ function deriveResult(repository, remote, report, xtalpiSmoke) {
         recommendations.push(
           `Inspect xtalpi smoke trend: bash ${path.join(repoRoot, "scripts", "pi67-xtalpi-pi-tools-debug-summary.sh")} --trend-gate ${xtalpiSmoke.strictTrendLimit || 3} --profile full-suite-strict "${xtalpiSmoke.artifactDir || "$HOME/tmp/xtalpi-pi-tools-smoke"}"`,
         );
+      } else if (
+        xtalpiSmoke.rankingTrendGate &&
+        xtalpiSmoke.rankingTrendGate.skipped !== true &&
+        (!xtalpiSmoke.rankingTrendGate.ok || xtalpiSmoke.rankingTrendGate.data?.ok !== true)
+      ) {
+        const rankingFailures = xtalpiSmoke.rankingTrendGate?.data?.gateFailures || [];
+        warnings.push(
+          rankingFailures.length > 0
+            ? `xtalpi smoke full-suite-ranking-strict trend needs attention: ${rankingFailures.join("; ")}`
+            : "xtalpi smoke full-suite-ranking-strict trend needs attention",
+        );
+        recommendations.push(
+          `Inspect xtalpi smoke ranking trend: bash ${path.join(repoRoot, "scripts", "pi67-xtalpi-pi-tools-debug-summary.sh")} --trend-gate ${xtalpiSmoke.strictTrendLimit || 3} --profile full-suite-ranking-strict "${xtalpiSmoke.artifactDir || "$HOME/tmp/xtalpi-pi-tools-smoke"}"`,
+        );
       } else if (xtalpiSmoke.drift && !xtalpiSmoke.drift.ok) {
         warnings.push("xtalpi smoke full-suite drift summary needs attention");
         recommendations.push(
@@ -710,11 +724,49 @@ if (xtalpiSmoke.skipped) {
           `Gate perf  : latest=${trendLatest.runId || "unknown"} ` +
             latencyText(trendLatest),
         );
+        const selectedNames = trendLatest.runtimeSelectedToolNames?.length
+          ? trendLatest.runtimeSelectedToolNames.join(",")
+          : "(none)";
+        console.log(
+          `Tool select: latest=${trendLatest.runId || "unknown"} ` +
+            `selected_names=${selectedNames} ` +
+            `max_tools=${trendLatest.runtimeMaxTools?.join(",") || "?"} ` +
+            `valid=${trendLatest.runtimeToolSelectionValidCount?.join(",") || "?"} ` +
+            `omitted=${trendLatest.runtimeToolSelectionOmittedCount?.join(",") || "?"} ` +
+            `clipped=${trendLatest.runtimeToolSelectionClipped?.join(",") || "?"}`,
+        );
       }
     } else if (xtalpiSmoke.strictTrendGate) {
       console.log(
         `Strict gate: unavailable exit=${xtalpiSmoke.strictTrendGate.exitCode ?? "?"} ` +
           `parse_error=${xtalpiSmoke.strictTrendGate.parseError || "none"}`,
+      );
+    }
+    const reasonTelemetry = xtalpiSmoke.reasonCodeTelemetry || trend?.reasonCodeTelemetry;
+    if (reasonTelemetry) {
+      console.log(
+        `Reason code: compatibility=${reasonTelemetry.compatibility || "unknown"} ` +
+          `supported=${reasonTelemetry.supported === true ? "yes" : "no"} ` +
+          `unsupported_runs=${reasonTelemetry.unsupportedRunIds?.join(",") || "(none)"}`,
+      );
+    }
+    const ranking = xtalpiSmoke.rankingTrendGate?.data;
+    if (ranking) {
+      console.log(
+        `Ranking gate: ok=${ranking.ok ?? "?"} found=${ranking.found ?? "?"}/${ranking.requested ?? "?"} ` +
+          `eligible=${ranking.candidateArtifacts ?? "?"} filtered_out=${ranking.filteredOutArtifacts ?? "?"}`,
+      );
+      if (ranking.gateFailures?.length) {
+        console.log(`Ranking why : ${ranking.gateFailures.join("; ")}`);
+      }
+    } else if (xtalpiSmoke.rankingTrendGate?.skipped) {
+      console.log(
+        `Ranking gate: skipped (${xtalpiSmoke.rankingTrendGate.reason || "unknown reason"})`,
+      );
+    } else if (xtalpiSmoke.rankingTrendGate) {
+      console.log(
+        `Ranking gate: unavailable exit=${xtalpiSmoke.rankingTrendGate.exitCode ?? "?"} ` +
+          `parse_error=${xtalpiSmoke.rankingTrendGate.parseError || "none"}`,
       );
     }
     const drift = xtalpiSmoke.drift?.data;

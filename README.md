@@ -519,6 +519,14 @@ targeted extension smoke 还覆盖 `fffind-package`、`ffgrep-package`、
 Windows-native cwd-relative path 基线。以上 case 默认不进入 full-suite；它们用于按需证明具体
 extension tool 的真实 `tool_execution_start` 链路，同时避免 MCP 认证、子代理执行、
 observational-memory 真实内容、图片生成或交互 UI 混入常规发布门。
+装新 extension 后，Bash runner 可先用低风险 profile：
+
+```bash
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --profile extension-low-risk
+```
+
+该 profile 等价于 `mcp-status,subagent-list,recall-not-found`。需要扩展覆盖时再用
+`--profile extension-expanded`；默认不传 profile 仍是 8-case full-suite。
 
 provider health 快速预检：
 

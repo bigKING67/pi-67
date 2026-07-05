@@ -132,6 +132,13 @@ The resulting `xtalpiSmoke` block uses schema
 - compact `strictTrendGate` data with `ok`, gate failures, run-kind counts, and
   recovery trend, plus request latency / slow request telemetry for selected
   trend runs
+- compact `rankingTrendGate` data using `full-suite-ranking-strict` when the
+  selected full-suite artifacts already contain reason-code telemetry; legacy
+  artifacts without reason-code counts are marked as a compatibility skip rather
+  than failing status
+- compact selected-tool telemetry for the newest strict trend run, including
+  selected tool names, `maxTools`, valid / omitted tool counts, clipping state,
+  and selected / omitted reason-code counts
 - compact `drift` data for newest full-suite artifacts, including provider/model,
   case-set hash, runtime fingerprint hash, runtime bounds hash, provider-health
   hash, request-latency quality signal totals, per-run latency telemetry, and
@@ -152,6 +159,16 @@ presence. When artifact summaries contain request telemetry, text output also
 prints compact `request_latency_ms=max/avg/count`, `slow_requests`, and
 `slow_request_threshold_ms` fields for the latest history and strict trend runs,
 plus drift-level request-latency quality totals.
+
+The ranking gate is compatibility-aware. `pi67-status.sh` first evaluates the
+ordinary `full-suite-strict` trend gate and checks whether every selected
+full-suite run contains reason-code telemetry. If yes, it also runs
+`full-suite-ranking-strict` and treats failures as `ATTENTION`. If not, it prints
+`Ranking gate: skipped` with the unsupported run ids; this is informational for
+older artifact directories and does not by itself change the top-level status
+result. Text output also prints `Tool select:` so newly installed extensions can
+be triaged by checking whether they appeared in selected tool names, whether
+`maxTools` clipped the list, and how many tools were valid / omitted.
 
 `NO_ARTIFACTS` is informational and does not by itself change the top-level
 status result. `ATTENTION` and `UNAVAILABLE` are reported as warnings with a

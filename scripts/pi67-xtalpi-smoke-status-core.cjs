@@ -45,6 +45,70 @@ function compactRequestLatency(run) {
   };
 }
 
+function compactCountMap(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, count]) => Number(count) > 0)
+      .sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
+function countMapTotal(value) {
+  return Object.values(compactCountMap(value)).reduce((total, count) => total + Number(count || 0), 0);
+}
+
+function compactArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function compactToolSelectionTelemetry(run) {
+  const fingerprint = run?.runtimeFingerprint || {};
+  return {
+    toolSelectionClippedCases: run?.toolSelectionClippedCases ?? null,
+    toolSelectionOmittedCountMax: run?.toolSelectionOmittedCountMax ?? null,
+    toolSelectionReasonCodes: compactCountMap(run?.toolSelectionReasonCodes),
+    selectedToolSelectionReasonCodes: compactCountMap(run?.selectedToolSelectionReasonCodes),
+    omittedToolSelectionReasonCodes: compactCountMap(run?.omittedToolSelectionReasonCodes),
+    runtimeFingerprintSha256: run?.runtimeFingerprintSha256 || null,
+    runtimeSelectedToolNames: compactArray(fingerprint.selectedToolNames),
+    runtimeMaxTools: compactArray(fingerprint.maxTools),
+    runtimeToolSelectionClipped: compactArray(fingerprint.toolSelectionClipped),
+    runtimeToolSelectionOmittedCount: compactArray(fingerprint.toolSelectionOmittedCount),
+    runtimeToolSelectionValidCount: compactArray(fingerprint.toolSelectionValidCount),
+    runtimeToolSelectionPromptSources: compactArray(fingerprint.toolSelectionPromptSources),
+  };
+}
+
+function hasReasonCodeTelemetry(run) {
+  return (
+    countMapTotal(run?.toolSelectionReasonCodes) +
+    countMapTotal(run?.selectedToolSelectionReasonCodes) +
+    countMapTotal(run?.omittedToolSelectionReasonCodes)
+  ) > 0;
+}
+
+function deriveReasonCodeTelemetry(trendData) {
+  const runs = Array.isArray(trendData?.runs) ? trendData.runs : [];
+  const supportedRunIds = runs.filter(hasReasonCodeTelemetry).map((run) => run.runId).filter(Boolean);
+  const unsupportedRunIds = runs.filter((run) => !hasReasonCodeTelemetry(run)).map((run) => run.runId).filter(Boolean);
+  let compatibility = "unsupported";
+  if (runs.length === 0) {
+    compatibility = "no_runs";
+  } else if (unsupportedRunIds.length === 0) {
+    compatibility = "supported";
+  } else if (supportedRunIds.length > 0) {
+    compatibility = "partial";
+  }
+  return {
+    supported: runs.length > 0 && unsupportedRunIds.length === 0,
+    compatibility,
+    totalRuns: runs.length,
+    supportedRunIds,
+    unsupportedRunIds,
+  };
+}
+
 function compactRun(run) {
   return {
     runId: run?.runId || null,
@@ -69,6 +133,7 @@ function compactRun(run) {
     retryableProviderErrors: run?.retryableProviderErrors ?? null,
     ...compactRequestLatency(run),
     argumentValidationWarnings: run?.argumentValidationWarnings ?? null,
+    ...compactToolSelectionTelemetry(run),
     debugSummaryStatus: run?.debugSummaryStatus ?? null,
     gateFailures: Array.isArray(run?.gateFailures) ? run.gateFailures : [],
     parseError: run?.parseError || null,
@@ -101,6 +166,7 @@ function countRunKinds(runs) {
 
 function compactTrendGate(data) {
   const historyRuns = Array.isArray(data?.history?.runs) ? data.history.runs : [];
+  const runs = historyRuns.map(compactRun);
   return {
     schema: data?.schema || null,
     requested: data?.requested ?? null,
@@ -117,7 +183,8 @@ function compactTrendGate(data) {
     repeatedRecoveryCases: Array.isArray(data?.repeatedRecoveryCases) ? data.repeatedRecoveryCases : [],
     recoveryCaseRunCounts: data?.recoveryCaseRunCounts || {},
     runKindCounts: countRunKinds(historyRuns),
-    runs: historyRuns.map(compactRun),
+    runs,
+    reasonCodeTelemetry: deriveReasonCodeTelemetry({ runs }),
   };
 }
 
@@ -217,6 +284,13 @@ function deriveResult(status) {
   if (!status.artifactsExist) return "NO_ARTIFACTS";
   if (!status.history?.ok) return "ATTENTION";
   if (!status.strictTrendGate?.ok || status.strictTrendGate?.data?.ok !== true) return "ATTENTION";
+  if (
+    status.rankingTrendGate &&
+    status.rankingTrendGate.skipped !== true &&
+    (!status.rankingTrendGate.ok || status.rankingTrendGate.data?.ok !== true)
+  ) {
+    return "ATTENTION";
+  }
   if (status.drift && !status.drift.ok) return "ATTENTION";
   return "OK";
 }
@@ -278,6 +352,24 @@ function collectXtalpiSmokeStatus(options = {}) {
     timeoutMs,
     compact: compactTrendGate,
   });
+  status.reasonCodeTelemetry = deriveReasonCodeTelemetry(status.strictTrendGate?.data);
+  if (status.reasonCodeTelemetry.supported) {
+    status.rankingTrendGate = runDebugSummary({
+      repoRoot,
+      script: debugSummaryScript,
+      artifactDir,
+      args: ["--trend-gate", String(strictTrendLimit), "--profile", "full-suite-ranking-strict", "--json"],
+      timeoutMs,
+      compact: compactTrendGate,
+    });
+  } else {
+    status.rankingTrendGate = {
+      ok: true,
+      skipped: true,
+      reason: "reason-code telemetry missing from one or more selected full-suite smoke artifacts",
+      compatibility: status.reasonCodeTelemetry,
+    };
+  }
   status.drift = runDebugSummary({
     repoRoot,
     script: debugSummaryScript,
@@ -295,6 +387,19 @@ function collectXtalpiSmokeStatus(options = {}) {
     status.warnings.push(`xtalpi full-suite-strict trend gate failed: ${failures.join("; ")}`);
   } else if (status.strictTrendGate && !status.strictTrendGate.ok) {
     status.warnings.push("xtalpi full-suite-strict trend gate failed to run");
+  }
+  if (status.rankingTrendGate?.skipped) {
+    const unsupported = status.reasonCodeTelemetry?.unsupportedRunIds || [];
+    status.warnings.push(
+      unsupported.length > 0
+        ? `xtalpi full-suite-ranking-strict trend gate skipped for legacy artifacts without reason-code telemetry: ${unsupported.join(",")}`
+        : "xtalpi full-suite-ranking-strict trend gate skipped because no eligible reason-code telemetry was found",
+    );
+  } else if (status.rankingTrendGate && status.rankingTrendGate.data?.ok === false) {
+    const failures = status.rankingTrendGate.data.gateFailures || [];
+    status.warnings.push(`xtalpi full-suite-ranking-strict trend gate failed: ${failures.join("; ")}`);
+  } else if (status.rankingTrendGate && !status.rankingTrendGate.ok) {
+    status.warnings.push("xtalpi full-suite-ranking-strict trend gate failed to run");
   }
   if (status.drift && !status.drift.ok) {
     status.warnings.push("xtalpi full-suite drift summary failed to run");

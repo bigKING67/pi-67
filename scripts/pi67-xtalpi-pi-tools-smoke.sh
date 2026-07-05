@@ -36,6 +36,9 @@ COMMON_BASE_ARGS=(
 COMMON_ARGS=("${COMMON_BASE_ARGS[@]}" --no-session)
 
 DEFAULT_CASES=(no-tool bash read bash-read web-read tool-selection-clipping tool-selection-continuation tool-result-injection)
+QUICK_CASES=(no-tool read)
+EXTENSION_LOW_RISK_CASES=(mcp-status subagent-list recall-not-found)
+EXTENSION_EXPANDED_CASES=(fffind-package ffgrep-package batch-web-fetch-example seq-thinking-status mcp-status subagent-list recall-not-found)
 AVAILABLE_CASES=(
   no-tool
   bash
@@ -66,6 +69,7 @@ print_usage() {
   cat <<'EOF'
 Usage:
   pi67-xtalpi-pi-tools-smoke.sh [--case NAME[,NAME...]]...
+  pi67-xtalpi-pi-tools-smoke.sh --profile quick|full-suite|extension-low-risk|extension-expanded
   pi67-xtalpi-pi-tools-smoke.sh --list-cases
   pi67-xtalpi-pi-tools-smoke.sh --self-test
 
@@ -80,6 +84,7 @@ Environment:
   XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_RETRY_DELAY_MS Delay between preflight retryable attempts. Default: 1000.
   XTALPI_PI_TOOLS_SMOKE_DEBUG_SUMMARY_BIN      Debug-summary executable override. Default: script dir helper.
   XTALPI_PI_TOOLS_SMOKE_CASES                  Comma-separated case filter, same values as --case.
+  XTALPI_PI_TOOLS_SMOKE_PROFILE                Case profile: quick, full-suite, extension-low-risk, or extension-expanded.
   PI_AGENT_DIR                                 Agent/repo root used as Pi child-process cwd. Default: script parent.
   PI_BIN                                       Pi executable override. Default: command -v pi.
 EOF
@@ -144,6 +149,28 @@ add_case_filter() {
     fi
     REQUESTED_CASE_FILTER_ACTIVE=1
   done
+}
+
+add_case_profile() {
+  case "$1" in
+    quick)
+      add_case_filter "$(join_by_comma "${QUICK_CASES[@]}")"
+      ;;
+    full-suite)
+      add_case_filter "$(join_by_comma "${DEFAULT_CASES[@]}")"
+      ;;
+    extension-low-risk)
+      add_case_filter "$(join_by_comma "${EXTENSION_LOW_RISK_CASES[@]}")"
+      ;;
+    extension-expanded)
+      add_case_filter "$(join_by_comma "${EXTENSION_EXPANDED_CASES[@]}")"
+      ;;
+    *)
+      echo "unknown xtalpi-pi-tools smoke profile: $1" >&2
+      echo "available profiles: quick full-suite extension-low-risk extension-expanded" >&2
+      return 1
+      ;;
+  esac
 }
 
 case_is_requested() {
@@ -853,6 +880,22 @@ if (data.postAgentEndLingerSeconds !== 30) throw new Error("unexpected postAgent
   fi
   REQUESTED_CASES=()
   REQUESTED_CASE_FILTER_ACTIVE=0
+  if ! add_case_profile "extension-low-risk"; then
+    echo "expected extension-low-risk profile to parse"
+    return 1
+  fi
+  if ! case_is_requested "mcp-status" || ! case_is_requested "subagent-list" || ! case_is_requested "recall-not-found" || case_is_requested "fffind-package"; then
+    echo "extension-low-risk profile selection did not match expected cases"
+    return 1
+  fi
+  REQUESTED_CASES=()
+  REQUESTED_CASE_FILTER_ACTIVE=0
+  if add_case_profile "not-a-profile" 2>/dev/null; then
+    echo "expected invalid smoke profile to fail"
+    return 1
+  fi
+  REQUESTED_CASES=()
+  REQUESTED_CASE_FILTER_ACTIVE=0
 
   local smoke_script="$SCRIPT_DIR/pi67-xtalpi-pi-tools-smoke.sh"
   local fake_pi="$tmp_dir/fake-pi"
@@ -1052,7 +1095,7 @@ NODE
     XTALPI_PI_TOOLS_SMOKE_SUMMARY_FILE="$extension_runner_summary" \
     FAKE_PI_LOG="$extension_fake_pi_log" \
     CASE_TIMEOUT_SECONDS=10 \
-    "$smoke_script" --case fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found 2>&1)"; then
+    "$smoke_script" --profile extension-expanded 2>&1)"; then
     echo "$extension_runner_output"
     return 1
   fi
@@ -1175,6 +1218,19 @@ while [ "$#" -gt 0 ]; do
       fi
       shift
       ;;
+    --profile)
+      shift
+      if ! add_case_profile "${1:-}"; then
+        exit 2
+      fi
+      shift
+      ;;
+    --profile=*)
+      if ! add_case_profile "${1#--profile=}"; then
+        exit 2
+      fi
+      shift
+      ;;
     --list-cases)
       print_cases
       exit 0
@@ -1198,6 +1254,12 @@ fi
 
 if [ -n "${XTALPI_PI_TOOLS_SMOKE_CASES:-}" ]; then
   if ! add_case_filter "$XTALPI_PI_TOOLS_SMOKE_CASES"; then
+    exit 2
+  fi
+fi
+
+if [ -n "${XTALPI_PI_TOOLS_SMOKE_PROFILE:-}" ]; then
+  if ! add_case_profile "$XTALPI_PI_TOOLS_SMOKE_PROFILE"; then
     exit 2
   fi
 fi

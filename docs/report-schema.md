@@ -307,6 +307,44 @@ that field as optional.
       ]
     }
   },
+  "reasonCodeTelemetry": {
+    "supported": true,
+    "compatibility": "supported",
+    "totalRuns": 3,
+    "supportedRunIds": ["20260703-151935"],
+    "unsupportedRunIds": []
+  },
+  "rankingTrendGate": {
+    "ok": true,
+    "data": {
+      "ok": true,
+      "gateFailures": [],
+      "reasonCodeTelemetry": {
+        "supported": true,
+        "compatibility": "supported"
+      },
+      "runs": [
+        {
+          "runId": "20260703-151935",
+          "toolSelectionReasonCodes": {
+            "core_tool": 6,
+            "prompt_path_file": 2
+          },
+          "selectedToolSelectionReasonCodes": {
+            "core_tool": 4,
+            "prompt_path_file": 2
+          },
+          "omittedToolSelectionReasonCodes": {
+            "core_tool": 2
+          },
+          "runtimeSelectedToolNames": ["read", "bash"],
+          "runtimeMaxTools": [24],
+          "runtimeToolSelectionOmittedCount": [0],
+          "runtimeToolSelectionValidCount": [2]
+        }
+      ]
+    }
+  },
   "drift": {
     "ok": true,
     "data": {
@@ -355,8 +393,8 @@ Result values:
 
 | Result | Meaning |
 | --- | --- |
-| `OK` | Smoke artifacts were found, history parsed, the `full-suite-strict` trend gate passed, and the drift command parsed when enabled. |
-| `ATTENTION` | History, strict trend, or drift evaluation failed to run/parse, or strict trend returned gate failures. |
+| `OK` | Smoke artifacts were found, history parsed, the `full-suite-strict` trend gate passed, the compatibility-aware ranking gate passed or was skipped for legacy artifacts, and the drift command parsed when enabled. |
+| `ATTENTION` | History, strict trend, ranking trend, or drift evaluation failed to run/parse, or an enforced trend gate returned gate failures. |
 | `NO_ARTIFACTS` | The artifact directory is missing; this is informational for fresh installs. |
 | `UNAVAILABLE` | The local debug-summary helper is missing or not executable. |
 
@@ -377,6 +415,20 @@ request-latency telemetry when it is present in smoke summaries:
 `requestLatencyMsAvg`, `slowRequestCount`, and `slowRequestThresholdMs`. Older
 artifacts that predate latency telemetry are backfilled from per-case debug
 JSONL when those files are present; otherwise these fields may report as `null`.
+
+The `rankingTrendGate` block is compatibility-aware. It is enforced only when
+all selected full-suite runs already contain reason-code telemetry. If old
+artifacts have empty reason-code counts, the block is emitted as
+`{ "skipped": true, "reason": "..." }` with `reasonCodeTelemetry` showing the
+unsupported run ids; this does not fail the report. When enforced, it uses
+`full-suite-ranking-strict` to guard selected-tool ranking reason-code drift.
+Compact run entries also preserve selected-tool diagnostic fields:
+`toolSelectionReasonCodes`, `selectedToolSelectionReasonCodes`,
+`omittedToolSelectionReasonCodes`, `runtimeSelectedToolNames`, `runtimeMaxTools`,
+`runtimeToolSelectionOmittedCount`, `runtimeToolSelectionValidCount`, and
+`runtimeToolSelectionClipped`. These fields help distinguish "new extension did
+not register" from "registered but clipped by maxTools" or "registered but not
+selected by the prompt".
 
 The `drift` block is produced from `--drift <N> --run-kind full-suite`. It is a
 compact, read-only observability surface rather than a pass/fail gate: consumers

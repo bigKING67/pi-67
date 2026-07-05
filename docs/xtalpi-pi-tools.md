@@ -359,6 +359,27 @@ bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case recall-not-found
 XTALPI_PI_TOOLS_SMOKE_CASES=web-read bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh
 ```
 
+也可以用 profile 别名分层运行，避免每次手写 case 列表：
+
+```bash
+# 快速确认 provider + cwd-relative read 基线
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --profile quick
+
+# 默认 8-case full-suite，等价于不传 --case / --profile
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --profile full-suite
+
+# 新 extension 安装后推荐先跑的低风险 targeted smoke
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --profile extension-low-risk
+
+# 扩展覆盖更全，但包含外部 fetch / fffind / ffgrep / seq-thinking 状态读取
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --profile extension-expanded
+```
+
+`extension-low-risk` 当前包含 `mcp-status,subagent-list,recall-not-found`；它只做
+只读 gateway/status、agent management list 和 sentinel recall-not-found，不触发
+子代理运行、不读取真实 observation 内容、不调用任意 MCP server/tool。`--case` 与
+`--profile` 可以叠加，最终按声明顺序去重。
+
 `fffind-package`、`ffgrep-package`、`batch-web-fetch-example`、`seq-thinking-status`、
 `mcp-status`、`subagent-list` 和 `recall-not-found` 是 targeted-only extension
 live smoke case；默认不加入
@@ -511,7 +532,7 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
 
 `--history` 读取 `<stamp>-summary.json`，按最新优先输出每轮 `ok`、`failures`、`cases`、`run_kind`、`selected_cases`、`case_set_sha256`、`recoveries`、`recovery_rate`、raw markup final answer、empty assistant end、error、provider error、request latency、slow request、process lifecycle failure 和 watchdog timeout 计数；它会忽略同目录下的 `<stamp>-debug-summary.json` 中间产物，避免把 debug-summary 自身误当成 smoke run。旧 summary 如果没有 `runKind`，debug-summary 会根据 `caseSet`、`providerHealth` 和 `stopReason` 现场回推分类；旧 summary 如果缺少 request latency 字段但同 run 的 per-case debug JSONL 仍在，会只读回填 request latency / slow request telemetry。
 
-`--history`、`--trend-gate` 和 `--drift` 支持 `--run-kind LIST` 先按 `runKind` 过滤 persisted summary artifacts，再选择 newest N；`--require-run-kind LIST` 会要求 history / trend-gate selected runs 的 `runKind` 属于指定集合。`scripts/pi67-report.sh` 和 `scripts/pi67-status.sh` 也会默认读取同一 smoke artifact 目录，写入 / 输出 compact `xtalpiSmoke` 状态：最近 3 次整体 history、每轮 `runKind`、request latency / slow request telemetry、`--trend-gate 3 --profile full-suite-strict` 的结果，以及最近 10 次 full-suite artifact 的 drift 摘要与 request-latency quality totals。该状态只读本地 artifact，不运行 live smoke，也不改写历史文件；使用 `--no-xtalpi-smoke` 可关闭，或用 `--xtalpi-smoke-dir DIR` 指向非默认目录。
+`--history`、`--trend-gate` 和 `--drift` 支持 `--run-kind LIST` 先按 `runKind` 过滤 persisted summary artifacts，再选择 newest N；`--require-run-kind LIST` 会要求 history / trend-gate selected runs 的 `runKind` 属于指定集合。`scripts/pi67-report.sh` 和 `scripts/pi67-status.sh` 也会默认读取同一 smoke artifact 目录，写入 / 输出 compact `xtalpiSmoke` 状态：最近 3 次整体 history、每轮 `runKind`、request latency / slow request telemetry、`--trend-gate 3 --profile full-suite-strict` 的结果、兼容型 `full-suite-ranking-strict` reason-code gate、selected-tool telemetry，以及最近 10 次 full-suite artifact 的 drift 摘要与 request-latency quality totals。该状态只读本地 artifact，不运行 live smoke，也不改写历史文件；使用 `--no-xtalpi-smoke` 可关闭，或用 `--xtalpi-smoke-dir DIR` 指向非默认目录。
 
 也可以精确汇总某一次 smoke run，避免并发或历史 artifact 干扰：
 
@@ -653,6 +674,8 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
 ```
 
 `full-suite-ranking-strict` 继承 `full-suite-strict` 的 case 集、runKind 和 recovery / raw-markup 阈值，并额外要求 full-suite summary 的 `tool_selection_reason_codes` 与 `selected_tool_selection_reason_codes` 包含 `core_tool,prompt_path_file`，`omitted_tool_selection_reason_codes` 包含 `core_tool`，同时禁止 aggregate reason code 出现 `prompt_tool_exclusive`。它不默认启用 runtime stability gate，避免 prompt length、timeout 或 runtime bounds 的正常调整影响 ranking 专项判断。
+
+`pi67-status.sh` / `pi67-report.sh` 会自动做兼容型 ranking gate：如果 selected full-suite artifact 都已经包含 reason-code telemetry，则执行 `full-suite-ranking-strict` 并把失败报告为 attention；如果 artifact 来自旧版本、reason-code counts 为空，则输出 `Ranking gate: skipped` 和 unsupported run ids，不把旧 artifact 误判为回归。status 文本还会输出 `Tool select:`，展示最近 full-suite 的 selected tool names、`maxTools`、valid / omitted count 和 clipped 状态，方便装新 extension 后判断它是没注册、被 maxTools 截断，还是 prompt 没选中。
 
 如果要把 runtime 漂移从观测升级为 gate，可使用可选 runtime stability profile：
 

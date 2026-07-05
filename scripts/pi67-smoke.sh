@@ -536,7 +536,26 @@ case "${1:-}" in
       "requestLatencyMsMax": 2222,
       "requestLatencyMsAvg": 777,
       "slowRequestCount": 1,
-      "slowRequestThresholdMs": 600
+      "slowRequestThresholdMs": 600,
+      "toolSelectionReasonCodes": {
+        "core_tool": 6,
+        "prompt_path_file": 2
+      },
+      "selectedToolSelectionReasonCodes": {
+        "core_tool": 4,
+        "prompt_path_file": 2
+      },
+      "omittedToolSelectionReasonCodes": {
+        "core_tool": 2
+      },
+      "runtimeFingerprint": {
+        "selectedToolNames": ["read", "bash"],
+        "maxTools": [24],
+        "toolSelectionClipped": [false],
+        "toolSelectionOmittedCount": [0],
+        "toolSelectionValidCount": [2],
+        "toolSelectionPromptSources": ["latest_user"]
+      }
     }
   ]
 }
@@ -566,7 +585,26 @@ JSON
         "requestLatencyMsMax": 2222,
         "requestLatencyMsAvg": 777,
         "slowRequestCount": 1,
-        "slowRequestThresholdMs": 600
+        "slowRequestThresholdMs": 600,
+        "toolSelectionReasonCodes": {
+          "core_tool": 6,
+          "prompt_path_file": 2
+        },
+        "selectedToolSelectionReasonCodes": {
+          "core_tool": 4,
+          "prompt_path_file": 2
+        },
+        "omittedToolSelectionReasonCodes": {
+          "core_tool": 2
+        },
+        "runtimeFingerprint": {
+          "selectedToolNames": ["read", "bash"],
+          "maxTools": [24],
+          "toolSelectionClipped": [false],
+          "toolSelectionOmittedCount": [0],
+          "toolSelectionValidCount": [2],
+          "toolSelectionPromptSources": ["latest_user"]
+        }
       }
     ]
   }
@@ -646,6 +684,13 @@ assert(latest?.requestCount === 3, "history requestCount was not preserved");
 assert(latest?.slowRequestCount === 1, "history slowRequestCount was not preserved");
 assert(latest?.slowRequestThresholdMs === 600, "history slowRequestThresholdMs was not preserved");
 assert(trendLatest?.requestLatencyMsMax === 2222, "trend request latency was not preserved");
+assert(trendLatest?.toolSelectionReasonCodes?.core_tool === 6, "trend reason codes were not preserved");
+assert(trendLatest?.selectedToolSelectionReasonCodes?.prompt_path_file === 2, "selected-tool reason codes were not preserved");
+assert(trendLatest?.omittedToolSelectionReasonCodes?.core_tool === 2, "omitted-tool reason codes were not preserved");
+assert(trendLatest?.runtimeSelectedToolNames?.includes("read"), "runtime selected tool names were not preserved");
+assert(status.reasonCodeTelemetry?.supported === true, "reason-code telemetry should be supported for the fixture");
+assert(status.rankingTrendGate?.ok === true, "ranking trend gate should run for reason-code-aware artifacts");
+assert(status.rankingTrendGate?.skipped !== true, "ranking trend gate should not be skipped for reason-code-aware artifacts");
 assert(driftLatest?.slowRequestCount === 1, "drift run slow request count was not preserved");
 assert(driftTotals?.requestLatencyMsMax === 2222, "drift quality total request latency was not preserved");
 assert(driftTotals?.slowRequestCount === 1, "drift quality total slow request count was not preserved");
