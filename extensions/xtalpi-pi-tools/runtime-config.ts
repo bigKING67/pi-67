@@ -91,7 +91,7 @@ function candidateAgentDirs(): string[] {
 
 function readJsonFile(file: string): unknown {
   try {
-    return JSON.parse(readFileSync(file, "utf8"));
+    return JSON.parse(readFileSync(file, "utf8").replace(/^\uFEFF/, ""));
   } catch {
     return undefined;
   }

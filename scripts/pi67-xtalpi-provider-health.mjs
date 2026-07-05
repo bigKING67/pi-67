@@ -105,6 +105,18 @@ function isStringRecord(value) {
   return isObject(value) && Object.values(value).every((item) => typeof item === "string" && item.length > 0);
 }
 
+function stripJsonBom(text) {
+  return String(text || "").replace(/^\uFEFF/, "");
+}
+
+function parseJsonText(text) {
+  return JSON.parse(stripJsonBom(text));
+}
+
+function readJsonFile(file) {
+  return parseJsonText(fs.readFileSync(file, "utf8"));
+}
+
 function sameSortedStrings(left, right) {
   return JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
 }
@@ -121,7 +133,7 @@ function providerErrorContractPath() {
 
 function loadProviderErrorContract() {
   const file = providerErrorContractPath();
-  const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+  const parsed = readJsonFile(file);
   if (!isObject(parsed) || parsed.schema !== ERROR_CONTRACT_SCHEMA) {
     throw new Error(`invalid xtalpi provider error contract schema: ${file}`);
   }
@@ -426,7 +438,7 @@ async function checkProviderHealth(options) {
 
   let models;
   try {
-    models = JSON.parse(fs.readFileSync(path.join(options.agentDir, "models.json"), "utf8"));
+    models = readJsonFile(path.join(options.agentDir, "models.json"));
   } catch (error) {
     return failure(context, {
       ...errorFields("config_error"),
@@ -606,6 +618,10 @@ function selfTest() {
   }
   if (!isPlaceholderKey("changeme") || !isPlaceholderKey("REPLACE_THIS_KEY")) {
     throw new Error("placeholder key self-test failed");
+  }
+  const bomJson = parseJsonText('\uFEFF{"ok":true}');
+  if (!bomJson.ok) {
+    throw new Error("UTF-8 BOM JSON self-test failed");
   }
   const legacyRuntime = providersForRuntime({
     providers: {
