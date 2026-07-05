@@ -1409,6 +1409,50 @@ const { pathToFileURL } = require("node:url");
   assert.equal(explicitOnlyContext.toolSelectionSummary.clipped, true);
   assert.ok(explicitOnlyContext.toolSelectionSummary.selected[0].reasonCodes.includes("prompt_tool_exclusive"));
 
+  const chineseExclusiveFalsePositiveContext = serializer.serializeContextForXtalpi(
+    {
+      systemPrompt: "system base",
+      tools: [
+        { name: "read", description: "Read a file", parameters: { type: "object", properties: { path: { type: "string" } } } },
+        { name: "bash", description: "Run a shell command", parameters: { type: "object", properties: { command: { type: "string" } } } },
+      ],
+      messages: [{ role: "user", content: "我只是问 read 和 bash 的区别；仅说明概念，不要执行工具。" }],
+    },
+    {
+      maxTools: 24,
+      maxToolResultChars: 2000,
+    },
+  );
+  assert.deepEqual([...chineseExclusiveFalsePositiveContext.selectedToolNames], ["read", "bash"]);
+  assert.equal(chineseExclusiveFalsePositiveContext.toolSelectionSummary.clipped, false);
+  assert.ok(
+    !chineseExclusiveFalsePositiveContext.toolSelectionSummary.selected.some((item) =>
+      item.reasonCodes.includes("prompt_tool_exclusive"),
+    ),
+  );
+
+  const englishExclusiveFalsePositiveContext = serializer.serializeContextForXtalpi(
+    {
+      systemPrompt: "system base",
+      tools: [
+        { name: "read", description: "Read a file", parameters: { type: "object", properties: { path: { type: "string" } } } },
+        { name: "bash", description: "Run a shell command", parameters: { type: "object", properties: { command: { type: "string" } } } },
+      ],
+      messages: [{ role: "user", content: "Explain why the only read tool here is not enough, and compare it with bash." }],
+    },
+    {
+      maxTools: 24,
+      maxToolResultChars: 2000,
+    },
+  );
+  assert.deepEqual([...englishExclusiveFalsePositiveContext.selectedToolNames], ["read", "bash"]);
+  assert.equal(englishExclusiveFalsePositiveContext.toolSelectionSummary.clipped, false);
+  assert.ok(
+    !englishExclusiveFalsePositiveContext.toolSelectionSummary.selected.some((item) =>
+      item.reasonCodes.includes("prompt_tool_exclusive"),
+    ),
+  );
+
   const dynamicMcpDirectTools = [
     {
       name: "dyn_echo_ping",

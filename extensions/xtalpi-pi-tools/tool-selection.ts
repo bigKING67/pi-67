@@ -59,7 +59,7 @@ const CORE_TOOL_NAMES = new Set([
 
 const TOOL_NAME_BOUNDARY_CHARS = "A-Za-z0-9_-";
 const EXCLUSIVE_TOOL_CLAUSE_PATTERN =
-  /(?:\bonly\s+(?:the\s+)?(?:call|use|execute|run|invoke|select|choose)?|\b(?:call|use|execute|run|invoke|select|choose)\s+only(?:\s+the)?|(?:只|仅)\s*(?:调用|使用|执行|运行|选择|用)?)/i;
+  /(?:\bonly\s+(?:the\s+)?(?:call|use|execute|run|invoke|select|choose)\b|\b(?:call|use|execute|run|invoke|select|choose)\s+only(?:\s+the)?\b|(?:只|仅)\s*(?:调用|使用|执行|运行|选择|用))/i;
 const NEGATIVE_TOOL_CLAUSE_PATTERN =
   /(?:do\s+not|don't|dont|must\s+not|never|without)\s+(?:call|use|execute|run|invoke|select|choose)?|(?:禁止|不要|不得|别|勿)\s*(?:调用|使用|执行|运行|选择|用)?/i;
 const TOOL_MENTION_EXCEPTION_PATTERN = /(?:except(?:\s+for)?|other\s+than|除外|除了|除非|以外|之外)/i;
