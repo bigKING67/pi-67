@@ -544,10 +544,19 @@ Set-Location $env:USERPROFILE\.pi\agent
 $Stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $BackupDir = Join-Path $env:USERPROFILE ".pi\agent-backups\pre-update-$Stamp"
 New-Item -ItemType Directory -Force $BackupDir | Out-Null
-Copy-Item .\settings.json (Join-Path $BackupDir "settings.json") -ErrorAction SilentlyContinue
-Copy-Item .\extensions\xtalpi-compat\index.ts (Join-Path $BackupDir "xtalpi-compat-index.ts") -ErrorAction SilentlyContinue
-git diff -- settings.json extensions/xtalpi-compat/index.ts | Set-Content -Path (Join-Path $BackupDir "local.diff") -Encoding UTF8
-git restore -- settings.json extensions/xtalpi-compat/index.ts
+$KnownPaths = @("settings.json", "extensions/xtalpi-compat/index.ts")
+$RestorePaths = @()
+foreach ($Path in $KnownPaths) {
+  git ls-files --error-unmatch $Path *> $null
+  if ($LASTEXITCODE -eq 0) { $RestorePaths += $Path }
+}
+if ($RestorePaths.Count -gt 0) {
+  git diff -- $RestorePaths | Set-Content -Path (Join-Path $BackupDir "local.diff") -Encoding UTF8
+  foreach ($Path in $RestorePaths) {
+    Copy-Item $Path (Join-Path $BackupDir ($Path -replace "[\\/]", "__")) -ErrorAction SilentlyContinue
+  }
+  git restore -- $RestorePaths
+}
 git pull --ff-only
 .\scripts\pi67-update.ps1
 ```

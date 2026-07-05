@@ -716,14 +716,14 @@ function Backup-And-RestoreKnownMigrationConflicts {
 
   if ($DryRun) {
     Write-Host ("  DRY-RUN backup known conflict files to {0}" -f $backupDir) -ForegroundColor Cyan
-    Write-Host ("  DRY-RUN git restore -- {0}" -f ($KnownMigrationConflictPaths -join " ")) -ForegroundColor Cyan
+    Write-Host ("  DRY-RUN git restore -- {0}" -f ($dirtyPaths -join " ")) -ForegroundColor Cyan
     return $true
   }
 
   New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
-  Invoke-Git (@("diff", "--") + $KnownMigrationConflictPaths) | Set-Content -LiteralPath (Join-Path $backupDir "local.diff") -Encoding UTF8
+  Invoke-Git (@("diff", "--") + $dirtyPaths) | Set-Content -LiteralPath (Join-Path $backupDir "local.diff") -Encoding UTF8
 
-  foreach ($rel in $KnownMigrationConflictPaths) {
+  foreach ($rel in $dirtyPaths) {
     $source = Join-Path $RepoRoot ($rel -replace "/", [IO.Path]::DirectorySeparatorChar)
     if (Test-Path -LiteralPath $source -PathType Leaf) {
       $safeName = $rel -replace "[\\/]", "__"
@@ -731,7 +731,7 @@ function Backup-And-RestoreKnownMigrationConflicts {
     }
   }
 
-  Invoke-Git (@("restore", "--") + $KnownMigrationConflictPaths) | Out-Null
+  Invoke-Git (@("restore", "--") + $dirtyPaths) | Out-Null
   Write-Pass "known migration conflicts restored from HEAD after backup"
   return $true
 }
