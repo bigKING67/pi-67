@@ -315,6 +315,8 @@ Windows 还可以用 PowerShell-native targeted live runner 验证低风险 exte
 ```powershell
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -ListCases
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-low-risk
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-expanded
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
 ```
 
@@ -395,6 +397,8 @@ case 要求 `read.path` 严格等于 cwd-relative `package.json`，不依赖
 或 Linux/macOS 的 `~/.pi/agent` 路径时不需要改 prompt。Windows 用户先用
 PowerShell `.\scripts\pi67-smoke.ps1 -Ci` 验证 repo metadata、JSON、Node helpers
 和 xtalpi `/chat/completions` endpoint contract；低风险 live targeted case 可用
+`.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-low-risk`，扩展覆盖可用
+`.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-expanded`，也可显式指定
 `.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"`。
 这些 PowerShell 入口不要求额外 Unix-like shell。
 

@@ -6,6 +6,7 @@
 [CmdletBinding()]
 param(
   [string[]]$Case = @(),
+  [string[]]$Profile = @(),
   [switch]$ListCases,
   [switch]$SelfTest,
   [switch]$Json,
@@ -34,6 +35,7 @@ PowerShell without Bash.
 
 Usage:
   .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 [-Case "read-package,fffind-package"]
+  .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-low-risk
   .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -ListCases
   .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest
 
@@ -49,6 +51,7 @@ Supported cases:
 
 Options:
   -Case NAME[,NAME]       Target cases. Defaults to all supported cases.
+  -Profile NAME[,NAME]    quick, full-suite, extension-low-risk, or extension-expanded.
   -ListCases              Print supported case names.
   -SelfTest               Run offline parser/summary self-test.
   -NoPreflight            Skip xtalpi provider-health preflight.
@@ -82,6 +85,26 @@ $AvailableCases = @(
   "subagent-list",
   "recall-not-found"
 )
+$AvailableProfiles = @(
+  "quick",
+  "full-suite",
+  "extension-low-risk",
+  "extension-expanded"
+)
+$ProfileCaseMap = @{
+  "quick" = @("read-package")
+  "full-suite" = $AvailableCases
+  "extension-low-risk" = @("mcp-status", "subagent-list", "recall-not-found")
+  "extension-expanded" = @(
+    "fffind-package",
+    "ffgrep-package",
+    "batch-web-fetch-example",
+    "seq-thinking-status",
+    "mcp-status",
+    "subagent-list",
+    "recall-not-found"
+  )
+}
 $CaseDefinitions = @{
   "read-package" = [ordered]@{
     tool = "read"
@@ -183,6 +206,31 @@ function Parse-CaseList {
       if (-not [string]::IsNullOrWhiteSpace($trimmed) -and -not $items.Contains($trimmed)) {
         $items.Add($trimmed)
       }
+    }
+  }
+  return @($items)
+}
+
+function Add-UniqueCase {
+  param(
+    [System.Collections.Generic.List[string]]$Items,
+    [string]$Name
+  )
+  if (-not [string]::IsNullOrWhiteSpace($Name) -and -not $Items.Contains($Name)) {
+    $Items.Add($Name)
+  }
+}
+
+function Resolve-ProfileCases {
+  param([string[]]$RawProfiles)
+  $items = New-Object System.Collections.Generic.List[string]
+  foreach ($profile in (Parse-CaseList $RawProfiles)) {
+    if ($AvailableProfiles -notcontains $profile) {
+      [Console]::Error.WriteLine(("unknown xtalpi-pi-tools PowerShell smoke profile: {0}. Available: {1}" -f $profile, ($AvailableProfiles -join ", ")))
+      exit 2
+    }
+    foreach ($caseName in @($ProfileCaseMap[$profile])) {
+      Add-UniqueCase $items $caseName
     }
   }
   return @($items)
@@ -538,6 +586,19 @@ function Run-SelfTest {
       if ($fixtureSummary.ok -ne $true) { throw ("expected fixture {0} to pass" -f $fixture.name) }
     }
 
+    $lowRiskProfile = Resolve-ProfileCases @("extension-low-risk")
+    if (($lowRiskProfile -join ",") -ne "mcp-status,subagent-list,recall-not-found") {
+      throw "extension-low-risk profile mapping drifted"
+    }
+    $expandedProfile = Resolve-ProfileCases @("extension-expanded")
+    if (($expandedProfile -join ",") -ne "fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found") {
+      throw "extension-expanded profile mapping drifted"
+    }
+    $quickProfile = Resolve-ProfileCases @("quick")
+    if (($quickProfile -join ",") -ne "read-package") {
+      throw "quick profile mapping drifted"
+    }
+
     $badOut = Join-Path $tmp "bad.jsonl"
     @(
       @{ type = "tool_execution_start"; toolName = "bash"; args = @{ command = "pwd" } },
@@ -604,7 +665,13 @@ $preflightEnv = Env-OrDefault "XTALPI_PI_TOOLS_SMOKE_PREFLIGHT" "1"
 $PreflightEnabled = -not $NoPreflight -and $preflightEnv -notmatch '^(0|false|no|off)$'
 
 $caseEnv = [Environment]::GetEnvironmentVariable("XTALPI_PI_TOOLS_SMOKE_CASES")
-$selectedCases = Parse-CaseList (@($Case) + @($caseEnv))
+$profileEnv = [Environment]::GetEnvironmentVariable("XTALPI_PI_TOOLS_SMOKE_PROFILE")
+$selectedCases = Resolve-ProfileCases (@($Profile) + @($profileEnv))
+foreach ($caseName in (Parse-CaseList (@($Case) + @($caseEnv)))) {
+  if (-not [string]::IsNullOrWhiteSpace($caseName) -and $selectedCases -notcontains $caseName) {
+    $selectedCases += $caseName
+  }
+}
 if ($selectedCases.Count -eq 0) {
   $selectedCases = $AvailableCases
 }

@@ -483,6 +483,8 @@ targeted live runner 验证低风险 extension 工具链路：
 
 ```powershell
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -ListCases
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-low-risk
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-expanded
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
 ```
 
@@ -520,6 +522,10 @@ Windows-native cwd-relative path 基线。以上 case 默认不进入 full-suite
 extension tool 的真实 `tool_execution_start` 链路，同时避免 MCP 认证、子代理执行、
 observational-memory 真实内容、图片生成或交互 UI 混入常规发布门。
 装新 extension 后，Bash runner 可先用低风险 profile：
+
+```powershell
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-low-risk
+```
 
 ```bash
 bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --profile extension-low-risk
