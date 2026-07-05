@@ -309,6 +309,30 @@ Windows 日常更新使用 PowerShell-native updater：
 
 `pi67-smoke.ps1` 验证 repo metadata、JSON、Node helpers、PowerShell portability 和 xtalpi
 `/chat/completions` endpoint contract，不调用真实模型，也不需要 Bash。
+安装或更新 extension 后，先用 smoke plan 生成当前覆盖面：
+
+```powershell
+node .\scripts\pi67-xtalpi-smoke-plan.mjs
+node .\scripts\pi67-xtalpi-smoke-plan.mjs --json
+```
+
+`pi67-xtalpi-smoke-plan.mjs` 是只读 planner：它扫描 `settings.json`、
+`npm/node_modules`、`git/github.com` 和本地 `extensions`，静态识别当前 package
+暴露的 model-callable tools、commands 与风险分类；不调用模型、不访问外网、不读取
+或修改 `models.json` / `auth.json` / `mcp.json` / `image-gen.json`。输出会标出：
+
+- Windows targeted smoke 已完全覆盖的工具，例如 `mcp`、`subagent`、`recall`。
+- Windows targeted smoke 只覆盖一部分的工具，例如 FFF 的 `fffind`/`ffgrep`、
+  smart-fetch 的 `batch_web_fetch`、sequential-thinking 的 `get_thinking_status`。
+- 只适合静态或人工隔离验收的工具，例如交互型、artifact-producing、mutating、
+  provider-forwarding、需要真实账号/鉴权或 direct MCP server runtime 的工具。
+- 推荐下一步命令，包括 `extension-low-risk`、`extension-expanded` 和 Bash full-suite。
+
+因此以后装了新 extension，先跑 smoke plan 看它是否进入 `context.tools` 预期覆盖面，
+再决定是否跑 PowerShell targeted smoke、Bash full-suite，或为新工具补一个隔离 case。
+smoke plan 本身不证明 authenticated、mutating、interactive、artifact-producing
+工具已经可无人值守安全调用。
+
 Windows 还可以用 PowerShell-native targeted live runner 验证低风险 extension
 工具链路：
 

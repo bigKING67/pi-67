@@ -435,6 +435,7 @@ pi-67/
 │   ├── pi67-xtalpi-pi-tools-smoke.sh
 │   ├── pi67-xtalpi-pi-tools-smoke.ps1
 │   ├── pi67-xtalpi-pi-tools-debug-summary.sh
+│   ├── pi67-xtalpi-smoke-plan.mjs
 │   └── pi67-xtalpi-provider-health.mjs
 └── templates/
     └── scrapers/
@@ -478,7 +479,23 @@ Set-Location $env:USERPROFILE\.pi\agent
 .\scripts\pi67-smoke.ps1 -Ci
 ```
 
-它不需要 Bash，也不依赖任何个人机器绝对路径。Windows 还可以用 PowerShell-native
+它不需要 Bash，也不依赖任何个人机器绝对路径。安装或更新 extension 后，先跑只读
+smoke plan 看当前工具覆盖面：
+
+```powershell
+node .\scripts\pi67-xtalpi-smoke-plan.mjs
+node .\scripts\pi67-xtalpi-smoke-plan.mjs --json
+```
+
+smoke plan 只读取 `settings.json`、本地 extension/package 源码和 package metadata；
+不调用模型、不访问外网、不读取或修改 key/config。它会把当前 extension 分成
+`covered_by_windows_targeted_smoke`、`partially_covered_by_windows_targeted_smoke`、
+`manual_or_static_only`、`gateway_only_dynamic_tools_need_runtime_auth` 和
+`not_model_callable` 等状态，并给出下一步推荐命令。它不能证明需要真实账号、鉴权、
+交互、写文件、图片/预览 artifact 或 mutating action 的工具已经可安全自动调用；
+这些工具仍要用隔离目录或人工场景单独验收。
+
+Windows 还可以用 PowerShell-native
 targeted live runner 验证低风险 extension 工具链路：
 
 ```powershell

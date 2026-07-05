@@ -61,6 +61,7 @@ XTALPI_PI_TOOLS_SMOKE="$REPO_ROOT/scripts/pi67-xtalpi-pi-tools-smoke.sh"
 XTALPI_PI_TOOLS_SMOKE_PS="$REPO_ROOT/scripts/pi67-xtalpi-pi-tools-smoke.ps1"
 XTALPI_PI_TOOLS_DEBUG_SUMMARY="$REPO_ROOT/scripts/pi67-xtalpi-pi-tools-debug-summary.sh"
 XTALPI_PI_TOOLS_SMOKE_STATUS_CORE="$REPO_ROOT/scripts/pi67-xtalpi-smoke-status-core.cjs"
+XTALPI_PI_TOOLS_SMOKE_PLAN="$REPO_ROOT/scripts/pi67-xtalpi-smoke-plan.mjs"
 XTALPI_PI_TOOLS_PROVIDER_HEALTH="$REPO_ROOT/scripts/pi67-xtalpi-provider-health.mjs"
 XTALPI_PI_TOOLS_ERROR_CONTRACT_CHECK="$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs"
 XTALPI_PI_TOOLS_COVERAGE_AUDIT="$REPO_ROOT/scripts/pi67-xtalpi-tool-coverage-audit.sh"
@@ -198,16 +199,16 @@ else
   fail "release artifact smoke is not documented"
 fi
 
-if [ -f "$XTALPI_PI_TOOLS_SCRIPT" ] && [ -f "$XTALPI_PI_TOOLS_TEST" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_PS" ] && [ -f "$XTALPI_PI_TOOLS_DEBUG_SUMMARY" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_STATUS_CORE" ] && [ -f "$XTALPI_PI_TOOLS_PROVIDER_HEALTH" ] && [ -f "$XTALPI_PI_TOOLS_ERROR_CONTRACT_CHECK" ] && [ -f "$XTALPI_PI_TOOLS_COVERAGE_AUDIT" ] && [ -f "$XTALPI_PI_TOOLS_REPLAY_FIXTURES" ] && [ -f "$XTALPI_PI_TOOLS_ERROR_CONTRACT" ] && [ -f "$XTALPI_PI_TOOLS_DOC" ]; then
-  pass "xtalpi-pi-tools launcher, tests, Bash/PowerShell smoke, debug summary, smoke status core, provider health, error-contract check, coverage audit, fixtures, error contract, and docs exist"
+if [ -f "$XTALPI_PI_TOOLS_SCRIPT" ] && [ -f "$XTALPI_PI_TOOLS_TEST" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_PS" ] && [ -f "$XTALPI_PI_TOOLS_DEBUG_SUMMARY" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_STATUS_CORE" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_PLAN" ] && [ -f "$XTALPI_PI_TOOLS_PROVIDER_HEALTH" ] && [ -f "$XTALPI_PI_TOOLS_ERROR_CONTRACT_CHECK" ] && [ -f "$XTALPI_PI_TOOLS_COVERAGE_AUDIT" ] && [ -f "$XTALPI_PI_TOOLS_REPLAY_FIXTURES" ] && [ -f "$XTALPI_PI_TOOLS_ERROR_CONTRACT" ] && [ -f "$XTALPI_PI_TOOLS_DOC" ]; then
+  pass "xtalpi-pi-tools launcher, tests, Bash/PowerShell smoke, smoke plan, debug summary, smoke status core, provider health, error-contract check, coverage audit, fixtures, error contract, and docs exist"
 else
-  fail "xtalpi-pi-tools launcher, tests, Bash/PowerShell smoke, debug summary, smoke status core, provider health, error-contract check, coverage audit, fixtures, error contract, or docs are missing"
+  fail "xtalpi-pi-tools launcher, tests, Bash/PowerShell smoke, smoke plan, debug summary, smoke status core, provider health, error-contract check, coverage audit, fixtures, error contract, or docs are missing"
 fi
 
-if [ -f "$XTALPI_PI_TOOLS_COVERAGE_AUDIT" ] && grep -q "pi67-xtalpi-tool-coverage-audit.sh" "$XTALPI_PI_TOOLS_DOC"; then
+if [ -f "$XTALPI_PI_TOOLS_COVERAGE_AUDIT" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_PLAN" ] && grep -q "pi67-xtalpi-tool-coverage-audit.sh" "$XTALPI_PI_TOOLS_DOC" && grep -q "pi67-xtalpi-smoke-plan.mjs" "$XTALPI_PI_TOOLS_DOC"; then
   pass "xtalpi-pi-tools extension coverage audit is documented"
 else
-  fail "xtalpi-pi-tools extension coverage audit is not documented"
+  fail "xtalpi-pi-tools extension coverage audit or smoke plan is not documented"
 fi
 
 if command_exists node; then
@@ -249,6 +250,45 @@ NODE
   rm -f "$COVERAGE_AUDIT_JSON"
 else
   warn "node not found; skipped xtalpi-pi-tools extension coverage audit validation"
+fi
+
+if command_exists node; then
+  SMOKE_PLAN_JSON="$(mktemp "${TMPDIR:-/tmp}/pi67-xtalpi-smoke-plan.XXXXXX.json")"
+  if node --check "$XTALPI_PI_TOOLS_SMOKE_PLAN" >/dev/null && node "$XTALPI_PI_TOOLS_SMOKE_PLAN" --repo-root "$REPO_ROOT" --agent-dir "$REPO_ROOT" --json > "$SMOKE_PLAN_JSON" && node - "$SMOKE_PLAN_JSON" <<'NODE'
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+assert(data.schemaId === "pi67-xtalpi-smoke-plan/v1", `unexpected schemaId: ${data.schemaId}`);
+assert(data.summary?.packages >= 18, "smoke plan did not include all settings/local targets");
+assert(data.summary?.unknownPolicyPackages === 0, "smoke plan has unknown package policies");
+assert(data.recommendedCommands?.windowsExpanded?.includes("extension-expanded"), "missing Windows expanded command");
+const fff = data.packages.find((entry) => entry.spec === "npm:@ff-labs/pi-fff");
+assert(fff, "FFF smoke plan missing package entry");
+if (fff.installed) {
+  assert(fff.recommendedWindowsCases?.includes("fffind-package"), "FFF smoke plan missing fffind-package");
+} else {
+  assert(fff.status === "missing_package", `unexpected FFF status for dependency-free artifact: ${fff.status}`);
+}
+const smartFetch = data.packages.find((entry) => entry.spec === "npm:pi-smart-fetch");
+assert(smartFetch, "smart-fetch smoke plan missing package entry");
+if (smartFetch.installed) {
+  assert(smartFetch.windowsCoveredTools?.includes("batch_web_fetch"), "smart-fetch smoke plan missing batch_web_fetch coverage");
+} else {
+  assert(smartFetch.status === "missing_package", `unexpected smart-fetch status for dependency-free artifact: ${smartFetch.status}`);
+}
+const rulesLoader = data.packages.find((entry) => entry.spec === "local:extensions/pi-rules-loader");
+assert(rulesLoader?.status === "not_model_callable", "rules-loader should be classified as not model-callable");
+NODE
+  then
+    pass "xtalpi-pi-tools smoke plan validation passed"
+  else
+    fail "xtalpi-pi-tools smoke plan validation failed"
+  fi
+  rm -f "$SMOKE_PLAN_JSON"
+else
+  warn "node not found; skipped xtalpi-pi-tools smoke plan validation"
 fi
 
 if command_exists node; then
@@ -334,7 +374,7 @@ if command_exists git && git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/d
     fail "git diff --check failed"
   fi
 
-  if git -C "$REPO_ROOT" ls-files --error-unmatch VERSION CHANGELOG.md .github/workflows/ci.yml docs/release.md docs/report-schema.md docs/doctor-schema.md docs/status.md docs/skill-migration-schema.md docs/external-skill-sync-schema.md docs/skill-governance.md docs/troubleshooting.md docs/xtalpi-pi-tools.md scripts/pi67-check-external-skills.sh scripts/pi67-doctor.sh scripts/pi67-doctor.ps1 scripts/pi67-migrate-skills.sh scripts/pi67-release-artifact-smoke.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-report.ps1 scripts/pi67-status.sh scripts/pi67-sync-external-skills.sh scripts/pi67-test-skill-governance.sh scripts/pi67-update.sh scripts/pi67-update.ps1 scripts/pi67-smoke.ps1 scripts/pi67-xtalpi-pi-tools.sh scripts/pi67-test-xtalpi-pi-tools.sh scripts/pi67-xtalpi-pi-tools-smoke.sh scripts/pi67-xtalpi-pi-tools-smoke.ps1 scripts/pi67-xtalpi-pi-tools-debug-summary.sh scripts/pi67-xtalpi-tool-coverage-audit.sh scripts/pi67-xtalpi-smoke-status-core.cjs scripts/pi67-xtalpi-provider-health.mjs scripts/pi67-validate-xtalpi-provider-error-contract.mjs extensions/xtalpi-pi-tools/fixtures/replay-cases.json extensions/xtalpi-pi-tools/provider-error-contract.json >/dev/null 2>&1; then
+  if git -C "$REPO_ROOT" ls-files --error-unmatch VERSION CHANGELOG.md .github/workflows/ci.yml docs/release.md docs/report-schema.md docs/doctor-schema.md docs/status.md docs/skill-migration-schema.md docs/external-skill-sync-schema.md docs/skill-governance.md docs/troubleshooting.md docs/xtalpi-pi-tools.md scripts/pi67-check-external-skills.sh scripts/pi67-doctor.sh scripts/pi67-doctor.ps1 scripts/pi67-migrate-skills.sh scripts/pi67-release-artifact-smoke.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-report.ps1 scripts/pi67-status.sh scripts/pi67-sync-external-skills.sh scripts/pi67-test-skill-governance.sh scripts/pi67-update.sh scripts/pi67-update.ps1 scripts/pi67-smoke.ps1 scripts/pi67-xtalpi-pi-tools.sh scripts/pi67-test-xtalpi-pi-tools.sh scripts/pi67-xtalpi-pi-tools-smoke.sh scripts/pi67-xtalpi-pi-tools-smoke.ps1 scripts/pi67-xtalpi-pi-tools-debug-summary.sh scripts/pi67-xtalpi-tool-coverage-audit.sh scripts/pi67-xtalpi-smoke-status-core.cjs scripts/pi67-xtalpi-smoke-plan.mjs scripts/pi67-xtalpi-provider-health.mjs scripts/pi67-validate-xtalpi-provider-error-contract.mjs extensions/xtalpi-pi-tools/fixtures/replay-cases.json extensions/xtalpi-pi-tools/provider-error-contract.json >/dev/null 2>&1; then
     pass "release metadata files are tracked or staged"
   else
     warn "release metadata files are not all tracked yet; expected before final commit"

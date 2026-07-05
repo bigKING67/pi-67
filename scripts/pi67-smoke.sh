@@ -217,6 +217,9 @@ fi
 if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-smoke-status-core.cjs" ]; then
   node --check "$REPO_ROOT/scripts/pi67-xtalpi-smoke-status-core.cjs" >/dev/null
 fi
+if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-smoke-plan.mjs" ]; then
+  node --check "$REPO_ROOT/scripts/pi67-xtalpi-smoke-plan.mjs" >/dev/null
+fi
 if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-provider-health.mjs" ]; then
   node --check "$REPO_ROOT/scripts/pi67-xtalpi-provider-health.mjs" >/dev/null
 fi
@@ -781,6 +784,30 @@ if (!rulesLoader || rulesLoader.installed !== true) throw new Error("coverage au
 if (rulesLoader.surface !== "command_or_hook_only") throw new Error(`unexpected pi-rules-loader surface: ${rulesLoader.surface}`);
 ' /tmp/pi67-smoke-xtalpi-tool-coverage-json.log
 pass "xtalpi-pi-tools extension coverage JSON output parsed"
+
+section "xtalpi-pi-tools smoke plan"
+node "$REPO_ROOT/scripts/pi67-xtalpi-smoke-plan.mjs" \
+  --repo-root "$REPO_ROOT" \
+  --agent-dir "$REPO_ROOT" >/tmp/pi67-smoke-xtalpi-smoke-plan.log
+pass "xtalpi-pi-tools smoke plan text output completed"
+
+node "$REPO_ROOT/scripts/pi67-xtalpi-smoke-plan.mjs" \
+  --repo-root "$REPO_ROOT" \
+  --agent-dir "$REPO_ROOT" \
+  --json >/tmp/pi67-smoke-xtalpi-smoke-plan-json.log
+node -e '
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (data.schemaId !== "pi67-xtalpi-smoke-plan/v1") throw new Error(`unexpected schemaId: ${data.schemaId}`);
+if (!data.summary || data.summary.packages < 1 || data.summary.installed < 1) throw new Error("smoke plan summary is empty");
+if (data.summary.unknownPolicyPackages !== 0) throw new Error("smoke plan has unknown policy packages");
+if (!data.recommendedCommands || !data.recommendedCommands.windowsExpanded.includes("extension-expanded")) throw new Error("missing Windows expanded smoke command");
+const smartFetch = data.packages.find((entry) => entry.spec === "npm:pi-smart-fetch");
+if (!smartFetch || !smartFetch.windowsCoveredTools.includes("batch_web_fetch")) throw new Error("smoke plan did not cover batch_web_fetch");
+const rulesLoader = data.packages.find((entry) => entry.spec === "local:extensions/pi-rules-loader");
+if (!rulesLoader || rulesLoader.status !== "not_model_callable") throw new Error("smoke plan did not classify rules-loader");
+' /tmp/pi67-smoke-xtalpi-smoke-plan-json.log
+pass "xtalpi-pi-tools smoke plan JSON output parsed"
 
 section "Skill governance helper tests"
 "$REPO_ROOT/scripts/pi67-test-skill-governance.sh" \

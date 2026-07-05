@@ -247,6 +247,7 @@ $RequiredFiles = @(
   "scripts/pi67-release-check.sh",
   "scripts/pi67-xtalpi-pi-tools-smoke.ps1",
   "scripts/pi67-xtalpi-smoke-status-core.cjs",
+  "scripts/pi67-xtalpi-smoke-plan.mjs",
   "scripts/pi67-xtalpi-provider-health.mjs",
   "scripts/pi67-validate-xtalpi-provider-error-contract.mjs",
   "extensions/xtalpi-pi-tools/runtime-config.ts",
@@ -283,6 +284,7 @@ if ($NodeAvailable) {
   $NodeCheckFiles = @(
     "scripts/pi67-xtalpi-smoke-status-core.cjs",
     "scripts/pi67-xtalpi-smoke-artifact-core.cjs",
+    "scripts/pi67-xtalpi-smoke-plan.mjs",
     "scripts/pi67-xtalpi-provider-health.mjs",
     "scripts/pi67-validate-xtalpi-provider-error-contract.mjs"
   )
@@ -302,6 +304,31 @@ if ($NodeAvailable) {
 
   Run-Check "xtalpi provider error contract validation passed" {
     Invoke-External "node" @((RepoPath "scripts/pi67-validate-xtalpi-provider-error-contract.mjs"), (RepoPath "extensions/xtalpi-pi-tools/provider-error-contract.json")) | Out-Null
+  }
+
+  Run-Check "xtalpi extension smoke plan validation passed" {
+    $raw = Invoke-External "node" @((RepoPath "scripts/pi67-xtalpi-smoke-plan.mjs"), "--repo-root", $RepoRoot, "--agent-dir", $RepoRoot, "--json")
+    $plan = ($raw -join "`n") | ConvertFrom-Json
+    if ($plan.schemaId -ne "pi67-xtalpi-smoke-plan/v1") {
+      throw "unexpected smoke plan schema: $($plan.schemaId)"
+    }
+    if (-not $plan.summary -or $plan.summary.packages -lt 1 -or $plan.summary.installed -lt 1) {
+      throw "smoke plan summary is empty"
+    }
+    if ($plan.summary.unknownPolicyPackages -ne 0) {
+      throw "smoke plan has unknown policy packages"
+    }
+    if (-not $plan.recommendedCommands -or -not $plan.recommendedCommands.windowsExpanded.Contains("extension-expanded")) {
+      throw "smoke plan missing Windows expanded command"
+    }
+    $smartFetch = $plan.packages | Where-Object { $_.spec -eq "npm:pi-smart-fetch" } | Select-Object -First 1
+    if (-not $smartFetch -or $smartFetch.windowsCoveredTools -notcontains "batch_web_fetch") {
+      throw "smoke plan did not cover batch_web_fetch"
+    }
+    $rulesLoader = $plan.packages | Where-Object { $_.spec -eq "local:extensions/pi-rules-loader" } | Select-Object -First 1
+    if (-not $rulesLoader -or $rulesLoader.status -ne "not_model_callable") {
+      throw "smoke plan did not classify pi-rules-loader"
+    }
   }
 } else {
   Warn "skipped Node helper checks because node is missing"
@@ -349,6 +376,8 @@ Run-Check "PowerShell update/doctor/report/smoke entrypoints are documented" {
   Assert-ContentContains (RepoPath "docs/full-install.md") "pi67-xtalpi-pi-tools-smoke.ps1"
   Assert-ContentContains (RepoPath "docs/release.md") "pi67-xtalpi-pi-tools-smoke.ps1"
   Assert-ContentContains (RepoPath "docs/xtalpi-pi-tools.md") "PowerShell"
+  Assert-ContentContains (RepoPath "README.md") "pi67-xtalpi-smoke-plan.mjs"
+  Assert-ContentContains (RepoPath "docs/xtalpi-pi-tools.md") "pi67-xtalpi-smoke-plan.mjs"
 }
 
 Run-Check "PowerShell xtalpi targeted smoke expanded cases are documented" {
@@ -393,6 +422,7 @@ if ($GitAvailable) {
     "scripts/pi67-update.ps1",
     "scripts/pi67-release-check.sh",
     "scripts/pi67-xtalpi-pi-tools-smoke.ps1",
+    "scripts/pi67-xtalpi-smoke-plan.mjs",
     ".github/workflows/ci.yml"
   )
   Run-Check "Windows smoke release files are tracked or staged" {
