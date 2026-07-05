@@ -487,6 +487,8 @@ $HOME/tmp/xtalpi-pi-tools-smoke/<stamp>-summary.json
 
 debug-summary 会进一步把 `toolSelectionSummary.selected[].reasonCodes` 和 `toolSelectionSummary.omitted[].reasonCodes` 聚合为 `tool_selection_reason_codes`、`selected_tool_selection_reason_codes` 和 `omitted_tool_selection_reason_codes`。这让 smoke artifact 可以直接审计 selected-tool ranking 边界，例如 `prompt_tool_forbidden` 是否真实压低了“不要调用 read/bash”的工具，`prompt_tool_exclusive` 是否只在 explicit-only prompt 中出现，而不需要打开原始 debug JSONL。
 
+需要把 reason-code telemetry 从观测升级为门禁时，可以在 direct summary 或 trend-gate 上显式使用 `--require-tool-selection-reason-codes` / `--require-selected-tool-selection-reason-codes` / `--require-omitted-tool-selection-reason-codes`，以及对应的 `--forbid-*` 选项。require 要求每个 selected run 的计数里包含指定 reason code 且 count > 0；forbid 则要求指定 reason code 不出现。
+
 provider 调用失败会写入结构化 debug telemetry：`errorCode`、`errorCategory`、`retryable` 和可选 `httpStatus`。常见代码包括 `api_key_missing`、`config_error`、`request_timeout`、`request_aborted`、`network_error`、`http_401`、`http_403`、`http_408`、`http_429`、`http_5xx`、`http_error`、`non_json_response` 和 `malformed_response`。debug summary 会汇总 `provider_errors`、`retryable_provider_errors`、`provider_error_codes` 和 `provider_error_categories`，且默认要求 `provider_errors=0`。这样可以把晶泰限流/鉴权/上游错误和 Pi 工具协议质量回归分开判断。
 
 debug summary 还会从每个 debug JSONL 的 `request` 到后续 `response` / `error.provider` 时间戳计算请求延迟，输出 `request_latency_ms=max/avg/count`、`slow_requests` 和 `slow_request_threshold_ms`。当前 slow request 默认阈值是 `60000` ms；默认只作为观测和 retention quality signal，不会让 trend gate 自动失败。需要做性能专项审计时，可以显式加 `--max-request-latency-ms N` 或 `--max-slow-requests N`，让 direct summary / trend gate 在模型请求延迟超过阈值时失败。这样既能暴露“冒烟全绿但模型首包接近 timeout”的风险，也避免把晶泰服务侧偶发慢响应硬编码进默认 release gate。
@@ -639,6 +641,18 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
 `full-suite-strict` 会设置 `--expect-cases 8`、完整 8-case `--expect-case-names`、`--max-empty-assistant-ends 0`、`--max-raw-tool-markup-final-answers 0`、`--max-recoveries 0`、`--max-recovery-rate 0`、`--max-recovery-case-runs 0` 和 `--fail-on-recovery-increase`。仍可显式传入 `--max-recoveries` 等数字阈值覆盖 profile 默认值。
 
 `full-suite-strict` 还会默认设置 `--run-kind full-suite --require-run-kind full-suite`：局部 targeted run 可以保留在同一个 artifact 目录里用于排查，但不会污染“最近 N 次 full-suite 趋势”证据。trend-gate JSON 会保留 `history.totalArtifacts`、`history.candidateArtifacts`、`history.filteredOutArtifacts` 和 `history.filter.runKinds`，用于说明有多少 artifact 被过滤。
+
+如果要把 selected-tool ranking reason code 漂移从观测升级为 gate，可使用 ranking profile：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
+  --trend-gate 3 \
+  --profile full-suite-ranking-strict \
+  --json \
+  "$HOME/tmp/xtalpi-pi-tools-smoke"
+```
+
+`full-suite-ranking-strict` 继承 `full-suite-strict` 的 case 集、runKind 和 recovery / raw-markup 阈值，并额外要求 full-suite summary 的 `tool_selection_reason_codes` 与 `selected_tool_selection_reason_codes` 包含 `core_tool,prompt_path_file`，`omitted_tool_selection_reason_codes` 包含 `core_tool`，同时禁止 aggregate reason code 出现 `prompt_tool_exclusive`。它不默认启用 runtime stability gate，避免 prompt length、timeout 或 runtime bounds 的正常调整影响 ranking 专项判断。
 
 如果要把 runtime 漂移从观测升级为 gate，可使用可选 runtime stability profile：
 

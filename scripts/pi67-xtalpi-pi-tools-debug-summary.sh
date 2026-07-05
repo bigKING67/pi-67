@@ -27,6 +27,12 @@ MAX_RECOVERIES=""
 MAX_RECOVERY_RATE=""
 MAX_REQUEST_LATENCY_MS=""
 MAX_SLOW_REQUESTS=""
+REQUIRE_TOOL_SELECTION_REASON_CODES=""
+REQUIRE_SELECTED_TOOL_SELECTION_REASON_CODES=""
+REQUIRE_OMITTED_TOOL_SELECTION_REASON_CODES=""
+FORBID_TOOL_SELECTION_REASON_CODES=""
+FORBID_SELECTED_TOOL_SELECTION_REASON_CODES=""
+FORBID_OMITTED_TOOL_SELECTION_REASON_CODES=""
 RUN_KIND_FILTER=""
 REQUIRE_RUN_KIND=""
 REQUIRE_STABLE_RUNTIME_FINGERPRINT="0"
@@ -56,7 +62,7 @@ Selection:
   --require-run-kind LIST         require selected run(s) to have one of the comma-separated runKind values
 
 Gate options:
-  --profile full-suite-strict|full-suite-runtime-strict
+  --profile full-suite-strict|full-suite-runtime-strict|full-suite-ranking-strict
                                   apply built-in trend gate defaults
   --expect-cases N                 require case count for --latest/--run-id and every --trend-gate run
   --expect-case-names LIST          require exact comma-separated case names for --latest/--run-id and --trend-gate
@@ -68,6 +74,18 @@ Gate options:
   --max-recovery-rate N           recoveries / turns
   --max-request-latency-ms N      fail if selected run/case max request latency exceeds N
   --max-slow-requests N           fail if selected run/case slow request count exceeds N
+  --require-tool-selection-reason-codes LIST
+                                  require every selected run to include all comma-separated reason codes
+  --require-selected-tool-selection-reason-codes LIST
+                                  require every selected run's selected-tool reason codes to include LIST
+  --require-omitted-tool-selection-reason-codes LIST
+                                  require every selected run's omitted-tool reason codes to include LIST
+  --forbid-tool-selection-reason-codes LIST
+                                  fail if any selected run includes any comma-separated reason code
+  --forbid-selected-tool-selection-reason-codes LIST
+                                  fail if selected-tool reason codes include LIST
+  --forbid-omitted-tool-selection-reason-codes LIST
+                                  fail if omitted-tool reason codes include LIST
   --fail-on-recovery-increase     fail if the newest run has more recoveries or a higher recovery rate
   --max-recovery-case-runs N      fail if one case has recoveries in more than N selected runs
   --require-stable-runtime         require stable runtime fingerprint and runtime bounds across --trend-gate runs
@@ -87,12 +105,16 @@ EOF
 }
 
 FULL_SUITE_CASE_NAMES="no-tool,bash,read,bash-read,web-read,tool-selection-clipping,tool-selection-continuation,tool-result-injection"
+FULL_SUITE_REQUIRED_TOOL_SELECTION_REASON_CODES="core_tool,prompt_path_file"
+FULL_SUITE_REQUIRED_SELECTED_TOOL_SELECTION_REASON_CODES="core_tool,prompt_path_file"
+FULL_SUITE_REQUIRED_OMITTED_TOOL_SELECTION_REASON_CODES="core_tool"
+FULL_SUITE_FORBIDDEN_TOOL_SELECTION_REASON_CODES="prompt_tool_exclusive"
 
 apply_profile_defaults() {
   case "$PROFILE" in
     "")
       ;;
-    full-suite-strict|full-suite-runtime-strict)
+    full-suite-strict|full-suite-runtime-strict|full-suite-ranking-strict)
       EXPECT_CASES="${EXPECT_CASES:-8}"
       EXPECT_CASE_NAMES="${EXPECT_CASE_NAMES:-$FULL_SUITE_CASE_NAMES}"
       RUN_KIND_FILTER="${RUN_KIND_FILTER:-full-suite}"
@@ -107,9 +129,15 @@ apply_profile_defaults() {
         REQUIRE_STABLE_RUNTIME_FINGERPRINT="1"
         REQUIRE_STABLE_RUNTIME_BOUNDS="1"
       fi
+      if [ "$PROFILE" = "full-suite-ranking-strict" ]; then
+        REQUIRE_TOOL_SELECTION_REASON_CODES="${REQUIRE_TOOL_SELECTION_REASON_CODES:-$FULL_SUITE_REQUIRED_TOOL_SELECTION_REASON_CODES}"
+        REQUIRE_SELECTED_TOOL_SELECTION_REASON_CODES="${REQUIRE_SELECTED_TOOL_SELECTION_REASON_CODES:-$FULL_SUITE_REQUIRED_SELECTED_TOOL_SELECTION_REASON_CODES}"
+        REQUIRE_OMITTED_TOOL_SELECTION_REASON_CODES="${REQUIRE_OMITTED_TOOL_SELECTION_REASON_CODES:-$FULL_SUITE_REQUIRED_OMITTED_TOOL_SELECTION_REASON_CODES}"
+        FORBID_TOOL_SELECTION_REASON_CODES="${FORBID_TOOL_SELECTION_REASON_CODES:-$FULL_SUITE_FORBIDDEN_TOOL_SELECTION_REASON_CODES}"
+      fi
       ;;
     *)
-      echo "xtalpi-pi-tools debug summary: unknown --profile '$PROFILE' (supported: full-suite-strict, full-suite-runtime-strict)" >&2
+      echo "xtalpi-pi-tools debug summary: unknown --profile '$PROFILE' (supported: full-suite-strict, full-suite-runtime-strict, full-suite-ranking-strict)" >&2
       exit 2
       ;;
   esac
@@ -371,6 +399,9 @@ function writeSummary(
     providerHealth,
     runtimeFingerprint,
     requestLatencyTotals,
+    toolSelectionReasonCodes,
+    selectedToolSelectionReasonCodes,
+    omittedToolSelectionReasonCodes,
   } = {},
 ) {
   const defaultRuntimeFingerprint = runtimeFingerprint || {
@@ -409,6 +440,9 @@ function writeSummary(
   const caseItemsWithRuntime = caseItems.map((item) => item.runtimeFingerprint
     ? item
     : { ...item, runtimeFingerprint: defaultRuntimeFingerprint });
+  const defaultToolSelectionReasonCodes = toolSelectionReasonCodes || {};
+  const defaultSelectedToolSelectionReasonCodes = selectedToolSelectionReasonCodes || {};
+  const defaultOmittedToolSelectionReasonCodes = omittedToolSelectionReasonCodes || {};
   const selectedCaseNames = selectedCases || caseItems.map((item) => item.caseName);
   const normalizedCases = [...new Set(selectedCaseNames)].sort();
   const canonical = normalizedCases.join(",");
@@ -467,6 +501,9 @@ function writeSummary(
         toolEnvelopeFinalAnswers: 0,
         piToolStarts: 6,
         errors,
+        toolSelectionReasonCodes: defaultToolSelectionReasonCodes,
+        selectedToolSelectionReasonCodes: defaultSelectedToolSelectionReasonCodes,
+        omittedToolSelectionReasonCodes: defaultOmittedToolSelectionReasonCodes,
         ...(requestLatencyTotals ? {
           requestCount: requestLatencyTotals.requestCount,
           requestLatencyMsMin: requestLatencyTotals.requestLatencyMsMin,
@@ -508,6 +545,11 @@ const fullSuiteCases = [
   "tool-selection-continuation",
   "tool-result-injection",
 ];
+const fullSuiteReasonCodeTotals = {
+  toolSelectionReasonCodes: { core_tool: 6, prompt_path_file: 2, prompt_tool_name: 4 },
+  selectedToolSelectionReasonCodes: { core_tool: 4, prompt_path_file: 2, prompt_tool_name: 3 },
+  omittedToolSelectionReasonCodes: { core_tool: 2, prompt_tool_name: 1 },
+};
 writeSummary("20260702-000001", {
   dir: trend,
   ok: true,
@@ -559,6 +601,7 @@ writeSummary("20260702-000001", {
   recoveries: 0,
   totalCases: fullSuiteCases.length,
   selectedCases: fullSuiteCases,
+  ...fullSuiteReasonCodeTotals,
 });
 writeSummary("20260702-000002", {
   dir: fullSuiteTrend,
@@ -567,6 +610,7 @@ writeSummary("20260702-000002", {
   recoveries: 0,
   totalCases: fullSuiteCases.length,
   selectedCases: fullSuiteCases,
+  ...fullSuiteReasonCodeTotals,
 });
 
 const mixedFullSuiteTrend = ensureDir("mixed-full-suite-trend");
@@ -577,6 +621,7 @@ writeSummary("20260702-000001", {
   recoveries: 0,
   totalCases: fullSuiteCases.length,
   selectedCases: fullSuiteCases,
+  ...fullSuiteReasonCodeTotals,
 });
 writeSummary("20260702-000002", {
   dir: mixedFullSuiteTrend,
@@ -585,6 +630,7 @@ writeSummary("20260702-000002", {
   recoveries: 0,
   totalCases: fullSuiteCases.length,
   selectedCases: fullSuiteCases,
+  ...fullSuiteReasonCodeTotals,
 });
 writeSummary("20260702-000003", {
   dir: mixedFullSuiteTrend,
@@ -601,6 +647,7 @@ writeSummary("20260702-000004", {
   recoveries: 0,
   totalCases: fullSuiteCases.length,
   selectedCases: fullSuiteCases,
+  ...fullSuiteReasonCodeTotals,
 });
 writeCase(mixedFullSuiteTrend, "20260702-000005", "orphan", {
   toolNames: ["read"],
@@ -615,6 +662,7 @@ writeSummary("20260702-000001", {
   recoveries: 0,
   totalCases: fullSuiteCases.length,
   selectedCases: fullSuiteCases,
+  ...fullSuiteReasonCodeTotals,
 });
 writeSummary("20260702-000002", {
   dir: driftHistory,
@@ -624,6 +672,7 @@ writeSummary("20260702-000002", {
   totalCases: fullSuiteCases.length,
   selectedCases: fullSuiteCases,
   maxOutputTokens: 2048,
+  ...fullSuiteReasonCodeTotals,
   runtimeFingerprint: {
     protocolVersions: ["xtalpi-pi-tools.text.v1"],
     selectedToolNameHashes: ["3316348dbadfb7b1"],
@@ -650,6 +699,28 @@ writeSummary("20260702-000003", {
   recoveries: 1,
   totalCases: 1,
   selectedCases: ["web-read"],
+});
+
+const rankingDriftTrend = ensureDir("ranking-drift-trend");
+writeSummary("20260702-000001", {
+  dir: rankingDriftTrend,
+  ok: true,
+  failures: 0,
+  recoveries: 0,
+  totalCases: fullSuiteCases.length,
+  selectedCases: fullSuiteCases,
+  ...fullSuiteReasonCodeTotals,
+});
+writeSummary("20260702-000002", {
+  dir: rankingDriftTrend,
+  ok: true,
+  failures: 0,
+  recoveries: 0,
+  totalCases: fullSuiteCases.length,
+  selectedCases: fullSuiteCases,
+  toolSelectionReasonCodes: { core_tool: 6, prompt_tool_exclusive: 1 },
+  selectedToolSelectionReasonCodes: { core_tool: 4 },
+  omittedToolSelectionReasonCodes: {},
 });
 
 const subsetTrend = ensureDir("subset-trend");
@@ -757,6 +828,21 @@ NODE
   fi
   if [[ "$output" != *"request_latency_ms=62000/31750/2"* || "$output" != *"slow_requests=1"* || "$output" != *"slow_request_threshold_ms=60000"* ]]; then
     echo "clean fixture output did not expose request latency diagnostics"
+    echo "$output"
+    return 1
+  fi
+
+  if ! output="$("$SCRIPT_PATH" --run-id 20260702-000001 --require-tool-selection-reason-codes prompt_tool_exclusive,prompt_tool_forbidden --require-selected-tool-selection-reason-codes prompt_tool_exclusive --require-omitted-tool-selection-reason-codes prompt_tool_forbidden --forbid-tool-selection-reason-codes nonexistent "$tmp_dir/clean" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+  if output="$("$SCRIPT_PATH" --run-id 20260702-000001 --forbid-tool-selection-reason-codes prompt_tool_forbidden "$tmp_dir/clean" 2>&1)"; then
+    echo "expected direct reason-code gate to fail"
+    echo "$output"
+    return 1
+  fi
+  if [[ "$output" != *"tool_selection_reason_codes"* || "$output" != *"prompt_tool_forbidden"* ]]; then
+    echo "direct reason-code gate failure did not expose forbidden reason code"
     echo "$output"
     return 1
   fi
@@ -1107,6 +1193,42 @@ NODE
     return 1
   fi
 
+  local ranking_profile_json="$tmp_dir/ranking-profile-output.json"
+  if ! output="$("$SCRIPT_PATH" --trend-gate 2 --profile full-suite-ranking-strict --json "$tmp_dir/full-suite-trend" >"$ranking_profile_json" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+  if ! node - "$ranking_profile_json" <<'NODE'; then
+const fs = require("node:fs");
+const file = process.argv[2];
+const data = JSON.parse(fs.readFileSync(file, "utf8"));
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+assert(data.ok === true, "full-suite-ranking-strict profile should pass clean full-suite history");
+assert(data.limits.profile === "full-suite-ranking-strict", "ranking profile should be visible in trend gate limits");
+assert(JSON.stringify(data.limits.requireToolSelectionReasonCodes) === JSON.stringify(["core_tool", "prompt_path_file"]), "ranking profile should require aggregate reason codes");
+assert(JSON.stringify(data.limits.requireSelectedToolSelectionReasonCodes) === JSON.stringify(["core_tool", "prompt_path_file"]), "ranking profile should require selected-tool reason codes");
+assert(JSON.stringify(data.limits.requireOmittedToolSelectionReasonCodes) === JSON.stringify(["core_tool"]), "ranking profile should require omitted-tool reason codes");
+assert(JSON.stringify(data.limits.forbidToolSelectionReasonCodes) === JSON.stringify(["prompt_tool_exclusive"]), "ranking profile should forbid explicit-only leakage in full suite");
+assert(data.limits.requireStableRuntimeFingerprint !== true, "ranking profile should not require runtime fingerprint stability");
+assert(data.limits.requireStableRuntimeBounds !== true, "ranking profile should not require runtime bounds stability");
+assert(data.history.runs.every((run) => run.runKind === "full-suite"), "ranking profile fixture should classify full-suite runs");
+NODE
+    return 1
+  fi
+
+  if output="$("$SCRIPT_PATH" --trend-gate 2 --profile full-suite-ranking-strict "$tmp_dir/ranking-drift-trend" 2>&1)"; then
+    echo "expected full-suite-ranking-strict profile to fail reason-code drift fixture"
+    echo "$output"
+    return 1
+  fi
+  if [[ "$output" != *"tool_selection_reason_codes"* || "$output" != *"prompt_tool_exclusive"* || "$output" != *"selected_tool_selection_reason_codes"* || "$output" != *"prompt_path_file"* || "$output" != *"omitted_tool_selection_reason_codes"* || "$output" != *"core_tool"* ]]; then
+    echo "ranking strict profile failure did not expose reason-code drift"
+    echo "$output"
+    return 1
+  fi
+
   local runtime_profile_json="$tmp_dir/runtime-profile-output.json"
   if ! output="$("$SCRIPT_PATH" --trend-gate 2 --profile full-suite-runtime-strict --json "$tmp_dir/full-suite-trend" >"$runtime_profile_json" 2>&1)"; then
     echo "$output"
@@ -1356,6 +1478,54 @@ while [ "$#" -gt 0 ]; do
       MAX_SLOW_REQUESTS="${2:-}"
       shift 2
       ;;
+    --require-tool-selection-reason-codes)
+      if [ "$#" -lt 2 ]; then
+        echo "xtalpi-pi-tools debug summary: --require-tool-selection-reason-codes requires LIST" >&2
+        exit 2
+      fi
+      REQUIRE_TOOL_SELECTION_REASON_CODES="${2:-}"
+      shift 2
+      ;;
+    --require-selected-tool-selection-reason-codes)
+      if [ "$#" -lt 2 ]; then
+        echo "xtalpi-pi-tools debug summary: --require-selected-tool-selection-reason-codes requires LIST" >&2
+        exit 2
+      fi
+      REQUIRE_SELECTED_TOOL_SELECTION_REASON_CODES="${2:-}"
+      shift 2
+      ;;
+    --require-omitted-tool-selection-reason-codes)
+      if [ "$#" -lt 2 ]; then
+        echo "xtalpi-pi-tools debug summary: --require-omitted-tool-selection-reason-codes requires LIST" >&2
+        exit 2
+      fi
+      REQUIRE_OMITTED_TOOL_SELECTION_REASON_CODES="${2:-}"
+      shift 2
+      ;;
+    --forbid-tool-selection-reason-codes)
+      if [ "$#" -lt 2 ]; then
+        echo "xtalpi-pi-tools debug summary: --forbid-tool-selection-reason-codes requires LIST" >&2
+        exit 2
+      fi
+      FORBID_TOOL_SELECTION_REASON_CODES="${2:-}"
+      shift 2
+      ;;
+    --forbid-selected-tool-selection-reason-codes)
+      if [ "$#" -lt 2 ]; then
+        echo "xtalpi-pi-tools debug summary: --forbid-selected-tool-selection-reason-codes requires LIST" >&2
+        exit 2
+      fi
+      FORBID_SELECTED_TOOL_SELECTION_REASON_CODES="${2:-}"
+      shift 2
+      ;;
+    --forbid-omitted-tool-selection-reason-codes)
+      if [ "$#" -lt 2 ]; then
+        echo "xtalpi-pi-tools debug summary: --forbid-omitted-tool-selection-reason-codes requires LIST" >&2
+        exit 2
+      fi
+      FORBID_OMITTED_TOOL_SELECTION_REASON_CODES="${2:-}"
+      shift 2
+      ;;
     --fail-on-recovery-increase)
       FAIL_ON_RECOVERY_INCREASE="1"
       shift
@@ -1453,6 +1623,12 @@ node - \
   "$MAX_RECOVERY_RATE" \
   "$MAX_REQUEST_LATENCY_MS" \
   "$MAX_SLOW_REQUESTS" \
+  "$REQUIRE_TOOL_SELECTION_REASON_CODES" \
+  "$REQUIRE_SELECTED_TOOL_SELECTION_REASON_CODES" \
+  "$REQUIRE_OMITTED_TOOL_SELECTION_REASON_CODES" \
+  "$FORBID_TOOL_SELECTION_REASON_CODES" \
+  "$FORBID_SELECTED_TOOL_SELECTION_REASON_CODES" \
+  "$FORBID_OMITTED_TOOL_SELECTION_REASON_CODES" \
   "$RUN_KIND_FILTER" \
   "$REQUIRE_RUN_KIND" \
   "$REQUIRE_STABLE_RUNTIME_FINGERPRINT" \
@@ -1490,6 +1666,12 @@ const [
   maxRecoveryRateRaw,
   maxRequestLatencyMsRaw,
   maxSlowRequestsRaw,
+  requireToolSelectionReasonCodesRaw,
+  requireSelectedToolSelectionReasonCodesRaw,
+  requireOmittedToolSelectionReasonCodesRaw,
+  forbidToolSelectionReasonCodesRaw,
+  forbidSelectedToolSelectionReasonCodesRaw,
+  forbidOmittedToolSelectionReasonCodesRaw,
   runKindFilterRaw,
   requireRunKindRaw,
   requireStableRuntimeFingerprintRaw,
@@ -1560,6 +1742,16 @@ function parseRunKindList(raw, name) {
   const list = String(raw).split(",").map((item) => item.trim());
   if (list.length === 0 || list.some((item) => item === "")) {
     console.error(`xtalpi-pi-tools debug summary: ${name} must be a comma-separated non-empty runKind list`);
+    process.exit(2);
+  }
+  return sortedUniqueStrings(list);
+}
+
+function parseReasonCodeList(raw, name) {
+  if (raw === undefined || raw === "") return undefined;
+  const list = String(raw).split(",").map((item) => item.trim());
+  if (list.length === 0 || list.some((item) => item === "")) {
+    console.error(`xtalpi-pi-tools debug summary: ${name} must be a comma-separated non-empty reason-code list`);
     process.exit(2);
   }
   return sortedUniqueStrings(list);
@@ -1651,6 +1843,30 @@ const gates = {
   maxRecoveryRate: optionalNumber(maxRecoveryRateRaw, "--max-recovery-rate"),
   maxRequestLatencyMs: optionalNumber(maxRequestLatencyMsRaw, "--max-request-latency-ms"),
   maxSlowRequests: optionalNumber(maxSlowRequestsRaw, "--max-slow-requests"),
+  requireToolSelectionReasonCodes: parseReasonCodeList(
+    requireToolSelectionReasonCodesRaw,
+    "--require-tool-selection-reason-codes",
+  ),
+  requireSelectedToolSelectionReasonCodes: parseReasonCodeList(
+    requireSelectedToolSelectionReasonCodesRaw,
+    "--require-selected-tool-selection-reason-codes",
+  ),
+  requireOmittedToolSelectionReasonCodes: parseReasonCodeList(
+    requireOmittedToolSelectionReasonCodesRaw,
+    "--require-omitted-tool-selection-reason-codes",
+  ),
+  forbidToolSelectionReasonCodes: parseReasonCodeList(
+    forbidToolSelectionReasonCodesRaw,
+    "--forbid-tool-selection-reason-codes",
+  ),
+  forbidSelectedToolSelectionReasonCodes: parseReasonCodeList(
+    forbidSelectedToolSelectionReasonCodesRaw,
+    "--forbid-selected-tool-selection-reason-codes",
+  ),
+  forbidOmittedToolSelectionReasonCodes: parseReasonCodeList(
+    forbidOmittedToolSelectionReasonCodesRaw,
+    "--forbid-omitted-tool-selection-reason-codes",
+  ),
   requireStableRuntimeFingerprint,
   requireStableRuntimeBounds,
 };
@@ -1742,6 +1958,12 @@ if (retentionReport && (
   maxRecoveryRateRaw !== "" ||
   maxRequestLatencyMsRaw !== "" ||
   maxSlowRequestsRaw !== "" ||
+  requireToolSelectionReasonCodesRaw !== "" ||
+  requireSelectedToolSelectionReasonCodesRaw !== "" ||
+  requireOmittedToolSelectionReasonCodesRaw !== "" ||
+  forbidToolSelectionReasonCodesRaw !== "" ||
+  forbidSelectedToolSelectionReasonCodesRaw !== "" ||
+  forbidOmittedToolSelectionReasonCodesRaw !== "" ||
   requireStableRuntimeFingerprint ||
   requireStableRuntimeBounds
 )) {
@@ -3379,6 +3601,42 @@ function buildRecoveryCaseRunCounts(runs) {
   return result;
 }
 
+function presentReasonCodes(counts) {
+  return Object.entries(objectOrUndefined(counts) || {})
+    .filter(([, count]) => numberOrZero(count) > 0)
+    .map(([code]) => code)
+    .sort();
+}
+
+function missingReasonCodes(counts, required) {
+  if (!Array.isArray(required)) return [];
+  const present = new Set(presentReasonCodes(counts));
+  return required.filter((code) => !present.has(code));
+}
+
+function forbiddenReasonCodes(counts, forbidden) {
+  if (!Array.isArray(forbidden)) return [];
+  const present = new Set(presentReasonCodes(counts));
+  return forbidden.filter((code) => present.has(code));
+}
+
+function buildReasonCodeGateFailures(subject, label, counts, required, forbidden) {
+  const failures = [];
+  const missing = missingReasonCodes(counts, required);
+  if (missing.length > 0) {
+    failures.push(
+      `${subject}: expected ${label} to include ${required.join(",")}, missing ${missing.join(",")}`,
+    );
+  }
+  const presentForbidden = forbiddenReasonCodes(counts, forbidden);
+  if (presentForbidden.length > 0) {
+    failures.push(
+      `${subject}: expected ${label} not to include ${forbidden.join(",")}, got ${presentForbidden.join(",")}`,
+    );
+  }
+  return failures;
+}
+
 function buildRuntimeStability(runs) {
   return {
     runtimeFingerprints: buildSignatureGroups(
@@ -3421,6 +3679,12 @@ function evaluateTrendGate(history) {
     maxRecoveryRate: gates.maxRecoveryRate,
     maxRequestLatencyMs: gates.maxRequestLatencyMs,
     maxSlowRequests: gates.maxSlowRequests,
+    requireToolSelectionReasonCodes: gates.requireToolSelectionReasonCodes,
+    requireSelectedToolSelectionReasonCodes: gates.requireSelectedToolSelectionReasonCodes,
+    requireOmittedToolSelectionReasonCodes: gates.requireOmittedToolSelectionReasonCodes,
+    forbidToolSelectionReasonCodes: gates.forbidToolSelectionReasonCodes,
+    forbidSelectedToolSelectionReasonCodes: gates.forbidSelectedToolSelectionReasonCodes,
+    forbidOmittedToolSelectionReasonCodes: gates.forbidOmittedToolSelectionReasonCodes,
     maxRecoveryCaseRuns,
     failOnRecoveryIncrease,
     requireStableRuntimeFingerprint: gates.requireStableRuntimeFingerprint,
@@ -3507,6 +3771,27 @@ function evaluateTrendGate(history) {
         `${run.runId}: expected slow_requests<=${hardLimits.maxSlowRequests}, got ${run.slowRequestCount}`,
       );
     }
+    gateFailures.push(...buildReasonCodeGateFailures(
+      run.runId,
+      "tool_selection_reason_codes",
+      run.toolSelectionReasonCodes,
+      hardLimits.requireToolSelectionReasonCodes,
+      hardLimits.forbidToolSelectionReasonCodes,
+    ));
+    gateFailures.push(...buildReasonCodeGateFailures(
+      run.runId,
+      "selected_tool_selection_reason_codes",
+      run.selectedToolSelectionReasonCodes,
+      hardLimits.requireSelectedToolSelectionReasonCodes,
+      hardLimits.forbidSelectedToolSelectionReasonCodes,
+    ));
+    gateFailures.push(...buildReasonCodeGateFailures(
+      run.runId,
+      "omitted_tool_selection_reason_codes",
+      run.omittedToolSelectionReasonCodes,
+      hardLimits.requireOmittedToolSelectionReasonCodes,
+      hardLimits.forbidOmittedToolSelectionReasonCodes,
+    ));
   }
 
   const recoveryTrend = buildRecoveryTrend(history.runs);
@@ -3840,6 +4125,27 @@ if (gates.maxRequestLatencyMs !== undefined && totals.requestLatencyMsMax > gate
 if (gates.maxSlowRequests !== undefined && totals.slowRequestCount > gates.maxSlowRequests) {
   gateFailures.push(`expected slow_requests<=${gates.maxSlowRequests}, got ${totals.slowRequestCount}`);
 }
+gateFailures.push(...buildReasonCodeGateFailures(
+  "totals",
+  "tool_selection_reason_codes",
+  totals.toolSelectionReasonCodes,
+  gates.requireToolSelectionReasonCodes,
+  gates.forbidToolSelectionReasonCodes,
+));
+gateFailures.push(...buildReasonCodeGateFailures(
+  "totals",
+  "selected_tool_selection_reason_codes",
+  totals.selectedToolSelectionReasonCodes,
+  gates.requireSelectedToolSelectionReasonCodes,
+  gates.forbidSelectedToolSelectionReasonCodes,
+));
+gateFailures.push(...buildReasonCodeGateFailures(
+  "totals",
+  "omitted_tool_selection_reason_codes",
+  totals.omittedToolSelectionReasonCodes,
+  gates.requireOmittedToolSelectionReasonCodes,
+  gates.forbidOmittedToolSelectionReasonCodes,
+));
 
 const summary = { outDir, latestOnly, runId: selectedRunId, caseSet: directCaseSet, runKind: directRunKind, gates, gateFailures, totals, cases };
 
