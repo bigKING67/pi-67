@@ -322,7 +322,10 @@ Windows 还可以用 PowerShell-native targeted live runner 验证低风险 exte
 
 PowerShell runner 当前覆盖 `read-package`、`fffind-package`、`ffgrep-package`、
 `batch-web-fetch-example`、`seq-thinking-status`、`mcp-status`、`subagent-list`
-和 `recall-not-found` 这些低风险 targeted case；它不会跑 Bash-only 的 full-suite、
+和 `recall-not-found` 这些低风险 targeted case；默认会对“工具调用、参数和 debug
+telemetry 都已正确但最终 assistant 文本为空”的瞬时 live 模型/turn 结束抖动重试
+1 次，可用 `-CaseRetries 0` 或 `XTALPI_PI_TOOLS_SMOKE_CASE_RETRIES=0` 关闭。
+它不会跑 Bash-only 的 full-suite、
 multi-turn 或 adversarial fixture case。完整 xtalpi full-suite runner 目前仍是 Bash
 脚本；Windows 上只有在显式具备 Bash-compatible shell 时才运行，不把 Git Bash
 当成默认前置条件。下面 Bash 命令均假设已经在 agent repo 根目录。
@@ -400,7 +403,9 @@ PowerShell `.\scripts\pi67-smoke.ps1 -Ci` 验证 repo metadata、JSON、Node hel
 `.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-low-risk`，扩展覆盖可用
 `.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-expanded`，也可显式指定
 `.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"`。
-这些 PowerShell 入口不要求额外 Unix-like shell。
+这些 PowerShell 入口不要求额外 Unix-like shell。PowerShell runner 默认只对
+final-answer-only transient failure 重试 1 次，不重试工具缺失、参数错误、非零
+退出或 runtime error，因此不会把真实 extension 注册失败误判成通过。
 
 覆盖：
 

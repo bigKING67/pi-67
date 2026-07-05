@@ -18,6 +18,7 @@ param(
   [string]$AgentDir = "",
   [string]$OutDir = "",
   [int]$CaseTimeoutSeconds = 0,
+  [int]$CaseRetries = -1,
   [int]$RequestTimeoutMs = 0,
   [int]$MaxOutputTokens = 0,
   [int]$PreflightTimeoutMs = 0,
@@ -61,6 +62,7 @@ Options:
   -PiBin PATH             Pi executable. Default: PI_BIN env or pi on PATH.
   -AgentDir PATH          Agent/repo root. Default: PI_AGENT_DIR env or repo root.
   -OutDir PATH            Artifact dir. Default: OUT_DIR env or temp dir.
+  -CaseRetries N          Retry final-answer-only transient case failures. Default: 1.
 "@
 }
 
@@ -134,7 +136,7 @@ $CaseDefinitions = @{
     expectedTools = @("batch_web_fetch")
     requiredFinalText = @("EXTENSION_SMOKE_BATCH_FETCH_OK", "Example Domain")
     argCheck = "batch-web-fetch-example"
-    prompt = "This is targeted extension smoke. Use only the batch_web_fetch tool to read https://example.com/. The requests array must contain only this URL, with maxChars 1000 and timeoutMs 20000 on that request. Do not call web_fetch, read, bash, or any other tool. Final answer must include EXTENSION_SMOKE_BATCH_FETCH_OK and Example Domain."
+    prompt = "This is targeted extension smoke. First use only the batch_web_fetch tool to read https://example.com/. The requests array must contain only this URL, with maxChars 1000 and timeoutMs 20000 on that request. Do not call web_fetch, read, bash, or any other tool. After the tool result is returned, write a final assistant answer containing exactly EXTENSION_SMOKE_BATCH_FETCH_OK and Example Domain. Do not stop after the tool call."
   }
   "seq-thinking-status" = [ordered]@{
     tool = "get_thinking_status"
@@ -180,6 +182,19 @@ function Int-OrDefault {
   if (-not [string]::IsNullOrWhiteSpace($envValue)) {
     $parsed = 0
     if ([int]::TryParse($envValue, [ref]$parsed) -and $parsed -gt 0) {
+      return $parsed
+    }
+  }
+  return $Default
+}
+
+function Int-OrDefaultAllowZero {
+  param([int]$Value, [string]$EnvName, [int]$Default)
+  if ($Value -ge 0) { return $Value }
+  $envValue = [Environment]::GetEnvironmentVariable($EnvName)
+  if (-not [string]::IsNullOrWhiteSpace($envValue)) {
+    $parsed = 0
+    if ([int]::TryParse($envValue, [ref]$parsed) -and $parsed -ge 0) {
       return $parsed
     }
   }
@@ -395,7 +410,8 @@ function Summarize-CaseArtifact {
     [string]$DebugFile,
     [int]$ExitStatus,
     [int]$ElapsedSeconds,
-    [bool]$TimedOut
+    [bool]$TimedOut,
+    [int]$Attempt = 1
   )
 
   $events = @(Read-JsonlEvents $OutFile)
@@ -419,12 +435,30 @@ function Summarize-CaseArtifact {
   $rawMarkup = Contains-RawPiToolMarkup $finalText
   $finalAnswerOk = $finalText.Trim().Length -gt 0 -and -not $rawMarkup -and $missingFinalText.Count -eq 0
   $toolExpectationOk = $missingTools.Count -eq 0 -and $unexpectedTools.Count -eq 0
+  $failureReasons = New-Object System.Collections.Generic.List[string]
+  if ($ExitStatus -ne 0) { $failureReasons.Add(("exit_status_{0}" -f $ExitStatus)) }
+  if ($TimedOut) { $failureReasons.Add("timed_out_by_watchdog") }
+  foreach ($tool in $missingTools) { $failureReasons.Add(("missing_tool:{0}" -f $tool)) }
+  foreach ($tool in $unexpectedTools) { $failureReasons.Add(("unexpected_tool:{0}" -f $tool)) }
+  foreach ($failure in @($argExpectation.failures)) { $failureReasons.Add(("arg_expectation:{0}" -f $failure)) }
+  if (-not $debugTelemetryOk) { $failureReasons.Add("debug_telemetry_missing_or_invalid") }
+  foreach ($errorText in @($errors | ForEach-Object { if ($_.message.errorMessage) { $_.message.errorMessage } elseif ($_.error) { $_.error } else { $_.message } })) {
+    $failureReasons.Add(("runtime_error:{0}" -f $errorText))
+  }
+  if ($rawMarkup) { $failureReasons.Add("final_answer_contains_raw_tool_markup") }
+  if ($finalText.Trim().Length -eq 0) {
+    $failureReasons.Add("missing_final_assistant_text")
+  } else {
+    foreach ($marker in $missingFinalText) { $failureReasons.Add(("missing_final_text:{0}" -f $marker)) }
+  }
   $ok = $ExitStatus -eq 0 -and -not $TimedOut -and $toolExpectationOk -and $argExpectation.ok -and $finalAnswerOk -and $errors.Count -eq 0 -and $debugTelemetryOk
 
   return [ordered]@{
     schema = "xtalpi-pi-tools.powershell-case-summary.v1"
     caseName = $CaseName
+    attempt = $Attempt
     ok = $ok
+    failureReasons = @($failureReasons)
     exitStatus = $ExitStatus
     elapsedSeconds = $ElapsedSeconds
     timedOutByWatchdog = $TimedOut
@@ -449,11 +483,24 @@ function Summarize-CaseArtifact {
   }
 }
 
+function Should-RetryCase {
+  param([object]$Summary)
+  if ($Summary.ok -eq $true) { return $false }
+  if ($Summary.exitStatus -ne 0 -or $Summary.timedOutByWatchdog -eq $true) { return $false }
+  if ($Summary.debugTelemetryOk -ne $true) { return $false }
+  if ($Summary.argExpectationOk -ne $true) { return $false }
+  if (@($Summary.errors).Count -gt 0) { return $false }
+  if (@($Summary.missingTools).Count -gt 0 -or @($Summary.unexpectedTools).Count -gt 0) { return $false }
+  if (@($Summary.failureReasons) -contains "missing_final_assistant_text") { return $true }
+  return $false
+}
+
 function Invoke-PiCase {
   param(
     [string]$CaseName,
     [object]$Definition,
     [string]$Stamp,
+    [int]$Attempt = 1,
     [string]$ResolvedPiBin,
     [string]$ResolvedAgentDir,
     [string]$ResolvedOutDir,
@@ -464,10 +511,11 @@ function Invoke-PiCase {
     [string]$ResolvedModel
   )
 
-  $outFile = Join-Path $ResolvedOutDir ("{0}-{1}.jsonl" -f $Stamp, $CaseName)
-  $errFile = Join-Path $ResolvedOutDir ("{0}-{1}.stderr" -f $Stamp, $CaseName)
-  $debugFile = Join-Path $ResolvedOutDir ("{0}-{1}.debug.jsonl" -f $Stamp, $CaseName)
-  $exitFile = Join-Path $ResolvedOutDir ("{0}-{1}.exit" -f $Stamp, $CaseName)
+  $artifactCaseName = if ($Attempt -gt 1) { "{0}-retry{1}" -f $CaseName, $Attempt } else { $CaseName }
+  $outFile = Join-Path $ResolvedOutDir ("{0}-{1}.jsonl" -f $Stamp, $artifactCaseName)
+  $errFile = Join-Path $ResolvedOutDir ("{0}-{1}.stderr" -f $Stamp, $artifactCaseName)
+  $debugFile = Join-Path $ResolvedOutDir ("{0}-{1}.debug.jsonl" -f $Stamp, $artifactCaseName)
+  $exitFile = Join-Path $ResolvedOutDir ("{0}-{1}.exit" -f $Stamp, $artifactCaseName)
 
   $args = @(
     "--provider", $ResolvedProvider,
@@ -548,7 +596,8 @@ function Invoke-PiCase {
     -DebugFile $debugFile `
     -ExitStatus $exitStatus `
     -ElapsedSeconds $elapsedSeconds `
-    -TimedOut $timedOut
+    -TimedOut $timedOut `
+    -Attempt $Attempt
 }
 
 function Run-SelfTest {
@@ -606,6 +655,18 @@ function Run-SelfTest {
     ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 8 } | Set-Content -LiteralPath $badOut -Encoding UTF8
     $bad = Summarize-CaseArtifact "mcp-status" $CaseDefinitions["mcp-status"] $badOut $err $debug 0 1 $false
     if ($bad.ok -eq $true) { throw "expected unexpected tool fixture to fail" }
+    if (Should-RetryCase $bad) { throw "unexpected tool fixture must not be retried" }
+
+    $emptyFinalOut = Join-Path $tmp "empty-final.jsonl"
+    @(
+      @{ type = "tool_execution_start"; toolName = "mcp"; args = @{} }
+    ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 8 } | Set-Content -LiteralPath $emptyFinalOut -Encoding UTF8
+    $emptyFinal = Summarize-CaseArtifact "mcp-status" $CaseDefinitions["mcp-status"] $emptyFinalOut $err $debug 0 1 $false
+    if ($emptyFinal.ok -eq $true) { throw "expected empty final fixture to fail" }
+    if (-not (Should-RetryCase $emptyFinal)) { throw "empty final fixture should be retried" }
+    if (@($emptyFinal.failureReasons) -notcontains "missing_final_assistant_text") {
+      throw "empty final fixture should report missing_final_assistant_text"
+    }
 
     $markupOut = Join-Path $tmp "markup.jsonl"
     @(
@@ -650,6 +711,7 @@ if (-not [string]::IsNullOrWhiteSpace($AgentDir)) { $ResolvedAgentDir = $AgentDi
 $ResolvedOutDir = Env-OrDefault "OUT_DIR" (Join-Path ([System.IO.Path]::GetTempPath()) "xtalpi-pi-tools-smoke")
 if (-not [string]::IsNullOrWhiteSpace($OutDir)) { $ResolvedOutDir = $OutDir }
 $ResolvedCaseTimeoutSeconds = Int-OrDefault $CaseTimeoutSeconds "CASE_TIMEOUT_SECONDS" 240
+$ResolvedCaseRetries = Int-OrDefaultAllowZero $CaseRetries "XTALPI_PI_TOOLS_SMOKE_CASE_RETRIES" 1
 $ResolvedRequestTimeoutMs = Int-OrDefault $RequestTimeoutMs "XTALPI_PI_TOOLS_SMOKE_REQUEST_TIMEOUT_MS" 180000
 $ResolvedMaxOutputTokens = Int-OrDefault $MaxOutputTokens "XTALPI_PI_TOOLS_SMOKE_MAX_OUTPUT_TOKENS" 1024
 if ($RequestTimeoutMs -le 0 -and [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable("XTALPI_PI_TOOLS_SMOKE_REQUEST_TIMEOUT_MS"))) {
@@ -756,24 +818,43 @@ if ($PreflightEnabled) {
 $caseSummaries = @()
 if ($failures -eq 0) {
   foreach ($name in $selectedCases) {
-    if (-not $Json) { Write-Host ("===== {0} =====" -f $name) -ForegroundColor Cyan }
-    $summary = Invoke-PiCase `
-      -CaseName $name `
-      -Definition $CaseDefinitions[$name] `
-      -Stamp $Stamp `
-      -ResolvedPiBin $ResolvedPiBin `
-      -ResolvedAgentDir $ResolvedAgentDir `
-      -ResolvedOutDir $ResolvedOutDir `
-      -ResolvedCaseTimeoutSeconds $ResolvedCaseTimeoutSeconds `
-      -ResolvedRequestTimeoutMs $ResolvedRequestTimeoutMs `
-      -ResolvedMaxOutputTokens $ResolvedMaxOutputTokens `
-      -ResolvedProvider $ResolvedProvider `
-      -ResolvedModel $ResolvedModel
+    $attempt = 1
+    $previousAttemptFailureReasons = @()
+    while ($true) {
+      if (-not $Json) {
+        if ($attempt -eq 1) {
+          Write-Host ("===== {0} =====" -f $name) -ForegroundColor Cyan
+        } else {
+          Write-Host ("===== {0} retry {1}/{2} =====" -f $name, ($attempt - 1), $ResolvedCaseRetries) -ForegroundColor Yellow
+        }
+      }
+      $summary = Invoke-PiCase `
+        -CaseName $name `
+        -Definition $CaseDefinitions[$name] `
+        -Stamp $Stamp `
+        -Attempt $attempt `
+        -ResolvedPiBin $ResolvedPiBin `
+        -ResolvedAgentDir $ResolvedAgentDir `
+        -ResolvedOutDir $ResolvedOutDir `
+        -ResolvedCaseTimeoutSeconds $ResolvedCaseTimeoutSeconds `
+        -ResolvedRequestTimeoutMs $ResolvedRequestTimeoutMs `
+        -ResolvedMaxOutputTokens $ResolvedMaxOutputTokens `
+        -ResolvedProvider $ResolvedProvider `
+        -ResolvedModel $ResolvedModel
+      if (-not $Json) {
+        $summary | ConvertTo-Json -Depth 10
+      }
+      if ($summary.ok -or $attempt -gt $ResolvedCaseRetries -or -not (Should-RetryCase $summary)) {
+        break
+      }
+      $previousAttemptFailureReasons += ("attempt {0}: {1}" -f $attempt, (@($summary.failureReasons) -join "; "))
+      $attempt += 1
+    }
+    $summary["attemptCount"] = $attempt
+    $summary["retried"] = $attempt -gt 1
+    $summary["previousAttemptFailureReasons"] = @($previousAttemptFailureReasons)
     $caseSummaries += [pscustomobject]$summary
     if (-not $summary.ok) { $failures += 1 }
-    if (-not $Json) {
-      $summary | ConvertTo-Json -Depth 10
-    }
   }
 }
 
@@ -789,6 +870,7 @@ $result = [ordered]@{
   outDir = $ResolvedOutDir
   selectedCases = $selectedCases
   caseTimeoutSeconds = $ResolvedCaseTimeoutSeconds
+  caseRetries = $ResolvedCaseRetries
   requestTimeoutMs = $ResolvedRequestTimeoutMs
   maxOutputTokens = $ResolvedMaxOutputTokens
   providerHealthPreflight = $PreflightEnabled

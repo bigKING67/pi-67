@@ -491,7 +491,10 @@ targeted live runner 验证低风险 extension 工具链路：
 这个 PowerShell runner 覆盖 `read-package`、`fffind-package`、`ffgrep-package`、
 `batch-web-fetch-example`、`seq-thinking-status`、`mcp-status`、`subagent-list`
 和 `recall-not-found` 这些低风险 targeted case，并为 FFF / sequential-thinking
-使用临时隔离状态。完整 xtalpi full-suite runner 目前仍是 Bash 脚本；Windows 上
+使用临时隔离状态。PowerShell live runner 默认会对“工具调用、参数和 debug telemetry
+都已正确但最终 assistant 文本为空”的瞬时模型/turn 结束抖动重试 1 次；可用
+`-CaseRetries 0` 或 `XTALPI_PI_TOOLS_SMOKE_CASE_RETRIES=0` 关闭，不会重试
+missing tool、错误参数、非零退出或 runtime error。完整 xtalpi full-suite runner 目前仍是 Bash 脚本；Windows 上
 只有在显式具备 Bash-compatible shell 时才运行下面的 full-suite/live case，不要把
 Git Bash 当成默认前置条件。下面 Bash 命令均假设已经在 agent repo 根目录。
 
