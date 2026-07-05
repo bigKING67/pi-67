@@ -456,7 +456,10 @@ extension 工具识别不是写死名单：provider 每轮从 Pi runtime 的 `co
 未来 MCP direct tool 进入 `context.tools` 后会被 selected-tool ranking 选中并作为
 本地 Pi 工具调用返回；同时还有一个两轮 round-trip 回归，覆盖“模型请求动态工具 ->
 Pi 本地工具结果以不可信文本回灌 -> 模型基于 sentinel 给最终回答”的闭环。真实 MCP
-server 的连接、鉴权和 cache 刷新仍由 `pi-mcp-adapter` 负责。
+server 的连接、鉴权和 cache 刷新仍由 `pi-mcp-adapter` 负责。测试还会在临时
+`PI_CODING_AGENT_DIR` 写入隔离的 `mcp.json` / `mcp-cache.json`，加载真实
+`pi-mcp-adapter` 源码并捕获它注册出的 direct tool，证明 adapter 注册出的工具对象
+能进入 `xtalpi-pi-tools` 的 selected-tool / provider-turn 链路。
 
 Windows PowerShell 的一等验证入口是 repo/endpoint contract smoke：
 

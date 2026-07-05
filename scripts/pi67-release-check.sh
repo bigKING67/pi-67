@@ -211,6 +211,47 @@ else
 fi
 
 if command_exists node; then
+  COVERAGE_AUDIT_JSON="$(mktemp "${TMPDIR:-/tmp}/pi67-xtalpi-tool-coverage.XXXXXX.json")"
+  COVERAGE_AUDIT_HAS_DEPS=0
+  if [ -d "$REPO_ROOT/npm/node_modules" ] || [ -d "$REPO_ROOT/git/github.com" ]; then
+    COVERAGE_AUDIT_HAS_DEPS=1
+  fi
+  if bash "$XTALPI_PI_TOOLS_COVERAGE_AUDIT" --agent-dir "$REPO_ROOT" --include pi-rules-loader --json > "$COVERAGE_AUDIT_JSON" && node - "$COVERAGE_AUDIT_JSON" "$COVERAGE_AUDIT_HAS_DEPS" <<'NODE'
+const fs = require("fs");
+const [file, hasDepsRaw] = process.argv.slice(2);
+const hasDeps = hasDepsRaw === "1";
+const data = JSON.parse(fs.readFileSync(file, "utf8"));
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+assert(data.schemaId === "pi67-xtalpi-tool-coverage-audit/v1", `unexpected schemaId: ${data.schemaId}`);
+assert(data.summary?.total >= 18, "coverage audit did not include all expected settings/local targets");
+const rulesLoader = data.entries.find((entry) => entry.spec === "local:extensions/pi-rules-loader");
+assert(rulesLoader?.installed === true, "coverage audit did not include installed pi-rules-loader");
+assert(rulesLoader.surface === "command_or_hook_only", `unexpected pi-rules-loader surface: ${rulesLoader?.surface}`);
+const mcp = data.entries.find((entry) => entry.spec === "npm:pi-mcp-adapter");
+assert(mcp?.dynamicTools === true, "pi-mcp-adapter must remain marked as dynamic tool provider");
+if (hasDeps) {
+  assert(data.summary.installed === data.summary.total, "coverage audit found missing installed targets");
+  assert(data.summary.packagesWithMissingExpectedEvidence === 0, "coverage audit has missing expected tool/command evidence");
+  assert(mcp.modelCallableTools.includes("mcp"), "pi-mcp-adapter gateway tool evidence missing");
+}
+NODE
+  then
+    if [ "$COVERAGE_AUDIT_HAS_DEPS" -eq 1 ]; then
+      pass "xtalpi-pi-tools extension coverage audit passed for settings packages and pi-rules-loader"
+    else
+      pass "xtalpi-pi-tools extension coverage audit schema passed for dependency-free artifact"
+    fi
+  else
+    fail "xtalpi-pi-tools extension coverage audit has missing or stale evidence"
+  fi
+  rm -f "$COVERAGE_AUDIT_JSON"
+else
+  warn "node not found; skipped xtalpi-pi-tools extension coverage audit validation"
+fi
+
+if command_exists node; then
   node --check "$XTALPI_PI_TOOLS_SMOKE_STATUS_CORE" >/dev/null
   node "$XTALPI_PI_TOOLS_ERROR_CONTRACT_CHECK" "$XTALPI_PI_TOOLS_ERROR_CONTRACT" --self-test >/dev/null
   node "$XTALPI_PI_TOOLS_ERROR_CONTRACT_CHECK" "$XTALPI_PI_TOOLS_ERROR_CONTRACT" >/dev/null
@@ -237,10 +278,10 @@ else
   fail "xtalpi-pi-tools provider error contract is not documented"
 fi
 
-if grep -q "dyn_echo_ping" "$XTALPI_PI_TOOLS_TEST" && grep -q "DYN_ECHO_PING_SENTINEL" "$XTALPI_PI_TOOLS_TEST" && grep -q "round-trip" "$REPO_ROOT/README.md" && grep -q "DYN_ECHO_PING_SENTINEL" "$XTALPI_PI_TOOLS_DOC"; then
-  pass "xtalpi-pi-tools dynamic MCP direct-tool round-trip regression is documented"
+if grep -q "dyn_echo_ping" "$XTALPI_PI_TOOLS_TEST" && grep -q "DYN_ECHO_PING_SENTINEL" "$XTALPI_PI_TOOLS_TEST" && grep -q "pi-mcp-adapter-src" "$XTALPI_PI_TOOLS_TEST" && grep -q "mcp-cache.json" "$XTALPI_PI_TOOLS_TEST" && grep -q "round-trip" "$REPO_ROOT/README.md" && grep -q "PI_CODING_AGENT_DIR" "$REPO_ROOT/README.md" && grep -q "DYN_ECHO_PING_SENTINEL" "$XTALPI_PI_TOOLS_DOC" && grep -q "mcp-cache.json" "$XTALPI_PI_TOOLS_DOC"; then
+  pass "xtalpi-pi-tools dynamic MCP direct-tool round-trip and adapter registration regressions are documented"
 else
-  fail "xtalpi-pi-tools dynamic MCP direct-tool round-trip regression is missing or not documented"
+  fail "xtalpi-pi-tools dynamic MCP direct-tool round-trip or adapter registration regression is missing or not documented"
 fi
 
 if grep -q '"defaultProvider": "xtalpi-pi-tools"' "$REPO_ROOT/settings.json" && grep -q '"xtalpi-pi-tools"' "$REPO_ROOT/models.example.json" && ! grep -q '"xtalpi-tools"' "$REPO_ROOT/models.example.json"; then

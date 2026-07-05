@@ -139,6 +139,10 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-tool-coverage-audit.sh --include pi-rules-l
   `extensions/pi-rules-loader`，该 extension 只注入 rules index，不是 model-callable
   tool
 
+release check 和 CI smoke 会实际执行 coverage audit，并把 `pi-rules-loader` 作为
+本地 hook-only extension 纳入检查；如果 settings 里的 package 缺失、已知工具/命令
+证据消失，或 `pi-mcp-adapter` 不再被识别为 dynamic gateway，会直接失败。
+
 该脚本是静态审计，不执行 extension tool，不打开浏览器，不触发子代理，不发起图片生成，
 也不读取 cookie/session store。高风险或交互型工具需要单独的 targeted smoke，例如：
 `ask_user_question` 需要 UI 和用户响应，`image_gen` 需要 image provider 配置，
@@ -409,7 +413,10 @@ turn 的工具表里选中该动态工具、只把选中的工具暴露给模型
 第二轮把假 Pi runtime 返回的 `DYN_ECHO_PING_SENTINEL` 作为 `content_is_untrusted`
 工具结果回灌，确认请求体仍不包含 OpenAI native `tools` / `role=tool`，并且最终回答
 基于该 sentinel。真实 MCP server 的连接、OAuth、metadata cache 刷新和 direct-tool
-注册仍由 `pi-mcp-adapter` 负责；因此新增 MCP 工具的现场验证顺序是先让 adapter
+注册仍由 `pi-mcp-adapter` 负责；不过测试会额外创建临时 `PI_CODING_AGENT_DIR`，
+写入隔离的 `mcp.json` / `mcp-cache.json`，加载真实 `pi-mcp-adapter` 源码并捕获
+adapter 注册出的 `dyn_echo_ping` direct tool，再确认该工具对象可被 `xtalpi-pi-tools`
+选中并返回本地 Pi tool call。因此新增 MCP 工具的现场验证顺序是先让 adapter
 刷新出 direct tool，再用 `--tools <new_tool_name>` 做 targeted smoke。
 
 冒烟脚本会校验预期工具是否真的执行：无工具 case 必须没有 `tool_execution_start`；`bash` / `read` / web-read / tool-selection-clipping / tool-selection-continuation / tool-result-injection / targeted extension case 必须出现对应工具执行事件，避免把函数式伪调用文本或空工具路径误判为成功。package metadata 相关 case 还要求实际 `read.path` 等于 `package.json`，避免模型自行构造用户机器绝对路径却被误判为可移植通过。web-read case 通过 `--tools web_fetch,read` 和 `only:web_fetch,read` gate 限制实际工具边界，并要求最终答案包含 `Example Domain` 与本地包名 `pi-extensions`，避免把 404 / 空内容或只执行了工具但没有读懂结果误判为通过；tool-selection-clipping case 通过 `--tools read,bash,web_fetch` 加 per-case `XTALPI_PI_TOOLS_MAX_TOOLS=1` 验证 selected-tool clipping，要求实际只执行 `read`，且 debug telemetry 中 `tool_selection_clipped=true`、omitted tools 至少包含 `bash` 和 `web_fetch`；tool-selection-continuation case 复用同一临时 session 跑两轮，第一轮 `--no-tools` 只建立最近 user intent，第二轮 `继续` 才开启 `read,bash,web_fetch` 并强制 `XTALPI_PI_TOOLS_MAX_TOOLS=1`，要求实际只执行 `read`，且 debug telemetry 中至少一轮满足 `tool_selection_prompt_source=recent_user_continuation`、`tool_selection_user_messages>=2`；tool-result-injection case 通过 `--tools read` 和 `only:read` gate 证明 hostile tool output 不会诱导额外工具执行。

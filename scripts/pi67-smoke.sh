@@ -712,21 +712,28 @@ pass "skill audit JSON output parsed"
 
 section "xtalpi-pi-tools extension coverage audit"
 bash "$REPO_ROOT/scripts/pi67-xtalpi-tool-coverage-audit.sh" \
-  --agent-dir "$REPO_ROOT" >/tmp/pi67-smoke-xtalpi-tool-coverage.log
+  --agent-dir "$REPO_ROOT" \
+  --include pi-rules-loader >/tmp/pi67-smoke-xtalpi-tool-coverage.log
 pass "xtalpi-pi-tools extension coverage text output completed"
 
 bash "$REPO_ROOT/scripts/pi67-xtalpi-tool-coverage-audit.sh" \
   --agent-dir "$REPO_ROOT" \
+  --include pi-rules-loader \
   --json >/tmp/pi67-smoke-xtalpi-tool-coverage-json.log
 node -e '
 const fs = require("fs");
 const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
 if (data.schemaId !== "pi67-xtalpi-tool-coverage-audit/v1") throw new Error(`unexpected schemaId: ${data.schemaId}`);
 if (!data.summary || data.summary.total < 1 || data.summary.installed < 1) throw new Error("coverage audit summary is empty");
+if (data.summary.installed !== data.summary.total) throw new Error("coverage audit found missing installed packages");
+if (data.summary.packagesWithMissingExpectedEvidence !== 0) throw new Error("coverage audit has missing expected evidence");
 for (const spec of ["npm:@ff-labs/pi-fff", "npm:pi-smart-fetch", "npm:pi-mcp-adapter"]) {
   const entry = data.entries.find((candidate) => candidate.spec === spec);
   if (!entry || entry.installed !== true) throw new Error(`coverage audit did not find installed package: ${spec}`);
 }
+const rulesLoader = data.entries.find((candidate) => candidate.spec === "local:extensions/pi-rules-loader");
+if (!rulesLoader || rulesLoader.installed !== true) throw new Error("coverage audit did not include pi-rules-loader");
+if (rulesLoader.surface !== "command_or_hook_only") throw new Error(`unexpected pi-rules-loader surface: ${rulesLoader.surface}`);
 ' /tmp/pi67-smoke-xtalpi-tool-coverage-json.log
 pass "xtalpi-pi-tools extension coverage JSON output parsed"
 

@@ -1395,6 +1395,172 @@ const { pathToFileURL } = require("node:url");
     assert.ok(!dynamicMcpDirectChat.calls[0][0].content.includes("- mcp:"));
   });
 
+  const mcpAdapterFixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "xtalpi-pi-tools-mcp-adapter."));
+  const previousMcpAdapterEnv = {
+    HOME: process.env.HOME,
+    PI_CODING_AGENT_DIR: process.env.PI_CODING_AGENT_DIR,
+    MCP_DIRECT_TOOLS: process.env.MCP_DIRECT_TOOLS,
+  };
+  const previousMcpAdapterCwd = process.cwd();
+  try {
+    const tempHome = path.join(mcpAdapterFixtureDir, "home");
+    const tempAgentDir = path.join(mcpAdapterFixtureDir, "agent");
+    fs.mkdirSync(tempHome, { recursive: true });
+    fs.mkdirSync(tempAgentDir, { recursive: true });
+    process.env.HOME = tempHome;
+    process.env.PI_CODING_AGENT_DIR = tempAgentDir;
+    process.env.MCP_DIRECT_TOOLS = "fake-mcp/dyn_echo_ping";
+    process.chdir(mcpAdapterFixtureDir);
+
+    const mcpAdapterSourceDir = path.join(repoRoot, "npm", "node_modules", "pi-mcp-adapter");
+    const mcpAdapterFixtureSourceDir = path.join(mcpAdapterFixtureDir, "pi-mcp-adapter-src");
+    fs.cpSync(mcpAdapterSourceDir, mcpAdapterFixtureSourceDir, { recursive: true });
+    fs.symlinkSync(path.join(repoRoot, "npm", "node_modules"), path.join(mcpAdapterFixtureDir, "node_modules"), "dir");
+
+    const { createJiti } = await import(
+      pathToFileURL(path.join(repoRoot, "npm", "node_modules", "jiti", "lib", "jiti.mjs")).href
+    );
+    const jiti = createJiti(path.join(mcpAdapterFixtureSourceDir, "index.ts"), {
+      fsCache: false,
+      moduleCache: false,
+    });
+    const mcpAdapterMetadata = await jiti.import(path.join(mcpAdapterFixtureSourceDir, "metadata-cache.ts"));
+    const mcpAdapterModule = await jiti.import(path.join(mcpAdapterFixtureSourceDir, "index.ts"));
+
+    const fakeMcpServer = {
+      command: process.execPath,
+      args: ["-e", "process.exit(0)"],
+      directTools: ["dyn_echo_ping"],
+      exposeResources: false,
+    };
+    fs.writeFileSync(
+      path.join(tempAgentDir, "mcp.json"),
+      JSON.stringify({
+        settings: {
+          toolPrefix: "none",
+          disableProxyTool: true,
+        },
+        mcpServers: {
+          "fake-mcp": fakeMcpServer,
+        },
+      }, null, 2),
+    );
+    fs.writeFileSync(
+      path.join(tempAgentDir, "mcp-cache.json"),
+      JSON.stringify({
+        version: 1,
+        servers: {
+          "fake-mcp": {
+            configHash: mcpAdapterMetadata.computeServerHash(fakeMcpServer),
+            cachedAt: Date.now(),
+            tools: [
+              {
+                name: "dyn_echo_ping",
+                description: "Fake MCP direct tool registered through pi-mcp-adapter metadata cache",
+                inputSchema: {
+                  type: "object",
+                  required: ["text"],
+                  properties: {
+                    text: { type: "string", description: "Text to echo" },
+                  },
+                  additionalProperties: false,
+                },
+              },
+            ],
+            resources: [],
+          },
+        },
+      }, null, 2),
+    );
+
+    const registeredAdapterTools = [];
+    const registeredAdapterCommands = [];
+    const registeredAdapterFlags = [];
+    const registeredAdapterHandlers = [];
+    const fakePi = {
+      registerTool(tool) {
+        registeredAdapterTools.push(tool);
+        return tool;
+      },
+      registerCommand(name, command) {
+        registeredAdapterCommands.push({ name, command });
+      },
+      registerFlag(name, flag) {
+        registeredAdapterFlags.push({ name, flag });
+      },
+      on(event, handler) {
+        registeredAdapterHandlers.push({ event, handler });
+      },
+      getAllTools() {
+        return registeredAdapterTools;
+      },
+      exec: async () => ({ code: 0, stdout: "", stderr: "" }),
+    };
+
+    mcpAdapterModule.default(fakePi);
+
+    assert.deepEqual(registeredAdapterTools.map((tool) => tool.name), ["dyn_echo_ping"]);
+    assert.equal(registeredAdapterCommands.some((command) => command.name === "mcp"), true);
+    assert.equal(registeredAdapterCommands.some((command) => command.name === "mcp-auth"), true);
+    assert.equal(registeredAdapterFlags.some((flag) => flag.name === "mcp-config"), true);
+    assert.equal(registeredAdapterHandlers.some((handler) => handler.event === "session_start"), true);
+    assert.equal(registeredAdapterHandlers.some((handler) => handler.event === "session_shutdown"), true);
+    assert.equal(registeredAdapterTools.some((tool) => tool.name === "mcp"), false);
+    assert.equal(registeredAdapterTools[0].label, "MCP: dyn_echo_ping");
+    assert.match(registeredAdapterTools[0].description, /metadata cache/);
+
+    const adapterRegisteredContext = serializer.serializeContextForXtalpi(
+      {
+        systemPrompt: "system base",
+        tools: registeredAdapterTools,
+        messages: [{ role: "user", content: "Use dyn_echo_ping with text hello from adapter." }],
+      },
+      {
+        maxTools: 1,
+        maxToolResultChars: 2000,
+      },
+    );
+    assert.deepEqual([...adapterRegisteredContext.selectedToolNames], ["dyn_echo_ping"]);
+    assert.match(adapterRegisteredContext.messages[0].content, /- dyn_echo_ping:/);
+    assert.match(adapterRegisteredContext.messages[0].content, /text:string required/);
+
+    await withProviderTurnEnv({
+      XTALPI_PI_TOOLS_MAX_TOOLS: "1",
+      XTALPI_PI_TOOLS_MAX_EMPTY_RETRIES: "0",
+      XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES: "0",
+      XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES: "0",
+    }, async () => {
+      const adapterRegisteredChat = makeProviderTurnChat([
+        { content: '<pi_tool_call>\n{"name":"dyn_echo_ping","arguments":{"text":"hello from adapter"}}\n</pi_tool_call>' },
+      ]);
+      const adapterRegisteredResult = await providerTurn.runProviderTurn({
+        model: providerTurnModel,
+        context: {
+          systemPrompt: "system base",
+          tools: registeredAdapterTools,
+          messages: [{ role: "user", content: "Call the adapter-registered dyn_echo_ping tool." }],
+        },
+        callChat: adapterRegisteredChat.callChat,
+      });
+      assert.equal(adapterRegisteredResult.kind, "tool_call");
+      assert.equal(adapterRegisteredResult.toolCall.name, "dyn_echo_ping");
+      assert.deepEqual(adapterRegisteredResult.toolCall.arguments, { text: "hello from adapter" });
+      assert.match(adapterRegisteredChat.calls[0][0].content, /Available Pi tools \(1\/1/);
+      assert.match(adapterRegisteredChat.calls[0][0].content, /- dyn_echo_ping:/);
+      assert.ok(!adapterRegisteredChat.calls[0][0].content.includes("- mcp:"));
+    });
+  } finally {
+    process.chdir(previousMcpAdapterCwd);
+    for (const [name, value] of Object.entries(previousMcpAdapterEnv)) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
+    }
+    fs.rmSync(mcpAdapterFixtureDir, { recursive: true, force: true });
+  }
+
   const turnDebugEnvNames = [
     "XTALPI_PI_TOOLS_TIMEOUT_MS",
     "XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS",
