@@ -34,6 +34,7 @@ if ($Help) {
 
 $ScriptPath = if ($PSCommandPath) { $PSCommandPath } else { $MyInvocation.MyCommand.Path }
 $ScriptDir = Split-Path -Parent $ScriptPath
+. (Join-Path $ScriptDir "pi67-json-utils.ps1")
 $RepoRoot = (Resolve-Path (Join-Path $ScriptDir "..")).Path
 
 $script:PassCount = 0
@@ -142,7 +143,22 @@ function Run-Check {
 
 function Read-JsonFile {
   param([string]$Path)
-  return (Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json)
+  return Read-Pi67JsonFile $Path
+}
+
+function Join-ByteArrays {
+  param([byte[][]]$Parts)
+  $length = 0
+  foreach ($part in $Parts) {
+    $length += $part.Length
+  }
+  $result = New-Object byte[] $length
+  $offset = 0
+  foreach ($part in $Parts) {
+    [Array]::Copy($part, 0, $result, $offset, $part.Length)
+    $offset += $part.Length
+  }
+  return $result
 }
 
 function Assert-FileExists {
@@ -244,12 +260,15 @@ $RequiredFiles = @(
   "scripts/pi67-report.ps1",
   "scripts/pi67-smoke.ps1",
   "scripts/pi67-update.ps1",
+  "scripts/pi67-json-utils.ps1",
+  "scripts/pi67-json-utils.cjs",
   "scripts/pi67-release-check.sh",
   "scripts/pi67-xtalpi-pi-tools-smoke.ps1",
   "scripts/pi67-xtalpi-smoke-status-core.cjs",
   "scripts/pi67-xtalpi-smoke-plan.mjs",
   "scripts/pi67-xtalpi-provider-health.mjs",
   "scripts/pi67-validate-xtalpi-provider-error-contract.mjs",
+  "extensions/xtalpi-pi-tools/json-file.ts",
   "extensions/xtalpi-pi-tools/runtime-config.ts",
   "extensions/xtalpi-pi-tools/fixtures/replay-cases.json",
   "extensions/xtalpi-pi-tools/provider-error-contract.json"
@@ -279,9 +298,54 @@ foreach ($file in $JsonFiles) {
   }
 }
 
+Run-Check "JSON compatibility reader handles Windows encodings" {
+  $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("pi67-json-smoke-" + [guid]::NewGuid().ToString("N"))
+  New-Item -ItemType Directory -Force -Path $tmpRoot | Out-Null
+  try {
+    $sample = '{"probe":true,"value":67}'
+    $utf8 = [System.Text.Encoding]::UTF8.GetBytes($sample)
+    $utf16Le = [System.Text.Encoding]::Unicode.GetBytes($sample)
+    $utf16BeEncoding = New-Object System.Text.UnicodeEncoding -ArgumentList @($true, $true, $true)
+    $utf16Be = $utf16BeEncoding.GetBytes($sample)
+
+    $cases = @(
+      @("utf8-bom.json", (Join-ByteArrays -Parts @([byte[]]@(0xef, 0xbb, 0xbf), $utf8))),
+      @("utf16le-bom.json", (Join-ByteArrays -Parts @([byte[]]@(0xff, 0xfe), $utf16Le))),
+      @("utf16be-bom.json", (Join-ByteArrays -Parts @([byte[]]@(0xfe, 0xff), $utf16Be))),
+      @("utf16le.json", $utf16Le),
+      @("leading-nul.json", (Join-ByteArrays -Parts @([byte[]]@(0x00), $utf8)))
+    )
+
+    foreach ($case in $cases) {
+      $path = Join-Path $tmpRoot $case[0]
+      [System.IO.File]::WriteAllBytes($path, [byte[]]$case[1])
+      $parsed = Read-Pi67JsonFile $path
+      if ($parsed.value -ne 67) {
+        throw "failed to parse $($case[0])"
+      }
+    }
+
+    $repairPath = Join-Path $tmpRoot "repair.json"
+    [System.IO.File]::WriteAllBytes($repairPath, (Join-ByteArrays -Parts @([byte[]]@(0xff, 0xfe), $utf16Le)))
+    $repair = Repair-Pi67JsonFileEncoding -Path $repairPath -Label "repair.json"
+    if (-not $repair.Changed -or -not (Test-Path -LiteralPath $repair.BackupPath -PathType Leaf)) {
+      throw "encoding repair did not create a backup"
+    }
+    $bytes = [System.IO.File]::ReadAllBytes($repairPath)
+    if (($bytes.Length -ge 3 -and $bytes[0] -eq 0xef -and $bytes[1] -eq 0xbb -and $bytes[2] -eq 0xbf) -or [Array]::IndexOf($bytes, [byte]0) -ge 0) {
+      throw "encoding repair did not write UTF-8 without BOM/NUL bytes"
+    }
+  } finally {
+    if (Test-Path -LiteralPath $tmpRoot) {
+      Remove-Item -LiteralPath $tmpRoot -Recurse -Force
+    }
+  }
+}
+
 Section "Node helpers"
 if ($NodeAvailable) {
   $NodeCheckFiles = @(
+    "scripts/pi67-json-utils.cjs",
     "scripts/pi67-xtalpi-smoke-status-core.cjs",
     "scripts/pi67-xtalpi-smoke-artifact-core.cjs",
     "scripts/pi67-xtalpi-smoke-plan.mjs",
@@ -296,6 +360,10 @@ if ($NodeAvailable) {
 
   Run-Check "xtalpi provider health classifier self-test passed" {
     Invoke-External "node" @((RepoPath "scripts/pi67-xtalpi-provider-health.mjs"), "--self-test") | Out-Null
+  }
+
+  Run-Check "JSON utility self-test passed" {
+    Invoke-External "node" @((RepoPath "scripts/pi67-json-utils.cjs"), "--self-test") | Out-Null
   }
 
   Run-Check "xtalpi provider error contract validator self-test passed" {
@@ -420,9 +488,12 @@ if ($GitAvailable) {
     "scripts/pi67-report.ps1",
     "scripts/pi67-smoke.ps1",
     "scripts/pi67-update.ps1",
+    "scripts/pi67-json-utils.ps1",
+    "scripts/pi67-json-utils.cjs",
     "scripts/pi67-release-check.sh",
     "scripts/pi67-xtalpi-pi-tools-smoke.ps1",
     "scripts/pi67-xtalpi-smoke-plan.mjs",
+    "extensions/xtalpi-pi-tools/json-file.ts",
     ".github/workflows/ci.yml"
   )
   Run-Check "Windows smoke release files are tracked or staged" {

@@ -139,7 +139,7 @@ command_exists() {
 
 json_valid() {
   local file="$1"
-  node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$file" >/dev/null
+  node "$REPO_ROOT/scripts/pi67-json-utils.cjs" --read "$file" >/dev/null
 }
 
 grep_any() {
@@ -217,6 +217,9 @@ fi
 if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-smoke-status-core.cjs" ]; then
   node --check "$REPO_ROOT/scripts/pi67-xtalpi-smoke-status-core.cjs" >/dev/null
 fi
+if [ -f "$REPO_ROOT/scripts/pi67-json-utils.cjs" ]; then
+  node --check "$REPO_ROOT/scripts/pi67-json-utils.cjs" >/dev/null
+fi
 if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-smoke-plan.mjs" ]; then
   node --check "$REPO_ROOT/scripts/pi67-xtalpi-smoke-plan.mjs" >/dev/null
 fi
@@ -241,6 +244,8 @@ if [ -f "$REPO_ROOT/extensions/xtalpi-pi-tools/provider-error-contract.json" ]; 
   json_valid "$REPO_ROOT/extensions/xtalpi-pi-tools/provider-error-contract.json"
   pass "valid JSON: extensions/xtalpi-pi-tools/provider-error-contract.json"
 fi
+node "$REPO_ROOT/scripts/pi67-json-utils.cjs" --self-test >/tmp/pi67-smoke-json-utils.log
+pass "JSON compatibility utility self-test completed"
 
 section "Shared skill defaults"
 node - "$REPO_ROOT" <<'NODE'

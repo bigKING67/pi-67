@@ -57,6 +57,7 @@ function Resolve-ScriptPath {
 $HomePath = Get-HomePath
 $ScriptPath = Resolve-ScriptPath
 $ScriptDir = Split-Path -Parent $ScriptPath
+. (Join-Path $ScriptDir "pi67-json-utils.ps1")
 
 if (-not $RepoRoot) {
   $RepoRoot = (Resolve-Path (Join-Path $ScriptDir "..")).Path
@@ -174,7 +175,7 @@ function AgentPath {
 
 function Read-JsonFile {
   param([string]$Path)
-  return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+  return Read-Pi67JsonFile $Path
 }
 
 function Test-JsonFile {
@@ -184,8 +185,13 @@ function Test-JsonFile {
     return $false
   }
   try {
-    Read-JsonFile $Path | Out-Null
-    Pass ("valid JSON: {0}" -f $Label)
+    $info = Get-Pi67JsonTextInfo $Path
+    $info.Text | ConvertFrom-Json | Out-Null
+    if ($info.NeedsNormalization) {
+      Warn ("valid JSON after compatibility decode: {0}; run pi67-update.ps1 to rewrite UTF-8 without BOM" -f $Label)
+    } else {
+      Pass ("valid JSON: {0}" -f $Label)
+    }
     return $true
   } catch {
     Fail ("invalid JSON: {0}: {1}" -f $Label, $_.Exception.Message)
@@ -355,7 +361,10 @@ $requiredFiles = @(
   "scripts/pi67-doctor.ps1",
   "scripts/pi67-report.ps1",
   "scripts/pi67-smoke.ps1",
+  "scripts/pi67-json-utils.ps1",
+  "scripts/pi67-json-utils.cjs",
   "scripts/pi67-xtalpi-pi-tools-smoke.ps1",
+  "extensions/xtalpi-pi-tools/json-file.ts",
   "extensions/xtalpi-pi-tools/runtime-config.ts"
 )
 foreach ($file in $requiredFiles) {

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
@@ -16,6 +16,7 @@ import {
   type XtalpiChatMessage,
   type XtalpiChatPayload,
 } from "./protocol.ts";
+import { readJsonFile as readCompatibleJsonFile } from "./json-file.ts";
 import { envInt } from "./retry.ts";
 
 export type ProviderRuntimeConfig = {
@@ -91,7 +92,7 @@ function candidateAgentDirs(): string[] {
 
 function readJsonFile(file: string): unknown {
   try {
-    return JSON.parse(readFileSync(file, "utf8").replace(/^\uFEFF/, ""));
+    return readCompatibleJsonFile(file);
   } catch {
     return undefined;
   }

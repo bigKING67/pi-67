@@ -58,6 +58,9 @@ Normal Windows update:
 
 This script never overwrites existing local config files such as models.json,
 auth.json, mcp.json, or image-gen.json. Missing files are copied from examples.
+If an existing local JSON file uses a Windows-unfriendly encoding such as
+UTF-16, UTF-8 BOM, or leading NUL bytes, the updater backs it up and rewrites it
+as UTF-8 without BOM before Pi starts.
 "@
 }
 
@@ -86,6 +89,7 @@ function Resolve-ScriptPath {
 $HomePath = Get-HomePath
 $ScriptPath = Resolve-ScriptPath
 $ScriptDir = Split-Path -Parent $ScriptPath
+. (Join-Path $ScriptDir "pi67-json-utils.ps1")
 
 if (-not $RepoRoot) {
   $RepoRoot = (Resolve-Path (Join-Path $ScriptDir "..")).Path
@@ -289,7 +293,7 @@ function Copy-FileIfMissing {
 
 function Read-JsonFile {
   param([string]$Path)
-  return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+  return Read-Pi67JsonFile $Path
 }
 
 function Save-JsonFile {
@@ -301,7 +305,7 @@ function Save-JsonFile {
     Write-Host ("  DRY-RUN write JSON {0}" -f $Path) -ForegroundColor Cyan
     return
   }
-  $Data | ConvertTo-Json -Depth 80 | Set-Content -LiteralPath $Path -Encoding UTF8
+  Save-Pi67JsonFileUtf8NoBom $Path $Data
 }
 
 function Test-JsonProperty {
@@ -381,6 +385,32 @@ function Sync-LocalConfigTemplates {
   Copy-FileIfMissing (Join-Path $RepoRoot "mcp.example.json") (Join-Path $AgentDir "mcp.json") "mcp.json"
   Copy-FileIfMissing (Join-Path $RepoRoot "auth.example.json") (Join-Path $AgentDir "auth.json") "auth.json"
   Copy-FileIfMissing (Join-Path $RepoRoot "image-gen.example.json") (Join-Path $AgentDir "image-gen.json") "image-gen.json"
+}
+
+function Repair-LocalConfigJsonEncoding {
+  Write-Section "local config JSON encoding"
+  $targets = @(
+    @("models.json", (Join-Path $AgentDir "models.json")),
+    @("mcp.json", (Join-Path $AgentDir "mcp.json")),
+    @("auth.json", (Join-Path $AgentDir "auth.json")),
+    @("image-gen.json", (Join-Path $AgentDir "image-gen.json")),
+    @("settings.json", (Join-Path $AgentDir "settings.json"))
+  )
+
+  foreach ($target in $targets) {
+    $label = $target[0]
+    $path = $target[1]
+    $result = Repair-Pi67JsonFileEncoding -Path $path -Label $label -DryRun:$DryRun
+    if ($result.Status -eq "missing") {
+      Write-Warn ("{0} missing; skipped encoding normalization" -f $label)
+    } elseif ($result.Status -eq "unchanged") {
+      Write-Pass ("{0} already UTF-8 JSON compatible" -f $label)
+    } elseif ($result.Status -eq "would-normalize") {
+      Write-Warn ("would normalize {0} from {1} to UTF-8 without BOM" -f $label, $result.EncodingName)
+    } else {
+      Write-Warn ("normalized {0} from {1} to UTF-8 without BOM; backup: {2}" -f $label, $result.EncodingName, $result.BackupPath)
+    }
+  }
 }
 
 function Invoke-LocalConfigMigration {
@@ -821,7 +851,7 @@ function Show-CheckOnly {
   if ($NoConfigure) {
     Write-Warn "local config template/config migration would be skipped"
   } else {
-    Write-Pass "local config templates and xtalpi migration would be checked"
+    Write-Pass "local config templates, JSON encoding normalization, and xtalpi migration would be checked"
   }
 
   if ($NoNpm) {
@@ -914,6 +944,7 @@ try {
     Write-Warn "local config template sync skipped by -NoConfigure"
   } else {
     Sync-LocalConfigTemplates
+    Repair-LocalConfigJsonEncoding
     Invoke-LocalConfigMigration
   }
   Sync-SharedSkills

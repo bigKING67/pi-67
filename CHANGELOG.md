@@ -16,6 +16,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `scripts/pi67-update.ps1` as a PowerShell-native Windows updater that preserves local config, syncs npm/shared skills, runs PowerShell smoke, writes `pi67-report.json`, and auto-backs up narrow known xtalpi migration conflicts before pulling.
 - `scripts/pi67-doctor.ps1` as a PowerShell-native Windows readiness doctor for local config, npm sync, shared skills, Node engine warnings, and the xtalpi `/chat/completions` endpoint contract.
 - `scripts/pi67-report.ps1` as a PowerShell-native report writer that emits `pi67-report/v2` and embeds the PowerShell doctor by default.
+- `scripts/pi67-json-utils.cjs` and `scripts/pi67-json-utils.ps1` as shared JSON compatibility helpers for UTF-8 BOM, UTF-16, and leading NUL byte recovery.
 - `scripts/pi67-xtalpi-pi-tools-debug-summary.sh` for summarizing live smoke debug telemetry and recovery events.
 - `scripts/pi67-validate-xtalpi-provider-error-contract.mjs` for standalone provider error contract validation.
 - `extensions/xtalpi-pi-tools/fixtures/replay-cases.json` for parser/provider replay regression cases.
@@ -60,6 +61,9 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh` now keeps the web/read live case focused on `web_fetch` plus local `package.json` metadata, reducing large README tool-result latency while preserving cross-tool boundary coverage.
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh` now runs Pi child processes from `PI_AGENT_DIR`, uses cwd-relative `package.json` prompts, and fails package metadata cases unless `read.path` is exactly `package.json`, avoiding user-specific HOME paths and npm package physical paths in live smoke.
 - `scripts/pi67-release-check.sh` now validates the xtalpi endpoint contract so `xtalpi-pi-tools` remains on the OpenAI-compatible `/chat/completions` path instead of drifting to `openai-responses` or `/responses`.
+- PowerShell update now backs up and normalizes parseable local JSON config files such as `models.json` from UTF-16, UTF-8 BOM, or leading NUL bytes to UTF-8 without BOM before Pi startup.
+- PowerShell doctor and smoke now use the same JSON compatibility path, so Windows encoding drift is reported without printing local API keys.
+- `xtalpi-pi-tools` runtime config and provider-health checks now use tolerant JSON decoding for local provider config and contract files.
 - Untrusted tool output, tool metadata, and repair excerpts now neutralize `[previous_pi_tool_call]` bracket markers before they are sent back to xtalpi, closing the remaining internal-history marker injection gap.
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh` now applies explicit smoke request/output bounds (`XTALPI_PI_TOOLS_SMOKE_REQUEST_TIMEOUT_MS`, default `180000`; `XTALPI_PI_TOOLS_SMOKE_MAX_OUTPUT_TOKENS`, default `1024`) and records them in summary artifacts, so provider stalls and over-generation are bounded independently of Pi's global runtime settings.
 - `scripts/pi67-xtalpi-pi-tools-smoke.sh` now supports targeted live smoke runs with `--case`, `--list-cases`, and `XTALPI_PI_TOOLS_SMOKE_CASES`, while keeping debug-summary gates and summary artifacts scoped to the selected cases.

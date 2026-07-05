@@ -97,6 +97,30 @@ PI67_IMAGE_GEN_API_KEY="..." \
 bash ~/.pi/agent/scripts/pi67-configure.sh --no-prompt
 ```
 
+## `models.json: Unexpected token` on Windows startup
+
+If Pi fails before any provider request with an error similar to:
+
+```text
+models.json: Unexpected token '', "{ "p"... is not valid JSON
+```
+
+the failure is usually local file encoding or invisible leading bytes, not the
+xtalpi API endpoint. Common causes are `models.json` or another local config
+being saved as UTF-16, UTF-8 with BOM, or with leading NUL bytes. The Windows
+updater now handles this without printing or deleting keys:
+
+```powershell
+Set-Location $env:USERPROFILE\.pi\agent
+powershell -ExecutionPolicy Bypass -File .\scripts\pi67-update.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\pi67-doctor.ps1
+```
+
+For parseable JSON, the updater writes a backup such as
+`models.json.bak-YYYYMMDD-HHMMSS-encoding`, then rewrites the local file as
+UTF-8 without BOM. If the JSON syntax itself is broken, doctor reports the file,
+detected encoding, and first bytes only; it does not print API keys.
+
 ## `defaultProvider` or `defaultModel` fails
 
 Check:

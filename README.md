@@ -132,9 +132,11 @@ Set-Location $env:USERPROFILE\.pi\agent
 
 Windows 更新入口是 PowerShell-native 的 `scripts\pi67-update.ps1`。它会执行
 fast-forward Git 更新、保留本地 `models.json` / `auth.json` / `mcp.json` /
-`image-gen.json`、同步缺失模板和 npm 依赖、运行 PowerShell smoke，并覆盖写入
-`pi67-report.json`。Windows 也可以直接用 `scripts\pi67-doctor.ps1` 做日常
-readiness 诊断；完整 Bash installer 仍服务 macOS/Linux 和需要 symlink 安装的场景。
+`image-gen.json`、在备份后把 UTF-16 / UTF-8 BOM / 前导 NUL 这类本地 JSON
+编码问题规范化为 UTF-8 without BOM、同步缺失模板和 npm 依赖、运行 PowerShell
+smoke，并覆盖写入 `pi67-report.json`。Windows 也可以直接用
+`scripts\pi67-doctor.ps1` 做日常 readiness 诊断；完整 Bash installer 仍服务
+macOS/Linux 和需要 symlink 安装的场景。
 
 macOS/Linux：
 
@@ -623,10 +625,11 @@ PowerShell updater 会：
 1. 在 pi-67 仓库中执行 `git pull --ff-only`
 2. 保留本地 `models.json` / `mcp.json` / `auth.json` / `image-gen.json`
 3. 如果新增本地配置模板，只复制缺失文件，不覆盖已有配置
-4. 直接在 PowerShell 里做非交互配置迁移，例如把旧 `xtalpi` / `xtalpi-tools` 迁移到 `xtalpi-pi-tools`
-5. 如果 `package.json` 和 `~/.pi/agent/npm/package.json` 不一致，自动同步 npm 依赖
-6. 运行 `scripts\pi67-smoke.ps1 -Ci` 复核 repo/update contract
-7. 覆盖写入 `~/.pi/agent/pi67-report.json`，并默认嵌入 `scripts\pi67-doctor.ps1 -Json` 结果
+4. 在备份后把可解析但编码不适合 Pi 启动的本地 JSON 规范化为 UTF-8 without BOM，例如 UTF-16、UTF-8 BOM 或前导 NUL 字节；备份名形如 `models.json.bak-YYYYMMDD-HHMMSS-encoding`
+5. 直接在 PowerShell 里做非交互配置迁移，例如把旧 `xtalpi` / `xtalpi-tools` 迁移到 `xtalpi-pi-tools`
+6. 如果 `package.json` 和 `~/.pi/agent/npm/package.json` 不一致，自动同步 npm 依赖
+7. 运行 `scripts\pi67-smoke.ps1 -Ci` 复核 repo/update contract
+8. 覆盖写入 `~/.pi/agent/pi67-report.json`，并默认嵌入 `scripts\pi67-doctor.ps1 -Json` 结果
 
 `npm sync` 只在依赖清单变化或显式强制时运行；成功同步后再次更新应显示
 `npm package.json already synced` 并跳过。若只是临时想快速拉代码、确认当前依赖

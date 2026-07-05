@@ -1,7 +1,7 @@
-import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { redactSensitiveString } from "./diagnostics.ts";
+import { readJsonFile } from "./json-file.ts";
 import { safeBlockText } from "./text-safety.ts";
 
 export type XtalpiErrorCategory =
@@ -82,7 +82,7 @@ function contractHttpStatusCode(contract: ProviderErrorContract, status: number)
 
 function loadProviderErrorContract(): ProviderErrorContract {
   const file = contractFilePath();
-  const parsed = JSON.parse(readFileSync(file, "utf8").replace(/^\uFEFF/, "")) as unknown;
+  const parsed = readJsonFile(file);
   if (!isObject(parsed) || parsed.schema !== "xtalpi-pi-tools.provider-error-contract.v1") {
     throw new Error(`invalid xtalpi provider error contract schema: ${file}`);
   }

@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+const require = createRequire(import.meta.url);
+const { readJsonFile: readJsonFileCompatible } = require("./pi67-json-utils.cjs");
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
 const DEFAULT_AGENT_DIR = process.env.PI_AGENT_DIR || DEFAULT_REPO_ROOT;
@@ -243,7 +246,7 @@ function parseArgs(argv) {
 }
 
 function readJson(file) {
-  return JSON.parse(fs.readFileSync(file, "utf8").replace(/^\uFEFF/, ""));
+  return readJsonFileCompatible(file);
 }
 
 function unique(items) {

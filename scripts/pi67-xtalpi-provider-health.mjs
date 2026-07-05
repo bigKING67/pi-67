@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+const require = createRequire(import.meta.url);
+const { readJsonFile: readJsonFileCompatible } = require("./pi67-json-utils.cjs");
 
 const DEFAULT_BASE_URL = "https://sciencetoken-api.xtalpi.xyz/proxy/openai/v1";
 const DEFAULT_TIMEOUT_MS = 30000;
@@ -114,7 +118,7 @@ function parseJsonText(text) {
 }
 
 function readJsonFile(file) {
-  return parseJsonText(fs.readFileSync(file, "utf8"));
+  return readJsonFileCompatible(file);
 }
 
 function sameSortedStrings(left, right) {

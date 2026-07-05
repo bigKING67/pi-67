@@ -247,7 +247,7 @@ json_valid() {
     return
   fi
 
-  if node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$file" >/dev/null 2>&1; then
+  if node "$REPO_ROOT/scripts/pi67-json-utils.cjs" --read "$file" >/dev/null 2>&1; then
     pass "valid JSON: $file"
   else
     fail "invalid JSON: $file"
@@ -392,6 +392,7 @@ check_provider_model() {
 const fs = require("fs");
 const path = require("path");
 const [, , repoRoot, agentDir] = process.argv;
+const { readJsonFile } = require(path.join(repoRoot, "scripts", "pi67-json-utils.cjs"));
 
 function emit(level, message) {
   console.log(`${level}|${message}`);
@@ -399,7 +400,7 @@ function emit(level, message) {
 
 function readJson(file) {
   try {
-    return JSON.parse(fs.readFileSync(file, "utf8"));
+    return readJsonFile(file);
   } catch (error) {
     emit("FAIL", `cannot read JSON ${file}: ${error.message}`);
     return null;
@@ -447,6 +448,7 @@ const fs = require("fs");
 const crypto = require("crypto");
 const path = require("path");
 const [, , repoRoot, agentDir, sharedSkillsDir, strictSharedSkillsRaw] = process.argv;
+const { readJsonFile } = require(path.join(repoRoot, "scripts", "pi67-json-utils.cjs"));
 const strictSharedSkills = strictSharedSkillsRaw === "true";
 
 function emit(level, message) {
@@ -455,7 +457,7 @@ function emit(level, message) {
 
 function readJson(file) {
   try {
-    return JSON.parse(fs.readFileSync(file, "utf8"));
+    return readJsonFile(file);
   } catch (error) {
     emit("FAIL", `cannot read JSON ${file}: ${error.message}`);
     return null;
@@ -614,6 +616,7 @@ check_mcp() {
 const fs = require("fs");
 const path = require("path");
 const [, , repoRoot, agentDir] = process.argv;
+const { readJsonFile } = require(path.join(repoRoot, "scripts", "pi67-json-utils.cjs"));
 const home = process.env.HOME || "";
 
 function emit(level, message) {
@@ -643,7 +646,7 @@ function looksLikePath(value) {
 const file = path.join(agentDir, "mcp.json");
 let config;
 try {
-  config = JSON.parse(fs.readFileSync(file, "utf8"));
+  config = readJsonFile(file);
 } catch (error) {
   emit("FAIL", `cannot read mcp.json: ${error.message}`);
   process.exit(0);
@@ -691,6 +694,7 @@ const path = require("path");
 const { spawn } = require("child_process");
 
 const [, , repoRoot, agentDir, timeoutArg] = process.argv;
+const { readJsonFile } = require(path.join(repoRoot, "scripts", "pi67-json-utils.cjs"));
 const timeoutMs = Number(timeoutArg) || 2500;
 
 function emit(level, message) {
@@ -974,7 +978,7 @@ async function main() {
   const file = path.join(agentDir, "mcp.json");
   let config;
   try {
-    config = JSON.parse(fs.readFileSync(file, "utf8"));
+    config = readJsonFile(file);
   } catch (error) {
     emit("FAIL", `cannot read mcp.json for deep probe: ${error.message}`);
     return;

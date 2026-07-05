@@ -45,8 +45,10 @@ Set-Location $env:USERPROFILE\.pi\agent
 ```
 
 It runs a safe fast-forward Git update, keeps existing local runtime config
-files, creates missing config files from examples only when needed, syncs npm
-dependencies, runs the PowerShell smoke, and writes `pi67-report.json`.
+files, creates missing config files from examples only when needed, normalizes
+parseable Windows JSON encoding issues such as UTF-16, UTF-8 BOM, or leading
+NUL bytes to UTF-8 without BOM after writing `*.bak-*-encoding` backups, syncs
+npm dependencies, runs the PowerShell smoke, and writes `pi67-report.json`.
 During the one-time `xtalpi-compat` -> `xtalpi-pi-tools` migration, it can
 auto-backup and restore the narrow known tracked conflict files before pulling.
 
@@ -486,10 +488,11 @@ The PowerShell updater:
 1. Runs `git pull --ff-only` in the pi-67 checkout.
 2. Keeps local runtime config files.
 3. Creates newly introduced local config files from `.example` templates only when missing.
-4. Applies the safe non-interactive `xtalpi` / `xtalpi-tools` to `xtalpi-pi-tools` local config migration directly in PowerShell.
-5. Syncs npm dependencies when `package.json` differs from `~/.pi/agent/npm/package.json`.
-6. Runs `scripts\pi67-smoke.ps1 -Ci` after the update.
-7. Writes `~/.pi/agent/pi67-report.json` and embeds `scripts\pi67-doctor.ps1 -Json` unless `-NoDoctor` is used.
+4. Backs up and rewrites parseable local JSON files as UTF-8 without BOM when PowerShell/Windows saved them as UTF-16, UTF-8 BOM, or with leading NUL bytes.
+5. Applies the safe non-interactive `xtalpi` / `xtalpi-tools` to `xtalpi-pi-tools` local config migration directly in PowerShell.
+6. Syncs npm dependencies when `package.json` differs from `~/.pi/agent/npm/package.json`.
+7. Runs `scripts\pi67-smoke.ps1 -Ci` after the update.
+8. Writes `~/.pi/agent/pi67-report.json` and embeds `scripts\pi67-doctor.ps1 -Json` unless `-NoDoctor` is used.
 
 `npm sync` is skipped when the copied `npm/package.json` already matches the
 repo `package.json`. When it does run, the updater uses npm's local cache first
