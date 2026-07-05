@@ -110,7 +110,9 @@ ranking。因此以后安装新 extension 时，只要它在当前 turn 通过 `
 `context.tools`，provider 不需要改代码就能识别；若 `XTALPI_PI_TOOLS_MAX_TOOLS`
 设置过低，且 prompt 没提到新工具名或语义，新工具可能被本轮 omitted，这表示它没有展示给模型，
 不是 provider 不认识它。被 omitted 的工具即使被模型猜中名称也不会执行，unknown-tool repair
-只会列出本轮 selected tool names。
+只会列出本轮 selected tool names。ranking 同时识别“不要调用 read/bash”这类负向工具约束；
+低 `MAX_TOOLS` 或 targeted smoke 场景下，被当前用户明确禁止的工具会被降权，避免和新 extension
+工具争抢唯一展示名额。
 
 新增 extension 的验收顺序建议：
 

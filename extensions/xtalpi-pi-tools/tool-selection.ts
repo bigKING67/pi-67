@@ -43,6 +43,7 @@ type RankedTool = ToolScore & {
 
 const MAX_TOOL_SELECTION_SUMMARY_ITEMS = 12;
 const MAX_TOOL_SELECTION_REASON_CODES = 8;
+const FORBIDDEN_TOOL_MENTION_PENALTY = -220;
 
 const CORE_TOOL_NAMES = new Set([
   "bash",
@@ -55,6 +56,44 @@ const CORE_TOOL_NAMES = new Set([
   "web_fetch",
   "web_search",
 ]);
+
+const TOOL_NAME_BOUNDARY_CHARS = "A-Za-z0-9_-";
+const NEGATIVE_TOOL_CLAUSE_PATTERN =
+  /(?:do\s+not|don't|dont|must\s+not|never|without)\s+(?:call|use|execute|run|invoke|select|choose)?|(?:禁止|不要|不得|别|勿)\s*(?:调用|使用|执行|运行|选择|用)?/i;
+const TOOL_MENTION_EXCEPTION_PATTERN = /(?:except(?:\s+for)?|other\s+than|除外|除了|除非|以外|之外)/i;
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function hasForbiddenToolMention(toolName: string, prompt: string): boolean {
+  if (!toolName) return false;
+  const pattern = new RegExp(`(^|[^${TOOL_NAME_BOUNDARY_CHARS}])(${escapeRegExp(toolName)})(?=$|[^${TOOL_NAME_BOUNDARY_CHARS}])`, "gi");
+  for (const match of prompt.matchAll(pattern)) {
+    const prefixLength = match[1]?.length ?? 0;
+    const start = (match.index ?? 0) + prefixLength;
+    const end = start + toolName.length;
+    const clauseStart = Math.max(
+      prompt.lastIndexOf("\n", start - 1),
+      prompt.lastIndexOf(".", start - 1),
+      prompt.lastIndexOf(";", start - 1),
+      prompt.lastIndexOf("。", start - 1),
+      prompt.lastIndexOf("；", start - 1),
+      prompt.lastIndexOf("！", start - 1),
+      prompt.lastIndexOf("？", start - 1),
+      prompt.lastIndexOf("!", start - 1),
+      prompt.lastIndexOf("?", start - 1),
+    );
+    const leftClause = prompt.slice(clauseStart + 1, start);
+    const rightWindow = prompt.slice(end, end + 24);
+    const leftTail = leftClause.slice(-32);
+
+    if (!NEGATIVE_TOOL_CLAUSE_PATTERN.test(leftClause)) continue;
+    if (TOOL_MENTION_EXCEPTION_PATTERN.test(leftTail) || TOOL_MENTION_EXCEPTION_PATTERN.test(rightWindow)) continue;
+    return true;
+  }
+  return false;
+}
 
 function schemaType(value: unknown): string {
   if (typeof value !== "object" || value === null) return "unknown";
@@ -102,6 +141,7 @@ function scoreTool(tool: ToolLike, prompt: string): ToolScore {
 
   if (CORE_TOOL_NAMES.has(tool.name)) addScore(25, "core_tool");
   if (promptLower.includes(tool.name.toLowerCase())) addScore(100, "prompt_tool_name");
+  if (hasForbiddenToolMention(tool.name, prompt)) addScore(FORBIDDEN_TOOL_MENTION_PENALTY, "prompt_tool_forbidden");
 
   for (const token of promptLower.split(/[^a-z0-9_\-\u4e00-\u9fff/.]+/i)) {
     if (token.length < 2) continue;

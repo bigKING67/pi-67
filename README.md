@@ -452,6 +452,8 @@ extension 工具识别不是写死名单：provider 每轮从 Pi runtime 的 `co
 即可识别并展示；如果工具被 `XTALPI_PI_TOOLS_MAX_TOOLS` 截断或当前 mode/flag 禁用，
 它不会进入本轮执行白名单。新增工具建议先用 `--tools new_tool_name` 做 targeted smoke，
 不要直接放进 full-suite release gate。
+selected-tool ranking 会识别“不要调用 read/bash”这类负向工具约束；低 `MAX_TOOLS`
+场景下，被用户明确禁止的工具会被降权，避免 targeted smoke 或新 extension 验收时误暴露。
 当前离线回归里也有一个 MCP direct-tool 形态的 `dyn_echo_ping` fixture，用来证明
 未来 MCP direct tool 进入 `context.tools` 后会被 selected-tool ranking 选中并作为
 本地 Pi 工具调用返回；同时还有一个两轮 round-trip 回归，覆盖“模型请求动态工具 ->

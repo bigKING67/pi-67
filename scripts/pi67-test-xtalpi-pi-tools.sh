@@ -1334,6 +1334,37 @@ const { pathToFileURL } = require("node:url");
   assert.ok(hiddenFutureAvailableNames.includes('"future_extension_tool"'));
   assert.ok(!hiddenFutureAvailableNames.includes('"future_hidden_tool"'));
 
+  const negativeMentionContext = serializer.serializeContextForXtalpi(
+    {
+      systemPrompt: "system base",
+      tools: [
+        { name: "read", description: "Read a file", parameters: { type: "object", properties: { path: { type: "string" } } } },
+        { name: "bash", description: "Run a shell command", parameters: { type: "object", properties: { command: { type: "string" } } } },
+        { name: "fffind", description: "Find files by name", parameters: { type: "object", properties: { pattern: { type: "string" } } } },
+      ],
+      messages: [{ role: "user", content: "请只使用 fffind 查找 package.json，不要调用 read、bash 或其他工具。" }],
+    },
+    {
+      maxTools: 1,
+      maxToolResultChars: 2000,
+    },
+  );
+  assert.deepEqual([...negativeMentionContext.selectedToolNames], ["fffind"]);
+  assert.ok(negativeMentionContext.messages[0].content.includes("- fffind:"));
+  assert.ok(!negativeMentionContext.messages[0].content.includes("- read:"));
+  assert.ok(!negativeMentionContext.messages[0].content.includes("- bash:"));
+  assert.equal(negativeMentionContext.toolSelectionSummary.clipped, true);
+  assert.ok(
+    negativeMentionContext.toolSelectionSummary.omitted.some((item) =>
+      item.name === "read" && item.reasonCodes.includes("prompt_tool_forbidden"),
+    ),
+  );
+  assert.ok(
+    negativeMentionContext.toolSelectionSummary.omitted.some((item) =>
+      item.name === "bash" && item.reasonCodes.includes("prompt_tool_forbidden"),
+    ),
+  );
+
   const dynamicMcpDirectTools = [
     {
       name: "dyn_echo_ping",
