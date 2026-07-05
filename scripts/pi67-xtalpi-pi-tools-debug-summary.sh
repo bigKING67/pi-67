@@ -201,8 +201,24 @@ writeCase(clean, "20260702-000001", "clean", {
           schema: "xtalpi-pi-tools.tool-selection.v1",
           validToolCount: 3,
           omittedToolCount: 2,
-          selected: [{ name: "read", index: 0, score: 160, selected: true, reasonCodes: ["prompt_tool_name"] }],
-          omitted: [{ name: "hidden_admin", index: 1, score: 0, selected: false, reasonCodes: [] }],
+          selected: [
+            {
+              name: "read",
+              index: 0,
+              score: 160,
+              selected: true,
+              reasonCodes: ["prompt_tool_exclusive", "prompt_tool_name"],
+            },
+          ],
+          omitted: [
+            {
+              name: "hidden_admin",
+              index: 1,
+              score: 0,
+              selected: false,
+              reasonCodes: ["prompt_tool_forbidden"],
+            },
+          ],
         },
       },
     },
@@ -734,7 +750,7 @@ NODE
     echo "$output"
     return 1
   fi
-  if [[ "$output" != *"tool_selection_clipped=true"* || "$output" != *"tool_selection_omitted=2-2"* || "$output" != *"tool_selection_valid=3-3"* || "$output" != *"tool_selection_prompt_source=recent_user_continuation"* || "$output" != *"argument_validation_warnings=1"* || "$output" != *"pattern_nested_quantifier"* ]]; then
+  if [[ "$output" != *"tool_selection_clipped=true"* || "$output" != *"tool_selection_omitted=2-2"* || "$output" != *"tool_selection_valid=3-3"* || "$output" != *"tool_selection_prompt_source=recent_user_continuation"* || "$output" != *"tool_selection_reason_codes="* || "$output" != *"prompt_tool_exclusive"* || "$output" != *"prompt_tool_forbidden"* || "$output" != *"argument_validation_warnings=1"* || "$output" != *"pattern_nested_quantifier"* ]]; then
     echo "clean fixture output did not expose bounded tool-selection or argument-validation diagnostics"
     echo "$output"
     return 1
@@ -1819,6 +1835,65 @@ function argumentValidationWarningCodes(event) {
   ]);
 }
 
+function reasonCodesFromValue(value) {
+  if (Array.isArray(value)) {
+    return uniqueStrings(value.map((item) => (item === undefined || item === null ? "" : String(item).trim())));
+  }
+  if (typeof value === "string") {
+    return uniqueStrings(value.split(",").map((item) => item.trim()));
+  }
+  return [];
+}
+
+function incrementReasonCodes(target, codes) {
+  for (const code of reasonCodesFromValue(codes)) {
+    increment(target, code);
+  }
+}
+
+function collectToolSelectionReasonCodeCounts(event) {
+  const selected = {};
+  const omitted = {};
+  const all = {};
+  const append = (target, codes) => {
+    const normalizedCodes = reasonCodesFromValue(codes);
+    incrementReasonCodes(target, normalizedCodes);
+    incrementReasonCodes(all, normalizedCodes);
+  };
+  const summary = [
+    objectOrUndefined(eventData(event).toolSelectionSummary),
+    objectOrUndefined(event?.toolSelectionSummary),
+    objectOrUndefined(event?.tool_selection_summary),
+  ].find(Boolean);
+  let sawSelectedItems = false;
+  let sawOmittedItems = false;
+
+  if (summary) {
+    const selectedItems = Array.isArray(summary.selected) ? summary.selected : [];
+    const omittedItems = Array.isArray(summary.omitted) ? summary.omitted : [];
+    if (selectedItems.length > 0) sawSelectedItems = true;
+    if (omittedItems.length > 0) sawOmittedItems = true;
+    for (const item of selectedItems) append(selected, item?.reasonCodes);
+    for (const item of omittedItems) append(omitted, item?.reasonCodes);
+  }
+
+  if (!sawSelectedItems) {
+    append(selected, stringArrayMetric(event, "selectedToolSelectionReasonCodes", "selected_tool_selection_reason_codes"));
+  }
+  if (!sawOmittedItems) {
+    append(omitted, stringArrayMetric(event, "omittedToolSelectionReasonCodes", "omitted_tool_selection_reason_codes"));
+  }
+  if (Object.keys(all).length === 0) {
+    incrementReasonCodes(all, stringArrayMetric(event, "toolSelectionReasonCodes", "tool_selection_reason_codes"));
+  }
+
+  return {
+    toolSelectionReasonCodes: all,
+    selectedToolSelectionReasonCodes: selected,
+    omittedToolSelectionReasonCodes: omitted,
+  };
+}
+
 function eventTimestampMs(event) {
   if (typeof event?.ts !== "string" || event.ts.trim() === "") return undefined;
   const value = Date.parse(event.ts);
@@ -2060,6 +2135,9 @@ function summarizeCase(debugFileName) {
   const toolSelectionValidCounts = [];
   let argumentValidationWarningTotal = 0;
   const argumentValidationWarningCodeCounts = {};
+  const toolSelectionReasonCodeCounts = {};
+  const selectedToolSelectionReasonCodeCounts = {};
+  const omittedToolSelectionReasonCodeCounts = {};
   for (const event of debug.events) {
     if (typeof event.event === "string") increment(eventByName, event.event);
     if (event.event_category === "recovery" && typeof event.event === "string") {
@@ -2078,6 +2156,16 @@ function summarizeCase(debugFileName) {
     if (warningCount > 0) argumentValidationWarningTotal += warningCount;
     for (const code of argumentValidationWarningCodes(event)) {
       increment(argumentValidationWarningCodeCounts, code);
+    }
+    const reasonCodeCounts = collectToolSelectionReasonCodeCounts(event);
+    for (const [code, count] of Object.entries(reasonCodeCounts.toolSelectionReasonCodes)) {
+      increment(toolSelectionReasonCodeCounts, code, count);
+    }
+    for (const [code, count] of Object.entries(reasonCodeCounts.selectedToolSelectionReasonCodes)) {
+      increment(selectedToolSelectionReasonCodeCounts, code, count);
+    }
+    for (const [code, count] of Object.entries(reasonCodeCounts.omittedToolSelectionReasonCodes)) {
+      increment(omittedToolSelectionReasonCodeCounts, code, count);
     }
   }
 
@@ -2164,6 +2252,9 @@ function summarizeCase(debugFileName) {
     providerHttpStatuses: uniqueNumbers(providerHttpStatuses),
     argumentValidationWarnings: argumentValidationWarningTotal,
     argumentValidationWarningCodes: argumentValidationWarningCodeCounts,
+    toolSelectionReasonCodes: toolSelectionReasonCodeCounts,
+    selectedToolSelectionReasonCodes: selectedToolSelectionReasonCodeCounts,
+    omittedToolSelectionReasonCodes: omittedToolSelectionReasonCodeCounts,
     ...requestLatency,
     selectedToolCountMin: selectedToolCounts.length ? Math.min(...selectedToolCounts) : undefined,
     selectedToolCountMax: selectedToolCounts.length ? Math.max(...selectedToolCounts) : undefined,
@@ -2215,6 +2306,9 @@ function summarizeSmokeSummaryFile(fileName) {
       providerErrorCodes: {},
       providerErrorCategories: {},
       argumentValidationWarningCodes: {},
+      toolSelectionReasonCodes: {},
+      selectedToolSelectionReasonCodes: {},
+      omittedToolSelectionReasonCodes: {},
       selectedCases: [],
       caseNames: [],
       caseSet: buildCaseSet([]),
@@ -2296,6 +2390,9 @@ function summarizeSmokeSummaryFile(fileName) {
     providerErrorCodes: objectOrUndefined(totals.providerErrorCodes) || {},
     providerErrorCategories: objectOrUndefined(totals.providerErrorCategories) || {},
     argumentValidationWarningCodes: objectOrUndefined(totals.argumentValidationWarningCodes) || {},
+    toolSelectionReasonCodes: objectOrUndefined(totals.toolSelectionReasonCodes) || {},
+    selectedToolSelectionReasonCodes: objectOrUndefined(totals.selectedToolSelectionReasonCodes) || {},
+    omittedToolSelectionReasonCodes: objectOrUndefined(totals.omittedToolSelectionReasonCodes) || {},
     selectedCases: caseSet.normalizedCases,
     caseNames,
     caseSet,
@@ -2665,6 +2762,9 @@ function aggregateDriftSignals(runs) {
   const providerErrorCodes = {};
   const providerErrorCategories = {};
   const argumentValidationWarningCodes = {};
+  const toolSelectionReasonCodes = {};
+  const selectedToolSelectionReasonCodes = {};
+  const omittedToolSelectionReasonCodes = {};
 
   for (const run of runs) {
     totals.failures += numberOrZero(run.failures);
@@ -2692,6 +2792,15 @@ function aggregateDriftSignals(runs) {
     for (const [code, count] of Object.entries(objectOrUndefined(run.argumentValidationWarningCodes) || {})) {
       increment(argumentValidationWarningCodes, code, count);
     }
+    for (const [code, count] of Object.entries(objectOrUndefined(run.toolSelectionReasonCodes) || {})) {
+      increment(toolSelectionReasonCodes, code, count);
+    }
+    for (const [code, count] of Object.entries(objectOrUndefined(run.selectedToolSelectionReasonCodes) || {})) {
+      increment(selectedToolSelectionReasonCodes, code, count);
+    }
+    for (const [code, count] of Object.entries(objectOrUndefined(run.omittedToolSelectionReasonCodes) || {})) {
+      increment(omittedToolSelectionReasonCodes, code, count);
+    }
   }
 
   return {
@@ -2699,6 +2808,9 @@ function aggregateDriftSignals(runs) {
     providerErrorCodes,
     providerErrorCategories,
     argumentValidationWarningCodes,
+    toolSelectionReasonCodes,
+    selectedToolSelectionReasonCodes,
+    omittedToolSelectionReasonCodes,
   };
 }
 
@@ -2733,6 +2845,9 @@ function compactDriftRun(run) {
     providerErrorCategories: run.providerErrorCategories,
     argumentValidationWarnings: run.argumentValidationWarnings,
     argumentValidationWarningCodes: run.argumentValidationWarningCodes,
+    toolSelectionReasonCodes: run.toolSelectionReasonCodes,
+    selectedToolSelectionReasonCodes: run.selectedToolSelectionReasonCodes,
+    omittedToolSelectionReasonCodes: run.omittedToolSelectionReasonCodes,
     runtimeBounds: run.runtimeBounds,
     runtimeBoundsSha256: run.runtimeBoundsSha256,
     runtimeFingerprint: run.runtimeFingerprint,
@@ -3140,6 +3255,9 @@ function printDrift(limit) {
         requestLatencyMsMax: drift.qualityTotals.requestLatencyMsMax,
         slowRequestCount: drift.qualityTotals.slowRequestCount,
         argumentValidationWarnings: drift.qualityTotals.argumentValidationWarnings,
+        toolSelectionReasonCodes: drift.qualityTotals.toolSelectionReasonCodes,
+        selectedToolSelectionReasonCodes: drift.qualityTotals.selectedToolSelectionReasonCodes,
+        omittedToolSelectionReasonCodes: drift.qualityTotals.omittedToolSelectionReasonCodes,
       })}`,
     );
     for (const run of drift.runs) {
@@ -3199,6 +3317,11 @@ function printHistory(limit) {
       const selectedText = run.selectedCases?.length ? ` selected_cases=${run.selectedCases.join(",")}` : "";
       const caseSetText = run.caseSet?.sha256 ? ` case_set_sha256=${run.caseSet.sha256}` : "";
       const runKindText = run.runKind ? ` run_kind=${run.runKind}` : "";
+      const reasonCodesText = Object.keys(run.toolSelectionReasonCodes || {}).length
+        ? ` tool_selection_reason_codes=${JSON.stringify(run.toolSelectionReasonCodes)}` +
+          ` selected_tool_selection_reason_codes=${JSON.stringify(run.selectedToolSelectionReasonCodes || {})}` +
+          ` omitted_tool_selection_reason_codes=${JSON.stringify(run.omittedToolSelectionReasonCodes || {})}`
+        : "";
       console.log(
         `- ${run.runId}: ok=${run.ok} failures=${run.failures} cases=${run.cases} ` +
           `recoveries=${run.recoveries} recovery_rate=${run.recoveryRate.toFixed(4)} ` +
@@ -3214,7 +3337,7 @@ function printHistory(limit) {
           `tool_selection_clipped_cases=${run.toolSelectionClippedCases} ` +
           `tool_selection_omitted_count_max=${run.toolSelectionOmittedCountMax} ` +
           `debug_summary_status=${run.debugSummaryStatus}` +
-          `${providerText}${modelText}${runKindText}${selectedText}${caseSetText}${gateText}${parseText}`,
+          `${providerText}${modelText}${runKindText}${selectedText}${caseSetText}${reasonCodesText}${gateText}${parseText}`,
       );
     }
     if (runKindFailures.length > 0) {
@@ -3594,6 +3717,9 @@ const totals = {
   providerErrorCodes: {},
   providerErrorCategories: {},
   argumentValidationWarningCodes: {},
+  toolSelectionReasonCodes: {},
+  selectedToolSelectionReasonCodes: {},
+  omittedToolSelectionReasonCodes: {},
   recoveryByEvent: {},
 };
 let requestLatencyMsTotal = 0;
@@ -3642,6 +3768,15 @@ for (const item of cases) {
   }
   for (const [code, count] of Object.entries(item.argumentValidationWarningCodes)) {
     increment(totals.argumentValidationWarningCodes, code, count);
+  }
+  for (const [code, count] of Object.entries(item.toolSelectionReasonCodes)) {
+    increment(totals.toolSelectionReasonCodes, code, count);
+  }
+  for (const [code, count] of Object.entries(item.selectedToolSelectionReasonCodes)) {
+    increment(totals.selectedToolSelectionReasonCodes, code, count);
+  }
+  for (const [code, count] of Object.entries(item.omittedToolSelectionReasonCodes)) {
+    increment(totals.omittedToolSelectionReasonCodes, code, count);
   }
   for (const [event, count] of Object.entries(item.recoveryByEvent)) {
     increment(totals.recoveryByEvent, event, count);
@@ -3739,6 +3874,15 @@ if (format === "json") {
   if (Object.keys(totals.argumentValidationWarningCodes).length > 0) {
     console.log(`argument_validation_warning_codes=${JSON.stringify(totals.argumentValidationWarningCodes)}`);
   }
+  if (Object.keys(totals.toolSelectionReasonCodes).length > 0) {
+    console.log(`tool_selection_reason_codes=${JSON.stringify(totals.toolSelectionReasonCodes)}`);
+  }
+  if (Object.keys(totals.selectedToolSelectionReasonCodes).length > 0) {
+    console.log(`selected_tool_selection_reason_codes=${JSON.stringify(totals.selectedToolSelectionReasonCodes)}`);
+  }
+  if (Object.keys(totals.omittedToolSelectionReasonCodes).length > 0) {
+    console.log(`omitted_tool_selection_reason_codes=${JSON.stringify(totals.omittedToolSelectionReasonCodes)}`);
+  }
   if (Object.keys(totals.recoveryByEvent).length > 0) {
     console.log(`recovery_by_event=${JSON.stringify(totals.recoveryByEvent)}`);
   }
@@ -3770,6 +3914,11 @@ if (format === "json") {
       ? ` argument_validation_warnings=${item.argumentValidationWarnings}` +
         ` argument_validation_warning_codes=${JSON.stringify(item.argumentValidationWarningCodes)}`
       : "";
+    const toolSelectionReasonText = Object.keys(item.toolSelectionReasonCodes).length > 0
+      ? ` tool_selection_reason_codes=${JSON.stringify(item.toolSelectionReasonCodes)}` +
+        ` selected_tool_selection_reason_codes=${JSON.stringify(item.selectedToolSelectionReasonCodes)}` +
+        ` omitted_tool_selection_reason_codes=${JSON.stringify(item.omittedToolSelectionReasonCodes)}`
+      : "";
     const requestLatencyText =
       ` request_latency_ms=${item.requestLatencyMsMax}/${item.requestLatencyMsAvg}/${item.requestCount}` +
       ` slow_requests=${item.slowRequestCount}` +
@@ -3787,7 +3936,7 @@ if (format === "json") {
         ` recoveries=${item.recoveries} empty_assistant_ends=${item.emptyAssistantEnds}` +
         ` raw_tool_markup_final_answer=${item.rawToolMarkupFinalAnswer}` +
         ` tool_envelope_final_answer=${item.toolEnvelopeFinalAnswer}${recoveryText}${toolText}${selectedText}${selectionText}` +
-        `${promptSourceText}${providerErrorText}${argumentWarningText}${requestLatencyText}${lifecycleText}` +
+        `${promptSourceText}${providerErrorText}${argumentWarningText}${toolSelectionReasonText}${requestLatencyText}${lifecycleText}` +
         ` final_text_chars=${item.finalTextChars}`,
     );
   }

@@ -458,6 +458,8 @@ selected-tool ranking 会识别“不要调用 read/bash”这类负向工具约
 误判为用户点名的工具。
 如果当前 prompt 明确写了“只使用/only use 某个工具”，即使本轮工具总数低于
 `XTALPI_PI_TOOLS_MAX_TOOLS`，provider 也只会展示这些 explicit-only 工具。
+debug-summary 会聚合 selected / omitted 工具的 reason code，便于从 smoke artifact
+直接核对 `prompt_tool_forbidden`、`prompt_tool_exclusive` 等 ranking 边界。
 当前离线回归里也有一个 MCP direct-tool 形态的 `dyn_echo_ping` fixture，用来证明
 未来 MCP direct tool 进入 `context.tools` 后会被 selected-tool ranking 选中并作为
 本地 Pi 工具调用返回；同时还有一个两轮 round-trip 回归，覆盖“模型请求动态工具 ->
