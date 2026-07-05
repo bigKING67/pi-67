@@ -113,7 +113,8 @@ ranking。因此以后安装新 extension 时，只要它在当前 turn 通过 `
 只会列出本轮 selected tool names。ranking 同时识别“不要调用 read/bash”这类负向工具约束；
 低 `MAX_TOOLS` 或 targeted smoke 场景下，被当前用户明确禁止的工具会被降权，避免和新 extension
 工具争抢唯一展示名额。正向工具名命中使用边界匹配，`README.md` 这类普通文件名不会被当成
-用户显式点名 `read` 工具。
+用户显式点名 `read` 工具。如果当前 prompt 明确写了“只使用 / only use 某工具”，即使
+工具总数没有超过 `XTALPI_PI_TOOLS_MAX_TOOLS`，本轮也只展示这些 explicit-only 工具。
 
 新增 extension 的验收顺序建议：
 
@@ -482,7 +483,7 @@ $HOME/tmp/xtalpi-pi-tools-smoke/<stamp>-summary.json
 
 摘要 schema 为 `xtalpi-pi-tools.smoke-summary.v1`，包含 provider、model、stamp、selected cases、稳定 `caseSet` 指纹（排序去重后的 canonical case 名称和 SHA-256）、`runKind`（`full-suite` / `targeted` / `preflight-failed` / `empty`）、case timeout、request timeout、max output tokens、failure count、provider-health preflight 状态、preflight timeout / attempts / retry delay、provider-error stop 策略和 stop reason、debug-summary gate 状态、总体 recoveries / recovery rate / raw markup final answer / process lifecycle failure / watchdog timeout / request latency / slow request / argument validation warning 计数，以及逐 case telemetry。smoke 脚本会把本轮 selected cases 同时作为 `--expect-cases` 和 `--expect-case-names` 传给 debug-summary gate，避免同数量但不同 case 集合的 artifact 被误判为本轮通过。debug summary JSON 的逐 case telemetry 还包含 `runtimeFingerprint` 与 `requestLatencyMs*`，用于确认当轮实际协议版本、selected-tool hash、展示工具名、selected-tool ranking 是否被 `maxTools` 截断、被省略工具数量、请求超时、输出上限、工具结果截断上限、recovery limits，以及模型请求本身是否接近 timeout。
 
-当 `XTALPI_PI_TOOLS_MAX_TOOLS` 很低时，`turn.start` debug telemetry 会在本地 JSONL 的 `data.toolSelectionSummary` 写入有界选择摘要，schema 为 `xtalpi-pi-tools.tool-selection.v1`。该摘要只包含工具名、去重后的原始 index、score、是否 selected 和 reason code，并在 `selected` / `omitted` 每组最多保留 12 项；不会写入工具 description、parameters 或用户 prompt 原文。顶层字段 `tool_selection_clipped`、`tool_selection_omitted_count`、`tool_selection_valid_count`、`tool_selection_prompt_source`、`tool_selection_prompt_chars` 和 `tool_selection_user_messages` 便于 grep 和 debug-summary 聚合。该摘要只进入本地 debug artifact，不会发送给晶泰模型；provider prompt 仍只展示实际 selected tools。
+当 `XTALPI_PI_TOOLS_MAX_TOOLS` 很低，或当前 prompt 明确使用 explicit-only 工具约束时，`turn.start` debug telemetry 会在本地 JSONL 的 `data.toolSelectionSummary` 写入有界选择摘要，schema 为 `xtalpi-pi-tools.tool-selection.v1`。该摘要只包含工具名、去重后的原始 index、score、是否 selected 和 reason code，并在 `selected` / `omitted` 每组最多保留 12 项；不会写入工具 description、parameters 或用户 prompt 原文。顶层字段 `tool_selection_clipped`、`tool_selection_omitted_count`、`tool_selection_valid_count`、`tool_selection_prompt_source`、`tool_selection_prompt_chars` 和 `tool_selection_user_messages` 便于 grep 和 debug-summary 聚合；其中 `tool_selection_clipped=true` 表示本轮有工具未展示给模型，原因可能是 `MAX_TOOLS` 截断，也可能是 explicit-only 工具约束。该摘要只进入本地 debug artifact，不会发送给晶泰模型；provider prompt 仍只展示实际 selected tools。
 
 provider 调用失败会写入结构化 debug telemetry：`errorCode`、`errorCategory`、`retryable` 和可选 `httpStatus`。常见代码包括 `api_key_missing`、`config_error`、`request_timeout`、`request_aborted`、`network_error`、`http_401`、`http_403`、`http_408`、`http_429`、`http_5xx`、`http_error`、`non_json_response` 和 `malformed_response`。debug summary 会汇总 `provider_errors`、`retryable_provider_errors`、`provider_error_codes` 和 `provider_error_categories`，且默认要求 `provider_errors=0`。这样可以把晶泰限流/鉴权/上游错误和 Pi 工具协议质量回归分开判断。
 

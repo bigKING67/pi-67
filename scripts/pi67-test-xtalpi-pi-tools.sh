@@ -1386,6 +1386,29 @@ const { pathToFileURL } = require("node:url");
   assert.ok(omittedReadFromSubstring);
   assert.ok(!omittedReadFromSubstring.reasonCodes.includes("prompt_tool_name"));
 
+  const explicitOnlyContext = serializer.serializeContextForXtalpi(
+    {
+      systemPrompt: "system base",
+      tools: [
+        { name: "read", description: "Read a file", parameters: { type: "object", properties: { path: { type: "string" } } } },
+        { name: "bash", description: "Run a shell command", parameters: { type: "object", properties: { command: { type: "string" } } } },
+        { name: "fffind", description: "Find files by name", parameters: { type: "object", properties: { pattern: { type: "string" } } } },
+      ],
+      messages: [{ role: "user", content: "请只使用 fffind 查找 package.json；不要展示其他工具。" }],
+    },
+    {
+      maxTools: 24,
+      maxToolResultChars: 2000,
+    },
+  );
+  assert.deepEqual([...explicitOnlyContext.selectedToolNames], ["fffind"]);
+  assert.ok(explicitOnlyContext.messages[0].content.includes("Available Pi tools (1/3"));
+  assert.ok(explicitOnlyContext.messages[0].content.includes("- fffind:"));
+  assert.ok(!explicitOnlyContext.messages[0].content.includes("- read:"));
+  assert.ok(!explicitOnlyContext.messages[0].content.includes("- bash:"));
+  assert.equal(explicitOnlyContext.toolSelectionSummary.clipped, true);
+  assert.ok(explicitOnlyContext.toolSelectionSummary.selected[0].reasonCodes.includes("prompt_tool_exclusive"));
+
   const dynamicMcpDirectTools = [
     {
       name: "dyn_echo_ping",

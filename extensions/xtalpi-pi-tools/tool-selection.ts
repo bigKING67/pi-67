@@ -58,6 +58,8 @@ const CORE_TOOL_NAMES = new Set([
 ]);
 
 const TOOL_NAME_BOUNDARY_CHARS = "A-Za-z0-9_-";
+const EXCLUSIVE_TOOL_CLAUSE_PATTERN =
+  /(?:\bonly\s+(?:the\s+)?(?:call|use|execute|run|invoke|select|choose)?|\b(?:call|use|execute|run|invoke|select|choose)\s+only(?:\s+the)?|(?:只|仅)\s*(?:调用|使用|执行|运行|选择|用)?)/i;
 const NEGATIVE_TOOL_CLAUSE_PATTERN =
   /(?:do\s+not|don't|dont|must\s+not|never|without)\s+(?:call|use|execute|run|invoke|select|choose)?|(?:禁止|不要|不得|别|勿)\s*(?:调用|使用|执行|运行|选择|用)?/i;
 const TOOL_MENTION_EXCEPTION_PATTERN = /(?:except(?:\s+for)?|other\s+than|除外|除了|除非|以外|之外)/i;
@@ -78,9 +80,13 @@ function hasToolNameMention(toolName: string, prompt: string): boolean {
   return toolNameMentionPattern(toolName).test(prompt);
 }
 
-function hasForbiddenToolMention(toolName: string, prompt: string): boolean {
-  if (!toolName) return false;
+function toolNameMentionContexts(toolName: string, prompt: string): Array<{
+  start: number;
+  end: number;
+  leftClause: string;
+}> {
   const pattern = toolNameMentionPattern(toolName);
+  const contexts: Array<{ start: number; end: number; leftClause: string }> = [];
   for (const match of prompt.matchAll(pattern)) {
     const prefixLength = match[1]?.length ?? 0;
     const start = (match.index ?? 0) + prefixLength;
@@ -96,7 +102,20 @@ function hasForbiddenToolMention(toolName: string, prompt: string): boolean {
       prompt.lastIndexOf("!", start - 1),
       prompt.lastIndexOf("?", start - 1),
     );
-    const leftClause = prompt.slice(clauseStart + 1, start);
+    contexts.push({ start, end, leftClause: prompt.slice(clauseStart + 1, start) });
+  }
+  return contexts;
+}
+
+function hasExclusiveToolMention(toolName: string, prompt: string): boolean {
+  return toolNameMentionContexts(toolName, prompt).some((context) =>
+    EXCLUSIVE_TOOL_CLAUSE_PATTERN.test(context.leftClause),
+  );
+}
+
+function hasForbiddenToolMention(toolName: string, prompt: string): boolean {
+  if (!toolName) return false;
+  for (const { end, leftClause } of toolNameMentionContexts(toolName, prompt)) {
     const rightWindow = prompt.slice(end, end + 24);
     const leftTail = leftClause.slice(-32);
 
@@ -152,6 +171,7 @@ function scoreTool(tool: ToolLike, prompt: string): ToolScore {
   };
 
   if (CORE_TOOL_NAMES.has(tool.name)) addScore(25, "core_tool");
+  if (hasExclusiveToolMention(tool.name, prompt)) addScore(160, "prompt_tool_exclusive");
   if (hasToolNameMention(tool.name, prompt)) addScore(100, "prompt_tool_name");
   if (hasForbiddenToolMention(tool.name, prompt)) addScore(FORBIDDEN_TOOL_MENTION_PENALTY, "prompt_tool_forbidden");
 
@@ -221,12 +241,24 @@ export function selectToolsWithSummary(
   const limit = normalizeMaxTools(maxTools);
   const available = collectValidTools(tools);
   const scored = available.map((tool, index) => ({ tool, index, ...scoreTool(tool, prompt) }));
-  const clipped = scored.length > limit;
-  const ranked = clipped
-    ? [...scored].sort((a, b) => b.score - a.score || a.index - b.index)
-    : scored;
-  const selectedRanked = clipped ? ranked.slice(0, limit) : ranked;
-  const omittedRanked = clipped ? ranked.slice(limit) : [];
+  const exclusiveToolNames = new Set(
+    scored
+      .filter((item) => item.reasonCodes.includes("prompt_tool_exclusive"))
+      .map((item) => item.tool.name),
+  );
+  const ranked = [...scored].sort((a, b) => b.score - a.score || a.index - b.index);
+  const selectedRanked = (() => {
+    if (exclusiveToolNames.size > 0) {
+      const exclusiveRanked = ranked.filter((item) => exclusiveToolNames.has(item.tool.name));
+      return exclusiveRanked.length > limit ? exclusiveRanked.slice(0, limit) : exclusiveRanked;
+    }
+    return scored.length > limit ? ranked.slice(0, limit) : scored;
+  })();
+  const selectedToolNameSet = availableToolNames(selectedRanked.map((item) => item.tool));
+  const omittedRanked = exclusiveToolNames.size > 0 || scored.length > limit
+    ? ranked.filter((item) => !selectedToolNameSet.has(item.tool.name))
+    : [];
+  const clipped = omittedRanked.length > 0;
   const selectedTools = selectedRanked.map((item) => item.tool);
   const selectedToolNames = availableToolNames(selectedTools);
   const summary: ToolSelectionSummary = {
