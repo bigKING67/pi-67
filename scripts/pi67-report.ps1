@@ -108,7 +108,9 @@ function Invoke-External {
 function Read-Text {
   param([string]$Path)
   if (Test-Path -LiteralPath $Path -PathType Leaf) {
-    return (Get-Content -LiteralPath $Path -Raw).Trim()
+    $text = Get-Content -LiteralPath $Path -Raw
+    if ($null -eq $text) { return "" }
+    return ([string]$text).Trim()
   }
   return ""
 }
@@ -137,8 +139,27 @@ function Get-GitText {
   param([string[]]$Arguments)
   $result = Invoke-External "git" (@("-C", $RepoRoot) + $Arguments)
   if ($result.exitCode -eq 0) {
-    return $result.text.Trim()
+    $text = $result.text
+    if ($null -eq $text) { return "" }
+    return ([string]$text).Trim()
   }
+  return ""
+}
+
+function Get-PowerShellVersionText {
+  if ($PSVersionTable -and $PSVersionTable.PSVersion) {
+    return $PSVersionTable.PSVersion.ToString()
+  }
+  return ""
+}
+
+function Get-OSArchitectureText {
+  try {
+    $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+    if ($null -ne $arch) { return $arch.ToString() }
+  } catch {
+  }
+  if ($env:PROCESSOR_ARCHITECTURE) { return $env:PROCESSOR_ARCHITECTURE }
   return ""
 }
 
@@ -309,7 +330,7 @@ $report = [ordered]@{
     doctorTimeoutMs = 0
     doctorDeepMcp = $false
     mcpTimeoutMs = 0
-    powershell = $PSVersionTable.PSVersion.ToString()
+    powershell = Get-PowerShellVersionText
   }
   installMode = $installMode
   repository = [ordered]@{
@@ -343,7 +364,7 @@ $report = [ordered]@{
   }
   runtime = [ordered]@{
     platform = [System.Environment]::OSVersion.Platform.ToString()
-    arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+    arch = Get-OSArchitectureText
     hostname = [System.Net.Dns]::GetHostName()
     node = Get-CommandVersion "node" @("-v")
     npm = Get-CommandVersion "npm" @("-v")
@@ -362,10 +383,12 @@ Move-Item -LiteralPath $tmp -Destination $Output -Force
 
 try {
   $acl = Get-Acl -LiteralPath $Output
-  $acl.SetAccessRuleProtection($true, $false)
-  $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($env:USERNAME, "FullControl", "Allow")
-  $acl.SetAccessRule($rule)
-  Set-Acl -LiteralPath $Output -AclObject $acl
+  if ($null -ne $acl) {
+    $acl.SetAccessRuleProtection($true, $false)
+    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($env:USERNAME, "FullControl", "Allow")
+    $acl.SetAccessRule($rule)
+    Set-Acl -LiteralPath $Output -AclObject $acl
+  }
 } catch {
 }
 
