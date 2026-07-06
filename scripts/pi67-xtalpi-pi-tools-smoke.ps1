@@ -43,6 +43,7 @@ Usage:
 Supported cases:
   read-package
   plan-mode-contract
+  until-done-continuation
   fffind-package
   ffgrep-package
   batch-web-fetch-example
@@ -81,6 +82,7 @@ $ProviderHealthScript = Join-Path $ScriptDir "pi67-xtalpi-provider-health.mjs"
 $AvailableCases = @(
   "read-package",
   "plan-mode-contract",
+  "until-done-continuation",
   "fffind-package",
   "ffgrep-package",
   "batch-web-fetch-example",
@@ -122,6 +124,17 @@ $CaseDefinitions = @{
     expectedTools = @()
     requiredFinalText = @("<proposed_plan>", "</proposed_plan>")
     prompt = "Plan mode: planning`nProduce a <proposed_plan> block.`n`nThis is targeted plan-mode smoke. Do not call any tool. The final answer must be exactly one complete <proposed_plan>...</proposed_plan> block with 2-3 steps: inspect real state, propose minimal change, verify result. Do not echo Pi protocol, tool history, or tool-selection instructions."
+  }
+  "until-done-continuation" = [ordered]@{
+    tool = "read,bash,web_fetch"
+    expectedTools = @("read")
+    requiredFinalText = @("UNTIL_DONE_SMOKE_OK", "pi-extensions")
+    argCheck = "read-package"
+    continuation = $true
+    maxTools = 1
+    setupPrompt = "This is the first turn of /until-done continuation smoke. Do not call tools. Reply only that the task is recorded. On the next turn, when the user only says continue, you must continue the task instead of saying you will continue: use the read tool to read current workspace relative path package.json; the read path argument must be exactly `"package.json`"; do not use any absolute path. Final answer must include UNTIL_DONE_SMOKE_OK and pi-extensions exactly."
+    continuationPrompt = "继续"
+    prompt = "This case is run as a two-turn session by the PowerShell smoke runner."
   }
   "fffind-package" = [ordered]@{
     tool = "fffind"
@@ -503,6 +516,72 @@ function Should-RetryCase {
   return $false
 }
 
+function Invoke-PiProcessWithWatchdog {
+  param(
+    [string]$PiBin,
+    [object[]]$PiArgs,
+    [string]$Prompt,
+    [string]$WorkingDir,
+    [string]$StdoutPath,
+    [string]$StderrPath,
+    [string]$ExitPath,
+    [hashtable]$EnvValues,
+    [int]$TimeoutSeconds
+  )
+
+  $startedAt = Get-Date
+  $job = Start-Job -ScriptBlock {
+    param($PiBinArg, $PiArgsArg, $PromptArg, $WorkingDirArg, $StdoutPathArg, $StderrPathArg, $ExitPathArg, $EnvValuesArg)
+    try {
+      Set-Location -LiteralPath $WorkingDirArg
+      foreach ($key in $EnvValuesArg.Keys) {
+        Set-Item -Path ("Env:{0}" -f $key) -Value ([string]$EnvValuesArg[$key])
+      }
+      & $PiBinArg @PiArgsArg -p $PromptArg > $StdoutPathArg 2> $StderrPathArg
+      $code = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+      Set-Content -LiteralPath $ExitPathArg -Value ([string]$code) -Encoding ASCII
+    } catch {
+      $_.Exception.Message | Set-Content -LiteralPath $StderrPathArg -Encoding UTF8
+      Set-Content -LiteralPath $ExitPathArg -Value "1" -Encoding ASCII
+    }
+  } -ArgumentList $PiBin, $PiArgs, $Prompt, $WorkingDir, $StdoutPath, $StderrPath, $ExitPath, $EnvValues
+
+  $completed = Wait-Job $job -Timeout $TimeoutSeconds
+  $timedOut = $false
+  $exitStatus = 1
+  if ($null -eq $completed) {
+    $timedOut = $true
+    Stop-Job $job -ErrorAction SilentlyContinue
+    $exitStatus = 124
+  } else {
+    Receive-Job $job -ErrorAction SilentlyContinue | Out-Null
+    if (Test-Path -LiteralPath $ExitPath -PathType Leaf) {
+      $rawExit = (Get-Content -LiteralPath $ExitPath -Raw).Trim()
+      $parsedExit = 1
+      if ([int]::TryParse($rawExit, [ref]$parsedExit)) {
+        $exitStatus = $parsedExit
+      }
+    }
+  }
+  Remove-Job $job -Force -ErrorAction SilentlyContinue
+
+  return [ordered]@{
+    exitStatus = $exitStatus
+    timedOut = $timedOut
+    elapsedSeconds = [int][Math]::Ceiling(((Get-Date) - $startedAt).TotalSeconds)
+  }
+}
+
+function Join-ExistingTextFiles {
+  param([string]$TargetPath, [string[]]$SourcePaths)
+  "" | Set-Content -LiteralPath $TargetPath -Encoding UTF8
+  foreach ($source in $SourcePaths) {
+    if (Test-Path -LiteralPath $source -PathType Leaf) {
+      Get-Content -LiteralPath $source -Raw | Add-Content -LiteralPath $TargetPath -Encoding UTF8
+    }
+  }
+}
+
 function Invoke-PiCase {
   param(
     [string]$CaseName,
@@ -559,41 +638,114 @@ function Invoke-PiCase {
     }
   }
 
-  $startedAt = Get-Date
-  $job = Start-Job -ScriptBlock {
-    param($PiBinArg, $PiArgs, $PromptArg, $WorkingDir, $StdoutPath, $StderrPath, $ExitPath, $EnvValues)
-    try {
-      Set-Location -LiteralPath $WorkingDir
-      foreach ($key in $EnvValues.Keys) {
-        Set-Item -Path ("Env:{0}" -f $key) -Value ([string]$EnvValues[$key])
-      }
-      & $PiBinArg @PiArgs -p $PromptArg > $StdoutPath 2> $StderrPath
-      $code = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
-      Set-Content -LiteralPath $ExitPath -Value ([string]$code) -Encoding ASCII
-    } catch {
-      $_.Exception.Message | Set-Content -LiteralPath $StderrPath -Encoding UTF8
-      Set-Content -LiteralPath $ExitPath -Value "1" -Encoding ASCII
-    }
-  } -ArgumentList $ResolvedPiBin, $args, ([string]$Definition.prompt), $ResolvedAgentDir, $outFile, $errFile, $exitFile, $envMap
+  $result = Invoke-PiProcessWithWatchdog `
+    -PiBin $ResolvedPiBin `
+    -PiArgs $args `
+    -Prompt ([string]$Definition.prompt) `
+    -WorkingDir $ResolvedAgentDir `
+    -StdoutPath $outFile `
+    -StderrPath $errFile `
+    -ExitPath $exitFile `
+    -EnvValues $envMap `
+    -TimeoutSeconds $ResolvedCaseTimeoutSeconds
 
-  $completed = Wait-Job $job -Timeout $ResolvedCaseTimeoutSeconds
-  $timedOut = $false
-  $exitStatus = 1
-  if ($null -eq $completed) {
-    $timedOut = $true
-    Stop-Job $job -ErrorAction SilentlyContinue
-    $exitStatus = 124
-  } else {
-    Receive-Job $job -ErrorAction SilentlyContinue | Out-Null
-    if (Test-Path -LiteralPath $exitFile -PathType Leaf) {
-      $rawExit = (Get-Content -LiteralPath $exitFile -Raw).Trim()
-      $parsedExit = 1
-      if ([int]::TryParse($rawExit, [ref]$parsedExit)) {
-        $exitStatus = $parsedExit
-      }
-    }
+  return Summarize-CaseArtifact `
+    -CaseName $CaseName `
+    -Definition $Definition `
+    -OutFile $outFile `
+    -ErrFile $errFile `
+    -DebugFile $debugFile `
+    -ExitStatus ([int]$result.exitStatus) `
+    -ElapsedSeconds ([int]$result.elapsedSeconds) `
+    -TimedOut ([bool]$result.timedOut) `
+    -Attempt $Attempt
+}
+
+function Invoke-PiContinuationCase {
+  param(
+    [string]$CaseName,
+    [object]$Definition,
+    [string]$Stamp,
+    [int]$Attempt = 1,
+    [string]$ResolvedPiBin,
+    [string]$ResolvedAgentDir,
+    [string]$ResolvedOutDir,
+    [int]$ResolvedCaseTimeoutSeconds,
+    [int]$ResolvedRequestTimeoutMs,
+    [int]$ResolvedMaxOutputTokens,
+    [string]$ResolvedProvider,
+    [string]$ResolvedModel
+  )
+
+  $artifactCaseName = if ($Attempt -gt 1) { "{0}-retry{1}" -f $CaseName, $Attempt } else { $CaseName }
+  $outFile = Join-Path $ResolvedOutDir ("{0}-{1}.jsonl" -f $Stamp, $artifactCaseName)
+  $errFile = Join-Path $ResolvedOutDir ("{0}-{1}.stderr" -f $Stamp, $artifactCaseName)
+  $debugFile = Join-Path $ResolvedOutDir ("{0}-{1}.debug.jsonl" -f $Stamp, $artifactCaseName)
+  $setupOutFile = Join-Path $ResolvedOutDir ("{0}-{1}.setup.jsonl" -f $Stamp, $artifactCaseName)
+  $setupErrFile = Join-Path $ResolvedOutDir ("{0}-{1}.setup.stderr" -f $Stamp, $artifactCaseName)
+  $setupExitFile = Join-Path $ResolvedOutDir ("{0}-{1}.setup.exit" -f $Stamp, $artifactCaseName)
+  $continuationOutFile = Join-Path $ResolvedOutDir ("{0}-{1}.continuation.jsonl" -f $Stamp, $artifactCaseName)
+  $continuationErrFile = Join-Path $ResolvedOutDir ("{0}-{1}.continuation.stderr" -f $Stamp, $artifactCaseName)
+  $continuationExitFile = Join-Path $ResolvedOutDir ("{0}-{1}.continuation.exit" -f $Stamp, $artifactCaseName)
+  $sessionDir = Join-Path $ResolvedOutDir ("{0}-{1}.sessions" -f $Stamp, $artifactCaseName)
+  $sessionId = "xtalpi-smoke-{0}-{1}" -f $Stamp, $artifactCaseName
+  New-Item -ItemType Directory -Force -Path $sessionDir | Out-Null
+
+  $baseArgs = @(
+    "--provider", $ResolvedProvider,
+    "--model", $ResolvedModel,
+    "--thinking", "off",
+    "--no-context-files",
+    "--no-skills",
+    "--no-prompt-templates",
+    "--no-themes",
+    "--mode", "json",
+    "--session-dir", $sessionDir,
+    "--session-id", $sessionId
+  )
+  $setupArgs = @($baseArgs + @("--no-tools"))
+  $continuationArgs = @($baseArgs + @("--tools", [string]$Definition.tool))
+  $envMap = @{
+    XTALPI_PI_TOOLS_TIMEOUT_MS = [string]$ResolvedRequestTimeoutMs
+    XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS = [string]$ResolvedMaxOutputTokens
+    XTALPI_PI_TOOLS_DEBUG = "1"
+    XTALPI_PI_TOOLS_DEBUG_PATH = $debugFile
   }
-  Remove-Job $job -Force -ErrorAction SilentlyContinue
+  if ($Definition.maxTools) {
+    $envMap["XTALPI_PI_TOOLS_CASE_MAX_TOOLS"] = [string]$Definition.maxTools
+  }
+
+  $startedAt = Get-Date
+  $setupResult = Invoke-PiProcessWithWatchdog `
+    -PiBin $ResolvedPiBin `
+    -PiArgs $setupArgs `
+    -Prompt ([string]$Definition.setupPrompt) `
+    -WorkingDir $ResolvedAgentDir `
+    -StdoutPath $setupOutFile `
+    -StderrPath $setupErrFile `
+    -ExitPath $setupExitFile `
+    -EnvValues $envMap `
+    -TimeoutSeconds $ResolvedCaseTimeoutSeconds
+
+  $continuationResult = [ordered]@{ exitStatus = 1; timedOut = $false; elapsedSeconds = 0 }
+  if ([int]$setupResult.exitStatus -eq 0 -and -not [bool]$setupResult.timedOut) {
+    $continuationResult = Invoke-PiProcessWithWatchdog `
+      -PiBin $ResolvedPiBin `
+      -PiArgs $continuationArgs `
+      -Prompt ([string]$Definition.continuationPrompt) `
+      -WorkingDir $ResolvedAgentDir `
+      -StdoutPath $continuationOutFile `
+      -StderrPath $continuationErrFile `
+      -ExitPath $continuationExitFile `
+      -EnvValues $envMap `
+      -TimeoutSeconds $ResolvedCaseTimeoutSeconds
+  }
+
+  Join-ExistingTextFiles $outFile @($setupOutFile, $continuationOutFile)
+  Join-ExistingTextFiles $errFile @($setupErrFile, $continuationErrFile)
+
+  $exitStatus = if ([int]$setupResult.exitStatus -ne 0) { [int]$setupResult.exitStatus } else { [int]$continuationResult.exitStatus }
+  $timedOut = [bool]$setupResult.timedOut -or [bool]$continuationResult.timedOut
   $elapsedSeconds = [int][Math]::Ceiling(((Get-Date) - $startedAt).TotalSeconds)
 
   return Summarize-CaseArtifact `
@@ -626,6 +778,7 @@ function Run-SelfTest {
 
     $fixtures = @(
       @{ name = "read-package"; tool = "read"; args = @{ path = "package.json" }; final = "EXTENSION_SMOKE_READ_PACKAGE_OK pi-extensions" },
+      @{ name = "until-done-continuation"; tool = "read"; args = @{ path = "package.json" }; final = "UNTIL_DONE_SMOKE_OK pi-extensions" },
       @{ name = "fffind-package"; tool = "fffind"; args = @{ pattern = "package.json"; limit = 5 }; final = "EXTENSION_SMOKE_FFFIND_OK package.json" },
       @{ name = "ffgrep-package"; tool = "ffgrep"; args = @{ pattern = "pi-extensions"; path = "package.json"; limit = 5 }; final = "EXTENSION_SMOKE_FFGREP_OK pi-extensions" },
       @{ name = "batch-web-fetch-example"; tool = "batch_web_fetch"; args = @{ requests = @(@{ url = "https://example.com/"; maxChars = 1000; timeoutMs = 20000 }) }; final = "EXTENSION_SMOKE_BATCH_FETCH_OK Example Domain" },
@@ -851,19 +1004,35 @@ if ($failures -eq 0) {
           Write-Host ("===== {0} retry {1}/{2} =====" -f $name, ($attempt - 1), $ResolvedCaseRetries) -ForegroundColor Yellow
         }
       }
-      $summary = Invoke-PiCase `
-        -CaseName $name `
-        -Definition $CaseDefinitions[$name] `
-        -Stamp $Stamp `
-        -Attempt $attempt `
-        -ResolvedPiBin $ResolvedPiBin `
-        -ResolvedAgentDir $ResolvedAgentDir `
-        -ResolvedOutDir $ResolvedOutDir `
-        -ResolvedCaseTimeoutSeconds $ResolvedCaseTimeoutSeconds `
-        -ResolvedRequestTimeoutMs $ResolvedRequestTimeoutMs `
-        -ResolvedMaxOutputTokens $ResolvedMaxOutputTokens `
-        -ResolvedProvider $ResolvedProvider `
-        -ResolvedModel $ResolvedModel
+      if ($CaseDefinitions[$name].continuation -eq $true) {
+        $summary = Invoke-PiContinuationCase `
+          -CaseName $name `
+          -Definition $CaseDefinitions[$name] `
+          -Stamp $Stamp `
+          -Attempt $attempt `
+          -ResolvedPiBin $ResolvedPiBin `
+          -ResolvedAgentDir $ResolvedAgentDir `
+          -ResolvedOutDir $ResolvedOutDir `
+          -ResolvedCaseTimeoutSeconds $ResolvedCaseTimeoutSeconds `
+          -ResolvedRequestTimeoutMs $ResolvedRequestTimeoutMs `
+          -ResolvedMaxOutputTokens $ResolvedMaxOutputTokens `
+          -ResolvedProvider $ResolvedProvider `
+          -ResolvedModel $ResolvedModel
+      } else {
+        $summary = Invoke-PiCase `
+          -CaseName $name `
+          -Definition $CaseDefinitions[$name] `
+          -Stamp $Stamp `
+          -Attempt $attempt `
+          -ResolvedPiBin $ResolvedPiBin `
+          -ResolvedAgentDir $ResolvedAgentDir `
+          -ResolvedOutDir $ResolvedOutDir `
+          -ResolvedCaseTimeoutSeconds $ResolvedCaseTimeoutSeconds `
+          -ResolvedRequestTimeoutMs $ResolvedRequestTimeoutMs `
+          -ResolvedMaxOutputTokens $ResolvedMaxOutputTokens `
+          -ResolvedProvider $ResolvedProvider `
+          -ResolvedModel $ResolvedModel
+      }
       if (-not $Json) {
         $summary | ConvertTo-Json -Depth 10
       }
