@@ -120,6 +120,21 @@ bash scripts/pi67-skill-audit.sh \
 `pi67-skill-audit.json` is ignored because it may include local machine paths or
 private overlay skill names.
 
+Use the inventory helper when doctor reports that global shared skills differ
+from pi-67's bundled source:
+
+```bash
+bash scripts/pi67-shared-skills-inventory.sh
+bash scripts/pi67-shared-skills-inventory.sh --json
+```
+
+The inventory is read-only. It compares `shared-skills/` with
+`~/.agents/skills`, reports matching / missing / differing / extra global
+skills, and includes per-skill SHA-256 fingerprints in JSON mode without
+printing skill contents. A `global_differs` entry means pi-67 will keep the
+existing global skill by default; use `--strict` only for release/parity checks
+that should fail when global content differs from the bundled baseline.
+
 ## Migration helper
 
 Use the migration helper when Pi reports duplicate/conflict/skipped skill

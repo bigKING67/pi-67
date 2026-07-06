@@ -51,6 +51,13 @@ Pi 和 Codex 都从这里发现共享 skill；`~/.pi/agent` 只保存 Pi 的
 `AGENTS.md`、rules、prompts、extensions、scripts、MCP/config 模板和运行态。
 仓库里的 `shared-skills/` 是发布源，安装器默认复制到 `~/.agents/skills`。
 `--dev-link-skills` 只用于本机开发模式，普通安装不使用 symlink。
+如果 doctor 提示全局 skill 内容与 pi-67 发布源不同，可以用只读 inventory
+解释差异而不覆盖全局 skill：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-shared-skills-inventory.sh
+bash ~/.pi/agent/scripts/pi67-shared-skills-inventory.sh --json
+```
 
 来自独立仓库的 skill 也应安装到同一个全局 root：
 
@@ -270,6 +277,12 @@ bash ~/.pi/agent/scripts/pi67-doctor.sh --json  # 机器可读 readiness JSON
 bash ~/.pi/agent/scripts/pi67-status.sh
 bash ~/.pi/agent/scripts/pi67-status.sh --json
 ```
+
+`pi67-status.sh` 会把仅由 `settings.json` 的 `lastChangelogVersion` /
+trailing-newline 引起的 dirty 状态标成 `local runtime state only`，不把它当作
+普通本地改动阻断更新；其它 dirty 文件仍会正常报警。它还会从本地 xtalpi smoke
+artifact 里汇总 provider-health retry/failure trend，帮助区分上游 timeout /
+网络 / key 问题和 Pi 本地工具协议回归。
 
 需要确认 MCP server 能真实启动并暴露工具时，显式开启深度探测：
 
@@ -593,6 +606,16 @@ node ./scripts/pi67-xtalpi-provider-health.mjs
 
 provider health 会输出结构化 JSON，并对瞬时 timeout/network/upstream/protocol 抖动做有界重试；`http_429` 只记录为 rate-limit，不做立即重试。
 这些错误代码、分类、retryable 语义和 provider-health immediate retry 策略由 `extensions/xtalpi-pi-tools/provider-error-contract.json` 统一定义；contract 内置 `requiredCodes`、`allowedCategories`、`requiredHttpStatus` 和 `classificationSamples` manifest，运行时 provider、preflight 和 validator 共同读取，避免脚本和扩展长期漂移；修改该 contract 后运行 `node ~/.pi/agent/scripts/pi67-validate-xtalpi-provider-error-contract.mjs --self-test` 和 `node ~/.pi/agent/scripts/pi67-validate-xtalpi-provider-error-contract.mjs`。
+
+parser 兼容矩阵离线回归：
+
+```bash
+node --no-warnings ./scripts/pi67-fuzz-xtalpi-parser.mjs
+```
+
+该 gate 覆盖常见 name/arguments 别名、OpenAI text-native wrapper、
+大小写 tool tag、JSON-string arguments 和 fail-closed 场景；PowerShell smoke
+也会直接运行 `scripts\pi67-fuzz-xtalpi-parser.mjs`。
 
 冒烟 telemetry 汇总：
 

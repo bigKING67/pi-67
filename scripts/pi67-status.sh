@@ -212,6 +212,54 @@ function boolText(value) {
   return value ? "yes" : "no";
 }
 
+function parsePorcelainPaths(value) {
+  return String(value || "")
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      const rawPath = line[2] === " " ? line.slice(3) : line[1] === " " ? line.slice(2) : line.slice(3);
+      const renameIndex = rawPath.indexOf(" -> ");
+      return renameIndex >= 0 ? rawPath.slice(renameIndex + 4) : rawPath;
+    })
+    .filter(Boolean);
+}
+
+function deriveLocalState(dirtyOutput) {
+  const lines = String(dirtyOutput || "").split(/\r?\n/).filter(Boolean);
+  const paths = parsePorcelainPaths(dirtyOutput);
+  const result = {
+    paths,
+    rawLines: lines,
+    benignRuntimeOnly: false,
+    benignRuntimeReasons: [],
+  };
+
+  if (paths.length !== 1 || paths[0] !== "settings.json") return result;
+
+  const diff = git(["diff", "--", "settings.json"], 5000);
+  if (!diff.ok) return result;
+  const changedLines = diff.stdout
+    .split(/\r?\n/)
+    .filter((line) => /^[+-]/.test(line) && !/^(---|\+\+\+)/.test(line));
+
+  if (changedLines.length === 0) return result;
+
+  const allowed = changedLines.every((line) => {
+    const body = line.slice(1).trim();
+    return body === "}" || /^"lastChangelogVersion"\s*:/.test(body);
+  });
+  if (!allowed) return result;
+
+  result.benignRuntimeOnly = true;
+  if (changedLines.some((line) => /^[-+]\s*"lastChangelogVersion"\s*:/.test(line))) {
+    result.benignRuntimeReasons.push("settings.json lastChangelogVersion runtime marker changed");
+  }
+  if (changedLines.some((line) => /^[-+]\s*}\s*$/.test(line))) {
+    result.benignRuntimeReasons.push("settings.json trailing newline state changed");
+  }
+  return result;
+}
+
 function latencyText(run) {
   return (
     `request_latency_ms=${run?.requestLatencyMsMax ?? "?"}/${run?.requestLatencyMsAvg ?? "?"}/${run?.requestCount ?? "?"} ` +
@@ -246,6 +294,12 @@ function deriveRepository() {
   const fullCommit = git(["rev-parse", "HEAD"]);
   const shortCommit = git(["rev-parse", "--short", "HEAD"]);
   const dirty = git(["status", "--porcelain=v1", "--untracked-files=all"]);
+  const localState = dirty.ok ? deriveLocalState(dirty.stdout) : {
+    paths: [],
+    rawLines: [],
+    benignRuntimeOnly: false,
+    benignRuntimeReasons: [],
+  };
   const remoteUrl = git(["remote", "get-url", remoteName]);
   const upstream = git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
   let ahead = null;
@@ -266,6 +320,7 @@ function deriveRepository() {
     shortCommit: shortCommit.ok ? shortCommit.stdout : null,
     dirty: dirty.ok ? dirty.stdout.length > 0 : null,
     dirtyCount: dirty.ok && dirty.stdout ? dirty.stdout.split(/\r?\n/).filter(Boolean).length : 0,
+    localState,
     remote: remoteName,
     remoteUrl: remoteUrl.ok ? remoteUrl.stdout : null,
     upstream: upstream.ok ? upstream.stdout : null,
@@ -467,8 +522,12 @@ function deriveResult(repository, remote, report, xtalpiSmoke) {
   }
 
   if (repository.dirty) {
-    warnings.push(`worktree has ${repository.dirtyCount} local change(s)`);
-    recommendations.push("Commit or stash local pi-67 checkout changes before updating.");
+    if (repository.localState?.benignRuntimeOnly) {
+      recommendations.push("Optional: normalize local settings runtime marker if you want a clean git status.");
+    } else {
+      warnings.push(`worktree has ${repository.dirtyCount} local change(s)`);
+      recommendations.push("Commit or stash local pi-67 checkout changes before updating.");
+    }
   }
 
   if (["behind", "remote_different"].includes(remote.status)) {
@@ -517,6 +576,19 @@ function deriveResult(repository, remote, report, xtalpiSmoke) {
   }
 
   if (xtalpiSmoke && xtalpiSmoke.skipped !== true) {
+    const providerTrend = xtalpiSmoke.providerHealthTrend;
+    if (providerTrend?.failedPreflights > 0) {
+      warnings.push(
+        `xtalpi provider-health has ${providerTrend.failedPreflights}/${providerTrend.totalPreflights} recent failed preflight(s)`,
+      );
+      recommendations.push("Inspect xtalpi provider health before long tasks; failures usually indicate upstream/network/key issues, not local tool protocol.");
+    } else if (providerTrend?.retriedPreflights >= Math.max(2, Math.ceil((providerTrend.totalPreflights || 0) / 2))) {
+      warnings.push(
+        `xtalpi provider-health retried ${providerTrend.retriedPreflights}/${providerTrend.totalPreflights} recent preflight(s)`,
+      );
+      recommendations.push("Provider is recovering after retries; consider shorter tasks or retry later if latency rises.");
+    }
+
     if (xtalpiSmoke.result === "ATTENTION") {
       const strictFailures = xtalpiSmoke.strictTrendGate?.data?.gateFailures || [];
       if (!xtalpiSmoke.history?.ok) {
@@ -646,7 +718,13 @@ console.log(`Version    : ${version || "unknown"}`);
 console.log(`Package    : ${packageVersion || "unknown"}`);
 console.log(`Branch     : ${repository.branch || "unknown"}`);
 console.log(`Commit     : ${repository.shortCommit || "unknown"}`);
-console.log(`Dirty      : ${boolText(Boolean(repository.dirty))}${repository.dirty ? ` (${repository.dirtyCount} change(s))` : ""}`);
+console.log(
+  `Dirty      : ${boolText(Boolean(repository.dirty))}${repository.dirty ? ` (${repository.dirtyCount} change(s))` : ""}` +
+    `${repository.localState?.benignRuntimeOnly ? " [local runtime state only]" : ""}`,
+);
+if (repository.localState?.benignRuntimeOnly) {
+  console.log(`Dirty note : ${repository.localState.benignRuntimeReasons.join("; ") || "benign local runtime state"}`);
+}
 console.log(`Remote     : ${remote.status}${remote.shortCommit ? ` (${remote.shortCommit})` : ""}`);
 console.log(`Remote note: ${remote.summary}`);
 if (repository.upstream) {
@@ -697,9 +775,17 @@ if (xtalpiSmoke.skipped) {
   } else {
     const history = xtalpiSmoke.history?.data;
     const latest = history?.runs?.[0];
+    const providerTrend = xtalpiSmoke.providerHealthTrend;
     console.log(
       `History    : found=${history?.found ?? "?"}/${history?.requested ?? "?"} total=${history?.totalArtifacts ?? "?"}`,
     );
+    if (providerTrend) {
+      console.log(
+        `Provider health: recent=${providerTrend.totalPreflights} retried=${providerTrend.retriedPreflights} ` +
+          `failed=${providerTrend.failedPreflights} timeout_attempts=${providerTrend.timeoutAttempts} ` +
+          `retryable_attempts=${providerTrend.retryableAttempts}`,
+      );
+    }
     if (latest) {
       console.log(
         `Latest     : ${latest.runId || "unknown"} run_kind=${latest.runKind || "unknown"} ` +

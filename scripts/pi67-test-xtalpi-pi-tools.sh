@@ -2976,6 +2976,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
 });
 NODE
 
+node --no-warnings "$SCRIPT_DIR/pi67-fuzz-xtalpi-parser.mjs" "$REPO_ROOT"
 bash "$SCRIPT_DIR/pi67-xtalpi-pi-tools-smoke.sh" --self-test
 bash "$SCRIPT_DIR/pi67-xtalpi-pi-tools-debug-summary.sh" --self-test
 node "$SCRIPT_DIR/pi67-validate-xtalpi-provider-error-contract.mjs" --self-test >/dev/null

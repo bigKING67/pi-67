@@ -105,6 +105,13 @@ Stable top-level fields:
 | `warnings` | array | Non-blocking issues. |
 | `recommendations` | array | Concrete next commands/actions. |
 
+`repository.localState` further classifies local dirty files. A checkout whose
+only change is the `settings.json` runtime marker (`lastChangelogVersion`) and
+trailing-newline churn is reported as `benignRuntimeOnly`; this is shown in text
+output as `local runtime state only` and does not become a blocking update
+warning. Any other tracked or untracked change still appears as a normal dirty
+worktree warning.
+
 ## xtalpi smoke status
 
 By default, status reads the local smoke artifact directory
@@ -143,6 +150,9 @@ The resulting `xtalpiSmoke` block uses schema
   case-set hash, runtime fingerprint hash, runtime bounds hash, provider-health
   hash, request-latency quality signal totals, per-run latency telemetry, and
   drift booleans
+- compact `providerHealthTrend` data derived from recent full-suite artifacts,
+  including preflight count, retry count, failed preflight count, retryable /
+  timeout attempt counts when available, and max/average elapsed time
 - `result`: `OK`, `ATTENTION`, `NO_ARTIFACTS`, or `UNAVAILABLE`
 
 `full-suite-strict` filters the trend gate to `runKind=full-suite` before
@@ -159,6 +169,12 @@ presence. When artifact summaries contain request telemetry, text output also
 prints compact `request_latency_ms=max/avg/count`, `slow_requests`, and
 `slow_request_threshold_ms` fields for the latest history and strict trend runs,
 plus drift-level request-latency quality totals.
+
+Provider-health trend is a lightweight upstream/network/key signal. It does not
+run live requests. If recent persisted preflights failed, status recommends
+checking provider health before long tasks. If many recent preflights recovered
+only after retries, status reports a warning so operators can distinguish
+transient xtalpi latency from local parser/tool-protocol regressions.
 
 The ranking gate is compatibility-aware. `pi67-status.sh` first evaluates the
 ordinary `full-suite-strict` trend gate and checks whether every selected

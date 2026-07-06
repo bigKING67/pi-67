@@ -569,11 +569,12 @@ const mismatched = sourceSkills
     return sourceHash !== installedHash;
   });
 if (mismatched.length > 0) {
-  const message = `shared skill contents differ from pi-67 source; keeping existing global skills: ${mismatched.join(", ")}`;
+  const inventoryHint = `run scripts/pi67-shared-skills-inventory.sh --json for details`;
+  const message = `shared skill contents differ from pi-67 source; ${inventoryHint}; keeping existing global skills: ${mismatched.join(", ")}`;
   emit(
     strictSharedSkills ? "FAIL" : "WARN",
     strictSharedSkills
-      ? `shared skill contents differ from pi-67 source: ${mismatched.join(", ")}`
+      ? `shared skill contents differ from pi-67 source; ${inventoryHint}: ${mismatched.join(", ")}`
       : message
   );
 } else if (sourceSkills.length > 0 && missing.length === 0) {

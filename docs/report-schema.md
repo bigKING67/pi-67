@@ -345,6 +345,18 @@ that field as optional.
       ]
     }
   },
+  "providerHealthTrend": {
+    "totalPreflights": 10,
+    "okPreflights": 10,
+    "failedPreflights": 0,
+    "retriedPreflights": 1,
+    "retryCountTotal": 1,
+    "timeoutAttempts": 0,
+    "retryableAttempts": 0,
+    "maxElapsedMs": 33500,
+    "avgElapsedMs": 3720,
+    "latestRunId": "20260703-151935"
+  },
   "drift": {
     "ok": true,
     "data": {
@@ -429,6 +441,12 @@ Compact run entries also preserve selected-tool diagnostic fields:
 `runtimeToolSelectionClipped`. These fields help distinguish "new extension did
 not register" from "registered but clipped by maxTools" or "registered but not
 selected by the prompt".
+
+The `providerHealthTrend` block is derived from persisted provider-health
+preflight summaries inside recent full-suite artifacts. It is read-only and does
+not run live requests. Consumers can use it to distinguish upstream/key/network
+instability (`failedPreflights`, `retriedPreflights`, `retryableAttempts`) from
+local parser/tool-protocol regressions.
 
 The `drift` block is produced from `--drift <N> --run-kind full-suite`. It is a
 compact, read-only observability surface rather than a pass/fail gate: consumers

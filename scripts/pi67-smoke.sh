@@ -95,6 +95,7 @@ cleanup() {
     /tmp/pi67-smoke-external-skills-check.log \
     /tmp/pi67-smoke-release-artifact.log \
     /tmp/pi67-smoke-xtalpi-pi-tools-test.log \
+    /tmp/pi67-smoke-xtalpi-parser-fuzz.log \
     /tmp/pi67-smoke-xtalpi-provider-health-test.log \
     /tmp/pi67-smoke-xtalpi-provider-error-contract.log \
     /tmp/pi67-smoke-migrate-skills-dry.log \
@@ -187,6 +188,9 @@ fi
 if [ -f "$REPO_ROOT/scripts/pi67-test-skill-governance.sh" ]; then
   bash -n "$REPO_ROOT/scripts/pi67-test-skill-governance.sh"
 fi
+if [ -f "$REPO_ROOT/scripts/pi67-shared-skills-inventory.sh" ]; then
+  bash -n "$REPO_ROOT/scripts/pi67-shared-skills-inventory.sh"
+fi
 if [ -f "$REPO_ROOT/scripts/pi67-check-external-skills.sh" ]; then
   bash -n "$REPO_ROOT/scripts/pi67-check-external-skills.sh"
 fi
@@ -231,6 +235,9 @@ if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-provider-health.mjs" ]; then
 fi
 if [ -f "$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs" ]; then
   node --check "$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs" >/dev/null
+fi
+if [ -f "$REPO_ROOT/scripts/pi67-fuzz-xtalpi-parser.mjs" ]; then
+  node --check "$REPO_ROOT/scripts/pi67-fuzz-xtalpi-parser.mjs" >/dev/null
 fi
 pass "shell scripts parse"
 

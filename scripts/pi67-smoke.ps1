@@ -268,6 +268,8 @@ $RequiredFiles = @(
   "scripts/pi67-xtalpi-smoke-plan.mjs",
   "scripts/pi67-xtalpi-provider-health.mjs",
   "scripts/pi67-validate-xtalpi-provider-error-contract.mjs",
+  "scripts/pi67-fuzz-xtalpi-parser.mjs",
+  "scripts/pi67-shared-skills-inventory.sh",
   "extensions/xtalpi-pi-tools/json-file.ts",
   "extensions/xtalpi-pi-tools/runtime-config.ts",
   "extensions/xtalpi-pi-tools/fixtures/replay-cases.json",
@@ -350,7 +352,8 @@ if ($NodeAvailable) {
     "scripts/pi67-xtalpi-smoke-artifact-core.cjs",
     "scripts/pi67-xtalpi-smoke-plan.mjs",
     "scripts/pi67-xtalpi-provider-health.mjs",
-    "scripts/pi67-validate-xtalpi-provider-error-contract.mjs"
+    "scripts/pi67-validate-xtalpi-provider-error-contract.mjs",
+    "scripts/pi67-fuzz-xtalpi-parser.mjs"
   )
   foreach ($file in $NodeCheckFiles) {
     Run-Check ("node --check: {0}" -f $file) {
@@ -372,6 +375,10 @@ if ($NodeAvailable) {
 
   Run-Check "xtalpi provider error contract validation passed" {
     Invoke-External "node" @((RepoPath "scripts/pi67-validate-xtalpi-provider-error-contract.mjs"), (RepoPath "extensions/xtalpi-pi-tools/provider-error-contract.json")) | Out-Null
+  }
+
+  Run-Check "xtalpi parser matrix regression passed" {
+    Invoke-External "node" @("--no-warnings", (RepoPath "scripts/pi67-fuzz-xtalpi-parser.mjs"), $RepoRoot) | Out-Null
   }
 
   Run-Check "xtalpi extension smoke plan validation passed" {
@@ -446,6 +453,9 @@ Run-Check "PowerShell update/doctor/report/smoke entrypoints are documented" {
   Assert-ContentContains (RepoPath "docs/xtalpi-pi-tools.md") "PowerShell"
   Assert-ContentContains (RepoPath "README.md") "pi67-xtalpi-smoke-plan.mjs"
   Assert-ContentContains (RepoPath "docs/xtalpi-pi-tools.md") "pi67-xtalpi-smoke-plan.mjs"
+  Assert-ContentContains (RepoPath "README.md") "pi67-fuzz-xtalpi-parser.mjs"
+  Assert-ContentContains (RepoPath "docs/xtalpi-pi-tools.md") "pi67-fuzz-xtalpi-parser.mjs"
+  Assert-ContentContains (RepoPath "docs/skill-governance.md") "pi67-shared-skills-inventory.sh"
 }
 
 Run-Check "PowerShell xtalpi targeted smoke expanded cases are documented" {
@@ -493,6 +503,8 @@ if ($GitAvailable) {
     "scripts/pi67-release-check.sh",
     "scripts/pi67-xtalpi-pi-tools-smoke.ps1",
     "scripts/pi67-xtalpi-smoke-plan.mjs",
+    "scripts/pi67-fuzz-xtalpi-parser.mjs",
+    "scripts/pi67-shared-skills-inventory.sh",
     "extensions/xtalpi-pi-tools/json-file.ts",
     ".github/workflows/ci.yml"
   )

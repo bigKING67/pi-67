@@ -257,6 +257,88 @@ function compactDrift(data) {
   };
 }
 
+function finiteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function providerHealthAttempts(health) {
+  return Array.isArray(health?.attempts) ? health.attempts : [];
+}
+
+function deriveProviderHealthTrend(status) {
+  const runs = Array.isArray(status?.drift?.data?.runs) && status.drift.data.runs.length > 0
+    ? status.drift.data.runs
+    : Array.isArray(status?.history?.data?.runs)
+      ? status.history.data.runs
+      : [];
+  const seen = new Set();
+  const entries = [];
+
+  for (const run of runs) {
+    const health = run?.providerHealth || run?.providerHealthSummary || null;
+    if (!health || typeof health !== "object" || Array.isArray(health)) continue;
+    const key = run?.runId || `${entries.length}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    entries.push({ run, health });
+  }
+
+  if (entries.length === 0) return null;
+
+  let okPreflights = 0;
+  let failedPreflights = 0;
+  let retriedPreflights = 0;
+  let retryCountTotal = 0;
+  let timeoutAttempts = 0;
+  let retryableAttempts = 0;
+  let maxElapsedMs = null;
+  let elapsedMsTotal = 0;
+  let elapsedMsCount = 0;
+
+  for (const { health } of entries) {
+    if (health.ok === true) okPreflights += 1;
+    if (health.ok === false) failedPreflights += 1;
+
+    const attemptCount = finiteNumber(health.attemptCount);
+    const retryCount = finiteNumber(health.retryCount);
+    if ((retryCount ?? 0) > 0 || (attemptCount ?? 0) > 1) retriedPreflights += 1;
+    retryCountTotal += Math.max(0, retryCount ?? Math.max(0, (attemptCount ?? 1) - 1));
+
+    const elapsedMs = finiteNumber(health.elapsedMs);
+    if (elapsedMs !== null) {
+      maxElapsedMs = maxElapsedMs === null ? elapsedMs : Math.max(maxElapsedMs, elapsedMs);
+      elapsedMsTotal += elapsedMs;
+      elapsedMsCount += 1;
+    }
+
+    const attempts = providerHealthAttempts(health);
+    if (attempts.length > 0) {
+      timeoutAttempts += attempts.filter((attempt) => (
+        attempt?.errorCategory === "timeout" || attempt?.errorCode === "request_timeout"
+      )).length;
+      retryableAttempts += attempts.filter((attempt) => attempt?.retryable === true).length;
+    } else {
+      if (health.errorCategory === "timeout" || health.errorCode === "request_timeout") timeoutAttempts += 1;
+      if (health.retryable === true) retryableAttempts += 1;
+    }
+  }
+
+  const latest = entries[0];
+  return {
+    totalPreflights: entries.length,
+    okPreflights,
+    failedPreflights,
+    retriedPreflights,
+    retryCountTotal,
+    timeoutAttempts,
+    retryableAttempts,
+    maxElapsedMs,
+    avgElapsedMs: elapsedMsCount > 0 ? Math.round(elapsedMsTotal / elapsedMsCount) : null,
+    latestRunId: latest?.run?.runId || null,
+  };
+}
+
 function runDebugSummary({ repoRoot, script, artifactDir, args, timeoutMs, compact }) {
   const result = spawnSync("bash", [script, ...args, artifactDir], {
     cwd: repoRoot,
@@ -404,6 +486,7 @@ function collectXtalpiSmokeStatus(options = {}) {
   if (status.drift && !status.drift.ok) {
     status.warnings.push("xtalpi full-suite drift summary failed to run");
   }
+  status.providerHealthTrend = deriveProviderHealthTrend(status);
   status.result = deriveResult(status);
   return status;
 }
