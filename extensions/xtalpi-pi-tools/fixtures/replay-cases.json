@@ -43,6 +43,23 @@
       }
     },
     {
+      "name": "legacy-id-name-arguments-json-call",
+      "input": "<pi_tool_call>\nid=\"pi_tool_read_mr8x2ffi_xirqj9\"\nname=\"read\"\narguments_json: {\"path\":\"D:/codeproject/data-etl/douyin/compass/trade_sale_image.py\",\"offset\":155,\"limit\":110}\n</pi_tool_call>",
+      "expect": {
+        "kind": "tool_call",
+        "name": "read",
+        "arguments": {
+          "path": "D:/codeproject/data-etl/douyin/compass/trade_sale_image.py",
+          "offset": 155,
+          "limit": 110
+        },
+        "warningsContain": [
+          "loose name/arguments",
+          "legacy arguments_json"
+        ]
+      }
+    },
+    {
       "name": "bare-json-call",
       "input": "{\"name\":\"bash\",\"arguments\":{\"command\":\"pwd\"}}",
       "expect": {
@@ -218,6 +235,61 @@
             "name": "read",
             "arguments": {
               "path": "README.md"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "legacy-id-name-arguments-json-tool-call",
+      "maxTools": 8,
+      "context": {
+        "systemPrompt": "system base",
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a file",
+            "parameters": {
+              "type": "object",
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "offset": {
+                  "type": "number"
+                },
+                "limit": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": "read the image parser window"
+          }
+        ]
+      },
+      "responses": [
+        {
+          "content": "<pi_tool_call>\nid=\"pi_tool_read_mr8x2ffi_xirqj9\"\nname=\"read\"\narguments_json: {\"path\":\"D:/codeproject/data-etl/douyin/compass/trade_sale_image.py\",\"offset\":155,\"limit\":110}\n</pi_tool_call>"
+        }
+      ],
+      "expect": {
+        "fetchCount": 1,
+        "stopReason": "toolUse",
+        "toolCalls": [
+          {
+            "name": "read",
+            "arguments": {
+              "path": "D:/codeproject/data-etl/douyin/compass/trade_sale_image.py",
+              "offset": 155,
+              "limit": 110
             }
           }
         ]

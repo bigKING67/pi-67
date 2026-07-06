@@ -121,8 +121,8 @@ function parseJsonWithLikelyWindowsPathRepair(raw: string): { value: unknown; js
 
 function parseLooseNameArgumentsEnvelope(raw: string, originalText: string): ToolCallParseResult | undefined {
   const cleaned = stripMarkdownFence(raw);
-  const nameMatch = cleaned.match(/(?:^|\r?\n)\s*name\s*:\s*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([^\r\n]+))\s*(?:\r?\n|$)/i);
-  const argumentsMatch = cleaned.match(/(?:^|\r?\n)\s*arguments\s*:\s*([\s\S]+)$/i);
+  const nameMatch = cleaned.match(/(?:^|\r?\n)\s*name\s*(?::|=)\s*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([^\r\n]+))\s*(?:\r?\n|$)/i);
+  const argumentsMatch = cleaned.match(/(?:^|\r?\n)\s*(arguments(?:_json)?)\s*(?::|=)\s*([\s\S]+)$/i);
   if (!nameMatch || !argumentsMatch) return undefined;
 
   const name = (nameMatch[1] || nameMatch[2] || nameMatch[3] || "").trim();
@@ -139,8 +139,11 @@ function parseLooseNameArgumentsEnvelope(raw: string, originalText: string): Too
   let parsedArguments: unknown;
   let argumentJsonText = "";
   const warnings = ["accepted loose name/arguments pi_tool_call body"];
+  if (argumentsMatch[1].toLowerCase() === "arguments_json") {
+    warnings.push("accepted legacy arguments_json pi_tool_call field");
+  }
   try {
-    const parsed = parseJsonWithLikelyWindowsPathRepair(argumentsMatch[1].trim());
+    const parsed = parseJsonWithLikelyWindowsPathRepair(argumentsMatch[2].trim());
     parsedArguments = parsed.value;
     argumentJsonText = parsed.jsonText;
     warnings.push(...parsed.warnings);

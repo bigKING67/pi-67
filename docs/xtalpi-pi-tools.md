@@ -59,6 +59,11 @@ content:
 
 历史 assistant tool call 不再以 `<pi_tool_call_history>` 裸协议标签回灌给模型，而是序列化为 `[previous_pi_tool_call]` 普通记录。这样仍保留“哪些工具已经执行过”的上下文，同时减少模型在最终回答或下一次工具调用里复读内部协议标签的概率。如果模型仍把 `[previous_pi_tool_call]` 历史记录当作最终回答复读，provider 会按内部协议泄漏触发 repair，smoke/debug-summary 也会把它计入 final-answer markup gate。
 
+如果模型把旧式 Pi 工具记录误当成新协议输出，例如在 `<pi_tool_call>` 内写出
+`id="..."`、`name="read"` 和 `arguments_json: {...}` 行，provider 会把它兼容解析成
+标准本地工具调用。这类格式漂移会留下 parser warning，但不会因为 `arguments_json`
+不是完整 JSON envelope 而直接中断任务。
+
 工具元数据同样按模型可见的不可信文本处理。工具描述、参数描述、repair prompt 里的旧模型输出和工具名列表都会做协议标记中和、单行化或截断，避免恶意/异常 MCP 工具说明伪造 `<pi_tool_call>` / `<pi_tool_result>` / `<pi_tool_call_history>` 边界。
 
 每轮只允许执行实际展示给模型的 selected tools。即使 `context.tools` 里存在更多工具，模型猜中未展示工具名也会被拒绝；unknown-tool 修复提示同样只列出 selected tools。
@@ -299,6 +304,7 @@ extensions/xtalpi-pi-tools/fixtures/replay-cases.json
 - selected tools 执行白名单
 - tool arguments 轻量 schema 校验与修复
 - repeated-tool guard 使用对象 key 顺序无关的 JSON 深比较，避免模型用参数重排绕过重复工具调用保护
+- `id=...` / `name="..."` / `arguments_json: {...}` 旧式 Pi 工具记录兼容解析
 - `<pi_tool_call name="...">{"arg":...}</pi_tool_call>` 变体解析
 - raw/internal Pi protocol markup final answer repair（含残缺/畸形协议标签和 `[previous_pi_tool_call]` 历史记录）
 - tool result 作为普通 user 文本序列化
