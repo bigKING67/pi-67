@@ -21,6 +21,7 @@ import {
 import { buildParseErrorRepairPlan } from "./recovery-decision.ts";
 import {
   buildEmptyResponseRepairPrompt,
+  buildPlanModeFallbackPlan,
   buildPrematureFinalRepairPrompt,
   envInt,
 } from "./retry.ts";
@@ -92,6 +93,11 @@ export async function runProviderTurn(input: {
 
   const loopState = new TurnLoopState();
 
+  function finalGuardRequiresPlanBlock(input: { code: string; reason: string }): boolean {
+    return input.code === "plan_mode_contract_missing" ||
+      /(?:Plan mode|<proposed_plan>)/i.test(input.reason);
+  }
+
   // Recovery turns must stay serial: each repair prompt depends on the exact
   // previous model response and on the current per-turn recovery budget.
   while (true) {
@@ -156,6 +162,7 @@ export async function runProviderTurn(input: {
               raw,
               latestUserText: finalGuard.latestUserText,
               availableNames: selectedToolNames,
+              forcePlanBlock: finalGuardRequiresPlanBlock(finalGuard),
             }),
           });
           debugLog("recovery.premature_final", {
@@ -166,6 +173,25 @@ export async function runProviderTurn(input: {
             rawExcerpt: safeBlockText(raw, 500),
           });
           continue;
+        }
+
+        if (finalGuardRequiresPlanBlock(finalGuard)) {
+          debugLog("recovery.plan_mode_fallback", {
+            ...debugContext,
+            code: finalGuard.code,
+            reason: finalGuard.reason,
+            ...loopState.snapshot(),
+            rawExcerpt: safeBlockText(raw, 500),
+          });
+          return {
+            kind: "final",
+            text: buildPlanModeFallbackPlan({
+              code: finalGuard.code,
+              reason: finalGuard.reason,
+              latestUserText: finalGuard.latestUserText,
+            }),
+            ...loopState.resultFields(),
+          };
         }
 
         return {

@@ -7,8 +7,8 @@
     "@ff-labs/pi-fff": "^0.9.6",
     "@juicesharp/rpiv-advisor": "^1.20.0",
     "@juicesharp/rpiv-ask-user-question": "^1.20.0",
-    "@narumitw/pi-btw": "^0.9.1",
-    "@narumitw/pi-plan-mode": "^0.9.1",
+    "@narumitw/pi-btw": "^0.11.0",
+    "@narumitw/pi-plan-mode": "^0.11.0",
     "@victor-software-house/pi-curated-themes": "^0.2.1",
     "pi-markdown-preview": "^0.10.0",
     "pi-mcp-adapter": "^2.10.0",
@@ -16,7 +16,7 @@
     "pi-rewind": "^0.5.0",
     "pi-simplify": "^0.2.2",
     "pi-smart-fetch": "^0.3.12",
-    "pi-subagents": "^0.31.0",
+    "pi-subagents": "^0.33.1",
     "pi-until-done": "^0.2.2",
     "pi-web-access": "^0.13.0"
   }

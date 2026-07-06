@@ -451,6 +451,51 @@
       }
     },
     {
+      "name": "plan-mode-contract-fallback-after-repair-budget",
+      "maxTools": 8,
+      "maxRepairRetries": 1,
+      "maxTotalRecoveries": 2,
+      "context": {
+        "systemPrompt": "Plan mode: planning\nProduce a <proposed_plan> block.",
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a file",
+            "parameters": {
+              "type": "object",
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": "今天飞书etl出现了抖音挂车短视频明细无法解析文件名，先给解决计划"
+          }
+        ]
+      },
+      "responses": [
+        {
+          "content": "I will inspect the ETL filename parser next."
+        },
+        {
+          "content": "The parser should be checked, but I still did not produce the required plan block."
+        }
+      ],
+      "expect": {
+        "fetchCount": 2,
+        "stopReason": "stop",
+        "leadingTextIncludes": "Local fallback note"
+      }
+    },
+    {
       "name": "continuation-no-progress-then-tool",
       "maxTools": 8,
       "maxRepairRetries": 2,

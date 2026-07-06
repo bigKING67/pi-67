@@ -106,8 +106,12 @@ export function buildPrematureFinalRepairPrompt(input: {
   raw: string;
   latestUserText: string;
   availableNames?: string[];
+  forcePlanBlock?: boolean;
 }): string {
   const names = formatToolNamesForPrompt(input.availableNames ?? []);
+  const planModeInstruction = input.forcePlanBlock
+    ? `Plan mode is active. If you do not need another tool, your response must be exactly one complete <proposed_plan>...</proposed_plan> block. Do not produce a normal final answer outside that block.`
+    : `If Plan mode requires it, return exactly one complete <proposed_plan>...</proposed_plan> block.`;
   return `[xtalpi-pi-tools-premature-final-repair]
 Your previous response was not an acceptable final answer for this agent turn.
 
@@ -128,12 +132,30 @@ You must now do exactly one of these:
 ${TOOL_CALL_OPEN}
 {"name":"tool_name","arguments":{}}
 ${TOOL_CALL_CLOSE}
-2. If Plan mode requires it, return exactly one complete <proposed_plan>...</proposed_plan> block.
+2. ${planModeInstruction}
 3. If the task is truly complete, return a concrete final answer that contains the actual result.
 
 Do not answer with only a promise such as "I will inspect", "Let me check", or "continuing".
 Do not echo Plan mode/tool-selection instructions.
 Do not include raw Pi protocol tags, tool history records, or previous_pi_tool_call records in a final answer.`;
+}
+
+export function buildPlanModeFallbackPlan(input: {
+  code: string;
+  reason: string;
+  latestUserText: string;
+}): string {
+  const request = safeInlineText(input.latestUserText || "(not available)", 500);
+  const reason = safeInlineText(input.reason || input.code, 300);
+  return `<proposed_plan>
+1. Keep this turn in Plan mode and do not execute additional changes until the plan is accepted.
+2. Use the latest user request as the task target: ${request}
+3. Inspect the relevant source, configuration, and runtime evidence for the reported failure instead of relying on provider assumptions.
+4. Apply the narrowest root-cause fix, then run the smallest regression check that reproduces the issue plus the existing xtalpi/pi-67 smoke gates.
+5. If package/update state is involved, verify the tracked repo baseline and the local runtime manifest converge so the same warning does not reappear after update.
+
+Local fallback note: xtalpi-pi-tools synthesized this plan after the model repeatedly missed the active Plan mode <proposed_plan> contract. Last validation reason: ${reason}
+</proposed_plan>`;
 }
 
 export function buildUnknownToolRepairPrompt(toolName: string, availableNames: string[]): string {

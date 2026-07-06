@@ -525,6 +525,34 @@ Produce a <proposed_plan> block.`,
     assert.equal(planModeContractRepairChat.calls.length, 2);
     assert.match(planModeContractRepairChat.calls[1].at(-1).content, /xtalpi-pi-tools-premature-final-repair/);
     assert.match(planModeContractRepairChat.calls[1].at(-1).content, /internal_context_leak|plan_mode_contract_missing/);
+    assert.match(planModeContractRepairChat.calls[1].at(-1).content, /Plan mode is active/);
+
+    const planModeFallbackChat = makeProviderTurnChat([
+      {
+        content: "I will inspect the ETL filename parser next.",
+      },
+      {
+        content: "The parser should be checked, but I still did not produce the required plan block.",
+      },
+    ]);
+    const planModeFallbackResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: {
+        systemPrompt: "Plan mode: planning\nProduce a <proposed_plan> block.",
+        tools: [readTool],
+        messages: [{
+          role: "user",
+          content: "今天飞书etl出现了抖音挂车短视频明细无法解析文件名，先给解决计划",
+        }],
+      },
+      callChat: planModeFallbackChat.callChat,
+    });
+    assert.equal(planModeFallbackResult.kind, "final");
+    assert.match(planModeFallbackResult.text, /<proposed_plan>/);
+    assert.match(planModeFallbackResult.text, /Local fallback note/);
+    assert.ok(!planModeFallbackResult.text.includes("已停止自动修复"));
+    assert.equal(planModeFallbackChat.calls.length, 2);
+    assert.match(planModeFallbackChat.calls[1].at(-1).content, /Plan mode is active/);
 
     const continuationNoProgressChat = makeProviderTurnChat([
       { content: "I will inspect the file next." },
