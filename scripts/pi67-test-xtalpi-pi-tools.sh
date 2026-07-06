@@ -413,6 +413,28 @@ const { pathToFileURL } = require("node:url");
     assert.equal(parseRepairChat.calls.length, 2);
     assert.match(parseRepairChat.calls[1].at(-1).content, /xtalpi-pi-tools-function-style-tool-repair/);
 
+    const looseEnvelopeChat = makeProviderTurnChat([
+      {
+        content: String.raw`<pi_tool_call>
+name: "read"
+arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
+</pi_tool_call>`,
+      },
+    ]);
+    const looseEnvelopeResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: { systemPrompt: "system base", tools: [readTool], messages: [{ role: "user", content: "read windows path" }] },
+      callChat: looseEnvelopeChat.callChat,
+    });
+    assert.equal(looseEnvelopeResult.kind, "tool_call");
+    assert.equal(looseEnvelopeResult.toolCall.name, "read");
+    assert.deepEqual(looseEnvelopeResult.toolCall.arguments, {
+      path: String.raw`D:\codeproject\data-etl\main.py`,
+      offset: 1,
+      limit: 30,
+    });
+    assert.equal(looseEnvelopeChat.calls.length, 1);
+
     const invalidJsonRepairChat = makeProviderTurnChat([
       { content: '<pi_tool_call>\n{"name":"read","arguments":\n</pi_tool_call>' },
       { content: '<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>' },

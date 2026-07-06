@@ -44,6 +44,139 @@ function stripMarkdownFence(value: string): string {
   return fenceMatch ? fenceMatch[1].trim() : trimmed;
 }
 
+function hasEvenBackslashPrefix(value: string, index: number): boolean {
+  let count = 0;
+  for (let i = index - 1; i >= 0 && value[i] === "\\"; i -= 1) {
+    count += 1;
+  }
+  return count % 2 === 0;
+}
+
+function escapeLikelyWindowsPathStringContent(value: string): { text: string; changed: boolean } {
+  if (!/[A-Za-z]:\\/.test(value)) return { text: value, changed: false };
+
+  let changed = false;
+  let text = "";
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (char !== "\\") {
+      text += char;
+      continue;
+    }
+
+    if (value[index + 1] === "\\") {
+      text += "\\\\";
+      index += 1;
+    } else {
+      text += "\\\\";
+      changed = true;
+    }
+  }
+
+  return { text, changed };
+}
+
+function escapeLikelyWindowsPathBackslashesInJsonStrings(value: string): { text: string; changed: boolean } {
+  let changed = false;
+  let text = "";
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (char !== '"') {
+      text += char;
+      continue;
+    }
+
+    let content = "";
+    let end = index + 1;
+    for (; end < value.length; end += 1) {
+      const inner = value[end];
+      if (inner === '"' && hasEvenBackslashPrefix(value, end)) break;
+      content += inner;
+    }
+    if (end >= value.length) {
+      text += `"${content}`;
+      index = value.length;
+      break;
+    }
+
+    const repaired = escapeLikelyWindowsPathStringContent(content);
+    text += `"${repaired.text}"`;
+    changed = changed || repaired.changed;
+    index = end;
+  }
+
+  return { text, changed };
+}
+
+function parseJsonWithLikelyWindowsPathRepair(raw: string): { value: unknown; jsonText: string; warnings: string[] } {
+  const cleaned = stripMarkdownFence(raw);
+  const repaired = escapeLikelyWindowsPathBackslashesInJsonStrings(cleaned);
+  const candidate = repaired.changed ? repaired.text : cleaned;
+  return {
+    value: JSON.parse(candidate),
+    jsonText: candidate,
+    warnings: repaired.changed ? ["repaired likely Windows path backslashes in JSON strings"] : [],
+  };
+}
+
+function parseLooseNameArgumentsEnvelope(raw: string, originalText: string): ToolCallParseResult | undefined {
+  const cleaned = stripMarkdownFence(raw);
+  const nameMatch = cleaned.match(/(?:^|\r?\n)\s*name\s*:\s*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([^\r\n]+))\s*(?:\r?\n|$)/i);
+  const argumentsMatch = cleaned.match(/(?:^|\r?\n)\s*arguments\s*:\s*([\s\S]+)$/i);
+  if (!nameMatch || !argumentsMatch) return undefined;
+
+  const name = (nameMatch[1] || nameMatch[2] || nameMatch[3] || "").trim();
+  if (!name) {
+    return {
+      kind: "error",
+      code: "invalid_name",
+      message: '"name" must be a non-empty string',
+      raw: cleaned,
+      text: originalText,
+    };
+  }
+
+  let parsedArguments: unknown;
+  let argumentJsonText = "";
+  const warnings = ["accepted loose name/arguments pi_tool_call body"];
+  try {
+    const parsed = parseJsonWithLikelyWindowsPathRepair(argumentsMatch[1].trim());
+    parsedArguments = parsed.value;
+    argumentJsonText = parsed.jsonText;
+    warnings.push(...parsed.warnings);
+  } catch (error) {
+    return {
+      kind: "error",
+      code: "invalid_json",
+      message: error instanceof Error ? error.message : String(error),
+      raw: cleaned,
+      text: originalText,
+    };
+  }
+
+  if (!isPlainObject(parsedArguments)) {
+    return {
+      kind: "error",
+      code: "invalid_arguments",
+      message: '"arguments" must be a JSON object',
+      raw: argumentJsonText,
+      text: originalText,
+    };
+  }
+
+  return {
+    kind: "tool_call",
+    call: {
+      name,
+      arguments: parsedArguments,
+    },
+    before: "",
+    after: "",
+    rawJson: JSON.stringify({ name, arguments: parsedArguments }),
+    warnings,
+  };
+}
+
 function detectFunctionStyleToolCall(value: string): { name: string; raw: string } | undefined {
   const trimmed = stripMarkdownFence(value).replace(/^`([\s\S]*)`$/, "$1").trim();
   const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*\(([\s\S]*)\)$/);
@@ -64,12 +197,18 @@ function containsRawProtocolMarkup(value: string): boolean {
 }
 
 function parseEnvelope(raw: string, originalText: string): ToolCallParseResult {
-  const cleaned = stripMarkdownFence(raw);
+  let cleaned = stripMarkdownFence(raw);
   let parsed: unknown;
+  let warnings: string[] = [];
 
   try {
-    parsed = JSON.parse(cleaned);
+    const parsedJson = parseJsonWithLikelyWindowsPathRepair(cleaned);
+    parsed = parsedJson.value;
+    cleaned = parsedJson.jsonText;
+    warnings = parsedJson.warnings;
   } catch (error) {
+    const loose = parseLooseNameArgumentsEnvelope(raw, originalText);
+    if (loose) return loose;
     return {
       kind: "error",
       code: "invalid_json",
@@ -141,7 +280,7 @@ function parseEnvelope(raw: string, originalText: string): ToolCallParseResult {
     before: "",
     after: "",
     rawJson: cleaned,
-    warnings: [],
+    warnings,
   };
 }
 
@@ -149,11 +288,15 @@ function parseAttributedEnvelope(openTag: string, raw: string, originalText: str
   const nameMatch = openTag.match(/\sname=(["'])([^"']+)\1/);
   if (!nameMatch) return parseEnvelope(raw, originalText);
 
-  const cleaned = stripMarkdownFence(raw);
+  let cleaned = stripMarkdownFence(raw);
   let parsed: unknown;
+  let warnings: string[] = ["accepted attributed pi_tool_call tag"];
 
   try {
-    parsed = JSON.parse(cleaned);
+    const parsedJson = parseJsonWithLikelyWindowsPathRepair(cleaned);
+    parsed = parsedJson.value;
+    cleaned = parsedJson.jsonText;
+    warnings.push(...parsedJson.warnings);
   } catch (error) {
     return {
       kind: "error",
@@ -194,7 +337,7 @@ function parseAttributedEnvelope(openTag: string, raw: string, originalText: str
     before: "",
     after: "",
     rawJson: cleaned,
-    warnings: ["accepted attributed pi_tool_call tag"],
+    warnings,
   };
 }
 

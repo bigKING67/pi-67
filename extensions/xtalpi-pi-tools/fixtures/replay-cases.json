@@ -26,6 +26,23 @@
       }
     },
     {
+      "name": "loose-name-arguments-windows-path-call",
+      "input": "<pi_tool_call>\nname: \"read\"\narguments: {\"path\":\"D:\\codeproject\\data-etl\\main.py\", \"offset\":1, \"limit\":30}\n</pi_tool_call>",
+      "expect": {
+        "kind": "tool_call",
+        "name": "read",
+        "arguments": {
+          "path": "D:\\codeproject\\data-etl\\main.py",
+          "offset": 1,
+          "limit": 30
+        },
+        "warningsContain": [
+          "loose name/arguments",
+          "Windows path backslashes"
+        ]
+      }
+    },
+    {
       "name": "bare-json-call",
       "input": "{\"name\":\"bash\",\"arguments\":{\"command\":\"pwd\"}}",
       "expect": {
