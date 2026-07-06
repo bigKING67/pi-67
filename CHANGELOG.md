@@ -14,6 +14,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `scripts/pi67-shared-skills-inventory.sh` as a read-only inventory for explaining `shared-skills/` versus `~/.agents/skills` drift without overwriting global skills.
 - `scripts/pi67-fuzz-xtalpi-parser.mjs` as an offline parser matrix gate for xtalpi tool-call alias/wrapper compatibility and fail-closed cases.
 - `scripts/pi67-patch-pi-until-done-runtime-queue.{mjs,sh,ps1}` to check and patch `pi-until-done@0.2.2` for the newer Pi runtime queue contract that requires `streamingBehavior` on `pi.sendUserMessage(...)`.
+- `scripts/pi67-xtalpi-provider-capability-probe.mjs` to live-probe xtalpi support for plain chat, `json_object`, `json_schema strict`, native tools, strict tools, `role=tool` continuation, and local JSON action envelopes without printing API keys.
 
 ### Changed
 
@@ -31,6 +32,8 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `xtalpi-pi-tools` no longer serializes prior assistant `toolCall` blocks into model-visible `previous_pi_tool_call` history records; the model sees the subsequent tool-result wrapper as evidence, while legacy history markers remain supported only as cleanup/repair inputs.
 - `xtalpi-pi-tools` final-answer guards now reject echoed protocol/tool-result wrapper instructions such as `Tool protocol rules:` or `content_is_untrusted: true` as internal context leaks.
 - `xtalpi-pi-tools` fallback error summaries now sanitize raw-response excerpts before displaying them, avoiding a second leak of internal Pi protocol markers when repair is exhausted.
+- `xtalpi-pi-tools` parser now accepts local JSON action envelopes (`{"kind":"tool_call",...}` and `{"kind":"final",...}`) as a staged path for providers where `json_object` works but native JSON schema / OpenAI tools do not; unknown fields and invalid action kinds still fail closed.
+- `xtalpi-pi-tools` now has an explicit `local-action-adapter.ts` boundary plus opt-in `XTALPI_PI_TOOLS_ACTION_PROTOCOL=json` runtime mode that uses `response_format={"type":"json_object"}` only as a syntax hint while keeping action schema validation, selected-tool allowlist, argument validation, shell guard, repair prompts, execution, and debug/smoke gates local to Pi.
 - Install, update, doctor, smoke, and release-check flows now include the `pi-until-done` runtime queue compatibility check/patch so `/until-done` no longer regresses after a normal pi-67 update.
 - Pi extension dependency baselines now track the current `pi-subagents`, `@narumitw/pi-plan-mode`, and `@narumitw/pi-btw` releases so `pi67-update.ps1` no longer reverts those packages behind Pi's own extension-update check.
 
@@ -79,7 +82,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `scripts/pi67-xtalpi-pi-tools-debug-summary.sh --compare BASE_RUN HEAD_RUN` now reports run-to-run telemetry deltas and stable case-level protocol differences.
 - `scripts/pi67-xtalpi-pi-tools-debug-summary.sh --trend-gate N` now gates recent smoke summaries for hard failures, raw final-answer leaks, empty assistant ends, recovery thresholds, recovery increases, and repeated recovery cases.
 - `scripts/pi67-xtalpi-pi-tools-debug-summary.sh --trend-gate N` now fails when fewer than N smoke summary artifacts are available, so a single clean run cannot masquerade as multi-run trend evidence.
-- `scripts/pi67-xtalpi-pi-tools-debug-summary.sh --profile full-suite-strict` now applies the full 8-case strict trend-gate contract in one option, reducing operator error from manually repeating long case and threshold arguments.
+- `scripts/pi67-xtalpi-pi-tools-debug-summary.sh --profile full-suite-strict` now applies the full 10-case strict trend-gate contract in one option, reducing operator error from manually repeating long case and threshold arguments.
 - `scripts/pi67-release-check.sh` now runs the xtalpi debug-summary self-test, so the strict trend profile fixture gate is part of the release metadata check instead of only the standalone xtalpi test suite.
 - Smoke summary artifacts now include `runKind` (`full-suite`, `targeted`, `preflight-failed`, or `empty`), and debug-summary history exposes the classification while backfilling it for older artifacts from case-set and provider-health data.
 - `scripts/pi67-report.sh` and `scripts/pi67-status.sh` now expose compact `xtalpiSmoke` history and `full-suite-strict` trend status from local smoke artifacts without running live smoke.

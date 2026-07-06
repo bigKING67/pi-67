@@ -3,6 +3,7 @@ import {
   type ArgumentValidationWarning,
 } from "./argument-validator.ts";
 import { jsonDeepEqual } from "./json-utils.ts";
+import type { XtalpiActionProtocol } from "./local-action-adapter.ts";
 import type { JsonObject } from "./protocol.ts";
 import {
   buildInvalidToolArgumentsRepairPrompt,
@@ -56,15 +57,23 @@ export function decideToolCallRequest(input: {
   selectedToolByName: ReadonlyMap<string, ToolLike>;
   lastCompletedCall?: ToolCallRequest;
   canRepair: boolean;
+  actionProtocol?: XtalpiActionProtocol;
 }): ToolCallDecision {
-  const { requestedCall, selectedToolNames, selectedToolNamesList, selectedToolByName, canRepair } = input;
+  const {
+    requestedCall,
+    selectedToolNames,
+    selectedToolNamesList,
+    selectedToolByName,
+    canRepair,
+    actionProtocol = "text",
+  } = input;
 
   if (selectedToolNames.size === 0 || !selectedToolNames.has(requestedCall.name)) {
     if (canRepair) {
       return {
         kind: "repair",
         event: "recovery.unknown_tool",
-        prompt: buildUnknownToolRepairPrompt(requestedCall.name, [...selectedToolNamesList]),
+        prompt: buildUnknownToolRepairPrompt(requestedCall.name, [...selectedToolNamesList], actionProtocol),
         toolName: requestedCall.name,
       };
     }
@@ -84,7 +93,7 @@ export function decideToolCallRequest(input: {
       return {
         kind: "repair",
         event: "recovery.invalid_tool_arguments",
-        prompt: buildInvalidToolArgumentsRepairPrompt(requestedCall.name, argumentValidation.errors),
+        prompt: buildInvalidToolArgumentsRepairPrompt(requestedCall.name, argumentValidation.errors, actionProtocol),
         toolName: requestedCall.name,
         errors: argumentValidation.errors,
         argumentValidationWarnings: argumentValidation.warnings,
@@ -113,6 +122,7 @@ export function decideToolCallRequest(input: {
           reason: shellCommandGuard.reason,
           command: shellCommandGuard.command,
           errors: shellCommandGuard.errors,
+          actionProtocol,
         }),
         toolName: requestedCall.name,
         errors: shellCommandGuard.errors,
@@ -137,7 +147,7 @@ export function decideToolCallRequest(input: {
       return {
         kind: "repair",
         event: "recovery.repeated_tool",
-        prompt: buildRepeatedToolRepairPrompt(requestedCall.name),
+        prompt: buildRepeatedToolRepairPrompt(requestedCall.name, actionProtocol),
         toolName: requestedCall.name,
       };
     }

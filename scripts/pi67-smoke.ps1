@@ -267,6 +267,7 @@ $RequiredFiles = @(
   "scripts/pi67-xtalpi-smoke-status-core.cjs",
   "scripts/pi67-xtalpi-smoke-plan.mjs",
   "scripts/pi67-xtalpi-provider-health.mjs",
+  "scripts/pi67-xtalpi-provider-capability-probe.mjs",
   "scripts/pi67-validate-xtalpi-provider-error-contract.mjs",
   "scripts/pi67-fuzz-xtalpi-parser.mjs",
   "scripts/pi67-patch-pi-until-done-runtime-queue.mjs",
@@ -274,6 +275,7 @@ $RequiredFiles = @(
   "scripts/pi67-patch-pi-until-done-runtime-queue.ps1",
   "scripts/pi67-shared-skills-inventory.sh",
   "extensions/xtalpi-pi-tools/json-file.ts",
+  "extensions/xtalpi-pi-tools/local-action-adapter.ts",
   "extensions/xtalpi-pi-tools/runtime-config.ts",
   "extensions/xtalpi-pi-tools/fixtures/replay-cases.json",
   "extensions/xtalpi-pi-tools/provider-error-contract.json"
@@ -355,6 +357,7 @@ if ($NodeAvailable) {
     "scripts/pi67-xtalpi-smoke-artifact-core.cjs",
     "scripts/pi67-xtalpi-smoke-plan.mjs",
     "scripts/pi67-xtalpi-provider-health.mjs",
+    "scripts/pi67-xtalpi-provider-capability-probe.mjs",
     "scripts/pi67-validate-xtalpi-provider-error-contract.mjs",
     "scripts/pi67-fuzz-xtalpi-parser.mjs",
     "scripts/pi67-patch-pi-until-done-runtime-queue.mjs"
@@ -367,6 +370,10 @@ if ($NodeAvailable) {
 
   Run-Check "xtalpi provider health classifier self-test passed" {
     Invoke-External "node" @((RepoPath "scripts/pi67-xtalpi-provider-health.mjs"), "--self-test") | Out-Null
+  }
+
+  Run-Check "xtalpi provider capability probe self-test passed" {
+    Invoke-External "node" @((RepoPath "scripts/pi67-xtalpi-provider-capability-probe.mjs"), "--self-test") | Out-Null
   }
 
   Run-Check "JSON utility self-test passed" {
@@ -433,12 +440,16 @@ Run-Check "xtalpi-pi-tools endpoint contract uses chat/completions" {
 
   $runtimeConfig = RepoPath "extensions/xtalpi-pi-tools/runtime-config.ts"
   $providerHealth = RepoPath "scripts/pi67-xtalpi-provider-health.mjs"
+  $capabilityProbe = RepoPath "scripts/pi67-xtalpi-provider-capability-probe.mjs"
   Assert-ContentContains $runtimeConfig "/chat/completions"
   Assert-ContentContains $providerHealth "/chat/completions"
+  Assert-ContentContains $capabilityProbe "/chat/completions"
   Assert-ContentNotContains $runtimeConfig "/responses"
   Assert-ContentNotContains $providerHealth "/responses"
+  Assert-ContentNotContains $capabilityProbe "/responses"
   Assert-ContentNotContains $runtimeConfig "/response/completions"
   Assert-ContentNotContains $providerHealth "/response/completions"
+  Assert-ContentNotContains $capabilityProbe "/response/completions"
 }
 
 Section "PowerShell documentation"
@@ -467,7 +478,7 @@ Run-Check "PowerShell update/doctor/report/smoke entrypoints are documented" {
 }
 
 Run-Check "PowerShell xtalpi targeted smoke expanded cases are documented" {
-  $expandedCaseSet = "read-package,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
+  $expandedCaseSet = "read-package,plan-mode-contract,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
   Assert-ContentContains (RepoPath "scripts/pi67-xtalpi-pi-tools-smoke.ps1") "read-package"
   Assert-ContentContains (RepoPath "scripts/pi67-xtalpi-pi-tools-smoke.ps1") "fffind-package"
   Assert-ContentContains (RepoPath "scripts/pi67-xtalpi-pi-tools-smoke.ps1") "batch-web-fetch-example"
@@ -514,6 +525,7 @@ if ($GitAvailable) {
     "scripts/pi67-fuzz-xtalpi-parser.mjs",
     "scripts/pi67-shared-skills-inventory.sh",
     "extensions/xtalpi-pi-tools/json-file.ts",
+    "extensions/xtalpi-pi-tools/local-action-adapter.ts",
     ".github/workflows/ci.yml"
   )
   Run-Check "Windows smoke release files are tracked or staged" {

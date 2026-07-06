@@ -35,7 +35,7 @@ COMMON_BASE_ARGS=(
 )
 COMMON_ARGS=("${COMMON_BASE_ARGS[@]}" --no-session)
 
-DEFAULT_CASES=(no-tool bash read bash-read web-read tool-selection-clipping tool-selection-continuation tool-result-injection)
+DEFAULT_CASES=(no-tool bash read bash-read web-read plan-mode-contract tool-selection-clipping tool-selection-continuation until-done-continuation tool-result-injection)
 QUICK_CASES=(no-tool read)
 EXTENSION_LOW_RISK_CASES=(mcp-status subagent-list recall-not-found)
 EXTENSION_EXPANDED_CASES=(fffind-package ffgrep-package batch-web-fetch-example seq-thinking-status mcp-status subagent-list recall-not-found)
@@ -45,8 +45,10 @@ AVAILABLE_CASES=(
   read
   bash-read
   web-read
+  plan-mode-contract
   tool-selection-clipping
   tool-selection-continuation
+  until-done-continuation
   tool-result-injection
   fffind-package
   ffgrep-package
@@ -96,7 +98,7 @@ print_cases() {
 
 case_name_is_valid() {
   case "$1" in
-    no-tool | bash | read | bash-read | web-read | tool-selection-clipping | tool-selection-continuation | tool-result-injection | fffind-package | ffgrep-package | batch-web-fetch-example | seq-thinking-status | mcp-status | subagent-list | recall-not-found) return 0 ;;
+    no-tool | bash | read | bash-read | web-read | plan-mode-contract | tool-selection-clipping | tool-selection-continuation | until-done-continuation | tool-result-injection | fffind-package | ffgrep-package | batch-web-fetch-example | seq-thinking-status | mcp-status | subagent-list | recall-not-found) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -329,6 +331,15 @@ const toolSelectionRequirementsByCase = {
     selectedIncludes: ["read"],
     omittedIncludes: ["bash", "web_fetch"],
   },
+  "until-done-continuation": {
+    clipped: true,
+    minOmittedCount: 2,
+    minValidCount: 3,
+    promptSource: "recent_user_continuation",
+    minUserMessageCount: 2,
+    selectedIncludes: ["read"],
+    omittedIncludes: ["bash", "web_fetch"],
+  },
 };
 const caseName = String(lifecycle.caseName || "");
 const toolSelectionRequirement = toolSelectionRequirementsByCase[caseName];
@@ -366,6 +377,7 @@ const relativePackageReadCases = new Set([
   "web-read",
   "tool-selection-clipping",
   "tool-selection-continuation",
+  "until-done-continuation",
 ]);
 const packageReadPathFailures = [];
 if (relativePackageReadCases.has(caseName)) {
@@ -386,6 +398,8 @@ const finalText = Array.isArray(final?.content)
   : "";
 const requiredFinalTextByCase = {
   "web-read": ["Example Domain", "pi-extensions"],
+  "plan-mode-contract": ["<proposed_plan>", "</proposed_plan>"],
+  "until-done-continuation": ["UNTIL_DONE_SMOKE_OK", "pi-extensions"],
   "tool-result-injection": ["PI_TOOL_RESULT_INJECTION_CANARY"],
   "fffind-package": ["EXTENSION_SMOKE_FFFIND_OK", "package.json"],
   "ffgrep-package": ["EXTENSION_SMOKE_FFGREP_OK", "pi-extensions"],
@@ -616,6 +630,11 @@ writeFixture("tool-result-injection", {
   tools: ["read"],
   finalText: "PI_TOOL_RESULT_INJECTION_CANARY confirmed without raw protocol markup",
 });
+writeFixture("plan-mode-contract", {
+  tools: [],
+  finalText: "<proposed_plan>\n1. Inspect the task.\n2. Wait for approval.\n</proposed_plan>",
+  caseName: "plan-mode-contract",
+});
 writeFixture("tool-selection-clipping", {
   tools: ["read"],
   toolArgsByName: { read: { path: "package.json" } },
@@ -671,6 +690,61 @@ writeFixture("tool-selection-continuation", {
   toolArgsByName: { read: { path: "package.json" } },
   finalText: "normal final answer",
   caseName: "tool-selection-continuation",
+  debugEvents: [
+    {
+      schema: "xtalpi-pi-tools.debug.v1",
+      event: "turn.start",
+      event_category: "turn",
+      selected_tool_count: 0,
+      tool_selection_clipped: false,
+      tool_selection_omitted_count: 0,
+      tool_selection_valid_count: 0,
+      tool_selection_prompt_source: "latest_user",
+      tool_selection_prompt_chars: 96,
+      tool_selection_user_messages: 1,
+      data: {
+        toolSelectionPromptSource: "latest_user",
+        toolSelectionPromptChars: 96,
+        toolSelectionUserMessageCount: 1,
+        toolSelectionSummary: {
+          schema: "xtalpi-pi-tools.tool-selection.v1",
+          selected: [],
+          omitted: [],
+        },
+      },
+    },
+    {
+      schema: "xtalpi-pi-tools.debug.v1",
+      event: "turn.start",
+      event_category: "turn",
+      selected_tool_count: 1,
+      tool_selection_clipped: true,
+      tool_selection_omitted_count: 2,
+      tool_selection_valid_count: 3,
+      tool_selection_prompt_source: "recent_user_continuation",
+      tool_selection_prompt_chars: 128,
+      tool_selection_user_messages: 2,
+      data: {
+        toolSelectionPromptSource: "recent_user_continuation",
+        toolSelectionPromptChars: 128,
+        toolSelectionUserMessageCount: 2,
+        toolSelectionSummary: {
+          schema: "xtalpi-pi-tools.tool-selection.v1",
+          selected: [{ name: "read", index: 0, score: 160, selected: true, reasonCodes: ["prompt_path_file"] }],
+          omitted: [
+            { name: "bash", index: 1, score: 60, selected: false, reasonCodes: ["core_tool"] },
+            { name: "web_fetch", index: 2, score: 25, selected: false, reasonCodes: ["core_tool"] },
+          ],
+        },
+      },
+    },
+  ],
+});
+writeFixture("until-done-continuation", {
+  tools: ["read"],
+  toolArgsByName: { read: { path: "package.json" } },
+  finalText: "UNTIL_DONE_SMOKE_OK pi-extensions",
+  caseName: "until-done-continuation",
   debugEvents: [
     {
       schema: "xtalpi-pi-tools.debug.v1",
@@ -806,6 +880,10 @@ NODE
     echo "$output"
     return 1
   fi
+  if ! output="$(summarize_jsonl "$tmp_dir/plan-mode-contract.jsonl" "$tmp_dir/plan-mode-contract.stderr" 0 "none" "$tmp_dir/plan-mode-contract.debug.jsonl" "$tmp_dir/plan-mode-contract.lifecycle.json" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
   if ! output="$(summarize_jsonl "$tmp_dir/tool-selection-clipping.jsonl" "$tmp_dir/tool-selection-clipping.stderr" 0 "all:read;only:read" "$tmp_dir/tool-selection-clipping.debug.jsonl" "$tmp_dir/tool-selection-clipping.lifecycle.json" 2>&1)"; then
     echo "$output"
     return 1
@@ -816,6 +894,10 @@ NODE
     return 1
   fi
   if ! output="$(summarize_jsonl "$tmp_dir/tool-selection-continuation.jsonl" "$tmp_dir/tool-selection-continuation.stderr" 0 "all:read;only:read" "$tmp_dir/tool-selection-continuation.debug.jsonl" "$tmp_dir/tool-selection-continuation.lifecycle.json" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+  if ! output="$(summarize_jsonl "$tmp_dir/until-done-continuation.jsonl" "$tmp_dir/until-done-continuation.stderr" 0 "all:read;only:read" "$tmp_dir/until-done-continuation.debug.jsonl" "$tmp_dir/until-done-continuation.lifecycle.json" 2>&1)"; then
     echo "$output"
     return 1
   fi
@@ -1881,6 +1963,11 @@ run_selected_case "bash-read" "这是严格工具顺序 smoke：第一步必须�
 
 run_selected_case "web-read" "请使用 web_fetch 读取 https://example.com/，并确认页面内容或标题里的英文短语 Example Domain；然后继续使用 read 读取当前工作区相对路径 package.json，且 read 的 path 参数必须严格等于 \"package.json\"，不要使用绝对路径。最后只用两句话总结：第一句话必须原样包含 Example Domain，第二句话必须原样包含本地 package name pi-extensions 和版本。不要搜索本机目录，不要读取 README.md；最终回答不要复述工具调用历史、previous_pi_tool_call 记录或任何 Pi 协议标记。" "all:web_fetch,read;only:web_fetch,read" --tools web_fetch,read || failures=$((failures + 1))
 
+run_selected_case "plan-mode-contract" "Plan mode: planning
+Produce a <proposed_plan> block.
+
+这是 targeted plan-mode smoke。不要调用任何工具。最终回答必须只给出一个完整的 <proposed_plan>...</proposed_plan> block，里面用 2-3 条列出：先核对真实状态、再提出最小改动、最后验证结果。不要复述 Pi 协议、tool history 或工具选择说明。" "none" --tools read || failures=$((failures + 1))
+
 FFF_FRECENCY_DB_FILE="$OUT_DIR/${STAMP}-fff-frecency.db"
 FFF_HISTORY_DB_FILE="$OUT_DIR/${STAMP}-fff-history.db"
 SEQ_THINK_STORAGE_DIR="$OUT_DIR/${STAMP}-seq-thinking-status-storage"
@@ -1927,6 +2014,8 @@ run_selected_case "recall-not-found" "这是 targeted extension smoke。请只�
 run_selected_case_with_max_tools 1 "tool-selection-clipping" "请使用 read 工具读取当前工作区相对路径 package.json；read 的 path 参数必须严格等于 \"package.json\"，不要使用绝对路径。然后用一句话说出包名和版本。本 case 用于验证本地工具选择截断遥测；只根据可用工具完成任务。" "all:read;only:read" --tools read,bash,web_fetch || failures=$((failures + 1))
 
 run_selected_continuation_case_with_max_tools 1 "tool-selection-continuation" "这是 continuation smoke 的第一轮。请不要调用工具，只回复“已记录”。下一轮当我只说“继续”时，请使用 read 工具读取当前工作区相对路径 package.json；read 的 path 参数必须严格等于 \"package.json\"，不要使用绝对路径。然后用一句话说出包名和版本。" "继续" "all:read;only:read" --tools read,bash,web_fetch || failures=$((failures + 1))
+
+run_selected_continuation_case_with_max_tools 1 "until-done-continuation" "这是 /until-done continuation smoke 的第一轮。请不要调用工具，只回复“已记录”。下一轮当我只说“继续”时，你必须继续完成任务而不是只说将要继续：使用 read 工具读取当前工作区相对路径 package.json；read 的 path 参数必须严格等于 \"package.json\"，不要使用绝对路径。最终回答必须原样包含 UNTIL_DONE_SMOKE_OK 和 pi-extensions。" "继续" "all:read;only:read" --tools read,bash,web_fetch || failures=$((failures + 1))
 
 if case_is_requested "tool-result-injection"; then
   write_adversarial_tool_result_fixture

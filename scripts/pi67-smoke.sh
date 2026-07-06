@@ -237,6 +237,9 @@ fi
 if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-provider-health.mjs" ]; then
   node --check "$REPO_ROOT/scripts/pi67-xtalpi-provider-health.mjs" >/dev/null
 fi
+if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-provider-capability-probe.mjs" ]; then
+  node --check "$REPO_ROOT/scripts/pi67-xtalpi-provider-capability-probe.mjs" >/dev/null
+fi
 if [ -f "$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs" ]; then
   node --check "$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs" >/dev/null
 fi
@@ -846,6 +849,9 @@ section "xtalpi-pi-tools unit tests"
 "$REPO_ROOT/scripts/pi67-test-xtalpi-pi-tools.sh" >/tmp/pi67-smoke-xtalpi-pi-tools-test.log
 if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-provider-health.mjs" ]; then
   node "$REPO_ROOT/scripts/pi67-xtalpi-provider-health.mjs" --self-test >/tmp/pi67-smoke-xtalpi-provider-health-test.log
+fi
+if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-provider-capability-probe.mjs" ]; then
+  node "$REPO_ROOT/scripts/pi67-xtalpi-provider-capability-probe.mjs" --self-test >/tmp/pi67-smoke-xtalpi-provider-capability-probe-test.log
 fi
 if [ -f "$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs" ]; then
   node "$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs" --self-test >/tmp/pi67-smoke-xtalpi-provider-error-contract.log

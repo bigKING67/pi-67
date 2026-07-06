@@ -28,7 +28,7 @@ If xtalpi targeted tool calling changed and a live xtalpi key is available on
 Windows, also run:
 
 ```powershell
-.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,plan-mode-contract,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
 ```
 
 macOS/Linux and full release gate:

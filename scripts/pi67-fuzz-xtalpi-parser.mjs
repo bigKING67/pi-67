@@ -75,6 +75,25 @@ assertToolCall(
 );
 
 assertToolCall(
+  JSON.stringify({
+    kind: "tool_call",
+    name: "read",
+    arguments: expectedArgs,
+  }),
+  "json-action-tool-call",
+);
+
+{
+  cases += 1;
+  const actual = parser.parseToolCall(JSON.stringify({
+    kind: "final",
+    text: "package name is pi-extensions",
+  }));
+  assert.equal(actual.kind, "none", "json-action-final");
+  assert.equal(actual.text, "package name is pi-extensions", "json-action-final");
+}
+
+assertToolCall(
   `<pi_tool_call name="read">\n${JSON.stringify(expectedArgs)}\n</pi_tool_call>`,
   "attributed-arguments-body",
 );
@@ -95,6 +114,16 @@ assertError(
   JSON.stringify({ name: "read", arguments: expectedArgs, unexpected: true }),
   "unknown_top_level_field",
   "unknown-top-level-field",
+);
+assertError(
+  JSON.stringify({ kind: "tool_call", name: "read", arguments: expectedArgs, unexpected: true }),
+  "unknown_top_level_field",
+  "json-action-unknown-field",
+);
+assertError(
+  JSON.stringify({ kind: "other", name: "read", arguments: expectedArgs }),
+  "invalid_envelope",
+  "json-action-invalid-kind",
 );
 assertError(
   JSON.stringify({ name: "read", tool: "read", arguments: expectedArgs }),

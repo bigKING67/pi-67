@@ -35,13 +35,14 @@ pi67-xtalpi-pi-tools-smoke.ps1 runs low-risk xtalpi live smoke cases from
 PowerShell without Bash.
 
 Usage:
-  .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 [-Case "read-package,fffind-package"]
+  .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 [-Case "read-package,plan-mode-contract,fffind-package"]
   .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-low-risk
   .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -ListCases
   .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest
 
 Supported cases:
   read-package
+  plan-mode-contract
   fffind-package
   ffgrep-package
   batch-web-fetch-example
@@ -79,6 +80,7 @@ $ProviderHealthScript = Join-Path $ScriptDir "pi67-xtalpi-provider-health.mjs"
 
 $AvailableCases = @(
   "read-package",
+  "plan-mode-contract",
   "fffind-package",
   "ffgrep-package",
   "batch-web-fetch-example",
@@ -114,6 +116,12 @@ $CaseDefinitions = @{
     requiredFinalText = @("EXTENSION_SMOKE_READ_PACKAGE_OK", "pi-extensions")
     argCheck = "read-package"
     prompt = "This is targeted portability smoke. Use only the read tool to read the current workspace relative path package.json. The read path argument must be exactly `"package.json`"; do not use any absolute path. Do not call bash, web_fetch, fffind, ffgrep, or any other tool. Final answer must include EXTENSION_SMOKE_READ_PACKAGE_OK and pi-extensions."
+  }
+  "plan-mode-contract" = [ordered]@{
+    tool = "read"
+    expectedTools = @()
+    requiredFinalText = @("<proposed_plan>", "</proposed_plan>")
+    prompt = "Plan mode: planning`nProduce a <proposed_plan> block.`n`nThis is targeted plan-mode smoke. Do not call any tool. The final answer must be exactly one complete <proposed_plan>...</proposed_plan> block with 2-3 steps: inspect real state, propose minimal change, verify result. Do not echo Pi protocol, tool history, or tool-selection instructions."
   }
   "fffind-package" = [ordered]@{
     tool = "fffind"
@@ -634,6 +642,13 @@ function Run-SelfTest {
       $fixtureSummary = Summarize-CaseArtifact $fixture.name $CaseDefinitions[$fixture.name] $fixtureOut $err $debug 0 1 $false
       if ($fixtureSummary.ok -ne $true) { throw ("expected fixture {0} to pass" -f $fixture.name) }
     }
+
+    $planOut = Join-Path $tmp "plan-mode-contract.jsonl"
+    @(
+      @{ type = "agent_end"; messages = @(@{ role = "assistant"; content = @(@{ type = "text"; text = "<proposed_plan>`n1. Inspect real state.`n2. Verify result.`n</proposed_plan>" }) }) }
+    ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 8 } | Set-Content -LiteralPath $planOut -Encoding UTF8
+    $planSummary = Summarize-CaseArtifact "plan-mode-contract" $CaseDefinitions["plan-mode-contract"] $planOut $err $debug 0 1 $false
+    if ($planSummary.ok -ne $true) { throw "expected plan-mode-contract fixture to pass" }
 
     $lowRiskProfile = Resolve-ProfileCases @("extension-low-risk")
     if (($lowRiskProfile -join ",") -ne "mcp-status,subagent-list,recall-not-found") {

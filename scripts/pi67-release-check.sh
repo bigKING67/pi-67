@@ -64,11 +64,13 @@ XTALPI_PI_TOOLS_DEBUG_SUMMARY="$REPO_ROOT/scripts/pi67-xtalpi-pi-tools-debug-sum
 XTALPI_PI_TOOLS_SMOKE_STATUS_CORE="$REPO_ROOT/scripts/pi67-xtalpi-smoke-status-core.cjs"
 XTALPI_PI_TOOLS_SMOKE_PLAN="$REPO_ROOT/scripts/pi67-xtalpi-smoke-plan.mjs"
 XTALPI_PI_TOOLS_PROVIDER_HEALTH="$REPO_ROOT/scripts/pi67-xtalpi-provider-health.mjs"
+XTALPI_PI_TOOLS_CAPABILITY_PROBE="$REPO_ROOT/scripts/pi67-xtalpi-provider-capability-probe.mjs"
 XTALPI_PI_TOOLS_ERROR_CONTRACT_CHECK="$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs"
 XTALPI_PI_TOOLS_COVERAGE_AUDIT="$REPO_ROOT/scripts/pi67-xtalpi-tool-coverage-audit.sh"
 XTALPI_PI_TOOLS_REPLAY_FIXTURES="$REPO_ROOT/extensions/xtalpi-pi-tools/fixtures/replay-cases.json"
 XTALPI_PI_TOOLS_ERROR_CONTRACT="$REPO_ROOT/extensions/xtalpi-pi-tools/provider-error-contract.json"
 XTALPI_PI_TOOLS_JSON_FILE="$REPO_ROOT/extensions/xtalpi-pi-tools/json-file.ts"
+XTALPI_PI_TOOLS_LOCAL_ACTION_ADAPTER="$REPO_ROOT/extensions/xtalpi-pi-tools/local-action-adapter.ts"
 XTALPI_PI_TOOLS_RUNTIME_CONFIG="$REPO_ROOT/extensions/xtalpi-pi-tools/runtime-config.ts"
 JSON_UTIL_CJS="$REPO_ROOT/scripts/pi67-json-utils.cjs"
 JSON_UTIL_PS="$REPO_ROOT/scripts/pi67-json-utils.ps1"
@@ -134,7 +136,7 @@ else
   fail "Windows PowerShell update/doctor/report/smoke entrypoints are missing or not documented"
 fi
 
-if grep -q '\[string\[\]\]\$Profile' "$XTALPI_PI_TOOLS_SMOKE_PS" && grep -q "extension-low-risk" "$XTALPI_PI_TOOLS_SMOKE_PS" && grep -q "extension-expanded" "$XTALPI_PI_TOOLS_SMOKE_PS" && grep -q "read-package" "$XTALPI_PI_TOOLS_SMOKE_PS" && grep -q "fffind-package" "$XTALPI_PI_TOOLS_SMOKE_PS" && grep -q "batch-web-fetch-example" "$XTALPI_PI_TOOLS_SMOKE_PS" && grep -q "seq-thinking-status" "$XTALPI_PI_TOOLS_SMOKE_PS" && grep -q "read-package,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found" "$REPO_ROOT/README.md" && grep -q "read-package,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found" "$XTALPI_PI_TOOLS_DOC" && grep -q "pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-low-risk" "$REPO_ROOT/README.md" && grep -q "pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-low-risk" "$XTALPI_PI_TOOLS_DOC"; then
+if grep -q '\[string\[\]\]\$Profile' "$XTALPI_PI_TOOLS_SMOKE_PS" && grep -q "extension-low-risk" "$XTALPI_PI_TOOLS_SMOKE_PS" && grep -q "extension-expanded" "$XTALPI_PI_TOOLS_SMOKE_PS" && grep -q "read-package" "$XTALPI_PI_TOOLS_SMOKE_PS" && grep -q "plan-mode-contract" "$XTALPI_PI_TOOLS_SMOKE_PS" && grep -q "fffind-package" "$XTALPI_PI_TOOLS_SMOKE_PS" && grep -q "batch-web-fetch-example" "$XTALPI_PI_TOOLS_SMOKE_PS" && grep -q "seq-thinking-status" "$XTALPI_PI_TOOLS_SMOKE_PS" && grep -q "read-package,plan-mode-contract,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found" "$REPO_ROOT/README.md" && grep -q "read-package,plan-mode-contract,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found" "$XTALPI_PI_TOOLS_DOC" && grep -q "pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-low-risk" "$REPO_ROOT/README.md" && grep -q "pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-low-risk" "$XTALPI_PI_TOOLS_DOC"; then
   pass "PowerShell xtalpi targeted smoke covers expanded low-risk extension cases"
 else
   fail "PowerShell xtalpi targeted smoke expanded cases are missing or not documented"
@@ -212,10 +214,16 @@ else
   fail "release artifact smoke is not documented"
 fi
 
-if [ -f "$XTALPI_PI_TOOLS_SCRIPT" ] && [ -f "$XTALPI_PI_TOOLS_TEST" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_PS" ] && [ -f "$XTALPI_PI_TOOLS_DEBUG_SUMMARY" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_STATUS_CORE" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_PLAN" ] && [ -f "$XTALPI_PI_TOOLS_PROVIDER_HEALTH" ] && [ -f "$XTALPI_PI_TOOLS_ERROR_CONTRACT_CHECK" ] && [ -f "$XTALPI_PI_TOOLS_COVERAGE_AUDIT" ] && [ -f "$XTALPI_PI_TOOLS_REPLAY_FIXTURES" ] && [ -f "$XTALPI_PI_TOOLS_ERROR_CONTRACT" ] && [ -f "$XTALPI_PI_TOOLS_JSON_FILE" ] && [ -f "$XTALPI_PI_TOOLS_DOC" ] && [ -f "$UNTIL_DONE_QUEUE_PATCH_MJS" ] && [ -f "$UNTIL_DONE_QUEUE_PATCH_SH" ] && [ -f "$UNTIL_DONE_QUEUE_PATCH_PS" ]; then
+if [ -f "$XTALPI_PI_TOOLS_SCRIPT" ] && [ -f "$XTALPI_PI_TOOLS_TEST" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_PS" ] && [ -f "$XTALPI_PI_TOOLS_DEBUG_SUMMARY" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_STATUS_CORE" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_PLAN" ] && [ -f "$XTALPI_PI_TOOLS_PROVIDER_HEALTH" ] && [ -f "$XTALPI_PI_TOOLS_CAPABILITY_PROBE" ] && [ -f "$XTALPI_PI_TOOLS_ERROR_CONTRACT_CHECK" ] && [ -f "$XTALPI_PI_TOOLS_COVERAGE_AUDIT" ] && [ -f "$XTALPI_PI_TOOLS_REPLAY_FIXTURES" ] && [ -f "$XTALPI_PI_TOOLS_ERROR_CONTRACT" ] && [ -f "$XTALPI_PI_TOOLS_JSON_FILE" ] && [ -f "$XTALPI_PI_TOOLS_LOCAL_ACTION_ADAPTER" ] && [ -f "$XTALPI_PI_TOOLS_DOC" ] && [ -f "$UNTIL_DONE_QUEUE_PATCH_MJS" ] && [ -f "$UNTIL_DONE_QUEUE_PATCH_SH" ] && [ -f "$UNTIL_DONE_QUEUE_PATCH_PS" ]; then
   pass "xtalpi-pi-tools and pi-until-done compatibility helpers exist"
 else
   fail "xtalpi-pi-tools or pi-until-done compatibility helpers are missing"
+fi
+
+if grep -q "pi67-xtalpi-provider-capability-probe.mjs" "$REPO_ROOT/README.md" && grep -q "pi67-xtalpi-provider-capability-probe.mjs" "$XTALPI_PI_TOOLS_DOC" && grep -q "provider-capabilities.v1" "$XTALPI_PI_TOOLS_DOC"; then
+  pass "xtalpi-pi-tools provider capability probe is documented"
+else
+  fail "xtalpi-pi-tools provider capability probe is not documented"
 fi
 
 if [ -f "$XTALPI_PI_TOOLS_COVERAGE_AUDIT" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_PLAN" ] && grep -q "pi67-xtalpi-tool-coverage-audit.sh" "$XTALPI_PI_TOOLS_DOC" && grep -q "pi67-xtalpi-smoke-plan.mjs" "$XTALPI_PI_TOOLS_DOC"; then
@@ -316,11 +324,13 @@ fi
 
 if command_exists node; then
   node --check "$XTALPI_PI_TOOLS_SMOKE_STATUS_CORE" >/dev/null
+  node --check "$XTALPI_PI_TOOLS_CAPABILITY_PROBE" >/dev/null
+  node "$XTALPI_PI_TOOLS_CAPABILITY_PROBE" --self-test >/dev/null
   node "$XTALPI_PI_TOOLS_ERROR_CONTRACT_CHECK" "$XTALPI_PI_TOOLS_ERROR_CONTRACT" --self-test >/dev/null
   node "$XTALPI_PI_TOOLS_ERROR_CONTRACT_CHECK" "$XTALPI_PI_TOOLS_ERROR_CONTRACT" >/dev/null
-  pass "xtalpi-pi-tools provider error contract validation and self-test passed"
+  pass "xtalpi-pi-tools capability probe and provider error contract self-tests passed"
 else
-  warn "node not found; skipped provider error contract validation"
+  warn "node not found; skipped capability probe and provider error contract validation"
 fi
 
 if bash "$XTALPI_PI_TOOLS_DEBUG_SUMMARY" --self-test >/dev/null; then
@@ -354,9 +364,9 @@ else
 fi
 
 if command_exists node; then
-  if node - "$REPO_ROOT/models.example.json" "$XTALPI_PI_TOOLS_RUNTIME_CONFIG" "$XTALPI_PI_TOOLS_PROVIDER_HEALTH" <<'NODE'
+  if node - "$REPO_ROOT/models.example.json" "$XTALPI_PI_TOOLS_RUNTIME_CONFIG" "$XTALPI_PI_TOOLS_PROVIDER_HEALTH" "$XTALPI_PI_TOOLS_CAPABILITY_PROBE" <<'NODE'
 const fs = require("fs");
-const [modelsFile, runtimeConfigFile, providerHealthFile] = process.argv.slice(2);
+const [modelsFile, runtimeConfigFile, providerHealthFile, capabilityProbeFile] = process.argv.slice(2);
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -370,10 +380,13 @@ assert(
 );
 const runtimeConfig = fs.readFileSync(runtimeConfigFile, "utf8");
 const providerHealth = fs.readFileSync(providerHealthFile, "utf8");
+const capabilityProbe = fs.readFileSync(capabilityProbeFile, "utf8");
 assert(runtimeConfig.includes("/chat/completions"), "runtime-config must append /chat/completions");
 assert(providerHealth.includes("/chat/completions"), "provider-health must probe /chat/completions");
+assert(capabilityProbe.includes("/chat/completions"), "capability probe must probe /chat/completions");
 assert(!runtimeConfig.includes("/responses"), "runtime-config must not target OpenAI Responses API for xtalpi");
 assert(!providerHealth.includes("/responses"), "provider-health must not probe OpenAI Responses API for xtalpi");
+assert(!capabilityProbe.includes("/responses"), "capability probe must not probe OpenAI Responses API for xtalpi");
 NODE
   then
     pass "xtalpi-pi-tools endpoint contract uses OpenAI chat completions"
@@ -397,7 +410,7 @@ if command_exists git && git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/d
     fail "git diff --check failed"
   fi
 
-  if git -C "$REPO_ROOT" ls-files --error-unmatch VERSION CHANGELOG.md .github/workflows/ci.yml docs/release.md docs/report-schema.md docs/doctor-schema.md docs/status.md docs/skill-migration-schema.md docs/external-skill-sync-schema.md docs/skill-governance.md docs/troubleshooting.md docs/xtalpi-pi-tools.md scripts/pi67-check-external-skills.sh scripts/pi67-doctor.sh scripts/pi67-doctor.ps1 scripts/pi67-json-utils.cjs scripts/pi67-json-utils.ps1 scripts/pi67-migrate-skills.sh scripts/pi67-release-artifact-smoke.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-report.ps1 scripts/pi67-status.sh scripts/pi67-shared-skills-inventory.sh scripts/pi67-sync-commerce-growth-os.sh scripts/pi67-sync-external-skills.sh scripts/pi67-test-skill-governance.sh scripts/pi67-update.sh scripts/pi67-update.ps1 scripts/pi67-smoke.ps1 scripts/pi67-xtalpi-pi-tools.sh scripts/pi67-test-xtalpi-pi-tools.sh scripts/pi67-fuzz-xtalpi-parser.mjs scripts/pi67-patch-pi-until-done-runtime-queue.mjs scripts/pi67-patch-pi-until-done-runtime-queue.sh scripts/pi67-patch-pi-until-done-runtime-queue.ps1 scripts/pi67-xtalpi-pi-tools-smoke.sh scripts/pi67-xtalpi-pi-tools-smoke.ps1 scripts/pi67-xtalpi-pi-tools-debug-summary.sh scripts/pi67-xtalpi-tool-coverage-audit.sh scripts/pi67-xtalpi-smoke-status-core.cjs scripts/pi67-xtalpi-smoke-plan.mjs scripts/pi67-xtalpi-provider-health.mjs scripts/pi67-validate-xtalpi-provider-error-contract.mjs extensions/xtalpi-pi-tools/json-file.ts extensions/xtalpi-pi-tools/fixtures/replay-cases.json extensions/xtalpi-pi-tools/provider-error-contract.json >/dev/null 2>&1; then
+  if git -C "$REPO_ROOT" ls-files --error-unmatch VERSION CHANGELOG.md .github/workflows/ci.yml docs/release.md docs/report-schema.md docs/doctor-schema.md docs/status.md docs/skill-migration-schema.md docs/external-skill-sync-schema.md docs/skill-governance.md docs/troubleshooting.md docs/xtalpi-pi-tools.md scripts/pi67-check-external-skills.sh scripts/pi67-doctor.sh scripts/pi67-doctor.ps1 scripts/pi67-json-utils.cjs scripts/pi67-json-utils.ps1 scripts/pi67-migrate-skills.sh scripts/pi67-release-artifact-smoke.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-report.ps1 scripts/pi67-status.sh scripts/pi67-shared-skills-inventory.sh scripts/pi67-sync-commerce-growth-os.sh scripts/pi67-sync-external-skills.sh scripts/pi67-test-skill-governance.sh scripts/pi67-update.sh scripts/pi67-update.ps1 scripts/pi67-smoke.ps1 scripts/pi67-xtalpi-pi-tools.sh scripts/pi67-test-xtalpi-pi-tools.sh scripts/pi67-fuzz-xtalpi-parser.mjs scripts/pi67-patch-pi-until-done-runtime-queue.mjs scripts/pi67-patch-pi-until-done-runtime-queue.sh scripts/pi67-patch-pi-until-done-runtime-queue.ps1 scripts/pi67-xtalpi-pi-tools-smoke.sh scripts/pi67-xtalpi-pi-tools-smoke.ps1 scripts/pi67-xtalpi-pi-tools-debug-summary.sh scripts/pi67-xtalpi-tool-coverage-audit.sh scripts/pi67-xtalpi-smoke-status-core.cjs scripts/pi67-xtalpi-smoke-plan.mjs scripts/pi67-xtalpi-provider-health.mjs scripts/pi67-xtalpi-provider-capability-probe.mjs scripts/pi67-validate-xtalpi-provider-error-contract.mjs extensions/xtalpi-pi-tools/json-file.ts extensions/xtalpi-pi-tools/local-action-adapter.ts extensions/xtalpi-pi-tools/fixtures/replay-cases.json extensions/xtalpi-pi-tools/provider-error-contract.json >/dev/null 2>&1; then
     pass "release metadata files are tracked or staged"
   else
     warn "release metadata files are not all tracked yet; expected before final commit"

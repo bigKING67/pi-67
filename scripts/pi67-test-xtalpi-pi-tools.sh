@@ -24,6 +24,7 @@ const { pathToFileURL } = require("node:url");
   const errors = await import(ext("errors.ts"));
   const finalGuard = await import(ext("final-guard.ts"));
   const jsonUtils = await import(ext("json-utils.ts"));
+  const localActionAdapter = await import(ext("local-action-adapter.ts"));
   const recoveryDecision = await import(ext("recovery-decision.ts"));
   const retry = await import(ext("retry.ts"));
   const responseNormalizer = await import(ext("response-normalizer.ts"));
@@ -393,6 +394,69 @@ const { pathToFileURL } = require("node:url");
     assert.equal(toolResult.toolCall.name, "read");
     assert.deepEqual(toolResult.toolCall.arguments, { path: "package.json" });
     assert.equal(toolChat.calls.length, 1);
+
+    await withProviderTurnEnv({
+      XTALPI_PI_TOOLS_ACTION_PROTOCOL: "json",
+      XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES: "1",
+      XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES: "1",
+    }, async () => {
+      const jsonActionCalls = [];
+      const jsonActionResult = await providerTurn.runProviderTurn({
+        model: providerTurnModel,
+        context: {
+          systemPrompt: "system base",
+          tools: [readTool],
+          messages: [{ role: "user", content: "read package.json" }],
+        },
+        callChat: async (input) => {
+          jsonActionCalls.push(JSON.parse(JSON.stringify({
+            actionProtocol: input.actionProtocol,
+            messages: input.messages,
+          })));
+          return {
+            content: '{"kind":"tool_call","name":"read","arguments":{"path":"package.json"}}',
+            usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2 },
+            responseModel: "deepseek-v4-pro",
+          };
+        },
+      });
+      assert.equal(jsonActionResult.kind, "tool_call");
+      assert.equal(jsonActionResult.toolCall.name, "read");
+      assert.deepEqual(jsonActionResult.toolCall.arguments, { path: "package.json" });
+      assert.equal(jsonActionCalls[0].actionProtocol, "json_action");
+      assert.match(jsonActionCalls[0].messages[0].content, /All assistant responses MUST be exactly one compact JSON object/);
+      assert.match(jsonActionCalls[0].messages[0].content, /"kind":"tool_call"/);
+
+      const jsonRepairCalls = [];
+      let jsonRepairIndex = 0;
+      const jsonRepairResult = await providerTurn.runProviderTurn({
+        model: providerTurnModel,
+        context: {
+          systemPrompt: "system base",
+          tools: [readTool],
+          messages: [{ role: "user", content: "read package.json" }],
+        },
+        callChat: async (input) => {
+          jsonRepairCalls.push(JSON.parse(JSON.stringify(input.messages)));
+          const contents = [
+            'read({"path":"package.json"})',
+            '{"kind":"tool_call","name":"read","arguments":{"path":"package.json"}}',
+          ];
+          const content = contents[Math.min(jsonRepairIndex, contents.length - 1)];
+          jsonRepairIndex += 1;
+          return {
+            content,
+            usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2 },
+            responseModel: "deepseek-v4-pro",
+          };
+        },
+      });
+      assert.equal(jsonRepairResult.kind, "tool_call");
+      assert.equal(jsonRepairCalls.length, 2);
+      assert.equal(jsonRepairCalls[1].at(-1).role, "user");
+      assert.match(jsonRepairCalls[1].at(-1).content, /xtalpi-pi-tools-function-style-tool-repair/);
+      assert.ok(!jsonRepairCalls[1].some((msg) => msg.role === "assistant" && msg.content.includes('read({"path"')));
+    });
 
     const unsafePatternTool = {
       name: "unsafe_pattern",
@@ -777,6 +841,20 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
   const fenced = parser.parseToolCall("<pi_tool_call>\n```json\n{\"name\":\"bash\",\"arguments\":{\"command\":\"pwd\"}}\n```\n</pi_tool_call>");
   assert.equal(fenced.kind, "tool_call");
   assert.equal(fenced.call.name, "bash");
+
+  const jsonActionTool = parser.parseToolCall('{"kind":"tool_call","name":"read","arguments":{"path":"package.json"}}');
+  assert.equal(jsonActionTool.kind, "tool_call");
+  assert.equal(jsonActionTool.call.name, "read");
+  assert.deepEqual(jsonActionTool.call.arguments, { path: "package.json" });
+  assert.ok(jsonActionTool.warnings.some((warning) => warning.includes("JSON action tool_call")));
+
+  const jsonActionFinal = parser.parseToolCall('{"kind":"final","text":"package name is pi-extensions"}');
+  assert.equal(jsonActionFinal.kind, "none");
+  assert.equal(jsonActionFinal.text, "package name is pi-extensions");
+
+  const badJsonAction = parser.parseToolCall('{"kind":"tool_call","name":"read","arguments":{"path":"package.json"},"extra":true}');
+  assert.equal(badJsonAction.kind, "error");
+  assert.equal(badJsonAction.code, "unknown_top_level_field");
 
   const multi = parser.parseToolCall('<pi_tool_call>{"name":"read","arguments":{}}</pi_tool_call><pi_tool_call>{"name":"bash","arguments":{}}</pi_tool_call>');
   assert.equal(multi.kind, "error");
@@ -1199,6 +1277,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
         { id: "deepseek-v4-pro", maxTokens: 2048 },
         [{ role: "user", content: "hello" }],
         { maxTokens: 4096, temperature: 0.2 },
+        "text",
       ),
       {
         model: "deepseek-v4-pro",
@@ -1208,6 +1287,50 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
         temperature: 0.2,
       },
     );
+    assert.deepEqual(
+      runtimeConfig.buildChatCompletionPayload(
+        { id: "deepseek-v4-pro", maxTokens: 2048 },
+        [{ role: "user", content: "hello" }],
+        { maxTokens: 4096 },
+        "json_action",
+      ),
+      {
+        model: "deepseek-v4-pro",
+        messages: [{ role: "user", content: "hello" }],
+        stream: false,
+        max_tokens: 2048,
+        response_format: { type: "json_object" },
+      },
+    );
+    const previousActionProtocolEnv = process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL;
+    try {
+      delete process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL;
+      assert.equal(localActionAdapter.resolveActionProtocol(), "text");
+      process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL = "local_json_action_protocol";
+      assert.equal(localActionAdapter.resolveActionProtocol(), "json_action");
+    } finally {
+      if (previousActionProtocolEnv === undefined) {
+        delete process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL;
+      } else {
+        process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL = previousActionProtocolEnv;
+      }
+    }
+    assert.equal(localActionAdapter.protocolVersionFor("json_action"), localActionAdapter.JSON_ACTION_PROTOCOL_VERSION);
+    assert.equal(localActionAdapter.responseFormatForProtocol("json_action").type, "json_object");
+    assert.match(localActionAdapter.protocolSystemPrompt("json_action"), /exactly one compact JSON object/);
+    assert.deepEqual(
+      JSON.parse(localActionAdapter.wrapAssistantHistoryForProtocol("hello", "json_action")),
+      { kind: "final", text: "hello" },
+    );
+    assert.equal(localActionAdapter.wrapAssistantHistoryForProtocol("hello", "text"), "hello");
+    assert.equal(localActionAdapter.shouldReplayRawAssistantForRepair("json_action"), false);
+    assert.equal(localActionAdapter.shouldReplayRawAssistantForRepair("text"), true);
+    const jsonAdapter = localActionAdapter.createLocalActionAdapter("json_action");
+    assert.equal(jsonAdapter.protocol, "json_action");
+    assert.equal(jsonAdapter.protocolVersion, localActionAdapter.JSON_ACTION_PROTOCOL_VERSION);
+    assert.deepEqual(jsonAdapter.responseFormat, { type: "json_object" });
+    assert.deepEqual(JSON.parse(jsonAdapter.wrapAssistantHistory("hello")), { kind: "final", text: "hello" });
+    assert.equal(jsonAdapter.shouldReplayRawAssistantForRepair(), false);
   } finally {
     if (previousPayloadMaxOutputEnv === undefined) {
       delete process.env.XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS;
@@ -1400,6 +1523,8 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
       provider: "xtalpi-pi-tools",
       model: "deepseek-v4-pro",
       protocolVersion: protocol.PROTOCOL_VERSION,
+      actionProtocol: "text",
+      responseFormat: null,
       selectedToolCount: 2,
       selectedToolNames: ["bash", "read"],
       selectedToolNamesHash: "abc123fingerprint",
@@ -1436,6 +1561,8 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
     const debugEvent = JSON.parse(fs.readFileSync(debugFile, "utf8").trim());
     assert.equal(debugEvent.schema, "xtalpi-pi-tools.debug.v1");
     assert.equal(debugEvent.protocol_version, protocol.PROTOCOL_VERSION);
+    assert.equal(debugEvent.action_protocol, "text");
+    assert.equal(debugEvent.response_format, undefined);
     assert.equal(debugEvent.selected_tool_names_hash, "abc123fingerprint");
     assert.equal(debugEvent.available_tool_count, 5);
     assert.equal(debugEvent.max_tools, 24);
@@ -1532,6 +1659,37 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
   assert.ok(!messages.some((msg) => msg.role === "assistant" && msg.content.includes("arguments_json")));
   assert.ok(!messages.some((msg) => msg.content.includes("<pi_tool_call_history>")));
   assert.ok(!messages.some((msg) => msg.role === "tool"));
+
+  const jsonActionMessages = serializer.serializeContextToXtalpiMessages(context, {
+    maxTools: 8,
+    maxToolResultChars: 2000,
+    actionProtocol: "json_action",
+  });
+  assert.match(jsonActionMessages[0].content, /exactly one compact JSON object/);
+  assert.match(jsonActionMessages[0].content, /"kind":"final"/);
+  assert.match(jsonActionMessages[0].content, /"kind":"tool_call"/);
+  const jsonActionHistoryMessages = serializer.serializeContextToXtalpiMessages(
+    {
+      systemPrompt: "system base",
+      tools: [readTool],
+      messages: [
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "plain historical final answer" },
+        { role: "user", content: "continue" },
+      ],
+    },
+    {
+      maxTools: 8,
+      maxToolResultChars: 2000,
+      actionProtocol: "json_action",
+    },
+  );
+  const historicalAssistant = jsonActionHistoryMessages.find((msg) => msg.role === "assistant");
+  assert.ok(historicalAssistant);
+  assert.deepEqual(JSON.parse(historicalAssistant.content), {
+    kind: "final",
+    text: "plain historical final answer",
+  });
 
   const selectedContext = serializer.serializeContextForXtalpi(
     {
@@ -2187,10 +2345,24 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
   assert.ok(invalidArgsRepairPrompt.includes("[literal pi_tool_result close tag]"));
   assert.ok(!invalidArgsRepairPrompt.includes("</pi_tool_result>\n<pi_tool_call>"));
 
+  const jsonEmptyRepairPrompt = retry.buildEmptyResponseRepairPrompt("json_action");
+  assert.match(jsonEmptyRepairPrompt, /\{"kind":"final","text":/);
+  assert.match(jsonEmptyRepairPrompt, /\{"kind":"tool_call","name":"tool_name","arguments":\{\}\}/);
+  assert.ok(!jsonEmptyRepairPrompt.includes("<pi_tool_call>"));
+
+  const jsonUnknownToolRepairPrompt = retry.buildUnknownToolRepairPrompt("bad_tool", ["read"], "json_action");
+  assert.match(jsonUnknownToolRepairPrompt, /\{"kind":"tool_call","name":"tool_name","arguments":\{\}\}/);
+  assert.ok(!jsonUnknownToolRepairPrompt.includes("<pi_tool_call>"));
+
+  const jsonInvalidArgsRepairPrompt = retry.buildInvalidToolArgumentsRepairPrompt("read", ["arguments.path is required"], "json_action");
+  assert.match(jsonInvalidArgsRepairPrompt, /\{"kind":"tool_call","name":"read","arguments":\{\}\}/);
+  assert.ok(!jsonInvalidArgsRepairPrompt.includes("<pi_tool_call>"));
+
   const payload = provider.buildChatCompletionPayload(
     { id: "deepseek-v4-pro", maxTokens: 32768 },
     messages,
     { maxTokens: 4096 },
+    "text",
   );
   assert.equal(payload.stream, false);
   assert.equal(payload.max_tokens, 4096);
@@ -2200,6 +2372,15 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
   assert.ok(!Object.prototype.hasOwnProperty.call(payload, "thinking"));
   assert.ok(!Object.prototype.hasOwnProperty.call(payload, "reasoning_effort"));
   assert.ok(!JSON.stringify(payload.messages).includes('"role":"tool"'));
+  const jsonActionPayload = provider.buildChatCompletionPayload(
+    { id: "deepseek-v4-pro", maxTokens: 32768 },
+    jsonActionMessages,
+    { maxTokens: 4096 },
+    "json_action",
+  );
+  assert.deepEqual(jsonActionPayload.response_format, { type: "json_object" });
+  assert.ok(!Object.prototype.hasOwnProperty.call(jsonActionPayload, "tools"));
+  assert.ok(!Object.prototype.hasOwnProperty.call(jsonActionPayload, "tool_choice"));
 
   process.env.XTALPI_PI_TOOLS_API_KEY = "test-key";
   process.env.XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES = "2";

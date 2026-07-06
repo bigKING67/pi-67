@@ -483,7 +483,8 @@ pi-67/
 │   ├── pi67-xtalpi-pi-tools-smoke.ps1
 │   ├── pi67-xtalpi-pi-tools-debug-summary.sh
 │   ├── pi67-xtalpi-smoke-plan.mjs
-│   └── pi67-xtalpi-provider-health.mjs
+│   ├── pi67-xtalpi-provider-health.mjs
+│   └── pi67-xtalpi-provider-capability-probe.mjs
 └── templates/
     └── scrapers/
 ```
@@ -549,11 +550,11 @@ targeted live runner 验证低风险 extension 工具链路：
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -ListCases
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-low-risk
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-expanded
-.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,plan-mode-contract,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
 ```
 
-这个 PowerShell runner 覆盖 `read-package`、`fffind-package`、`ffgrep-package`、
-`batch-web-fetch-example`、`seq-thinking-status`、`mcp-status`、`subagent-list`
+这个 PowerShell runner 覆盖 `read-package`、`plan-mode-contract`、`fffind-package`、
+`ffgrep-package`、`batch-web-fetch-example`、`seq-thinking-status`、`mcp-status`、`subagent-list`
 和 `recall-not-found` 这些低风险 targeted case，并为 FFF / sequential-thinking
 使用临时隔离状态。PowerShell live runner 默认会对“工具调用、参数和 debug telemetry
 都已正确但最终 assistant 文本为空”的瞬时模型/turn 结束抖动重试 1 次；可用
@@ -580,12 +581,12 @@ bash ./scripts/pi67-test-xtalpi-pi-tools.sh
 bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh
 ```
 
-真实冒烟覆盖 no-tool、bash、read、bash/read、web/read、low-`maxTools` `tool-selection-clipping`、multi-turn `tool-selection-continuation`，以及 adversarial `tool-result-injection` 场景；可用 `--case tool-selection-clipping` 单独复核 selected-tool clipping telemetry，用 `--case tool-selection-continuation` 单独复核 continuation prompt source telemetry，也可用 `--case tool-result-injection` 单独复核工具结果注入边界与 canary confirmation gate。
+真实冒烟覆盖 no-tool、bash、read、bash/read、web/read、`plan-mode-contract`、low-`maxTools` `tool-selection-clipping`、multi-turn `tool-selection-continuation`、`until-done-continuation`，以及 adversarial `tool-result-injection` 场景；可用 `--case plan-mode-contract` 单独复核 `<proposed_plan>` contract，用 `--case tool-selection-clipping` 单独复核 selected-tool clipping telemetry，用 `--case tool-selection-continuation` 或 `--case until-done-continuation` 单独复核 continuation prompt source telemetry，也可用 `--case tool-result-injection` 单独复核工具结果注入边界与 canary confirmation gate。
 
 targeted extension smoke 还覆盖 `fffind-package`、`ffgrep-package`、
 `batch-web-fetch-example`、`seq-thinking-status`、`mcp-status`、`subagent-list`
 和 `recall-not-found`；PowerShell runner 额外提供 `read-package` 作为
-Windows-native cwd-relative path 基线。以上 case 默认不进入 full-suite；它们用于按需证明具体
+Windows-native cwd-relative path / plan-mode 基线。以上 extension case 默认不进入 full-suite；它们用于按需证明具体
 extension tool 的真实 `tool_execution_start` 链路，同时避免 MCP 认证、子代理执行、
 observational-memory 真实内容、图片生成或交互 UI 混入常规发布门。
 装新 extension 后，Bash runner 可先用低风险 profile：
@@ -599,7 +600,7 @@ bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --profile extension-low-risk
 ```
 
 该 profile 等价于 `mcp-status,subagent-list,recall-not-found`。需要扩展覆盖时再用
-`--profile extension-expanded`；默认不传 profile 仍是 8-case full-suite。
+`--profile extension-expanded`；默认不传 profile 仍是 10-case full-suite。
 
 provider health 快速预检：
 
@@ -609,6 +610,49 @@ node ./scripts/pi67-xtalpi-provider-health.mjs
 
 provider health 会输出结构化 JSON，并对瞬时 timeout/network/upstream/protocol 抖动做有界重试；`http_429` 只记录为 rate-limit，不做立即重试。
 这些错误代码、分类、retryable 语义和 provider-health immediate retry 策略由 `extensions/xtalpi-pi-tools/provider-error-contract.json` 统一定义；contract 内置 `requiredCodes`、`allowedCategories`、`requiredHttpStatus` 和 `classificationSamples` manifest，运行时 provider、preflight 和 validator 共同读取，避免脚本和扩展长期漂移；修改该 contract 后运行 `node ~/.pi/agent/scripts/pi67-validate-xtalpi-provider-error-contract.mjs --self-test` 和 `node ~/.pi/agent/scripts/pi67-validate-xtalpi-provider-error-contract.mjs`。
+
+provider capability 深度探测：
+
+```bash
+node ./scripts/pi67-xtalpi-provider-capability-probe.mjs
+node ./scripts/pi67-xtalpi-provider-capability-probe.mjs --json-action-runs 5
+```
+
+PowerShell：
+
+```powershell
+node .\scripts\pi67-xtalpi-provider-capability-probe.mjs
+node .\scripts\pi67-xtalpi-provider-capability-probe.mjs --json-action-runs 5
+```
+
+该 probe 输出 `xtalpi-pi-tools.provider-capabilities.v1`，分别检查普通 chat、
+`response_format=json_object`、`json_schema strict`、native `tools/tool_choice`、
+strict tools、`role=tool` continuation 和本地 JSON action envelope。若结果显示
+`json_schema_strict=false` 且 native tools / `role=tool` 不可用，就不要继续把晶泰
+当完整 OpenAI tool runtime；正确路径是 `recommendedMode=local_json_action_protocol`
+或 `local_text_protocol`：晶泰只生成普通文本/JSON action，Pi 本地负责 schema 校验、
+selected-tool 白名单、参数校验、repair、错误分类和工具执行。
+
+如果 probe 推荐 `local_json_action_protocol`，可用本地 JSON action 协议做 targeted
+验证。它只启用 `response_format: {"type":"json_object"}` 作为语法 hint，不信任上游
+schema/native tool 能力；所有 action schema、工具白名单、参数校验、repair 和执行仍在
+Pi 本地完成。实现边界集中在 `extensions/xtalpi-pi-tools/local-action-adapter.ts`：
+adapter 只选择本地协议、system prompt、`response_format` hint、assistant history 包装和
+repair transcript 策略，不把 OpenAI native tools 委托给晶泰。
+
+```bash
+XTALPI_PI_TOOLS_ACTION_PROTOCOL=json bash ./scripts/pi67-test-xtalpi-pi-tools.sh
+XTALPI_PI_TOOLS_ACTION_PROTOCOL=json bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case read
+```
+
+PowerShell：
+
+```powershell
+$env:XTALPI_PI_TOOLS_ACTION_PROTOCOL = "json"
+.\scripts\pi67-smoke.ps1 -Ci
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile quick
+Remove-Item Env:\XTALPI_PI_TOOLS_ACTION_PROTOCOL
+```
 
 parser 兼容矩阵离线回归：
 

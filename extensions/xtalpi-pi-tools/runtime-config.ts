@@ -16,6 +16,10 @@ import {
   type XtalpiChatMessage,
   type XtalpiChatPayload,
 } from "./protocol.ts";
+import {
+  responseFormatForProtocol,
+  type XtalpiActionProtocol,
+} from "./local-action-adapter.ts";
 import { readJsonFile as readCompatibleJsonFile } from "./json-file.ts";
 import { envInt } from "./retry.ts";
 
@@ -201,6 +205,7 @@ export function buildChatCompletionPayload(
   model: Pick<Model<Api>, "id" | "maxTokens">,
   messages: XtalpiChatMessage[],
   options?: Pick<SimpleStreamOptions, "temperature" | "maxTokens">,
+  actionProtocol?: XtalpiActionProtocol,
 ): XtalpiChatPayload {
   const maxTokens = resolveMaxOutputTokens(model, options);
   const payload: XtalpiChatPayload = {
@@ -212,6 +217,11 @@ export function buildChatCompletionPayload(
 
   if (typeof options?.temperature === "number") {
     payload.temperature = options.temperature;
+  }
+
+  const responseFormat = responseFormatForProtocol(actionProtocol);
+  if (responseFormat) {
+    payload.response_format = responseFormat;
   }
 
   return payload;

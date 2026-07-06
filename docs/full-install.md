@@ -403,11 +403,11 @@ Windows PowerShell users can run the low-risk targeted live smoke without Bash:
 
 ```powershell
 Set-Location $env:USERPROFILE\.pi\agent
-.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,plan-mode-contract,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
 ```
 
 The PowerShell runner covers low-risk targeted cases for cwd-relative `read`,
-FFF search/grep, batch web fetch, sequential-thinking status, MCP gateway/status,
+plan-mode contract, FFF search/grep, batch web fetch, sequential-thinking status, MCP gateway/status,
 read-only subagent list, and sentinel recall-not-found. It uses temporary state
 for FFF and sequential-thinking. Use the Bash runner for the full xtalpi suite on
 macOS/Linux or an explicitly configured Bash-compatible Windows environment.

@@ -7,8 +7,10 @@ const FULL_SUITE_CASE_NAMES = [
   "read",
   "bash-read",
   "web-read",
+  "plan-mode-contract",
   "tool-selection-clipping",
   "tool-selection-continuation",
+  "until-done-continuation",
   "tool-result-injection",
 ];
 

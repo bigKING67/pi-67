@@ -2,8 +2,12 @@ import { createHash } from "node:crypto";
 import type { Api, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import {
   PROVIDER_ID,
-  PROTOCOL_VERSION,
 } from "./protocol.ts";
+import {
+  protocolVersionFor,
+  responseFormatForProtocol,
+  type XtalpiActionProtocol,
+} from "./local-action-adapter.ts";
 import {
   maxEmptyRetries,
   maxRepairRetries,
@@ -22,6 +26,8 @@ export type TurnDebugContext = {
   provider: string;
   model: string;
   protocolVersion: string;
+  actionProtocol: XtalpiActionProtocol;
+  responseFormat: string | null;
   selectedToolCount: number;
   selectedToolNames: string[];
   selectedToolNamesHash: string;
@@ -56,6 +62,7 @@ export function buildTurnDebugContext(input: {
   serializedContext: SerializedXtalpiContext;
   maxTools: number;
   maxToolResultChars: number;
+  actionProtocol: XtalpiActionProtocol;
   options?: SimpleStreamOptions;
 }): TurnDebugContext {
   const selectedToolNames = sortedToolNames(input.serializedContext.selectedToolNames);
@@ -63,7 +70,9 @@ export function buildTurnDebugContext(input: {
   return {
     provider: PROVIDER_ID,
     model: input.model.id,
-    protocolVersion: PROTOCOL_VERSION,
+    protocolVersion: protocolVersionFor(input.actionProtocol),
+    actionProtocol: input.actionProtocol,
+    responseFormat: responseFormatForProtocol(input.actionProtocol)?.type ?? null,
     selectedToolCount: input.serializedContext.selectedTools.length,
     selectedToolNames,
     selectedToolNamesHash: hashSelectedToolNames(selectedToolNames),

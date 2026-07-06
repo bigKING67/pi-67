@@ -74,6 +74,8 @@ export function debugLog(event: string, data: Record<string, unknown>): void {
         provider: stringField(safeData, "provider"),
         model: stringField(safeData, "model"),
         protocol_version: stringField(safeData, "protocolVersion"),
+        action_protocol: stringField(safeData, "actionProtocol"),
+        response_format: stringField(safeData, "responseFormat"),
         tool_name: stringField(safeData, "toolName"),
         repair_retries: numberField(safeData, "repairRetries"),
         total_recoveries: numberField(safeData, "totalRecoveries"),

@@ -32,6 +32,11 @@ export {
   resolveMaxOutputTokens,
   resolveRequestTimeoutMs,
 } from "./runtime-config.ts";
+export {
+  createLocalActionAdapter,
+  resolveActionProtocol,
+  type XtalpiActionProtocol,
+} from "./local-action-adapter.ts";
 
 function streamXtalpiPiTools(
   model: Model<Api>,

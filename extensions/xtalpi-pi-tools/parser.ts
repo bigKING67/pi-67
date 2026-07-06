@@ -433,6 +433,46 @@ function normalizeOpenAiToolCallObject(
 }
 
 function normalizeParsedEnvelope(parsed: JsonObject, cleaned: string, originalText: string, warnings: string[]): ToolCallParseResult {
+  if (Object.prototype.hasOwnProperty.call(parsed, "kind")) {
+    if (parsed.kind === "final") {
+      const unknown = unknownFields(parsed, ["kind", "text"]);
+      if (unknown.length > 0) return errorUnknownTopLevelFields(unknown, cleaned, originalText);
+      if (typeof parsed.text !== "string") {
+        return {
+          kind: "error",
+          code: "invalid_envelope",
+          message: 'JSON action envelope with kind "final" must contain string field "text"',
+          raw: cleaned,
+          text: originalText,
+        };
+      }
+      return {
+        kind: "none",
+        text: parsed.text,
+      };
+    }
+
+    if (parsed.kind === "tool_call") {
+      const allowed = new Set(["kind", ...TOOL_NAME_ALIASES, ...TOOL_ARGUMENT_ALIASES, ...TOOL_METADATA_FIELDS]);
+      const unknown = unknownFields(parsed, allowed);
+      if (unknown.length > 0) return errorUnknownTopLevelFields(unknown, cleaned, originalText);
+      const withoutKind = { ...parsed };
+      delete withoutKind.kind;
+      return normalizeNamedArgumentsObject(withoutKind, cleaned, originalText, [
+        ...warnings,
+        "accepted JSON action tool_call envelope",
+      ]);
+    }
+
+    return {
+      kind: "error",
+      code: "invalid_envelope",
+      message: '"kind" must be either "tool_call" or "final" when present',
+      raw: cleaned,
+      text: originalText,
+    };
+  }
+
   if (Array.isArray(parsed.tool_calls)) {
     const unknown = unknownFields(parsed, ["tool_calls"]);
     if (unknown.length > 0) return errorUnknownTopLevelFields(unknown, cleaned, originalText);
@@ -653,6 +693,9 @@ export function parseToolCall(text: string): ToolCallParseResult {
         ...parsed,
         warnings: [...parsed.warnings, "accepted bare JSON tool envelope without protocol tags"],
       };
+    }
+    if (parsed.kind === "none") {
+      return parsed;
     }
     let bareJson: unknown;
     try {
