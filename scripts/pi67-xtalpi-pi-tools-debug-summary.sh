@@ -52,7 +52,7 @@ Summarize xtalpi-pi-tools live smoke artifacts:
 
 Selection:
   --latest                       summarize the newest run id
-  --run-id RUN_ID                summarize one exact smoke run, e.g. 20260702-144643
+  --run-id RUN_ID                summarize one exact smoke run, e.g. 20260702-144643 or 20260702-144643-12345
   --history N                    show newest N persisted *-summary.json smoke runs
   --trend-gate N                 gate newest N persisted smoke summaries
   --drift N                      summarize provider/runtime drift across newest N persisted smoke summaries
@@ -411,7 +411,7 @@ function writeSummary(
   } = {},
 ) {
   const defaultRuntimeFingerprint = runtimeFingerprint || {
-    protocolVersions: ["xtalpi-pi-tools.text.v1"],
+    protocolVersions: ["xtalpi-pi-tools.json-action.v1"],
     selectedToolNameHashes: ["3316348dbadfb7b1"],
     selectedToolNames: ["read"],
     maxTools: [24],
@@ -682,7 +682,7 @@ writeSummary("20260702-000002", {
   maxOutputTokens: 2048,
   ...fullSuiteReasonCodeTotals,
   runtimeFingerprint: {
-    protocolVersions: ["xtalpi-pi-tools.text.v1"],
+    protocolVersions: ["xtalpi-pi-tools.json-action.v1"],
     selectedToolNameHashes: ["3316348dbadfb7b1"],
     selectedToolNames: ["read"],
     maxTools: [24],
@@ -1995,8 +1995,8 @@ function increment(map, key, by = 1) {
 
 function inferCaseParts(fileName) {
   const stem = fileName.replace(/\.debug\.jsonl$/, "");
-  const match = stem.match(/^\d{8}-\d{6}-(.+)$/);
-  return match ? { runId: stem.slice(0, 15), caseName: match[1] } : { runId: "unknown", caseName: stem };
+  const match = stem.match(/^(\d{8}-\d{6}(?:-\d+)?)-(.+)$/);
+  return match ? { runId: match[1], caseName: match[2] } : { runId: "unknown", caseName: stem };
 }
 
 function finalAssistantText(events) {
@@ -2165,7 +2165,7 @@ function collectRequestLatencySummary(events) {
 }
 
 function listRunDebugFiles(runId) {
-  if (!/^\d{8}-\d{6}$/.test(String(runId || ""))) return [];
+  if (!/^\d{8}-\d{6}(?:-\d+)?$/.test(String(runId || ""))) return [];
   return fs
     .readdirSync(outDir)
     .filter((file) => file.startsWith(`${runId}-`) && file.endsWith(".debug.jsonl"))
@@ -2642,8 +2642,8 @@ function summarizeSmokeSummaryFile(fileName) {
 }
 
 function validateRunId(runId, optionName) {
-  if (!/^\d{8}-\d{6}$/.test(runId)) {
-    console.error(`xtalpi-pi-tools debug summary: ${optionName} must look like YYYYMMDD-HHMMSS`);
+  if (!/^\d{8}-\d{6}(?:-\d+)?$/.test(runId)) {
+    console.error(`xtalpi-pi-tools debug summary: ${optionName} must look like YYYYMMDD-HHMMSS or YYYYMMDD-HHMMSS-PID`);
     process.exit(2);
   }
 }
@@ -2896,7 +2896,7 @@ function printCompare(baseRunId, headRunId) {
 
 function listSmokeSummaryFiles() {
   return fs.readdirSync(outDir)
-    .filter((file) => /^\d{8}-\d{6}-summary\.json$/.test(file))
+    .filter((file) => /^\d{8}-\d{6}(?:-\d+)?-summary\.json$/.test(file))
     .sort();
 }
 
@@ -3091,21 +3091,21 @@ function compactDriftRun(run) {
 }
 
 function classifyArtifactFile(file) {
-  let match = file.match(/^(\d{8}-\d{6})-summary\.json$/);
+  let match = file.match(/^(\d{8}-\d{6}(?:-\d+)?)-summary\.json$/);
   if (match) return { runId: match[1], kind: "summary", caseName: null };
-  match = file.match(/^(\d{8}-\d{6})-debug-summary\.json$/);
+  match = file.match(/^(\d{8}-\d{6}(?:-\d+)?)-debug-summary\.json$/);
   if (match) return { runId: match[1], kind: "debug-summary", caseName: null };
-  match = file.match(/^(\d{8}-\d{6})-provider-health\.json$/);
+  match = file.match(/^(\d{8}-\d{6}(?:-\d+)?)-provider-health\.json$/);
   if (match) return { runId: match[1], kind: "provider-health", caseName: null };
-  match = file.match(/^(\d{8}-\d{6})-(.+)\.debug\.jsonl$/);
+  match = file.match(/^(\d{8}-\d{6}(?:-\d+)?)-(.+)\.debug\.jsonl$/);
   if (match) return { runId: match[1], kind: "case-debug", caseName: match[2] };
-  match = file.match(/^(\d{8}-\d{6})-(.+)\.lifecycle\.json$/);
+  match = file.match(/^(\d{8}-\d{6}(?:-\d+)?)-(.+)\.lifecycle\.json$/);
   if (match) return { runId: match[1], kind: "case-lifecycle", caseName: match[2] };
-  match = file.match(/^(\d{8}-\d{6})-(.+)\.jsonl$/);
+  match = file.match(/^(\d{8}-\d{6}(?:-\d+)?)-(.+)\.jsonl$/);
   if (match) return { runId: match[1], kind: "case-events", caseName: match[2] };
-  match = file.match(/^(\d{8}-\d{6})-(.+)\.stderr$/);
+  match = file.match(/^(\d{8}-\d{6}(?:-\d+)?)-(.+)\.stderr$/);
   if (match) return { runId: match[1], kind: "case-stderr", caseName: match[2] };
-  match = file.match(/^(\d{8}-\d{6})-(.+)\.txt$/);
+  match = file.match(/^(\d{8}-\d{6}(?:-\d+)?)-(.+)\.txt$/);
   if (match) return { runId: match[1], kind: "case-text", caseName: match[2] };
   return { runId: null, kind: "unknown", caseName: null };
 }
@@ -3962,7 +3962,7 @@ if (runIdFilter) {
   debugFiles = debugFiles.filter((file) => file.startsWith(`${runIdFilter}-`));
 } else if (latestOnly) {
   const runIds = debugFiles
-    .map((file) => file.match(/^(\d{8}-\d{6})-/)?.[1])
+    .map((file) => file.match(/^(\d{8}-\d{6}(?:-\d+)?)-/)?.[1])
     .filter(Boolean)
     .sort();
   const latestRunId = runIds.at(-1);

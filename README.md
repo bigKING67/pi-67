@@ -493,7 +493,7 @@ pi-67/
 
 xtalpi 是晶泰科技内部 API。`models.example.json` 中只保留一个晶泰 provider：`xtalpi-pi-tools`。
 
-`xtalpi-pi-tools` 不再向晶泰发送 OpenAI 原生 `tools` / `tool_choice` / `role=tool`，而是让 Pi 本地解析 `<pi_tool_call>` 文本协议并执行工具。晶泰侧只需要处理普通 chat completion，因此比旧 `xtalpi-tools` 更稳定。
+`xtalpi-pi-tools` 不再向晶泰发送 OpenAI 原生 `tools` / `tool_choice` / `role=tool`，而是让晶泰只生成普通 Chat Completions 文本中的本地 JSON action；Pi 本地负责解析、校验、repair、错误分类和工具执行。旧 `<pi_tool_call>` 文本协议只作为显式 `XTALPI_PI_TOOLS_ACTION_PROTOCOL=legacy_text` 调试/回归 fallback。
 
 extension 工具识别不是写死名单：provider 每轮从 Pi runtime 的 `context.tools`
 动态读取当前可调用工具，再按 prompt 做 selected-tool ranking。以后安装新 extension 时，
@@ -626,33 +626,37 @@ node .\scripts\pi67-xtalpi-provider-capability-probe.mjs --json-action-runs 5
 ```
 
 该 probe 输出 `xtalpi-pi-tools.provider-capabilities.v1`，分别检查普通 chat、
-`response_format=json_object`、`json_schema strict`、native `tools/tool_choice`、
+泛化 `response_format=json_object` prompt、`json_schema strict`、native `tools/tool_choice`、
 strict tools、`role=tool` continuation 和本地 JSON action envelope。若结果显示
 `json_schema_strict=false` 且 native tools / `role=tool` 不可用，就不要继续把晶泰
-当完整 OpenAI tool runtime；正确路径是 `recommendedMode=local_json_action_protocol`
-或 `local_text_protocol`：晶泰只生成普通文本/JSON action，Pi 本地负责 schema 校验、
+当完整 OpenAI tool runtime；正确路径是默认 `recommendedMode=local_json_action_protocol`：
+晶泰只生成普通文本中的 JSON action，Pi 本地负责 schema 校验、
 selected-tool 白名单、参数校验、repair、错误分类和工具执行。
 
-如果 probe 推荐 `local_json_action_protocol`，可用本地 JSON action 协议做 targeted
-验证。它只启用 `response_format: {"type":"json_object"}` 作为语法 hint，不信任上游
+注意：`json_action_N` 是更贴近日常 runtime 的 targeted probe；即使泛化 `json_object`
+prompt 偶发失败，只要 targeted JSON action 连续通过，推荐模式仍应是
+`local_json_action_protocol`。
+
+本地 JSON action 是 `xtalpi-pi-tools` 的 canonical 默认协议。它只启用
+`response_format: {"type":"json_object"}` 作为语法 hint，不信任上游
 schema/native tool 能力；所有 action schema、工具白名单、参数校验、repair 和执行仍在
 Pi 本地完成。实现边界集中在 `extensions/xtalpi-pi-tools/local-action-adapter.ts`：
 adapter 只选择本地协议、system prompt、`response_format` hint、assistant history 包装和
 repair transcript 策略，不把 OpenAI native tools 委托给晶泰。
 
 ```bash
-XTALPI_PI_TOOLS_ACTION_PROTOCOL=json bash ./scripts/pi67-test-xtalpi-pi-tools.sh
-XTALPI_PI_TOOLS_ACTION_PROTOCOL=json bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case read
+bash ./scripts/pi67-test-xtalpi-pi-tools.sh
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case read
 ```
 
 PowerShell：
 
 ```powershell
-$env:XTALPI_PI_TOOLS_ACTION_PROTOCOL = "json"
 .\scripts\pi67-smoke.ps1 -Ci
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile quick
-Remove-Item Env:\XTALPI_PI_TOOLS_ACTION_PROTOCOL
 ```
+
+如需临时复核旧文本协议，可显式设置 `XTALPI_PI_TOOLS_ACTION_PROTOCOL=legacy_text`；不要把它作为日常默认。
 
 parser 兼容矩阵离线回归：
 

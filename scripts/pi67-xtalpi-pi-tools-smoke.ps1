@@ -795,7 +795,7 @@ if (-not (Get-Command "node" -ErrorAction SilentlyContinue)) {
 }
 
 New-Item -ItemType Directory -Force -Path $ResolvedOutDir | Out-Null
-$Stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$Stamp = Env-OrDefault "XTALPI_PI_TOOLS_SMOKE_STAMP" ("{0}-{1}" -f (Get-Date -Format "yyyyMMdd-HHmmss"), $PID)
 if ([string]::IsNullOrWhiteSpace($SummaryFile)) {
   $SummaryFile = Env-OrDefault "XTALPI_PI_TOOLS_SMOKE_SUMMARY_FILE" (Join-Path $ResolvedOutDir ("{0}-powershell-summary.json" -f $Stamp))
 }

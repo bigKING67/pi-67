@@ -244,6 +244,8 @@ const { pathToFileURL } = require("node:url");
   }
 
   async function assertProviderReplayFixture(fixture, registeredProvider, originalFetch) {
+    const previousActionProtocol = process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL;
+    process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL = String(fixture.actionProtocol ?? "legacy_text");
     process.env.XTALPI_PI_TOOLS_MAX_TOOLS = String(fixture.maxTools ?? 8);
     process.env.XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES = String(fixture.maxRepairRetries ?? 2);
     process.env.XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES = String(fixture.maxTotalRecoveries ?? 4);
@@ -289,6 +291,11 @@ const { pathToFileURL } = require("node:url");
       }
     } finally {
       global.fetch = originalFetch;
+      if (previousActionProtocol === undefined) {
+        delete process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL;
+      } else {
+        process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL = previousActionProtocol;
+      }
     }
   }
 
@@ -314,7 +321,13 @@ const { pathToFileURL } = require("node:url");
     const names = Object.keys(env);
     const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
     try {
-      for (const [name, value] of Object.entries(env)) process.env[name] = value;
+      for (const [name, value] of Object.entries(env)) {
+        if (value === undefined) {
+          delete process.env[name];
+        } else {
+          process.env[name] = value;
+        }
+      }
       await fn();
     } finally {
       for (const name of names) {
@@ -366,6 +379,55 @@ const { pathToFileURL } = require("node:url");
   };
 
   await withProviderTurnEnv({
+    XTALPI_PI_TOOLS_ACTION_PROTOCOL: undefined,
+    XTALPI_PI_TOOLS_MAX_TOOLS: "8",
+    XTALPI_PI_TOOLS_MAX_EMPTY_RETRIES: "1",
+    XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES: "1",
+    XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES: "2",
+  }, async () => {
+    const defaultFinalChat = makeProviderTurnChat([
+      { content: '{"kind":"final","text":"direct final answer"}' },
+    ]);
+    const defaultFinalResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: { systemPrompt: "system base", tools: [], messages: [{ role: "user", content: "hello" }] },
+      callChat: defaultFinalChat.callChat,
+    });
+    assert.equal(defaultFinalResult.kind, "final");
+    assert.equal(defaultFinalResult.text, "direct final answer");
+    assert.equal(defaultFinalChat.calls.length, 1);
+    assert.match(defaultFinalChat.calls[0][0].content, /All assistant responses MUST be exactly one compact JSON object/);
+
+    const defaultToolChat = makeProviderTurnChat([
+      { content: '{"kind":"tool_call","name":"read","arguments":{"path":"package.json"}}' },
+    ]);
+    const defaultToolResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: { systemPrompt: "system base", tools: [readTool], messages: [{ role: "user", content: "read package.json" }] },
+      callChat: defaultToolChat.callChat,
+    });
+    assert.equal(defaultToolResult.kind, "tool_call");
+    assert.equal(defaultToolResult.toolCall.name, "read");
+    assert.deepEqual(defaultToolResult.toolCall.arguments, { path: "package.json" });
+
+    const defaultLegacyMarkupRepairChat = makeProviderTurnChat([
+      { content: '<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>' },
+      { content: '{"kind":"tool_call","name":"read","arguments":{"path":"package.json"}}' },
+    ]);
+    const defaultLegacyMarkupRepairResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: { systemPrompt: "system base", tools: [readTool], messages: [{ role: "user", content: "read package.json" }] },
+      callChat: defaultLegacyMarkupRepairChat.callChat,
+    });
+    assert.equal(defaultLegacyMarkupRepairResult.kind, "tool_call");
+    assert.equal(defaultLegacyMarkupRepairResult.toolCall.name, "read");
+    assert.equal(defaultLegacyMarkupRepairChat.calls.length, 2);
+    assert.match(defaultLegacyMarkupRepairChat.calls[1].at(-1).content, /xtalpi-pi-tools-raw-protocol-markup-repair/);
+    assert.ok(!defaultLegacyMarkupRepairChat.calls[1].some((msg) => msg.role === "assistant" && msg.content.includes("<pi_tool_call>")));
+  });
+
+  await withProviderTurnEnv({
+    XTALPI_PI_TOOLS_ACTION_PROTOCOL: "legacy_text",
     XTALPI_PI_TOOLS_MAX_TOOLS: "8",
     XTALPI_PI_TOOLS_MAX_EMPTY_RETRIES: "1",
     XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES: "1",
@@ -797,13 +859,14 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
   });
 
   await withProviderTurnEnv({
+    XTALPI_PI_TOOLS_ACTION_PROTOCOL: "json_action",
     XTALPI_PI_TOOLS_MAX_TOOLS: "8",
     XTALPI_PI_TOOLS_MAX_EMPTY_RETRIES: "0",
     XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES: "0",
     XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES: "0",
   }, async () => {
     const repeatedChat = makeProviderTurnChat([
-      { content: '<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>' },
+      { content: '{"kind":"tool_call","name":"read","arguments":{"path":"package.json"}}' },
     ]);
     const repeatedResult = await providerTurn.runProviderTurn({
       model: providerTurnModel,
@@ -851,6 +914,16 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
   const jsonActionFinal = parser.parseToolCall('{"kind":"final","text":"package name is pi-extensions"}');
   assert.equal(jsonActionFinal.kind, "none");
   assert.equal(jsonActionFinal.text, "package name is pi-extensions");
+
+  const strictJsonActionTool = parser.parseJsonAction('{"kind":"tool_call","name":"read","arguments":{"path":"package.json"}}');
+  assert.equal(strictJsonActionTool.kind, "tool_call");
+  assert.equal(strictJsonActionTool.call.name, "read");
+  const strictJsonRejectsLegacyMarkup = parser.parseJsonAction('<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>');
+  assert.equal(strictJsonRejectsLegacyMarkup.kind, "error");
+  assert.equal(strictJsonRejectsLegacyMarkup.code, "raw_protocol_markup");
+  const strictJsonRejectsBareLegacyObject = parser.parseJsonAction('{"name":"read","arguments":{"path":"package.json"}}');
+  assert.equal(strictJsonRejectsBareLegacyObject.kind, "error");
+  assert.equal(strictJsonRejectsBareLegacyObject.code, "invalid_envelope");
 
   const badJsonAction = parser.parseToolCall('{"kind":"tool_call","name":"read","arguments":{"path":"package.json"},"extra":true}');
   assert.equal(badJsonAction.kind, "error");
@@ -1277,7 +1350,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
         { id: "deepseek-v4-pro", maxTokens: 2048 },
         [{ role: "user", content: "hello" }],
         { maxTokens: 4096, temperature: 0.2 },
-        "text",
+        "legacy_text",
       ),
       {
         model: "deepseek-v4-pro",
@@ -1305,9 +1378,11 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
     const previousActionProtocolEnv = process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL;
     try {
       delete process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL;
-      assert.equal(localActionAdapter.resolveActionProtocol(), "text");
+      assert.equal(localActionAdapter.resolveActionProtocol(), "json_action");
       process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL = "local_json_action_protocol";
       assert.equal(localActionAdapter.resolveActionProtocol(), "json_action");
+      process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL = "legacy_text";
+      assert.equal(localActionAdapter.resolveActionProtocol(), "legacy_text");
     } finally {
       if (previousActionProtocolEnv === undefined) {
         delete process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL;
@@ -1322,15 +1397,21 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
       JSON.parse(localActionAdapter.wrapAssistantHistoryForProtocol("hello", "json_action")),
       { kind: "final", text: "hello" },
     );
-    assert.equal(localActionAdapter.wrapAssistantHistoryForProtocol("hello", "text"), "hello");
+    assert.equal(localActionAdapter.wrapAssistantHistoryForProtocol("hello", "legacy_text"), "hello");
     assert.equal(localActionAdapter.shouldReplayRawAssistantForRepair("json_action"), false);
-    assert.equal(localActionAdapter.shouldReplayRawAssistantForRepair("text"), true);
+    assert.equal(localActionAdapter.shouldReplayRawAssistantForRepair("legacy_text"), true);
     const jsonAdapter = localActionAdapter.createLocalActionAdapter("json_action");
     assert.equal(jsonAdapter.protocol, "json_action");
     assert.equal(jsonAdapter.protocolVersion, localActionAdapter.JSON_ACTION_PROTOCOL_VERSION);
     assert.deepEqual(jsonAdapter.responseFormat, { type: "json_object" });
     assert.deepEqual(JSON.parse(jsonAdapter.wrapAssistantHistory("hello")), { kind: "final", text: "hello" });
     assert.equal(jsonAdapter.shouldReplayRawAssistantForRepair(), false);
+    const legacyAdapter = localActionAdapter.createLocalActionAdapter("legacy_text");
+    assert.equal(legacyAdapter.protocol, "legacy_text");
+    assert.equal(legacyAdapter.protocolVersion, localActionAdapter.LEGACY_TEXT_PROTOCOL_VERSION);
+    assert.equal(legacyAdapter.responseFormat, undefined);
+    assert.equal(legacyAdapter.wrapAssistantHistory("hello"), "hello");
+    assert.equal(legacyAdapter.shouldReplayRawAssistantForRepair(), true);
   } finally {
     if (previousPayloadMaxOutputEnv === undefined) {
       delete process.env.XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS;
@@ -1441,6 +1522,27 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
     responseModel: "deepseek-v4-pro",
     finishReason: "stop",
   });
+  const parsedDefaultNativeToolCallResponse = chatClient.parseXtalpiChatResponse(JSON.stringify({
+    choices: [
+      {
+        message: {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            {
+              type: "function",
+              function: { name: "read", arguments: '{"path":"package.json"}' },
+            },
+          ],
+        },
+      },
+    ],
+  }));
+  assert.deepEqual(JSON.parse(parsedDefaultNativeToolCallResponse.content), {
+    kind: "tool_call",
+    name: "read",
+    arguments: { path: "package.json" },
+  });
   assert.throws(
     () => chatClient.parseXtalpiChatResponse("not-json"),
     (error) => error.code === "non_json_response",
@@ -1488,7 +1590,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
     ["text", "toolCall", "text"],
   );
   assert.equal(toolOutputResult.content[1].name, "read");
-  const normalizedNativeToolCall = responseNormalizer.extractTextFromMessage({
+  const normalizedDefaultNativeToolCall = responseNormalizer.extractTextFromMessage({
     content: "",
     tool_calls: [
       {
@@ -1497,9 +1599,37 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
       },
     ],
   });
+  assert.deepEqual(JSON.parse(normalizedDefaultNativeToolCall), {
+    kind: "tool_call",
+    name: "read",
+    arguments: { path: "package.json" },
+  });
+  const normalizedNativeToolCall = responseNormalizer.extractTextFromMessage({
+    content: "",
+    tool_calls: [
+      {
+        type: "function",
+        function: { name: "read", arguments: '{"path":"package.json"}' },
+      },
+    ],
+  }, "legacy_text");
   assert.match(normalizedNativeToolCall, /<pi_tool_call>/);
   assert.match(normalizedNativeToolCall, /"name":"read"/);
   assert.match(normalizedNativeToolCall, /"path":"package\.json"/);
+  const normalizedJsonActionNativeToolCall = responseNormalizer.extractTextFromMessage({
+    content: "",
+    tool_calls: [
+      {
+        type: "function",
+        function: { name: "read", arguments: '{"path":"package.json"}' },
+      },
+    ],
+  }, "json_action");
+  assert.deepEqual(JSON.parse(normalizedJsonActionNativeToolCall), {
+    kind: "tool_call",
+    name: "read",
+    arguments: { path: "package.json" },
+  });
   const normalizedBadNativeToolCall = responseNormalizer.extractTextFromMessage({
     content: null,
     tool_calls: [
@@ -1508,9 +1638,20 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
         function: { name: "noop", arguments: '<pi_tool_call name="bash"\n{"unterminated":' },
       },
     ],
-  });
+  }, "legacy_text");
   assert.match(normalizedBadNativeToolCall, /"_invalid_native_arguments"/);
   assert.ok(normalizedBadNativeToolCall.includes("[literal pi_tool_call open tag]"));
+  const normalizedJsonActionBadNativeToolCall = responseNormalizer.extractTextFromMessage({
+    content: null,
+    tool_calls: [
+      {
+        type: "function",
+        function: { name: "noop", arguments: '<pi_tool_call name="bash"\n{"unterminated":' },
+      },
+    ],
+  }, "json_action");
+  assert.match(normalizedJsonActionBadNativeToolCall, /"_invalid_native_arguments"/);
+  assert.ok(normalizedJsonActionBadNativeToolCall.includes("[literal pi_tool_call open tag]"));
 
   const debugDir = fs.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", "xtalpi-pi-tools-debug-test."));
   const debugFile = path.join(debugDir, "debug.jsonl");
@@ -1522,9 +1663,9 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
     diagnostics.debugLog("turn.start", {
       provider: "xtalpi-pi-tools",
       model: "deepseek-v4-pro",
-      protocolVersion: protocol.PROTOCOL_VERSION,
-      actionProtocol: "text",
-      responseFormat: null,
+      protocolVersion: localActionAdapter.JSON_ACTION_PROTOCOL_VERSION,
+      actionProtocol: "json_action",
+      responseFormat: "json_object",
       selectedToolCount: 2,
       selectedToolNames: ["bash", "read"],
       selectedToolNamesHash: "abc123fingerprint",
@@ -1560,9 +1701,9 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
     });
     const debugEvent = JSON.parse(fs.readFileSync(debugFile, "utf8").trim());
     assert.equal(debugEvent.schema, "xtalpi-pi-tools.debug.v1");
-    assert.equal(debugEvent.protocol_version, protocol.PROTOCOL_VERSION);
-    assert.equal(debugEvent.action_protocol, "text");
-    assert.equal(debugEvent.response_format, undefined);
+    assert.equal(debugEvent.protocol_version, localActionAdapter.JSON_ACTION_PROTOCOL_VERSION);
+    assert.equal(debugEvent.action_protocol, "json_action");
+    assert.equal(debugEvent.response_format, "json_object");
     assert.equal(debugEvent.selected_tool_names_hash, "abc123fingerprint");
     assert.equal(debugEvent.available_tool_count, 5);
     assert.equal(debugEvent.max_tools, 24);
@@ -1953,13 +2094,14 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
   assert.equal(dynamicMcpDirectContext.toolSelectionSummary.clipped, true);
 
   await withProviderTurnEnv({
+    XTALPI_PI_TOOLS_ACTION_PROTOCOL: "json_action",
     XTALPI_PI_TOOLS_MAX_TOOLS: "1",
     XTALPI_PI_TOOLS_MAX_EMPTY_RETRIES: "0",
     XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES: "0",
     XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES: "0",
   }, async () => {
     const dynamicMcpDirectChat = makeProviderTurnChat([
-      { content: '<pi_tool_call>\n{"name":"dyn_echo_ping","arguments":{"text":"hello"}}\n</pi_tool_call>' },
+      { content: '{"kind":"tool_call","name":"dyn_echo_ping","arguments":{"text":"hello"}}' },
     ]);
     const dynamicMcpDirectResult = await providerTurn.runProviderTurn({
       model: providerTurnModel,
@@ -2108,13 +2250,14 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
     assert.match(adapterRegisteredContext.messages[0].content, /text:string required/);
 
     await withProviderTurnEnv({
+      XTALPI_PI_TOOLS_ACTION_PROTOCOL: "json_action",
       XTALPI_PI_TOOLS_MAX_TOOLS: "1",
       XTALPI_PI_TOOLS_MAX_EMPTY_RETRIES: "0",
       XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES: "0",
       XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES: "0",
     }, async () => {
       const adapterRegisteredChat = makeProviderTurnChat([
-        { content: '<pi_tool_call>\n{"name":"dyn_echo_ping","arguments":{"text":"hello from adapter"}}\n</pi_tool_call>' },
+        { content: '{"kind":"tool_call","name":"dyn_echo_ping","arguments":{"text":"hello from adapter"}}' },
       ]);
       const adapterRegisteredResult = await providerTurn.runProviderTurn({
         model: providerTurnModel,
@@ -2387,6 +2530,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
   process.env.XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES = "4";
 
   let registeredProvider;
+  process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL = "json_action";
   provider.default({
     registerProvider(id, config) {
       assert.equal(id, "xtalpi-pi-tools");
@@ -2407,7 +2551,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
         {
           message: {
             role: "assistant",
-            content: '<pi_tool_call>\n{"name":"dyn_echo_ping","arguments":{"text":"hello"}}\n</pi_tool_call>',
+            content: '{"kind":"tool_call","name":"dyn_echo_ping","arguments":{"text":"hello"}}',
           },
           finish_reason: "stop",
         },
@@ -2419,7 +2563,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
         {
           message: {
             role: "assistant",
-            content: "Dynamic MCP direct tool round-trip complete: DYN_ECHO_PING_SENTINEL hello",
+            content: '{"kind":"final","text":"Dynamic MCP direct tool round-trip complete: DYN_ECHO_PING_SENTINEL hello"}',
           },
           finish_reason: "stop",
         },
@@ -2752,7 +2896,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
         {
           message: {
             role: "assistant",
-            content: '<pi_tool_call>\n{"name":"fetch_content","arguments":{"url":"https://example.invalid"}}\n</pi_tool_call>',
+            content: '{"kind":"tool_call","name":"fetch_content","arguments":{"url":"https://example.invalid"}}',
           },
           finish_reason: "stop",
         },
@@ -2808,7 +2952,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
         {
           message: {
             role: "assistant",
-            content: '<pi_tool_call>\n{"name":"read","arguments":{"path":42}}\n</pi_tool_call>',
+            content: '{"kind":"tool_call","name":"read","arguments":{"path":42}}',
           },
           finish_reason: "stop",
         },
@@ -2820,7 +2964,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
         {
           message: {
             role: "assistant",
-            content: '<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>',
+            content: '{"kind":"tool_call","name":"read","arguments":{"path":"package.json"}}',
           },
           finish_reason: "stop",
         },
@@ -2952,7 +3096,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
         {
           message: {
             role: "assistant",
-            content: '<pi_tool_call>\n{"name":"noop","arguments":{}}\n</pi_tool_call>',
+            content: '{"kind":"tool_call","name":"noop","arguments":{}}',
           },
           finish_reason: "stop",
         },
@@ -3014,7 +3158,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
         {
           message: {
             role: "assistant",
-            content: '<pi_tool_call>\n{"name":"hidden_admin","arguments":{"action":"dump"}}\n</pi_tool_call>',
+            content: '{"kind":"tool_call","name":"hidden_admin","arguments":{"action":"dump"}}',
           },
           finish_reason: "stop",
         },
@@ -3026,7 +3170,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
         {
           message: {
             role: "assistant",
-            content: '<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>',
+            content: '{"kind":"tool_call","name":"read","arguments":{"path":"package.json"}}',
           },
           finish_reason: "stop",
         },
@@ -3101,7 +3245,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
       {
         message: {
           role: "assistant",
-          content: '<pi_tool_call>\n{"name":"hidden_admin","arguments":{"action":"dump"}}\n</pi_tool_call>',
+          content: '{"kind":"tool_call","name":"hidden_admin","arguments":{"action":"dump"}}',
         },
         finish_reason: "stop",
       },
@@ -3155,7 +3299,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
       {
         message: {
           role: "assistant",
-          content: '<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>',
+          content: '{"kind":"tool_call","name":"read","arguments":{"path":"package.json"}}',
         },
         finish_reason: "stop",
       },

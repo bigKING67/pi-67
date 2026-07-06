@@ -3,7 +3,10 @@ import {
   type ArgumentValidationWarning,
 } from "./argument-validator.ts";
 import { jsonDeepEqual } from "./json-utils.ts";
-import type { XtalpiActionProtocol } from "./local-action-adapter.ts";
+import {
+  DEFAULT_ACTION_PROTOCOL,
+  type XtalpiActionProtocol,
+} from "./local-action-adapter.ts";
 import type { JsonObject } from "./protocol.ts";
 import {
   buildInvalidToolArgumentsRepairPrompt,
@@ -65,7 +68,7 @@ export function decideToolCallRequest(input: {
     selectedToolNamesList,
     selectedToolByName,
     canRepair,
-    actionProtocol = "text",
+    actionProtocol = DEFAULT_ACTION_PROTOCOL,
   } = input;
 
   if (selectedToolNames.size === 0 || !selectedToolNames.has(requestedCall.name)) {

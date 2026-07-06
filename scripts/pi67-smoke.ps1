@@ -439,6 +439,10 @@ Run-Check "xtalpi-pi-tools endpoint contract uses chat/completions" {
   }
 
   $runtimeConfig = RepoPath "extensions/xtalpi-pi-tools/runtime-config.ts"
+  $localActionAdapter = RepoPath "extensions/xtalpi-pi-tools/local-action-adapter.ts"
+  $chatClient = RepoPath "extensions/xtalpi-pi-tools/chat-client.ts"
+  $providerTurn = RepoPath "extensions/xtalpi-pi-tools/provider-turn.ts"
+  $responseNormalizer = RepoPath "extensions/xtalpi-pi-tools/response-normalizer.ts"
   $providerHealth = RepoPath "scripts/pi67-xtalpi-provider-health.mjs"
   $capabilityProbe = RepoPath "scripts/pi67-xtalpi-provider-capability-probe.mjs"
   Assert-ContentContains $runtimeConfig "/chat/completions"
@@ -450,6 +454,14 @@ Run-Check "xtalpi-pi-tools endpoint contract uses chat/completions" {
   Assert-ContentNotContains $runtimeConfig "/response/completions"
   Assert-ContentNotContains $providerHealth "/response/completions"
   Assert-ContentNotContains $capabilityProbe "/response/completions"
+  Assert-ContentContains $localActionAdapter 'DEFAULT_ACTION_PROTOCOL: XtalpiActionProtocol = "json_action"'
+  Assert-ContentContains $localActionAdapter '"legacy_text"'
+  Assert-ContentContains $chatClient "DEFAULT_ACTION_PROTOCOL"
+  Assert-ContentNotContains $chatClient 'actionProtocol: XtalpiActionProtocol = "legacy_text"'
+  Assert-ContentContains $responseNormalizer "DEFAULT_ACTION_PROTOCOL"
+  Assert-ContentNotContains $responseNormalizer 'actionProtocol: XtalpiActionProtocol = "legacy_text"'
+  Assert-ContentContains $providerTurn "parseToolCallForProtocol"
+  Assert-ContentContains $responseNormalizer 'actionProtocol === "json_action"'
 }
 
 Section "PowerShell documentation"

@@ -1,12 +1,11 @@
 import {
-  PROTOCOL_VERSION,
   TOOL_CALL_CLOSE,
   TOOL_CALL_OPEN,
   TOOL_RESULT_OPEN,
   type XtalpiChatPayload,
 } from "./protocol.ts";
 
-export type XtalpiActionProtocol = "text" | "json_action";
+export type XtalpiActionProtocol = "json_action" | "legacy_text";
 
 export type LocalActionAdapter = {
   protocol: XtalpiActionProtocol;
@@ -18,8 +17,10 @@ export type LocalActionAdapter = {
 };
 
 export const JSON_ACTION_PROTOCOL_VERSION = "xtalpi-pi-tools.json-action.v1";
+export const LEGACY_TEXT_PROTOCOL_VERSION = "xtalpi-pi-tools.legacy-text.v1";
+export const DEFAULT_ACTION_PROTOCOL: XtalpiActionProtocol = "json_action";
 
-export const TEXT_ACTION_SYSTEM_PROMPT = `You are running inside Pi as a coding agent.
+export const LEGACY_TEXT_ACTION_SYSTEM_PROMPT = `You are running inside Pi as a coding agent.
 
 Pi owns all local tools. The xtalpi endpoint only sees plain chat text, so you MUST NOT use native OpenAI tool calls.
 
@@ -74,10 +75,11 @@ JSON action rules:
 
 export function resolveActionProtocol(): XtalpiActionProtocol {
   const raw = String(process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL || "").trim().toLowerCase();
-  if (["json", "json_action", "json-action", "local_json_action_protocol"].includes(raw)) {
-    return "json_action";
+  if (!raw) return DEFAULT_ACTION_PROTOCOL;
+  if (["legacy", "legacy_text", "legacy-text", "text", "xml", "pi_tool_call", "local_text_protocol"].includes(raw)) {
+    return "legacy_text";
   }
-  return "text";
+  return "json_action";
 }
 
 export function responseFormatForProtocol(
@@ -87,11 +89,11 @@ export function responseFormatForProtocol(
 }
 
 export function protocolSystemPrompt(protocol: XtalpiActionProtocol = resolveActionProtocol()): string {
-  return protocol === "json_action" ? JSON_ACTION_SYSTEM_PROMPT : TEXT_ACTION_SYSTEM_PROMPT;
+  return protocol === "json_action" ? JSON_ACTION_SYSTEM_PROMPT : LEGACY_TEXT_ACTION_SYSTEM_PROMPT;
 }
 
 export function protocolVersionFor(protocol: XtalpiActionProtocol = resolveActionProtocol()): string {
-  return protocol === "json_action" ? JSON_ACTION_PROTOCOL_VERSION : PROTOCOL_VERSION;
+  return protocol === "json_action" ? JSON_ACTION_PROTOCOL_VERSION : LEGACY_TEXT_PROTOCOL_VERSION;
 }
 
 export function wrapAssistantHistoryForProtocol(

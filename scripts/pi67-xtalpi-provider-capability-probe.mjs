@@ -326,7 +326,7 @@ function recommendedMode(summary) {
   if (summary.nativeTools?.supported && summary.nativeStrictTools?.supported && summary.roleTool?.supported) {
     return "native_strict_tools";
   }
-  if (summary.jsonObject?.supported && summary.jsonAction?.ok) {
+  if (summary.jsonAction?.ok) {
     return "local_json_action_protocol";
   }
   return "local_text_protocol";
@@ -673,12 +673,16 @@ function runSelfTest() {
     jsonObject: { supported: true },
     jsonAction: { ok: true },
   }) === "local_json_action_protocol", "json action recommended mode failed");
+  assert(recommendedMode({
+    jsonObject: { supported: false },
+    jsonAction: { ok: true },
+  }) === "local_json_action_protocol", "targeted json action recommended mode failed");
   assert(recommendedMode({}) === "local_text_protocol", "text protocol recommended mode failed");
 
   return {
     schema: "xtalpi-pi-tools.provider-capabilities-self-test.v1",
     ok: true,
-    cases: 9,
+    cases: 10,
   };
 }
 

@@ -148,20 +148,16 @@ function stringField(provider: Record<string, unknown> | undefined, field: strin
 export function loadRuntimeConfig(): ProviderRuntimeConfig {
   const models = readLocalModelsJson();
   const primary = providerFromModels(models, PROVIDER_ID);
-  const legacyTools = providerFromModels(models, "xtalpi-tools");
-  const legacyReasoning = providerFromModels(models, "xtalpi");
-  const providers = [primary, legacyTools, legacyReasoning];
 
   const baseUrl =
     process.env.XTALPI_PI_TOOLS_BASE_URL ||
     process.env.XTALPI_BASE_URL ||
-    providers.map((provider) => stringField(provider, "baseUrl")).find(Boolean) ||
+    stringField(primary, "baseUrl") ||
     DEFAULT_BASE_URL;
   const apiKey =
     process.env.XTALPI_PI_TOOLS_API_KEY ||
     process.env.XTALPI_API_KEY ||
-    providers.map((provider) => stringField(provider, "apiKey")).find((value) => !isPlaceholderKey(value)) ||
-    stringField(primary, "apiKey") ||
+    [stringField(primary, "apiKey")].find((value) => !isPlaceholderKey(value)) ||
     "";
   const modelsFromConfig = providerModels(primary);
 

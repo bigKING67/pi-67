@@ -11,7 +11,7 @@ import {
 import { debugLog } from "./diagnostics.ts";
 import type { ArgumentValidationWarning } from "./argument-validator.ts";
 import type { XtalpiProviderTurnResult } from "./output-message.ts";
-import { parseToolCall } from "./parser.ts";
+import { parseToolCallForProtocol } from "./parser.ts";
 import { validateFinalAnswer } from "./final-guard.ts";
 import {
   DEFAULT_MAX_TOOL_RESULT_CHARS,
@@ -134,7 +134,7 @@ export async function runProviderTurn(input: {
       };
     }
 
-    const parsed = parseToolCall(raw);
+    const parsed = parseToolCallForProtocol(raw, actionProtocol);
     if (parsed.kind === "error") {
       if (loopState.canRecoverRepair(debugContext)) {
         const recovery = loopState.noteRepairRecovery();

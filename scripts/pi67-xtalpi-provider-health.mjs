@@ -267,12 +267,7 @@ function providerFromModels(models, id) {
 
 function providersForRuntime(models, providerId) {
   const primary = providerFromModels(models, providerId);
-  const providers = [primary];
-  if (providerId === "xtalpi-pi-tools") {
-    providers.push(providerFromModels(models, "xtalpi-tools"));
-    providers.push(providerFromModels(models, "xtalpi"));
-  }
-  return { primary, providers };
+  return { primary, providers: [primary] };
 }
 
 function stringField(provider, field) {
@@ -627,14 +622,14 @@ function selfTest() {
   if (!bomJson.ok) {
     throw new Error("UTF-8 BOM JSON self-test failed");
   }
-  const legacyRuntime = providersForRuntime({
+  const canonicalRuntime = providersForRuntime({
     providers: {
-      "xtalpi-pi-tools": { apiKey: "YOUR_XTALPI_API_KEY" },
+      "xtalpi-pi-tools": { apiKey: "canonical-key-1234567890" },
       "xtalpi-tools": { apiKey: "legacy-key-1234567890" },
     },
   }, "xtalpi-pi-tools");
-  if (firstRealProviderKey(legacyRuntime.providers) !== "legacy-key-1234567890") {
-    throw new Error("legacy xtalpi key fallback self-test failed");
+  if (firstRealProviderKey(canonicalRuntime.providers) !== "canonical-key-1234567890") {
+    throw new Error("canonical xtalpi key lookup self-test failed");
   }
   console.log("xtalpi provider health self-test passed");
 }

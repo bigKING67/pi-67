@@ -43,12 +43,13 @@ node .\scripts\pi67-xtalpi-provider-capability-probe.mjs --skip-native-probes
 输出 schema 为 `xtalpi-pi-tools.provider-capabilities.v1`，会检查：
 
 - `plain_chat`：普通 Chat Completions 文本是否可用。
-- `json_object`：`response_format: {"type":"json_object"}` 是否能稳定产生可解析 JSON。
+- `json_object`：泛化 JSON prompt 在 `response_format: {"type":"json_object"}` 下是否能稳定产生可解析 JSON。
 - `json_schema_strict`：`response_format: {"type":"json_schema", ... strict:true}` 是否真的按 schema 输出。
 - `native_tools_forced` / `native_tools_strict_forced`：OpenAI native `tools` / `tool_choice`
   / `strict:true` 是否能返回 assistant `tool_calls`。
 - `role_tool_followup`：assistant `tool_calls` + 后续 `role=tool` continuation 是否可用。
-- `json_action_N`：在 `json_object` 下输出本地 JSON action envelope 是否稳定：
+- `json_action_N`：在 `json_object` 下输出本地 JSON action envelope 是否稳定。这个 targeted
+  probe 比泛化 `json_object` prompt 更贴近日常 runtime，推荐模式以它为主判据：
 
 ```json
 {"kind":"tool_call","name":"read","arguments":{"path":"package.json"}}
@@ -57,12 +58,14 @@ node .\scripts\pi67-xtalpi-provider-capability-probe.mjs --skip-native-probes
 `recommendedMode` 的含义：
 
 - `native_strict_tools`：上游可以按 OpenAI strict native tools 运行，理论上可考虑 native adapter。
-- `local_json_action_protocol`：不要使用 native tools；可把 `json_object` 当“JSON 语法提示”，
-  再由 Pi 本地做 action schema 校验、selected-tool 白名单、参数校验、repair 和工具执行。
-- `local_text_protocol`：上游连 JSON object/action 都不稳定；继续使用当前 `<pi_tool_call>`
-  文本协议 + 本地 parser/repair/gate。
+- `local_json_action_protocol`：`xtalpi-pi-tools` 的 canonical 默认路径。不要使用 native tools；
+  只把 `json_object` 当“JSON 语法提示”，再由 Pi 本地做 action schema 校验、selected-tool
+  白名单、参数校验、repair 和工具执行。
+- `local_text_protocol`：仅表示上游连 JSON object/action 都不稳定时的应急诊断结果。运行时不自动
+  fallback；如确需回归旧协议，必须显式设置 `XTALPI_PI_TOOLS_ACTION_PROTOCOL=legacy_text`。
 
-当前治理原则是：**`json_object` 只是语法 hint，不是 schema guarantee；`json_schema strict`
+当前治理原则是：**`json_object` 只是语法 hint，不是 schema guarantee；targeted
+`json_action_N` 能稳定通过时使用本地 JSON action；`json_schema strict`
 或 native tools 只有 probe 证明可用后才允许纳入主链路。** 如果 probe 显示
 `json_schema_strict=false`、native tools/role tool=false，就不要再尝试“调参修 native
 tool calling”。正确解法是继续把工具协议留在 Pi 本地：模型只输出普通文本或本地 action
@@ -86,40 +89,42 @@ tag 漂移概率。未知字段、坏 `kind`、非对象 `arguments`、未展示
 
 实现上这层边界是 `extensions/xtalpi-pi-tools/local-action-adapter.ts`。它集中决定：
 
-- 当前本地协议：`text` 或 `json_action`。
+- 当前本地协议：默认 `json_action`；`legacy_text` 仅显式 debug/regression fallback。
 - 协议版本和 system prompt。
 - 是否给 Chat Completions payload 加 `response_format: {"type":"json_object"}`。
 - assistant 历史是否包装成 `{"kind":"final","text":"..."}`，避免 JSON action 模式被旧裸文本污染。
 - repair 时是否回灌上一轮 raw assistant；JSON action 模式默认不回灌，raw excerpt 只放在 user repair prompt 里当 untrusted data。
 
-如果 capability probe 的 `recommendedMode` 是 `local_json_action_protocol`，可以显式启用
-JSON action runtime：
+`local_json_action_protocol` 现在是默认 runtime，日常测试不需要再设置协议环境变量：
 
 ```bash
-XTALPI_PI_TOOLS_ACTION_PROTOCOL=json bash ./scripts/pi67-test-xtalpi-pi-tools.sh
-XTALPI_PI_TOOLS_ACTION_PROTOCOL=json bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case read
+bash ./scripts/pi67-test-xtalpi-pi-tools.sh
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case read
 ```
 
 Windows PowerShell：
 
 ```powershell
-$env:XTALPI_PI_TOOLS_ACTION_PROTOCOL = "json"
 .\scripts\pi67-smoke.ps1 -Ci
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile quick
-Remove-Item Env:\XTALPI_PI_TOOLS_ACTION_PROTOCOL
 ```
 
-启用后，Pi 本地会同时切换三层：
+默认模式下，Pi 本地固定使用三层边界：
 
 - system prompt 要求 assistant 只返回一个本地 JSON action object。
 - request payload 增加 `response_format: {"type":"json_object"}`，只把它当语法 hint。
 - parser / selected-tool allowlist / 参数 schema / shell guard / bounded repair / debug artifact
-  继续在 Pi 本地执行；repair prompt 也会保持 JSON action 协议，不再把模型拉回
-  `<pi_tool_call>` XML tag 协议。
+  继续在 Pi 本地执行；repair prompt 保持 JSON action 协议，不再把模型拉回
+  `<pi_tool_call>` XML tag 协议。JSON action mode 下如果上游输出旧 `<pi_tool_call>` markup，
+  Pi 会把它归类为协议漂移并要求 repair，而不是静默当旧协议执行。
 
-默认仍是 `text` 协议，原因是它已经有较多 smoke artifact 和历史兼容覆盖；JSON action
-协议只有在 probe 证明 `json_object` 稳定、并且 targeted smoke 通过后才建议给本机常驻启用。
-无论启用哪种本地协议，都不要重新打开 OpenAI native `tools` / `tool_choice` / `role=tool`
+如需临时回归旧文本协议，可显式运行：
+
+```bash
+XTALPI_PI_TOOLS_ACTION_PROTOCOL=legacy_text bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case read
+```
+
+无论使用哪种本地协议，都不要重新打开 OpenAI native `tools` / `tool_choice` / `role=tool`
 链路，除非 capability probe 明确显示它们可用。
 
 ## 为什么替代 xtalpi-tools
@@ -133,17 +138,15 @@ Remove-Item Env:\XTALPI_PI_TOOLS_ACTION_PROTOCOL
 
 晶泰代理在这些边界上容易出现空 assistant、stream 无 finish_reason、tool result continuation 丢失等问题。
 
-`xtalpi-pi-tools` 不再向晶泰发送原生 tools 字段，而是用普通文本协议：
+`xtalpi-pi-tools` 不再向晶泰发送原生 tools 字段，而是让模型在普通 Chat Completions 文本里输出本地 JSON action：
 
-```text
-<pi_tool_call>
-{"name":"read","arguments":{"path":"package.json"}}
-</pi_tool_call>
+```json
+{"kind":"tool_call","name":"read","arguments":{"path":"package.json"}}
 ```
 
-Pi 本地解析该文本，转换成 Pi 原生 `toolCall` block，然后执行工具。工具结果下一轮作为普通 user 文本发给模型：
+Pi 本地解析该 action，转换成 Pi 原生 `toolCall` block，然后执行工具。工具结果下一轮作为普通 user 文本发给模型：
 
-如果上游 OpenAI-compatible 层在未收到 native tools 的情况下仍意外返回 `assistant.tool_calls`，provider 会把它重新投影成本地文本协议再走同一套 parser / selected-tool 白名单 / schema 校验。空 `content` 不会再导致 native tool call 被丢弃；坏的 native `function.arguments` 也不会静默降级成 `{}` 执行，而是转成可修复的无效协议响应。
+如果上游 OpenAI-compatible 层在未收到 native tools 的情况下仍意外返回 `assistant.tool_calls`，provider 会把它重新投影成本地 action 再走同一套 parser / selected-tool 白名单 / schema 校验。空 `content` 不会再导致 native tool call 被丢弃；坏的 native `function.arguments` 也不会静默降级成 `{}` 执行，而是转成可修复的无效协议响应。
 
 ```text
 <pi_tool_result>
@@ -161,15 +164,12 @@ content:
 
 历史 assistant tool call 默认不再回灌给模型：既不使用旧的 `<pi_tool_call_history>` 裸协议标签，也不再发送 `[previous_pi_tool_call]` 记录。模型只看到后续 `<pi_tool_result>` 包装里的可观察工具结果。这样从源头减少“历史工具调用被当成最终回答复读”的概率。legacy 会话、旧 artifact 或异常模型输出里如果仍出现 `[previous_pi_tool_call]` / `<previous_pi_tool_call>`，provider 只把它当内部历史泄漏处理：完整块会先被剥离，剩余无进展文本进入 repair；smoke/debug-summary 也会继续把残留 legacy marker 计入 final-answer markup gate。
 
-如果模型把旧式 Pi 工具记录误当成新协议输出，例如在 `<pi_tool_call>` 内写出
-`id="..."`、`name="read"` 和 `arguments_json: {...}` 行，provider 会把它兼容解析成
-标准本地工具调用。这类格式漂移会留下 parser warning，但不会因为 `arguments_json`
-不是完整 JSON envelope 而直接中断任务。
+如果显式启用 `XTALPI_PI_TOOLS_ACTION_PROTOCOL=legacy_text`，parser 仍支持旧式 Pi 工具记录，例如在 `<pi_tool_call>` 内写出 `id="..."`、`name="read"` 和 `arguments_json: {...}` 行。默认 JSON action mode 不再静默执行这类旧 markup；它会把旧协议输出归类为协议漂移并进入 JSON action repair。
 
 为了避免每次遇到一个新等价格式才补一次，parser 现在按“宽进严出”的本地归一化策略覆盖
 高概率模型漂移形态：
 
-- canonical `<pi_tool_call>{"name":"...","arguments":{...}}</pi_tool_call>`
+- legacy canonical `<pi_tool_call>{"name":"...","arguments":{...}}</pi_tool_call>`
 - attributed `<pi_tool_call name="...">{...}</pi_tool_call>` 和常见 `<tool_call name=...>` 变体
 - legacy 行式 `name=...` / `arguments_json: {...}`，以及 `tool:` / `args:` 等别名行式输出
 - JSON envelope 中的 `tool` / `tool_name` / `function_name` 名称别名
@@ -197,14 +197,14 @@ text-native wrapper，并同时断言多个 fail-closed 场景。`scripts/pi67-t
 
 selected-tool 排序默认看最新用户意图；当最新消息是“继续 / 接着 / 下一步 / continue”这类承接指令时，会额外纳入最近几条 user 消息来恢复上一轮明确提到的工具意图。tool result 不参与 selected-tool 排序，避免不可信工具输出通过“下一轮继续”影响工具白名单。debug telemetry 会记录 `tool_selection_prompt_source`、`tool_selection_prompt_chars` 和 `tool_selection_user_messages`，用于判断本轮排序依据来自最新 user 消息还是 continuation recent-user 上下文；不会记录原始 prompt 文本。
 
-工具参数在交给 Pi 执行前会做轻量 schema 校验。当前校验覆盖 JSON Schema 常用子集：`required`、`properties`、基础 `type`、`enum`、`array.items`、`anyOf` / `oneOf`、`additionalProperties:false`，以及常见边界约束（字符串 `minLength` / `maxLength` / `pattern`，数字 `minimum` / `maximum` / `exclusiveMinimum` / `exclusiveMaximum` / `multipleOf`，数组 `minItems` / `maxItems`，对象 `minProperties` / `maxProperties`）。对象型 `enum` 比较会忽略 key 顺序，符合 JSON 语义；`pattern` 校验会跳过过长输入、过长 pattern 和明显嵌套量词 pattern，避免不可信工具 schema 让本地校验卡在正则回溯里。如果参数明显不匹配，会先要求模型修复为正确的 `<pi_tool_call>`，而不是把坏参数直接交给工具层。
+工具参数在交给 Pi 执行前会做轻量 schema 校验。当前校验覆盖 JSON Schema 常用子集：`required`、`properties`、基础 `type`、`enum`、`array.items`、`anyOf` / `oneOf`、`additionalProperties:false`，以及常见边界约束（字符串 `minLength` / `maxLength` / `pattern`，数字 `minimum` / `maximum` / `exclusiveMinimum` / `exclusiveMaximum` / `multipleOf`，数组 `minItems` / `maxItems`，对象 `minProperties` / `maxProperties`）。对象型 `enum` 比较会忽略 key 顺序，符合 JSON 语义；`pattern` 校验会跳过过长输入、过长 pattern 和明显嵌套量词 pattern，避免不可信工具 schema 让本地校验卡在正则回溯里。如果参数明显不匹配，会先要求模型修复为当前本地协议下的合法 action，而不是把坏参数直接交给工具层。
 
 被跳过或无法编译的 `pattern` 不会静默消失：debug JSONL 会记录脱敏后的 `argument_validation_warning_count`、`argument_validation_warning_codes` 和有界 warning 摘要；debug-summary / smoke summary 会聚合 `argument_validation_warnings` 与 `argument_validation_warning_codes`，但不会记录原始 pattern 或参数值。
 
 provider 不只解析工具调用，也会守住当前 turn 的终止状态。如果模型在应该继续工作时输出
 “I will inspect...”、只回复“OK”、把 Plan mode 内部提示当作最终答案复读，或在 Plan mode
 中没有给出 `<proposed_plan>`，`xtalpi-pi-tools` 会把这类 premature final 视为可修复协议错误，
-追加一次本地 repair prompt，要求模型三选一：返回合法 `<pi_tool_call>`、返回完整
+追加一次本地 repair prompt，要求模型三选一：返回合法 JSON action 工具调用、返回完整
 `<proposed_plan>`，或给出包含实际结果的最终回答。若 Plan mode 已激活且模型在有界 repair
 预算耗尽后仍没有给出 `<proposed_plan>`，provider 会生成一个本地兜底 `<proposed_plan>`，
 避免用户卡在“缺少 proposed_plan”的裸 provider 错误上。
@@ -745,7 +745,7 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   "$HOME/tmp/xtalpi-pi-tools-smoke"
 ```
 
-`--history` 读取 `<stamp>-summary.json`，按最新优先输出每轮 `ok`、`failures`、`cases`、`run_kind`、`selected_cases`、`case_set_sha256`、`recoveries`、`recovery_rate`、raw markup final answer、empty assistant end、error、provider error、request latency、slow request、process lifecycle failure 和 watchdog timeout 计数；它会忽略同目录下的 `<stamp>-debug-summary.json` 中间产物，避免把 debug-summary 自身误当成 smoke run。旧 summary 如果没有 `runKind`，debug-summary 会根据 `caseSet`、`providerHealth` 和 `stopReason` 现场回推分类；旧 summary 如果缺少 request latency 字段但同 run 的 per-case debug JSONL 仍在，会只读回填 request latency / slow request telemetry。
+`--history` 读取 `<stamp>-summary.json`，按最新优先输出每轮 `ok`、`failures`、`cases`、`run_kind`、`selected_cases`、`case_set_sha256`、`recoveries`、`recovery_rate`、raw markup final answer、empty assistant end、error、provider error、request latency、slow request、process lifecycle failure 和 watchdog timeout 计数；它会忽略同目录下的 `<stamp>-debug-summary.json` 中间产物，避免把 debug-summary 自身误当成 smoke run。默认 stamp 是 `YYYYMMDD-HHMMSS-PID`，避免同一秒并行 targeted smoke 互相串 artifact；旧的 `YYYYMMDD-HHMMSS` artifact 仍可读取。旧 summary 如果没有 `runKind`，debug-summary 会根据 `caseSet`、`providerHealth` 和 `stopReason` 现场回推分类；旧 summary 如果缺少 request latency 字段但同 run 的 per-case debug JSONL 仍在，会只读回填 request latency / slow request telemetry。
 
 `--history`、`--trend-gate` 和 `--drift` 支持 `--run-kind LIST` 先按 `runKind` 过滤 persisted summary artifacts，再选择 newest N；`--require-run-kind LIST` 会要求 history / trend-gate selected runs 的 `runKind` 属于指定集合。`scripts/pi67-report.sh` 和 `scripts/pi67-status.sh` 也会默认读取同一 smoke artifact 目录，写入 / 输出 compact `xtalpiSmoke` 状态：最近 3 次整体 history、每轮 `runKind`、request latency / slow request telemetry、`--trend-gate 3 --profile full-suite-strict` 的结果、兼容型 `full-suite-ranking-strict` reason-code gate、selected-tool telemetry，以及最近 10 次 full-suite artifact 的 drift 摘要与 request-latency quality totals。该状态只读本地 artifact，不运行 live smoke，也不改写历史文件；使用 `--no-xtalpi-smoke` 可关闭，或用 `--xtalpi-smoke-dir DIR` 指向非默认目录。
 
@@ -753,6 +753,8 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --run-id 20260702-144643
+# 或新并发安全 stamp：
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --run-id 20260702-144643-12345
 ```
 
 输出 JSON 方便归档或 CI 消费：

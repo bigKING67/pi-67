@@ -208,32 +208,39 @@ node .\scripts\pi67-xtalpi-provider-capability-probe.mjs --json-action-runs 5
 Interpretation:
 
 - `plain_chat=true` only means the endpoint can chat.
-- `json_object=true` means JSON syntax can be used as a hint, not as a schema guarantee.
+- `json_object=true` on the generic prompt means JSON syntax can be used as a hint, not as a schema guarantee.
+- `json_action_N` is the targeted runtime probe; if it passes repeatedly, prefer
+  `local_json_action_protocol` even when the generic `json_object` prompt is flaky.
 - `json_schema_strict=false` means `response_format=json_schema` must not be trusted for
   tool/action schema correctness.
 - native `tools` / strict tools / `role=tool=false` means xtalpi must not be treated as a
   full OpenAI tool runtime.
-- `recommendedMode=local_json_action_protocol` or `local_text_protocol` means Pi must keep
-  owning tool selection, action/schema validation, repair, execution, and error classification locally.
+- `recommendedMode=local_json_action_protocol` is the `xtalpi-pi-tools` canonical default:
+  Pi owns tool selection, action/schema validation, repair, execution, and error classification locally.
+- `recommendedMode=local_text_protocol` is only an emergency diagnostic outcome for providers
+  where even JSON object/action is unstable; runtime does not silently fallback to it.
 
-When `recommendedMode=local_json_action_protocol`, test the local JSON action runtime
-instead of enabling native OpenAI tools:
+Test the default local JSON action runtime instead of enabling native OpenAI tools:
 
 ```bash
-XTALPI_PI_TOOLS_ACTION_PROTOCOL=json bash ./scripts/pi67-test-xtalpi-pi-tools.sh
-XTALPI_PI_TOOLS_ACTION_PROTOCOL=json bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case read
+bash ./scripts/pi67-test-xtalpi-pi-tools.sh
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case read
 ```
 
 PowerShell:
 
 ```powershell
-$env:XTALPI_PI_TOOLS_ACTION_PROTOCOL = "json"
 .\scripts\pi67-smoke.ps1 -Ci
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile quick
-Remove-Item Env:\XTALPI_PI_TOOLS_ACTION_PROTOCOL
 ```
 
-This mode sends `response_format: {"type":"json_object"}` only as a syntax hint.
+To regression-test the old text protocol explicitly:
+
+```bash
+XTALPI_PI_TOOLS_ACTION_PROTOCOL=legacy_text bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case read
+```
+
+The default JSON action mode sends `response_format: {"type":"json_object"}` only as a syntax hint.
 Pi still validates the local action envelope, selected-tool allowlist, arguments,
 shell semantics, bounded repair, and smoke/debug gates locally.
 The explicit local boundary for this is

@@ -5,7 +5,10 @@ import {
   TOOL_CALL_CLOSE,
   TOOL_CALL_OPEN,
 } from "./protocol.ts";
-import type { XtalpiActionProtocol } from "./local-action-adapter.ts";
+import {
+  DEFAULT_ACTION_PROTOCOL,
+  type XtalpiActionProtocol,
+} from "./local-action-adapter.ts";
 import {
   formatToolNameForPrompt,
   formatToolNamesForPrompt,
@@ -58,7 +61,7 @@ function noExtraProseInstruction(protocol: XtalpiActionProtocol): string {
     : "Return exactly one valid Pi tool envelope and no extra prose if a tool is needed.";
 }
 
-export function buildEmptyResponseRepairPrompt(actionProtocol: XtalpiActionProtocol = "text"): string {
+export function buildEmptyResponseRepairPrompt(actionProtocol: XtalpiActionProtocol = DEFAULT_ACTION_PROTOCOL): string {
   if (actionProtocol === "json_action") {
     return `[xtalpi-pi-tools-empty-response-repair]
 The previous response was empty. You must now produce exactly one compact JSON object:
@@ -80,7 +83,7 @@ export function buildInvalidToolJsonRepairPrompt(
   errorMessage: string,
   raw: string,
   availableNames: string[] = [],
-  actionProtocol: XtalpiActionProtocol = "text",
+  actionProtocol: XtalpiActionProtocol = DEFAULT_ACTION_PROTOCOL,
 ): string {
   const names = formatToolNamesForPrompt(availableNames);
   if (actionProtocol === "json_action") {
@@ -118,7 +121,7 @@ Return either a normal final answer, or exactly one valid envelope:
 export function buildFunctionStyleToolRepairPrompt(
   raw: string,
   availableNames: string[],
-  actionProtocol: XtalpiActionProtocol = "text",
+  actionProtocol: XtalpiActionProtocol = DEFAULT_ACTION_PROTOCOL,
 ): string {
   const names = formatToolNamesForPrompt(availableNames);
   if (actionProtocol === "json_action") {
@@ -156,7 +159,7 @@ If no available tool fits, return a normal final answer.`;
 export function buildRawProtocolMarkupRepairPrompt(
   raw: string,
   availableNames: string[],
-  actionProtocol: XtalpiActionProtocol = "text",
+  actionProtocol: XtalpiActionProtocol = DEFAULT_ACTION_PROTOCOL,
 ): string {
   const names = formatToolNamesForPrompt(availableNames);
   if (actionProtocol === "json_action") {
@@ -206,7 +209,7 @@ export function buildPrematureFinalRepairPrompt(input: {
   actionProtocol?: XtalpiActionProtocol;
 }): string {
   const names = formatToolNamesForPrompt(input.availableNames ?? []);
-  const actionProtocol = input.actionProtocol ?? "text";
+  const actionProtocol = input.actionProtocol ?? DEFAULT_ACTION_PROTOCOL;
   const planModeInstruction = input.forcePlanBlock
     ? actionProtocol === "json_action"
       ? `Plan mode is active. If you do not need another tool, return exactly ${finalShapeForPrompt(actionProtocol, "<proposed_plan>...</proposed_plan>")} with one complete <proposed_plan>...</proposed_plan> block inside the "text" string. Do not produce a normal final answer outside that JSON object.`
@@ -271,7 +274,7 @@ Local fallback note: xtalpi-pi-tools synthesized this plan after the model repea
 export function buildUnknownToolRepairPrompt(
   toolName: string,
   availableNames: string[],
-  actionProtocol: XtalpiActionProtocol = "text",
+  actionProtocol: XtalpiActionProtocol = DEFAULT_ACTION_PROTOCOL,
 ): string {
   const names = formatToolNamesForPrompt(availableNames);
   if (actionProtocol === "json_action") {
@@ -297,7 +300,7 @@ Return a normal final answer if no available tool fits. Otherwise return exactly
 export function buildInvalidToolArgumentsRepairPrompt(
   toolName: string,
   errors: string[],
-  actionProtocol: XtalpiActionProtocol = "text",
+  actionProtocol: XtalpiActionProtocol = DEFAULT_ACTION_PROTOCOL,
 ): string {
   const details = errors.slice(0, 8).map((error) => `- ${safeInlineText(error, 300)}`).join("\n") ||
     "- arguments did not match the tool schema";
@@ -333,7 +336,7 @@ export function buildShellCommandMismatchRepairPrompt(input: {
 }): string {
   const details = input.errors.slice(0, 8).map((error) => `- ${safeInlineText(error, 400)}`).join("\n") ||
     "- the command does not match the shell used by the bash tool";
-  const actionProtocol = input.actionProtocol ?? "text";
+  const actionProtocol = input.actionProtocol ?? DEFAULT_ACTION_PROTOCOL;
   const correctedToolCall = actionProtocol === "json_action"
     ? toolCallShapeForPrompt(actionProtocol, '"bash"', '{"command":"pwd","timeout":30}')
     : `${TOOL_CALL_OPEN}
@@ -368,7 +371,7 @@ ${finalOrTool}`;
 
 export function buildRepeatedToolRepairPrompt(
   toolName: string,
-  actionProtocol: XtalpiActionProtocol = "text",
+  actionProtocol: XtalpiActionProtocol = DEFAULT_ACTION_PROTOCOL,
 ): string {
   if (actionProtocol === "json_action") {
     return `[xtalpi-pi-tools-repeated-tool-repair]

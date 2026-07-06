@@ -1,5 +1,8 @@
 import type { ToolCallParseResult } from "./parser.ts";
-import type { XtalpiActionProtocol } from "./local-action-adapter.ts";
+import {
+  DEFAULT_ACTION_PROTOCOL,
+  type XtalpiActionProtocol,
+} from "./local-action-adapter.ts";
 import {
   buildFunctionStyleToolRepairPrompt,
   buildInvalidToolJsonRepairPrompt,
@@ -37,7 +40,7 @@ export function canRecoverRepair(
 export function buildParseErrorRepairPlan(
   parsed: ParseErrorResult,
   selectedToolNames: readonly string[],
-  actionProtocol: XtalpiActionProtocol = "text",
+  actionProtocol: XtalpiActionProtocol = DEFAULT_ACTION_PROTOCOL,
 ): ParseErrorRepairPlan {
   const names = [...selectedToolNames];
   if (parsed.code === "function_style_tool_call") {

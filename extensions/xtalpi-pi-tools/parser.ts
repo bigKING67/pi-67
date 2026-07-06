@@ -34,6 +34,12 @@ export type ToolCallParseResult =
       text: string;
     };
 
+function exactKeySet(object: JsonObject, keys: readonly string[]): boolean {
+  const actual = Object.keys(object).sort();
+  const expected = [...keys].sort();
+  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+}
+
 function isPlainObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -302,6 +308,23 @@ function errorUnknownTopLevelFields(
     kind: "error",
     code: "unknown_top_level_field",
     message: `unknown top-level field(s): ${fields.join(", ")}`,
+    raw: cleaned,
+    text: originalText,
+  };
+}
+
+function strictJsonActionFieldsError(
+  parsed: JsonObject,
+  allowed: readonly string[],
+  cleaned: string,
+  originalText: string,
+): ToolCallParseResult {
+  const unknown = unknownFields(parsed, allowed);
+  if (unknown.length > 0) return errorUnknownTopLevelFields(unknown, cleaned, originalText);
+  return {
+    kind: "error",
+    code: "invalid_envelope",
+    message: `JSON action envelope must contain exactly these fields: ${allowed.join(", ")}`,
     raw: cleaned,
     text: originalText,
   };
@@ -753,6 +776,136 @@ export function parseToolCall(text: string): ToolCallParseResult {
     kind: "none",
     text: source,
   };
+}
+
+export function parseJsonAction(text: string): ToolCallParseResult {
+  const source = String(text ?? "");
+  const trimmed = source.trim();
+
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+    const functionStyle = detectFunctionStyleToolCall(source);
+    if (functionStyle) {
+      return {
+        kind: "error",
+        code: "function_style_tool_call",
+        message: `function-style tool calls like ${functionStyle.name}(...) are not valid JSON action protocol`,
+        raw: functionStyle.raw,
+        text: source,
+      };
+    }
+
+    if (containsRawProtocolMarkup(source)) {
+      return {
+        kind: "error",
+        code: "raw_protocol_markup",
+        message: "JSON action mode requires a single JSON object, not legacy Pi tool markup",
+        raw: source,
+        text: source,
+      };
+    }
+
+    return {
+      kind: "error",
+      code: "invalid_json",
+      message: "JSON action mode requires exactly one compact JSON object",
+      raw: source,
+      text: source,
+    };
+  }
+
+  let parsed: unknown;
+  let cleaned = trimmed;
+  let warnings: string[] = [];
+  try {
+    const parsedJson = parseJsonWithLikelyWindowsPathRepair(trimmed);
+    parsed = parsedJson.value;
+    cleaned = parsedJson.jsonText;
+    warnings = parsedJson.warnings;
+  } catch (error) {
+    return {
+      kind: "error",
+      code: "invalid_json",
+      message: error instanceof Error ? error.message : String(error),
+      raw: trimmed,
+      text: source,
+    };
+  }
+
+  if (!isPlainObject(parsed)) {
+    return {
+      kind: "error",
+      code: "invalid_envelope",
+      message: "JSON action envelope must be an object",
+      raw: cleaned,
+      text: source,
+    };
+  }
+
+  if (parsed.kind === "final") {
+    if (!exactKeySet(parsed, ["kind", "text"])) {
+      return strictJsonActionFieldsError(parsed, ["kind", "text"], cleaned, source);
+    }
+    if (typeof parsed.text !== "string") {
+      return {
+        kind: "error",
+        code: "invalid_envelope",
+        message: 'JSON action envelope with kind "final" must contain string field "text"',
+        raw: cleaned,
+        text: source,
+      };
+    }
+    return {
+      kind: "none",
+      text: parsed.text,
+    };
+  }
+
+  if (parsed.kind !== "tool_call") {
+    return {
+      kind: "error",
+      code: "invalid_envelope",
+      message: 'JSON action envelope must contain kind "tool_call" or "final"',
+      raw: cleaned,
+      text: source,
+    };
+  }
+
+  if (!exactKeySet(parsed, ["arguments", "kind", "name"])) {
+    return strictJsonActionFieldsError(parsed, ["arguments", "kind", "name"], cleaned, source);
+  }
+
+  if (typeof parsed.name !== "string" || parsed.name.trim() === "") {
+    return {
+      kind: "error",
+      code: "invalid_name",
+      message: 'JSON action "name" must be a non-empty string',
+      raw: cleaned,
+      text: source,
+    };
+  }
+
+  if (!isPlainObject(parsed.arguments)) {
+    return {
+      kind: "error",
+      code: "invalid_arguments",
+      message: 'JSON action "arguments" must be an object',
+      raw: cleaned,
+      text: source,
+    };
+  }
+
+  return {
+    kind: "tool_call",
+    call: { name: parsed.name.trim(), arguments: parsed.arguments },
+    before: "",
+    after: "",
+    rawJson: JSON.stringify({ kind: "tool_call", name: parsed.name.trim(), arguments: parsed.arguments }),
+    warnings: [...warnings, "accepted strict JSON action tool_call envelope"],
+  };
+}
+
+export function parseToolCallForProtocol(text: string, protocol: "json_action" | "legacy_text"): ToolCallParseResult {
+  return protocol === "json_action" ? parseJsonAction(text) : parseToolCall(text);
 }
 
 export function hasToolCall(text: string): boolean {

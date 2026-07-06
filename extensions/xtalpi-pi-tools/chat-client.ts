@@ -16,6 +16,7 @@ import {
   type XtalpiChatMessage,
 } from "./protocol.ts";
 import {
+  DEFAULT_ACTION_PROTOCOL,
   resolveActionProtocol,
   responseFormatForProtocol,
   type XtalpiActionProtocol,
@@ -100,7 +101,10 @@ async function fetchTextWithTimeout(
   }
 }
 
-export function parseXtalpiChatResponse(body: string): XtalpiChatResponse {
+export function parseXtalpiChatResponse(
+  body: string,
+  actionProtocol: XtalpiActionProtocol = DEFAULT_ACTION_PROTOCOL,
+): XtalpiChatResponse {
   let json: unknown;
   try {
     json = JSON.parse(body);
@@ -136,7 +140,7 @@ export function parseXtalpiChatResponse(body: string): XtalpiChatResponse {
   }
 
   return {
-    content: extractTextFromMessage(message),
+    content: extractTextFromMessage(message, actionProtocol),
     usage: usageFromResponse(root.usage),
     responseModel: typeof root.model === "string" ? root.model : undefined,
     finishReason: typeof firstChoice?.finish_reason === "string" ? firstChoice.finish_reason : undefined,
@@ -203,7 +207,7 @@ export async function callXtalpiChat(input: {
     throw buildHttpError(response.status, body);
   }
 
-  const parsed = parseXtalpiChatResponse(body);
+  const parsed = parseXtalpiChatResponse(body, effectiveActionProtocol);
   debugLog("response", {
     provider: PROVIDER_ID,
     model: model.id,

@@ -364,9 +364,26 @@ else
 fi
 
 if command_exists node; then
-  if node - "$REPO_ROOT/models.example.json" "$XTALPI_PI_TOOLS_RUNTIME_CONFIG" "$XTALPI_PI_TOOLS_PROVIDER_HEALTH" "$XTALPI_PI_TOOLS_CAPABILITY_PROBE" <<'NODE'
+  if node - \
+    "$REPO_ROOT/models.example.json" \
+    "$XTALPI_PI_TOOLS_RUNTIME_CONFIG" \
+    "$XTALPI_PI_TOOLS_PROVIDER_HEALTH" \
+    "$XTALPI_PI_TOOLS_CAPABILITY_PROBE" \
+    "$XTALPI_PI_TOOLS_LOCAL_ACTION_ADAPTER" \
+    "$REPO_ROOT/extensions/xtalpi-pi-tools/chat-client.ts" \
+    "$REPO_ROOT/extensions/xtalpi-pi-tools/provider-turn.ts" \
+    "$REPO_ROOT/extensions/xtalpi-pi-tools/response-normalizer.ts" <<'NODE'
 const fs = require("fs");
-const [modelsFile, runtimeConfigFile, providerHealthFile, capabilityProbeFile] = process.argv.slice(2);
+const [
+  modelsFile,
+  runtimeConfigFile,
+  providerHealthFile,
+  capabilityProbeFile,
+  localActionAdapterFile,
+  chatClientFile,
+  providerTurnFile,
+  responseNormalizerFile,
+] = process.argv.slice(2);
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -381,17 +398,39 @@ assert(
 const runtimeConfig = fs.readFileSync(runtimeConfigFile, "utf8");
 const providerHealth = fs.readFileSync(providerHealthFile, "utf8");
 const capabilityProbe = fs.readFileSync(capabilityProbeFile, "utf8");
+const localActionAdapter = fs.readFileSync(localActionAdapterFile, "utf8");
+const chatClient = fs.readFileSync(chatClientFile, "utf8");
+const providerTurn = fs.readFileSync(providerTurnFile, "utf8");
+const responseNormalizer = fs.readFileSync(responseNormalizerFile, "utf8");
 assert(runtimeConfig.includes("/chat/completions"), "runtime-config must append /chat/completions");
 assert(providerHealth.includes("/chat/completions"), "provider-health must probe /chat/completions");
 assert(capabilityProbe.includes("/chat/completions"), "capability probe must probe /chat/completions");
 assert(!runtimeConfig.includes("/responses"), "runtime-config must not target OpenAI Responses API for xtalpi");
 assert(!providerHealth.includes("/responses"), "provider-health must not probe OpenAI Responses API for xtalpi");
 assert(!capabilityProbe.includes("/responses"), "capability probe must not probe OpenAI Responses API for xtalpi");
+assert(
+  /DEFAULT_ACTION_PROTOCOL:\s*XtalpiActionProtocol\s*=\s*"json_action"/.test(localActionAdapter),
+  "xtalpi-pi-tools must default to local JSON action protocol",
+);
+assert(localActionAdapter.includes('"legacy_text"'), "legacy text protocol must be explicit and named legacy_text");
+assert(
+  chatClient.includes("DEFAULT_ACTION_PROTOCOL") && !chatClient.includes('actionProtocol: XtalpiActionProtocol = "legacy_text"'),
+  "chat response parsing must default to canonical JSON action protocol",
+);
+assert(
+  responseNormalizer.includes("DEFAULT_ACTION_PROTOCOL") && !responseNormalizer.includes('actionProtocol: XtalpiActionProtocol = "legacy_text"'),
+  "response normalization must default to canonical JSON action protocol",
+);
+assert(providerTurn.includes("parseToolCallForProtocol"), "provider turn must parse according to selected local protocol");
+assert(
+  responseNormalizer.includes('actionProtocol === "json_action"'),
+  "native tool-call normalization must follow the local action protocol",
+);
 NODE
   then
-    pass "xtalpi-pi-tools endpoint contract uses OpenAI chat completions"
+    pass "xtalpi-pi-tools endpoint and local action contracts are canonical"
   else
-    fail "xtalpi-pi-tools endpoint contract drifted from OpenAI chat completions"
+    fail "xtalpi-pi-tools endpoint or local action contract drifted"
   fi
 else
   warn "node not found; skipped xtalpi-pi-tools endpoint contract validation"
