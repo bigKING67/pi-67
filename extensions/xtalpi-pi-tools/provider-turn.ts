@@ -12,6 +12,7 @@ import { debugLog } from "./diagnostics.ts";
 import type { ArgumentValidationWarning } from "./argument-validator.ts";
 import type { XtalpiProviderTurnResult } from "./output-message.ts";
 import { parseToolCall } from "./parser.ts";
+import { validateFinalAnswer } from "./final-guard.ts";
 import {
   DEFAULT_MAX_TOOL_RESULT_CHARS,
   DEFAULT_MAX_TOOLS,
@@ -20,6 +21,7 @@ import {
 import { buildParseErrorRepairPlan } from "./recovery-decision.ts";
 import {
   buildEmptyResponseRepairPrompt,
+  buildPrematureFinalRepairPrompt,
   envInt,
 } from "./retry.ts";
 import type { ProviderRuntimeConfig } from "./runtime-config.ts";
@@ -137,6 +139,44 @@ export async function runProviderTurn(input: {
     }
 
     if (parsed.kind === "none") {
+      const finalGuard = validateFinalAnswer({
+        text: parsed.text,
+        context: contextLike,
+        selectedToolNames,
+      });
+      if (!finalGuard.ok) {
+        if (loopState.canRecoverRepair(debugContext)) {
+          const recovery = loopState.noteRepairRecovery();
+          messages.push({ role: "assistant", content: raw.slice(0, 4000) });
+          messages.push({
+            role: "user",
+            content: buildPrematureFinalRepairPrompt({
+              code: finalGuard.code,
+              reason: finalGuard.reason,
+              raw,
+              latestUserText: finalGuard.latestUserText,
+              availableNames: selectedToolNames,
+            }),
+          });
+          debugLog("recovery.premature_final", {
+            ...debugContext,
+            code: finalGuard.code,
+            reason: finalGuard.reason,
+            ...recovery,
+            rawExcerpt: safeBlockText(raw, 500),
+          });
+          continue;
+        }
+
+        return {
+          kind: "final",
+          text:
+            `xtalpi-pi-tools 检测到模型返回疑似未完成的最终回答，已停止自动修复。\n\n` +
+            `原因：${finalGuard.reason}\n\n模型原始输出摘录：\n${raw.slice(0, 2000)}`,
+          ...loopState.resultFields(),
+        };
+      }
+
       return {
         kind: "final",
         text: parsed.text,

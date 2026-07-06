@@ -406,6 +406,103 @@
       }
     },
     {
+      "name": "plan-mode-contract-then-plan",
+      "maxTools": 8,
+      "maxRepairRetries": 2,
+      "maxTotalRecoveries": 4,
+      "context": {
+        "systemPrompt": "Plan mode: planning\nProduce a <proposed_plan> block.",
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a file",
+            "parameters": {
+              "type": "object",
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": "继续呀"
+          }
+        ]
+      },
+      "responses": [
+        {
+          "content": "Plan mode: planning\nTools: bash, find, grep, ls, read, plan_mode_question\nProduce a <proposed_plan> block."
+        },
+        {
+          "content": "<proposed_plan>\n1. Inspect source discovery.\n2. Verify actual directories.\n</proposed_plan>"
+        }
+      ],
+      "expect": {
+        "fetchCount": 2,
+        "stopReason": "stop",
+        "leadingTextIncludes": "<proposed_plan>"
+      }
+    },
+    {
+      "name": "continuation-no-progress-then-tool",
+      "maxTools": 8,
+      "maxRepairRetries": 2,
+      "maxTotalRecoveries": 4,
+      "context": {
+        "systemPrompt": "system base",
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a file",
+            "parameters": {
+              "type": "object",
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": "继续呀"
+          }
+        ]
+      },
+      "responses": [
+        {
+          "content": "I will inspect the file next."
+        },
+        {
+          "content": "<pi_tool_call>\n{\"name\":\"read\",\"arguments\":{\"path\":\"package.json\"}}\n</pi_tool_call>"
+        }
+      ],
+      "expect": {
+        "fetchCount": 2,
+        "stopReason": "toolUse",
+        "toolCalls": [
+          {
+            "name": "read",
+            "arguments": {
+              "path": "package.json"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "bounded-schema-args-then-fixed",
       "maxTools": 8,
       "maxRepairRetries": 2,

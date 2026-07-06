@@ -53,6 +53,13 @@ selected-tool 排序默认看最新用户意图；当最新消息是“继续 / 
 
 被跳过或无法编译的 `pattern` 不会静默消失：debug JSONL 会记录脱敏后的 `argument_validation_warning_count`、`argument_validation_warning_codes` 和有界 warning 摘要；debug-summary / smoke summary 会聚合 `argument_validation_warnings` 与 `argument_validation_warning_codes`，但不会记录原始 pattern 或参数值。
 
+provider 不只解析工具调用，也会守住当前 turn 的终止状态。如果模型在应该继续工作时输出
+“I will inspect...”、只回复“OK”、把 Plan mode 内部提示当作最终答案复读，或在 Plan mode
+中没有给出 `<proposed_plan>`，`xtalpi-pi-tools` 会把这类 premature final 视为可修复协议错误，
+追加一次本地 repair prompt，要求模型三选一：返回合法 `<pi_tool_call>`、返回完整
+`<proposed_plan>`，或给出包含实际结果的最终回答。这样不能保证模型永不犯错，但能避免明显
+“没干完就静默结束”的回答被 Pi 当作正常 final。
+
 这样晶泰侧不需要稳定支持 OpenAI tool calling，只需要稳定支持普通 chat completion。
 
 ## 默认配置
@@ -275,6 +282,8 @@ extensions/xtalpi-pi-tools/fixtures/replay-cases.json
 - assistant tool-call history 作为普通 `[previous_pi_tool_call]` 记录序列化，避免把裸 `<pi_tool_call_history>` 暴露给模型
 - tool result prompt-injection / 协议边界中和（含带属性与残缺协议标签变体、`[previous_pi_tool_call]` bracket markers）
 - tool metadata / repair prompt 协议边界中和
+- premature final guard：Plan mode contract missing、continuation no progress、
+  intent-to-tool no call 和 weak final 会先触发本地 repair，而不是被静默当作正常 final
 - unknown-tool repair 只回显本轮 selected tools，不暴露未展示工具名
 - future extension dynamic discovery：未知的新工具只要出现在 `context.tools` 且被 prompt
   选中，就会被序列化、纳入 selected-tool whitelist 并通过本地参数校验；未展示的新工具会走

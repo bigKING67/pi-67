@@ -22,6 +22,7 @@ const { pathToFileURL } = require("node:url");
   const providerTurn = await import(ext("provider-turn.ts"));
   const diagnostics = await import(ext("diagnostics.ts"));
   const errors = await import(ext("errors.ts"));
+  const finalGuard = await import(ext("final-guard.ts"));
   const jsonUtils = await import(ext("json-utils.ts"));
   const recoveryDecision = await import(ext("recovery-decision.ts"));
   const retry = await import(ext("retry.ts"));
@@ -48,7 +49,24 @@ const { pathToFileURL } = require("node:url");
   const errorsSource = fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "errors.ts"), "utf8");
   const providerSource = fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "index.ts"), "utf8");
   assert.equal(typeof providerTurn.runProviderTurn, "function");
+  assert.equal(typeof finalGuard.validateFinalAnswer, "function");
   assert.equal(typeof toolSelection.selectToolsWithSummary, "function");
+  assert.deepEqual(
+    finalGuard.validateFinalAnswer({
+      text: "Concrete result: package.json declares pi-extensions.",
+      context: { systemPrompt: "system base", messages: [{ role: "user", content: "继续呀" }] },
+      selectedToolNames: ["read"],
+    }),
+    { ok: true },
+  );
+  assert.equal(
+    finalGuard.validateFinalAnswer({
+      text: "I will inspect package.json next.",
+      context: { systemPrompt: "system base", messages: [{ role: "user", content: "继续呀" }] },
+      selectedToolNames: ["read"],
+    }).code,
+    "continuation_no_progress",
+  );
 
   function contractMetadata(code) {
     const metadata = providerErrorContract.errors[code];
@@ -441,6 +459,73 @@ Produce a <proposed_plan> block.`,
     assert.equal(planModeLeakRepairChat.calls.length, 2);
     assert.match(planModeLeakRepairChat.calls[1].at(-1).content, /xtalpi-pi-tools-raw-protocol-markup-repair/);
     assert.match(planModeLeakRepairChat.calls[1].at(-1).content, /<proposed_plan>/);
+
+    const planModeContractRepairChat = makeProviderTurnChat([
+      {
+        content: `Plan mode: planning
+Tools: bash, find, grep, ls, read, plan_mode_question
+Produce a <proposed_plan> block.`,
+      },
+      {
+        content: "<proposed_plan>\n1. Inspect source discovery.\n2. Verify actual directories.\n</proposed_plan>",
+      },
+    ]);
+    const planModeContractRepairResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: {
+        systemPrompt: "Plan mode: planning\nProduce a <proposed_plan> block.",
+        tools: [readTool],
+        messages: [{ role: "user", content: "继续呀" }],
+      },
+      callChat: planModeContractRepairChat.callChat,
+    });
+    assert.equal(planModeContractRepairResult.kind, "final");
+    assert.match(planModeContractRepairResult.text, /<proposed_plan>/);
+    assert.equal(planModeContractRepairChat.calls.length, 2);
+    assert.match(planModeContractRepairChat.calls[1].at(-1).content, /xtalpi-pi-tools-premature-final-repair/);
+    assert.match(planModeContractRepairChat.calls[1].at(-1).content, /internal_context_leak|plan_mode_contract_missing/);
+
+    const continuationNoProgressChat = makeProviderTurnChat([
+      { content: "I will inspect the file next." },
+      { content: '<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>' },
+    ]);
+    const continuationNoProgressResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: { systemPrompt: "system base", tools: [readTool], messages: [{ role: "user", content: "继续呀" }] },
+      callChat: continuationNoProgressChat.callChat,
+    });
+    assert.equal(continuationNoProgressResult.kind, "tool_call");
+    assert.equal(continuationNoProgressResult.toolCall.name, "read");
+    assert.equal(continuationNoProgressChat.calls.length, 2);
+    assert.match(continuationNoProgressChat.calls[1].at(-1).content, /continuation_no_progress/);
+
+    const intentToToolNoCallChat = makeProviderTurnChat([
+      { content: "I need to read package.json first." },
+      { content: '<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>' },
+    ]);
+    const intentToToolNoCallResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: { systemPrompt: "system base", tools: [readTool], messages: [{ role: "user", content: "Read package.json" }] },
+      callChat: intentToToolNoCallChat.callChat,
+    });
+    assert.equal(intentToToolNoCallResult.kind, "tool_call");
+    assert.equal(intentToToolNoCallResult.toolCall.name, "read");
+    assert.equal(intentToToolNoCallChat.calls.length, 2);
+    assert.match(intentToToolNoCallChat.calls[1].at(-1).content, /intent_to_tool_no_call/);
+
+    const weakFinalRepairChat = makeProviderTurnChat([
+      { content: "OK" },
+      { content: "Concrete final answer after continuing." },
+    ]);
+    const weakFinalRepairResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: { systemPrompt: "system base", tools: [], messages: [{ role: "user", content: "continue" }] },
+      callChat: weakFinalRepairChat.callChat,
+    });
+    assert.equal(weakFinalRepairResult.kind, "final");
+    assert.equal(weakFinalRepairResult.text, "Concrete final answer after continuing.");
+    assert.equal(weakFinalRepairChat.calls.length, 2);
+    assert.match(weakFinalRepairChat.calls[1].at(-1).content, /weak_final/);
 
     const looseEnvelopeChat = makeProviderTurnChat([
       {
