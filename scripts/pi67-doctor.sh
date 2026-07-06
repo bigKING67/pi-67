@@ -385,6 +385,50 @@ run_node_report() {
   done < <(node "$script" "${args[@]}")
 }
 
+check_until_done_runtime_queue() {
+  local checker="$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.mjs"
+  local tmp
+  if [ ! -f "$checker" ]; then
+    warn "pi-until-done runtime queue checker missing"
+    return
+  fi
+  if ! command_exists node; then
+    warn "node not found; skipped pi-until-done runtime queue compatibility check"
+    return
+  fi
+  tmp="$(mktemp "${TMPDIR:-/tmp}/pi67-until-done-queue.XXXXXX")"
+  if node "$checker" --check --agent-dir "$PI_AGENT_DIR" --json >"$tmp" 2>/dev/null; then
+    node - "$tmp" <<'NODE'
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+if (data.status === "missing") {
+  console.log(`WARN|${data.message}`);
+} else {
+  console.log(`PASS|${data.message}`);
+}
+NODE
+  else
+    node - "$tmp" <<'NODE'
+const fs = require("fs");
+let data = null;
+try { data = JSON.parse(fs.readFileSync(process.argv[2], "utf8")); } catch {}
+if (data?.status === "review_required") {
+  console.log(`WARN|${data.message}`);
+} else {
+  console.log(`FAIL|${data?.message || "pi-until-done runtime queue compatibility check failed"}`);
+}
+NODE
+  fi | while IFS='|' read -r level message; do
+    case "$level" in
+      PASS) pass "$message" ;;
+      WARN) warn "$message" ;;
+      FAIL) fail "$message" ;;
+      *) warn "$level|$message" ;;
+    esac
+  done
+  rm -f "$tmp"
+}
+
 check_provider_model() {
   local tmp
   tmp="$(mktemp)"
@@ -1143,6 +1187,9 @@ if [ "$DEEP_MCP" = true ]; then
   section "Deep MCP readiness"
   check_mcp_deep
 fi
+
+section "Extension runtime compatibility"
+check_until_done_runtime_queue
 
 section "Pi runtime"
 if [ "$RUN_SKILL_LIST" = true ]; then

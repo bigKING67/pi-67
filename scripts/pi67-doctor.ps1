@@ -502,6 +502,36 @@ if (-not (Test-Path -LiteralPath $sourceSkillsRoot -PathType Container)) {
   }
 }
 
+Section "Extension runtime compatibility"
+$untilDoneQueueChecker = RepoPath "scripts/pi67-patch-pi-until-done-runtime-queue.mjs"
+if (-not (Test-CommandExists "node")) {
+  Warn "node not found; skipped pi-until-done runtime queue compatibility check"
+} elseif (-not (Test-Path -LiteralPath $untilDoneQueueChecker -PathType Leaf)) {
+  Warn "pi-until-done runtime queue checker missing"
+} else {
+  $queueResult = Invoke-External "node" @($untilDoneQueueChecker, "--check", "--agent-dir", $AgentDir, "--json") $RepoRoot
+  try {
+    $queue = $queueResult.text | ConvertFrom-Json
+    if ($queueResult.exitCode -eq 0) {
+      if ($queue.status -eq "missing") {
+        Warn $queue.message
+      } else {
+        Pass $queue.message
+      }
+    } elseif ($queue.status -eq "review_required") {
+      Warn $queue.message
+    } else {
+      Fail $queue.message
+    }
+  } catch {
+    if ($queueResult.exitCode -eq 0) {
+      Pass "pi-until-done runtime queue compatibility check completed"
+    } else {
+      Fail "pi-until-done runtime queue compatibility check failed"
+    }
+  }
+}
+
 Section "xtalpi endpoint contract"
 $runtimeConfig = RepoPath "extensions/xtalpi-pi-tools/runtime-config.ts"
 $providerHealth = RepoPath "scripts/pi67-xtalpi-provider-health.mjs"

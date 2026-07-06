@@ -505,6 +505,27 @@ sync_npm() {
   pass "npm packages synced in $PI_NPM_DIR"
 }
 
+patch_until_done_runtime_queue() {
+  local patcher="$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.sh"
+
+  say ""
+  say "${CYAN}--- pi-until-done runtime queue patch ---${NC}"
+  if [ ! -f "$patcher" ]; then
+    warn "pi-until-done runtime queue patcher missing: $patcher"
+    return
+  fi
+  if ! command_exists node; then
+    warn "node not found; skipped pi-until-done runtime queue patch"
+    return
+  fi
+  if [ "$DRY_RUN" = true ]; then
+    say "  ${CYAN}DRY-RUN${NC} $patcher --apply --agent-dir $PI_AGENT_DIR"
+    return
+  fi
+
+  bash "$patcher" --apply --agent-dir "$PI_AGENT_DIR"
+}
+
 check_npm_status() {
   say ""
   say "${CYAN}--- npm status ---${NC}"
@@ -536,6 +557,26 @@ check_npm_status() {
     pass "npm package.json already synced"
   else
     warn "npm package.json differs; update would run npm ${NPM_INSTALL_ARGS[*]}"
+  fi
+}
+
+check_until_done_runtime_queue_status() {
+  local patcher="$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.sh"
+
+  say ""
+  say "${CYAN}--- pi-until-done runtime queue compatibility ---${NC}"
+  if [ ! -f "$patcher" ]; then
+    warn "pi-until-done runtime queue patcher missing"
+    return
+  fi
+  if ! command_exists node; then
+    warn "node not found; skipped pi-until-done runtime queue compatibility check"
+    return
+  fi
+  if bash "$patcher" --check --agent-dir "$PI_AGENT_DIR" >/dev/null 2>&1; then
+    pass "pi-until-done runtime queue compatibility is already patched or package is not installed"
+  else
+    warn "pi-until-done runtime queue compatibility would be patched after npm sync"
   fi
 }
 
@@ -720,6 +761,7 @@ check_update_plan() {
 
   check_local_config_templates
   check_npm_status
+  check_until_done_runtime_queue_status
   report_check "$current_version" "$local_short" "$([ -n "$dirty" ] && printf true || printf false)"
 
   say ""
@@ -734,8 +776,10 @@ check_update_plan() {
   say "  sync shared skills into $SHARED_SKILLS_DIR"
   if [ "$RUN_NPM" = true ]; then
     say "  sync npm dependencies when package.json differs"
+    say "  apply pi-until-done runtime queue compatibility patch when needed"
   else
     say "  skip npm sync (--no-npm)"
+    say "  still check/apply pi-until-done runtime queue compatibility patch against existing package"
   fi
   if [ "$RUN_DOCTOR" = true ]; then
     say "  run doctor"
@@ -836,6 +880,7 @@ run_configure
 sync_shared_skills
 retire_legacy_agent_skills
 sync_npm
+patch_until_done_runtime_queue
 run_doctor
 write_report
 

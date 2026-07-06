@@ -70,6 +70,14 @@ const { pathToFileURL } = require("node:url");
     "continuation_no_progress",
   );
   assert.equal(
+    finalGuard.validateFinalAnswer({
+      text: "收到，重新发起搜索。",
+      context: { systemPrompt: "system base", messages: [{ role: "user", content: "继续呀" }] },
+      selectedToolNames: ["web_search"],
+    }).code,
+    "continuation_no_progress",
+  );
+  assert.equal(
     shellCommandGuard.validateShellCommandRequest({
       name: "bash",
       arguments: {
@@ -334,6 +342,19 @@ const { pathToFileURL } = require("node:url");
       },
     },
   };
+  const webSearchTool = {
+    name: "web_search",
+    description: "Search the web",
+    parameters: {
+      type: "object",
+      required: ["queries"],
+      properties: {
+        queries: { type: "array", items: { type: "string" } },
+        numResults: { type: "number" },
+        recencyFilter: { type: "string" },
+      },
+    },
+  };
 
   await withProviderTurnEnv({
     XTALPI_PI_TOOLS_MAX_TOOLS: "8",
@@ -498,8 +519,33 @@ Produce a <proposed_plan> block.`,
     assert.match(planModeLeakRepairResult.text, /<proposed_plan>/);
     assert.ok(!planModeLeakRepairResult.text.includes("<previous_pi_tool_call>"));
     assert.equal(planModeLeakRepairChat.calls.length, 2);
-    assert.match(planModeLeakRepairChat.calls[1].at(-1).content, /xtalpi-pi-tools-raw-protocol-markup-repair/);
+    assert.match(planModeLeakRepairChat.calls[1].at(-1).content, /xtalpi-pi-tools-premature-final-repair/);
+    assert.match(planModeLeakRepairChat.calls[1].at(-1).content, /internal_context_leak|plan_mode_contract_missing/);
     assert.match(planModeLeakRepairChat.calls[1].at(-1).content, /<proposed_plan>/);
+
+    const mismatchedHistoryContinuationChat = makeProviderTurnChat([
+      {
+        content: `收到，重新发起搜索。
+[previous_pi_tool_call]
+id: pi_tool_web_search_123
+name: web_search
+arguments_json: {"queries":["2026年 618 抖音 洗护 行业 销售数据 报告"],"numResults":8,"recencyFilter":"month"}
+</previous_pi_tool_call>`,
+      },
+      {
+        content: '<pi_tool_call>\n{"name":"web_search","arguments":{"queries":["2026年 618 抖音 洗护 行业 销售数据 报告"],"numResults":8,"recencyFilter":"month"}}\n</pi_tool_call>',
+      },
+    ]);
+    const mismatchedHistoryContinuationResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: { systemPrompt: "system base", tools: [webSearchTool], messages: [{ role: "user", content: "继续呀" }] },
+      callChat: mismatchedHistoryContinuationChat.callChat,
+    });
+    assert.equal(mismatchedHistoryContinuationResult.kind, "tool_call");
+    assert.equal(mismatchedHistoryContinuationResult.toolCall.name, "web_search");
+    assert.equal(mismatchedHistoryContinuationChat.calls.length, 2);
+    assert.match(mismatchedHistoryContinuationChat.calls[1].at(-1).content, /xtalpi-pi-tools-premature-final-repair/);
+    assert.ok(!mismatchedHistoryContinuationResult.leadingText.includes("previous_pi_tool_call"));
 
     const planModeContractRepairChat = makeProviderTurnChat([
       {
@@ -713,6 +759,12 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
   assert.equal(valid.kind, "tool_call");
   assert.equal(valid.call.name, "read");
   assert.deepEqual(valid.call.arguments, { path: "package.json" });
+
+  const historyBeforeTool = parser.parseToolCall('[previous_pi_tool_call]\nid: old\nname: read\narguments_json: {"path":"old"}\n</previous_pi_tool_call>\n<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>');
+  assert.equal(historyBeforeTool.kind, "tool_call");
+  assert.equal(historyBeforeTool.call.name, "read");
+  assert.equal(historyBeforeTool.before, "");
+  assert.ok(historyBeforeTool.warnings.some((warning) => warning.includes("stripped previous_pi_tool_call history")));
 
   const fenced = parser.parseToolCall("<pi_tool_call>\n```json\n{\"name\":\"bash\",\"arguments\":{\"command\":\"pwd\"}}\n```\n</pi_tool_call>");
   assert.equal(fenced.kind, "tool_call");

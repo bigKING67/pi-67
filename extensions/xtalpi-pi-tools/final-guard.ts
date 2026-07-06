@@ -31,10 +31,10 @@ const PLAN_MODE_ECHO_PATTERN =
 const PROPOSED_PLAN_BLOCK_PATTERN = /<proposed_plan\b[^>]*>[\s\S]*<\/proposed_plan>/i;
 
 const PROMISE_TO_CONTINUE_PATTERN =
-  /(?:^|\b)(?:let me|i(?:'ll| will| need to| should| am going to)|next,?\s+i(?:'ll| will)|我(?:会|将|需要|应该)|接下来|下一步|让我|先)(?:[\s\S]{0,180})(?:continue|proceed|inspect|check|search|grep|find|list|read|open|look at|run|execute|fetch|继续|查看|检查|搜索|查找|读取|打开|运行|执行|抓取)/i;
+  /(?:^|\b)(?:let me|i(?:'ll| will| need to| should| am going to)|next,?\s+i(?:'ll| will)|我(?:会|将|需要|应该)|接下来|下一步|让我|先|收到|重新|继续)(?:[\s\S]{0,180})(?:continue|proceed|inspect|check|search|grep|find|list|read|open|look at|run|execute|fetch|继续|查看|检查|搜索|查找|读取|打开|运行|执行|抓取|发起搜索)/i;
 
 const INTENT_TO_TOOL_PATTERN =
-  /(?:^|\b)(?:let me|i(?:'ll| will| need to| should| am going to)|next,?\s+i(?:'ll| will)|我(?:会|将|需要|应该)|接下来|下一步|让我|先)(?:[\s\S]{0,180})(?:inspect|check|search|grep|find|list|read|open|look at|run|execute|fetch|查看|检查|搜索|查找|读取|打开|运行|执行|抓取)/i;
+  /(?:^|\b)(?:let me|i(?:'ll| will| need to| should| am going to)|next,?\s+i(?:'ll| will)|我(?:会|将|需要|应该)|接下来|下一步|让我|先|收到|重新|继续)(?:[\s\S]{0,180})(?:inspect|check|search|grep|find|list|read|open|look at|run|execute|fetch|查看|检查|搜索|查找|读取|打开|运行|执行|抓取|发起搜索)/i;
 
 const WEAK_FINAL_PATTERN =
   /^\s*(?:ok(?:ay)?|done|sure|understood|continuing|好的|好|明白|收到|继续|可以|已完成)[.!！。…\s]*$/i;
@@ -50,6 +50,7 @@ const TOOL_LIKE_NAMES = new Set([
   "grep",
   "ls",
   "read",
+  "web_search",
   "web_fetch",
 ]);
 

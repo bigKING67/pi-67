@@ -139,7 +139,7 @@ export async function runProviderTurn(input: {
 
       return {
         kind: "final",
-        text: `xtalpi-pi-tools 无法解析模型返回的工具调用，已停止自动修复。\n\n解析错误：${parsed.message}\n\n模型原始输出摘录：\n${raw.slice(0, 2000)}`,
+        text: `xtalpi-pi-tools 无法解析模型返回的工具调用，已停止自动修复。\n\n解析错误：${parsed.message}\n\n模型原始输出摘录：\n${safeBlockText(raw, 2000)}`,
         ...loopState.resultFields(),
       };
     }
@@ -198,7 +198,7 @@ export async function runProviderTurn(input: {
           kind: "final",
           text:
             `xtalpi-pi-tools 检测到模型返回疑似未完成的最终回答，已停止自动修复。\n\n` +
-            `原因：${finalGuard.reason}\n\n模型原始输出摘录：\n${raw.slice(0, 2000)}`,
+            `原因：${finalGuard.reason}\n\n模型原始输出摘录：\n${safeBlockText(raw, 2000)}`,
           ...loopState.resultFields(),
         };
       }

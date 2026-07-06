@@ -261,6 +261,17 @@ function containsRawProtocolMarkup(value: string): boolean {
   return RAW_PROTOCOL_MARKUP_PATTERN.test(value);
 }
 
+const PREVIOUS_TOOL_CALL_HISTORY_BLOCK_PATTERN =
+  /(?:\[previous_pi_tool_call\]|<previous_pi_tool_call\b[^>]*>)[\s\S]*?(?:\[\/previous_pi_tool_call\]|<\/previous_pi_tool_call>)/gi;
+
+function stripPreviousToolCallHistoryBlocks(value: string): string {
+  return value
+    .replace(PREVIOUS_TOOL_CALL_HISTORY_BLOCK_PATTERN, "")
+    .replace(/[ \t]+\r?\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function uniqueDefinedEntries(object: JsonObject, names: readonly string[]): Array<{ key: string; value: unknown }> {
   return names
     .filter((key) => Object.prototype.hasOwnProperty.call(object, key))
@@ -616,11 +627,14 @@ export function parseToolCall(text: string): ToolCallParseResult {
     const parsed = parseAttributedEnvelope(tagged.openTag, tagged.body, source);
     if (parsed.kind !== "tool_call") return parsed;
 
-    const before = source.slice(0, tagged.start).trim();
-    const after = source.slice(tagged.end).trim();
+    const before = stripPreviousToolCallHistoryBlocks(source.slice(0, tagged.start));
+    const after = stripPreviousToolCallHistoryBlocks(source.slice(tagged.end));
     const warnings = [...parsed.warnings];
     if (before || after) {
       warnings.push("tool envelope had surrounding text");
+    }
+    if (before !== source.slice(0, tagged.start).trim() || after !== source.slice(tagged.end).trim()) {
+      warnings.push("stripped previous_pi_tool_call history from surrounding text");
     }
 
     return {
@@ -660,6 +674,26 @@ export function parseToolCall(text: string): ToolCallParseResult {
       raw: functionStyle.raw,
       text: source,
     };
+  }
+
+  const withoutHistory = stripPreviousToolCallHistoryBlocks(source);
+  if (withoutHistory !== source.trim()) {
+    if (!withoutHistory) {
+      return {
+        kind: "error",
+        code: "raw_protocol_markup",
+        message: "assistant final answer must not contain only raw or internal Pi tool protocol markup",
+        raw: source,
+        text: source,
+      };
+    }
+
+    if (!containsRawProtocolMarkup(withoutHistory)) {
+      return {
+        kind: "none",
+        text: withoutHistory,
+      };
+    }
   }
 
   if (containsRawProtocolMarkup(source)) {

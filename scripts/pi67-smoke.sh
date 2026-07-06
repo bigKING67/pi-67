@@ -98,6 +98,7 @@ cleanup() {
     /tmp/pi67-smoke-xtalpi-parser-fuzz.log \
     /tmp/pi67-smoke-xtalpi-provider-health-test.log \
     /tmp/pi67-smoke-xtalpi-provider-error-contract.log \
+    /tmp/pi67-smoke-until-done-runtime-queue.log \
     /tmp/pi67-smoke-migrate-skills-dry.log \
     /tmp/pi67-smoke-migrate-skills-apply.log \
     /tmp/pi67-smoke-migrate-skills-conflict.log \
@@ -221,6 +222,9 @@ fi
 if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-tool-coverage-audit.sh" ]; then
   bash -n "$REPO_ROOT/scripts/pi67-xtalpi-tool-coverage-audit.sh"
 fi
+if [ -f "$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.sh" ]; then
+  bash -n "$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.sh"
+fi
 if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-smoke-status-core.cjs" ]; then
   node --check "$REPO_ROOT/scripts/pi67-xtalpi-smoke-status-core.cjs" >/dev/null
 fi
@@ -238,6 +242,9 @@ if [ -f "$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs" ];
 fi
 if [ -f "$REPO_ROOT/scripts/pi67-fuzz-xtalpi-parser.mjs" ]; then
   node --check "$REPO_ROOT/scripts/pi67-fuzz-xtalpi-parser.mjs" >/dev/null
+fi
+if [ -f "$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.mjs" ]; then
+  node --check "$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.mjs" >/dev/null
 fi
 pass "shell scripts parse"
 
@@ -843,6 +850,9 @@ fi
 if [ -f "$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs" ]; then
   node "$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs" --self-test >/tmp/pi67-smoke-xtalpi-provider-error-contract.log
   node "$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs" >>/tmp/pi67-smoke-xtalpi-provider-error-contract.log
+fi
+if [ -f "$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.mjs" ]; then
+  node "$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.mjs" --self-test >/tmp/pi67-smoke-until-done-runtime-queue.log
 fi
 pass "xtalpi-pi-tools protocol tests completed"
 

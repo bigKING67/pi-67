@@ -446,6 +446,27 @@ install_npm_packages() {
   pass "npm packages installed in $PI_NPM_DIR"
 }
 
+patch_until_done_runtime_queue() {
+  local patcher="$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.sh"
+
+  say ""
+  say "${CYAN}--- pi-until-done runtime queue patch ---${NC}"
+  if [ ! -f "$patcher" ]; then
+    warn "pi-until-done runtime queue patcher missing: $patcher"
+    return
+  fi
+  if ! command -v node >/dev/null 2>&1; then
+    warn "node not found; skipped pi-until-done runtime queue patch"
+    return
+  fi
+  if [ "$DRY_RUN" = true ]; then
+    say "  ${CYAN}DRY-RUN${NC} $patcher --apply --agent-dir $PI_AGENT_DIR"
+    return
+  fi
+
+  bash "$patcher" --apply --agent-dir "$PI_AGENT_DIR"
+}
+
 run_doctor() {
   if [ "$RUN_DOCTOR" != true ]; then
     warn "doctor skipped by --no-doctor"
@@ -579,6 +600,7 @@ copy_example_if_missing "image-gen.example.json" "image-gen.json"
 say ""
 say "${CYAN}--- npm packages ---${NC}"
 install_npm_packages
+patch_until_done_runtime_queue
 
 run_doctor
 write_report

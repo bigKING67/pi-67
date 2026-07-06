@@ -269,6 +269,9 @@ $RequiredFiles = @(
   "scripts/pi67-xtalpi-provider-health.mjs",
   "scripts/pi67-validate-xtalpi-provider-error-contract.mjs",
   "scripts/pi67-fuzz-xtalpi-parser.mjs",
+  "scripts/pi67-patch-pi-until-done-runtime-queue.mjs",
+  "scripts/pi67-patch-pi-until-done-runtime-queue.sh",
+  "scripts/pi67-patch-pi-until-done-runtime-queue.ps1",
   "scripts/pi67-shared-skills-inventory.sh",
   "extensions/xtalpi-pi-tools/json-file.ts",
   "extensions/xtalpi-pi-tools/runtime-config.ts",
@@ -353,7 +356,8 @@ if ($NodeAvailable) {
     "scripts/pi67-xtalpi-smoke-plan.mjs",
     "scripts/pi67-xtalpi-provider-health.mjs",
     "scripts/pi67-validate-xtalpi-provider-error-contract.mjs",
-    "scripts/pi67-fuzz-xtalpi-parser.mjs"
+    "scripts/pi67-fuzz-xtalpi-parser.mjs",
+    "scripts/pi67-patch-pi-until-done-runtime-queue.mjs"
   )
   foreach ($file in $NodeCheckFiles) {
     Run-Check ("node --check: {0}" -f $file) {
@@ -379,6 +383,10 @@ if ($NodeAvailable) {
 
   Run-Check "xtalpi parser matrix regression passed" {
     Invoke-External "node" @("--no-warnings", (RepoPath "scripts/pi67-fuzz-xtalpi-parser.mjs"), $RepoRoot) | Out-Null
+  }
+
+  Run-Check "pi-until-done runtime queue patch self-test passed" {
+    Invoke-External "node" @((RepoPath "scripts/pi67-patch-pi-until-done-runtime-queue.mjs"), "--self-test") | Out-Null
   }
 
   Run-Check "xtalpi extension smoke plan validation passed" {

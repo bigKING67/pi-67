@@ -196,6 +196,88 @@ If the task is time-critical and xtalpi continues returning empty content, tempo
 bash ~/.pi/agent/scripts/pi67-configure.sh --provider codex --model gpt-5.4 --prompt-secrets
 ```
 
+## xtalpi-pi-tools reports raw `previous_pi_tool_call` markup
+
+If Pi stops with an error similar to:
+
+```text
+xtalpi-pi-tools 无法解析模型返回的工具调用，已停止自动修复。
+解析错误：assistant final answer must not contain raw or internal Pi tool protocol markup
+模型原始输出摘录：
+收到，重新发起搜索。
+[previous_pi_tool_call]
+...
+```
+
+the upstream model is not just returning a normal final answer. It copied an
+internal Pi tool-history record into the assistant final text. That record is
+history, not a new tool call and not user-facing content.
+
+Current pi-67 handles this in two layers:
+
+1. Strip complete `previous_pi_tool_call` history blocks from surrounding text
+   before parser/final-answer guards run.
+2. Treat the remaining text, for example "收到，重新发起搜索。", as a no-progress
+   continuation and run the bounded local repair path so the next response must
+   be either a real tool call or a useful final answer.
+
+Update and verify:
+
+```bash
+cd ~/.pi/agent
+bash scripts/pi67-update.sh
+bash scripts/pi67-test-xtalpi-pi-tools.sh
+node --no-warnings scripts/pi67-fuzz-xtalpi-parser.mjs
+```
+
+On Windows PowerShell:
+
+```powershell
+Set-Location $env:USERPROFILE\.pi\agent
+.\scripts\pi67-update.ps1
+.\scripts\pi67-smoke.ps1 -Ci
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-low-risk
+```
+
+If the same raw-markup error still appears after those commands, check that the
+repo has the newest commit and that `extensions\xtalpi-pi-tools\parser.ts`
+contains `PREVIOUS_TOOL_CALL_HISTORY_BLOCK_PATTERN`.
+
+## `/until-done` stops with `Agent is already processing`
+
+This error is a `pi-until-done@0.2.2` runtime queue compatibility problem, not
+an xtalpi provider problem:
+
+```text
+Extension "<runtime>" error: Agent is already processing. Specify streamingBehavior ('steer' or 'followup') to queue the message.
+```
+
+Newer Pi runtime versions require extension calls to `pi.sendUserMessage(...)`
+to include `streamingBehavior: "followup"` or `streamingBehavior: "steer"` when
+the agent is already processing. `pi-until-done@0.2.2` still contains older call
+sites, so pi-67 patches that installed package locally after npm sync.
+
+Check or apply the patch manually:
+
+```bash
+cd ~/.pi/agent
+bash scripts/pi67-patch-pi-until-done-runtime-queue.sh --check --agent-dir ~/.pi/agent
+bash scripts/pi67-patch-pi-until-done-runtime-queue.sh --apply --agent-dir ~/.pi/agent
+```
+
+PowerShell:
+
+```powershell
+Set-Location $env:USERPROFILE\.pi\agent
+.\scripts\pi67-patch-pi-until-done-runtime-queue.ps1 -Check
+.\scripts\pi67-patch-pi-until-done-runtime-queue.ps1 -Apply
+```
+
+`pi67-update.sh`, `pi67-update.ps1`, `install.sh`, doctor, smoke, and release
+checks all include this compatibility guard. If the installed package version is
+not `0.2.2`, the patcher does not blindly edit it; it reports
+`review_required` so the new upstream package can be inspected first.
+
 ## MCP path warnings
 
 Warnings like these mean the full MCP config is installed, but the local dependency is not present yet:

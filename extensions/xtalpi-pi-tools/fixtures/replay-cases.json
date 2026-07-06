@@ -293,8 +293,14 @@
       "name": "angle-previous-tool-history-record",
       "input": "<previous_pi_tool_call>\nid: call_1\nname: read\narguments_json: {\"path\":\"package.json\"}\n</previous_pi_tool_call>\nPlan mode: planning\nTools: bash, find, grep, ls, read, plan_mode_question\nProduce a <proposed_plan> block.",
       "expect": {
-        "kind": "error",
-        "code": "raw_protocol_markup"
+        "kind": "none"
+      }
+    },
+    {
+      "name": "mixed-previous-tool-history-record-with-prose",
+      "input": "收到，重新发起搜索。\n[previous_pi_tool_call]\nid: call_1\nname: web_search\narguments_json: {\"queries\":[\"2026 618 抖音 洗护\"]}\n</previous_pi_tool_call>",
+      "expect": {
+        "kind": "none"
       }
     },
     {

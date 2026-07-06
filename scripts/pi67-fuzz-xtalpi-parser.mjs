@@ -79,6 +79,18 @@ assertToolCall(
   "attributed-arguments-body",
 );
 
+assertToolCall(
+  `[previous_pi_tool_call]\nid: old\nname: read\narguments_json: {"path":"old"}\n</previous_pi_tool_call>\n<pi_tool_call>\n${JSON.stringify({ name: "read", arguments: expectedArgs })}\n</pi_tool_call>`,
+  "strips-mismatched-previous-history-before-tool-call",
+);
+
+{
+  cases += 1;
+  const actual = parser.parseToolCall(`收到，重新发起搜索。\n[previous_pi_tool_call]\nid: old\nname: web_search\narguments_json: {}\n</previous_pi_tool_call>`);
+  assert.equal(actual.kind, "none", "strips-mismatched-previous-history-from-final-text");
+  assert.equal(actual.text, "收到，重新发起搜索。", "strips-mismatched-previous-history-from-final-text");
+}
+
 assertError(
   JSON.stringify({ name: "read", arguments: expectedArgs, unexpected: true }),
   "unknown_top_level_field",

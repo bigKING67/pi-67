@@ -602,6 +602,45 @@ function Sync-Npm {
   Write-Pass ("npm packages synced in {0}" -f $NpmDir)
 }
 
+function Invoke-UntilDoneRuntimeQueuePatch {
+  Write-Section "pi-until-done runtime queue patch"
+  $patcher = Join-Path (Join-Path $RepoRoot "scripts") "pi67-patch-pi-until-done-runtime-queue.ps1"
+  if (-not (Test-Path -LiteralPath $patcher -PathType Leaf)) {
+    Write-Warn "pi-until-done runtime queue patcher missing"
+    return
+  }
+  if (-not (Test-CommandExists "node")) {
+    Write-Warn "node not found; skipped pi-until-done runtime queue patch"
+    return
+  }
+  if ($DryRun) {
+    Write-Host ("  DRY-RUN {0} -Apply -AgentDir {1}" -f $patcher, $AgentDir) -ForegroundColor Cyan
+    return
+  }
+  & $patcher -Apply -AgentDir $AgentDir
+  if ($LASTEXITCODE -ne 0) {
+    throw "pi-until-done runtime queue patch failed"
+  }
+}
+
+function Test-UntilDoneRuntimeQueueStatus {
+  if (-not (Test-CommandExists "node")) {
+    Write-Warn "node not found; skipped pi-until-done runtime queue compatibility check"
+    return
+  }
+  $patcher = Join-Path (Join-Path $RepoRoot "scripts") "pi67-patch-pi-until-done-runtime-queue.ps1"
+  if (-not (Test-Path -LiteralPath $patcher -PathType Leaf)) {
+    Write-Warn "pi-until-done runtime queue patcher missing"
+    return
+  }
+  & $patcher -Check -AgentDir $AgentDir | Out-Null
+  if ($LASTEXITCODE -eq 0) {
+    Write-Pass "pi-until-done runtime queue compatibility is already patched or package is not installed"
+  } else {
+    Write-Warn "pi-until-done runtime queue compatibility would be patched after npm sync"
+  }
+}
+
 function Invoke-Smoke {
   if ($NoSmoke) {
     Write-Warn "PowerShell smoke skipped by -NoSmoke"
@@ -865,6 +904,7 @@ function Show-CheckOnly {
       Write-Warn "npm package.json differs or -ForceNpm is set; npm sync would run"
     }
   }
+  Test-UntilDoneRuntimeQueueStatus
 
   $currentVersion = ""
   $versionPath = Join-Path $RepoRoot "VERSION"
@@ -949,6 +989,7 @@ try {
   }
   Sync-SharedSkills
   Sync-Npm
+  Invoke-UntilDoneRuntimeQueuePatch
   Invoke-Smoke
   Invoke-Report
 

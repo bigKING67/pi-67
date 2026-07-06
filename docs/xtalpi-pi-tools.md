@@ -552,6 +552,13 @@ tool-result-injection 还会在 summary gate 中要求最终回答包含 `PI_TOO
 
 最终回答也会被检查：如果 assistant final text 残留裸 `<pi_tool_call_history>` / `<pi_tool_call>` / `<pi_tool_result>` raw markup（包括 `<pi_tool_call name="...">` 这类变体、缺少 `>` 的残缺标签片段）或 `[previous_pi_tool_call]` 历史记录，provider 会先触发 repair；如果最终 artifact 仍残留这些 raw/internal markup，冒烟会失败，避免把未执行的伪工具调用或历史记录复读误判为正常结论。
 
+有一类常见 provider drift 是“普通文本 + 已执行工具历史”混在一起，例如
+`收到，重新发起搜索。` 后面跟着 `[previous_pi_tool_call]...[/previous_pi_tool_call]`
+或 `<previous_pi_tool_call>...</previous_pi_tool_call>`。这不是可展示的最终回答，
+也不是新工具调用。parser 会先剥离完整历史块；如果剩余文本只是“继续/重新搜索/收到”
+这类无进展话术，final guard 会把它归入 bounded repair，而不是停在 raw protocol
+markup 错误页。若剥离后没有任何真实内容，仍 fail-closed。
+
 冒烟脚本还会为每个 case 开启 `XTALPI_PI_TOOLS_DEBUG=1`，校验 debug JSONL schema，并汇总 `recovery.*` 事件，便于判断是否发生了本地修复重试。
 
 live smoke 会先运行 provider-health preflight，然后为子进程显式设置 `XTALPI_PI_TOOLS_TIMEOUT_MS` 和 `XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS`，默认来自 `XTALPI_PI_TOOLS_SMOKE_REQUEST_TIMEOUT_MS=180000` 与 `XTALPI_PI_TOOLS_SMOKE_MAX_OUTPUT_TOKENS=1024`。这只影响 smoke 子进程，不改变日常 `xtalpi-pi-tools` 运行时默认；作用是把晶泰 provider stall 和过度生成收敛成可观察的 smoke 边界，而不是被 Pi 全局 HTTP idle timeout、日常输出上限或 case watchdog 混在一起。

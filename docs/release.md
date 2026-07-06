@@ -20,6 +20,7 @@ PowerShell smoke for Windows-facing changes:
 .\scripts\pi67-smoke.ps1 -Ci
 .\scripts\pi67-doctor.ps1 -Json
 .\scripts\pi67-report.ps1 -Operation manual
+.\scripts\pi67-patch-pi-until-done-runtime-queue.ps1 -Check
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest
 ```
 
@@ -34,6 +35,7 @@ macOS/Linux and full release gate:
 
 ```bash
 bash scripts/pi67-release-check.sh
+bash scripts/pi67-patch-pi-until-done-runtime-queue.sh --check --agent-dir ~/.pi/agent
 bash scripts/pi67-smoke.sh --ci
 bash scripts/pi67-release-artifact-smoke.sh --ref WORKTREE
 bash scripts/pi67-release.sh --dry-run
@@ -47,6 +49,7 @@ Expected result:
 - Windows PowerShell doctor/report run on a PowerShell runtime when Windows install/update diagnostics changed
 - PowerShell xtalpi targeted smoke self-test passes; live targeted smoke covers read, FFF, batch fetch, sequential-thinking status, MCP, subagent, and recall when xtalpi credentials are available
 - xtalpi provider error-contract and debug-summary/profile self-tests pass
+- `pi-until-done` runtime queue compatibility check passes on the installed agent package when `/until-done` behavior or npm extensions changed
 - smoke test passes locally
 - clean artifact smoke passes for the current worktree candidate
 - release notes preview is generated from `CHANGELOG.md`
@@ -77,11 +80,13 @@ Expected result:
 .\scripts\pi67-smoke.ps1 -Ci
 .\scripts\pi67-doctor.ps1 -Json
 .\scripts\pi67-report.ps1 -Operation manual
+.\scripts\pi67-patch-pi-until-done-runtime-queue.ps1 -Check
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest
 ```
 
 ```bash
 bash scripts/pi67-release-check.sh
+bash scripts/pi67-patch-pi-until-done-runtime-queue.sh --check --agent-dir ~/.pi/agent
 bash scripts/pi67-smoke.sh --ci
 bash scripts/pi67-release-artifact-smoke.sh --ref WORKTREE
 bash scripts/pi67-release.sh --dry-run

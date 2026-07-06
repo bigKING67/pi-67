@@ -13,6 +13,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `scripts/pi67-sync-commerce-growth-os.sh` as a dry-run-first maintainer helper for refreshing the vendored `shared-skills/commerce-growth-os` copy from the standalone upstream checkout.
 - `scripts/pi67-shared-skills-inventory.sh` as a read-only inventory for explaining `shared-skills/` versus `~/.agents/skills` drift without overwriting global skills.
 - `scripts/pi67-fuzz-xtalpi-parser.mjs` as an offline parser matrix gate for xtalpi tool-call alias/wrapper compatibility and fail-closed cases.
+- `scripts/pi67-patch-pi-until-done-runtime-queue.{mjs,sh,ps1}` to check and patch `pi-until-done@0.2.2` for the newer Pi runtime queue contract that requires `streamingBehavior` on `pi.sendUserMessage(...)`.
 
 ### Changed
 
@@ -26,6 +27,9 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `xtalpi-pi-tools` now blocks obvious shell mismatches before execution when the model sends raw PowerShell cmdlets or unquoted Windows backslash script paths to the `bash` tool, then asks the model to repair with bash-compatible commands or an explicit `powershell.exe` / `pwsh` invocation.
 - `xtalpi-pi-tools` now accepts legacy Pi-style tool envelopes that use `id=...`, `name="..."`, and `arguments_json: {...}` inside `<pi_tool_call>`, preventing that provider drift from surfacing as an invalid JSON stop.
 - `xtalpi-pi-tools` now normalizes broader high-probability text tool-call drift locally, including `tool` / `tool_name` / `function_name` name aliases, `args` / `input` / `parameters` / `arguments_json` argument aliases, JSON-string arguments, text-native `function_call` / `tool_calls[0].function` shapes, generic `<tool_call>` tags, uppercase tool tags, and nested attributed envelopes, while still failing closed on multiple calls, unknown fields, empty argument strings, and mismatched attributed names.
+- `xtalpi-pi-tools` now strips mixed `previous_pi_tool_call` history blocks from otherwise valid final answers or tool envelopes before final-answer guards run, so model responses such as "收到，重新发起搜索。" plus copied history are repaired as no-progress continuations instead of surfacing raw internal protocol text to users.
+- `xtalpi-pi-tools` fallback error summaries now sanitize raw-response excerpts before displaying them, avoiding a second leak of internal Pi protocol markers when repair is exhausted.
+- Install, update, doctor, smoke, and release-check flows now include the `pi-until-done` runtime queue compatibility check/patch so `/until-done` no longer regresses after a normal pi-67 update.
 - Pi extension dependency baselines now track the current `pi-subagents`, `@narumitw/pi-plan-mode`, and `@narumitw/pi-btw` releases so `pi67-update.ps1` no longer reverts those packages behind Pi's own extension-update check.
 
 ## [0.10.0] - 2026-07-02

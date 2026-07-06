@@ -467,6 +467,9 @@ pi-67/
 │   ├── pi67-skill-audit.sh
 │   ├── pi67-smoke.ps1
 │   ├── pi67-smoke.sh
+│   ├── pi67-patch-pi-until-done-runtime-queue.mjs
+│   ├── pi67-patch-pi-until-done-runtime-queue.ps1
+│   ├── pi67-patch-pi-until-done-runtime-queue.sh
 │   ├── pi67-status.sh
 │   ├── pi67-sync-commerce-growth-os.sh
 │   ├── pi67-sync-external-skills.sh
@@ -617,6 +620,10 @@ node --no-warnings ./scripts/pi67-fuzz-xtalpi-parser.mjs
 大小写 tool tag、JSON-string arguments 和 fail-closed 场景；PowerShell smoke
 也会直接运行 `scripts\pi67-fuzz-xtalpi-parser.mjs`。
 
+如果最终回答里出现模型复读的 `previous_pi_tool_call` 历史记录，provider 会先移除
+完整历史块，再把剩余文本交给 final guard。类似“收到，重新发起搜索。”这种没有实际
+工具调用的续跑话术会进入有界 repair，而不是直接结束任务或把内部 Pi 协议标记展示给用户。
+
 冒烟 telemetry 汇总：
 
 ```bash
@@ -641,6 +648,9 @@ Set-Location $env:USERPROFILE\.pi\agent
 `.example` 创建。遇到这次 `xtalpi-compat` -> `xtalpi-pi-tools` 迁移里的已知
 tracked 冲突时，它会先备份到 `$env:USERPROFILE\.pi\agent-backups\pre-update-*`，
 再只恢复这些已知迁移文件后继续更新；其他 tracked 本地改动仍会停止，避免误覆盖。
+更新流程还会在 npm sync 后检查并修补已安装的 `pi-until-done@0.2.2`，给旧版
+`pi.sendUserMessage(...)` 调用补上 Pi runtime queue 需要的
+`streamingBehavior: "followup"`，避免 `/until-done` 在 agent 正忙时中断。
 
 预览但不写入：
 
@@ -680,8 +690,9 @@ PowerShell updater 会：
 4. 在备份后把可解析但编码不适合 Pi 启动的本地 JSON 规范化为 UTF-8 without BOM，例如 UTF-16、UTF-8 BOM 或前导 NUL 字节；备份名形如 `models.json.bak-YYYYMMDD-HHMMSS-encoding`
 5. 直接在 PowerShell 里做非交互配置迁移，例如把旧 `xtalpi` / `xtalpi-tools` 迁移到 `xtalpi-pi-tools`
 6. 如果 `package.json` 和 `~/.pi/agent/npm/package.json` 不一致，自动同步 npm 依赖
-7. 运行 `scripts\pi67-smoke.ps1 -Ci` 复核 repo/update contract
-8. 覆盖写入 `~/.pi/agent/pi67-report.json`，并默认嵌入 `scripts\pi67-doctor.ps1 -Json` 结果
+7. 检查并按需修补 `pi-until-done` runtime queue 兼容性
+8. 运行 `scripts\pi67-smoke.ps1 -Ci` 复核 repo/update contract
+9. 覆盖写入 `~/.pi/agent/pi67-report.json`，并默认嵌入 `scripts\pi67-doctor.ps1 -Json` 结果
 
 `npm sync` 只在依赖清单变化或显式强制时运行；成功同步后再次更新应显示
 `npm package.json already synced` 并跳过。若只是临时想快速拉代码、确认当前依赖
