@@ -24,6 +24,7 @@ const KERNEL_DIGEST = [
   "Frontend UI work must read frontend.md.",
   "Browser/login/download/upload/API-reverse tasks must read browser.md.",
   "Data mapping/metric/source-of-truth disputes must read data-quality.md or the closest project data rule.",
+  "Commerce growth/platform operation/assortment/pricing/channel-profit tasks must read commerce-growth.md.",
 ];
 
 function displayPath(filePath: string): string {

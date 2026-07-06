@@ -4,6 +4,17 @@ All notable changes to pi-67 are documented here.
 
 The format is based on Keep a Changelog, and this project uses semantic versioning for the pi-67 distribution itself. Pi package dependency versions are managed separately in `package.json`.
 
+## [Unreleased]
+
+### Added
+
+- `shared-skills/commerce-growth-os/` as the vendored Pi distribution copy of `https://github.com/bigKING67/commerce-growth-os`, so Pi/Codex can share the commerce growth skill through `~/.agents/skills`.
+- `rules/commerce-growth.md` plus Pi rules-loader routing for commerce growth, marketplace operation, assortment, pricing, channel control, ROI/profit, and platform-currentness tasks.
+
+### Changed
+
+- Pi AGENTS/rules documentation now routes commerce growth work to `commerce-growth-os` without adding local absolute paths or duplicate active package roots.
+
 ## [0.10.0] - 2026-07-02
 
 ### Added

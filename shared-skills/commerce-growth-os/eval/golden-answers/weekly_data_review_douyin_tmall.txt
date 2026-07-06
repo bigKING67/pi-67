@@ -1,0 +1,14 @@
+Metric movement: Douyin GMV +35%, ROI from 2.4 to 1.7, refund loss from 5% to 9%, Tmall brand-word searches +28%, Tmall payment CVR down.
+
+Likely cause: traffic scale grew but profit quality declined; Douyin marginal traffic or promise/SKU mix is worsening. Tmall captured more brand-word asset but landing trust, price consistency, review, Q&A, or detail page did not convert.
+
+Decision: next week cap Douyin paid scale and fix refund reasons; prioritize Tmall search landing repair instead of celebrating GMV.
+
+Owner/action:
+- Paid owner: split Douyin campaigns by SKU/content/source, cut low gross-profit ROI traffic.
+- Live/CS owner: inspect refund reasons, promise gap, gift, fulfillment, and after-sale script.
+- Tmall owner: fix title, main image, price consistency, review, Q&A, buyer show, detail proof, and payment CVR path.
+
+Stop rule: pause segments with ROI below break-even ROI or refund above 9%. Scale rule: restore budget only when profit, conversion, refund, and brand-word payment CVR stabilize.
+
+Next review: next week review by traffic, conversion, profit, asset, refund, and brand-word payment CVR.

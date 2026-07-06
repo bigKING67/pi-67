@@ -405,7 +405,7 @@ pi-67 distinguishes between installed and ready:
 | Capability | Installed by default | Ready when |
 | --- | --- | --- |
 | AGENTS kernel | Yes | `~/.pi/agent/AGENTS.md` points to the repo |
-| Rules | Yes | 8 rule files exist and `pi-rules-loader` is installed |
+| Rules | Yes | 9 rule files exist and `pi-rules-loader` is installed |
 | Prompts | Yes | Prompt files exist and do not use legacy double-brace placeholders |
 | Skills | Yes | `pi skill list` succeeds |
 | xtalpi-pi-tools provider | Yes | `models.json` has a real xtalpi API key under `xtalpi-pi-tools` |

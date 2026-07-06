@@ -35,6 +35,20 @@ Add a skill to `shared-skills/` only when it is suitable for other machines:
 - dependencies are either standard tools or documented optional prerequisites
 - useful beyond one local workflow
 
+`commerce-growth-os` is a public distribution skill in this bucket. Its
+upstream source repository is:
+
+```text
+https://github.com/bigKING67/commerce-growth-os
+```
+
+pi-67 keeps a vendored distribution copy at
+`shared-skills/commerce-growth-os` so other macOS/Windows machines receive it
+through the normal pi-67 pull/update path. Do not put a maintainer's local
+checkout path or this GitHub repository into `settings.json.packages`; the
+active copy should still be installed into `~/.agents/skills` by the normal
+shared-skill sync.
+
 ### B. Personal overlay skill
 
 Keep a skill outside this repository when it is useful locally but not suitable

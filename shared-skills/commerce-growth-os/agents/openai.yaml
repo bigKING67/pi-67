@@ -1,0 +1,4 @@
+interface:
+  display_name: "Commerce Growth OS｜全域电商增长操盘中枢"
+  short_description: "中高端消费品牌全域增长：先算账，再定货盘、价盘、渠道组合、投放、履约和复购。"
+  default_prompt: "Use $commerce-growth-os to diagnose this consumer brand's commerce growth problem and build the economics, assortment, pricing, channel portfolio, paid-media, compliance, fulfillment, private-domain, and review plan."

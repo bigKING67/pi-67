@@ -1,0 +1,12 @@
+Current judgment: this is not a traffic problem first; it is a Tmall search landing and trust conversion bottleneck.
+
+Bottleneck: Douyin and Xiaohongshu already create brand searches, but Tmall payment CVR is poor, so inspect landing proof before buying more search traffic.
+
+Missing data/assumptions: need brand-word traffic, title CTR, main image CTR, price consistency, review count, negative review themes, Q&A, buyer show, detail page scroll/click, store score, fulfillment complaints.
+
+Next three actions:
+1. Title/main image: map seeding keywords into Tmall title and main image; ensure users see the same benefit and price consistency.
+2. Trust modules: fix review, Q&A, buyer show, detail page proof, store score, and fulfillment promise.
+3. SKU/price: check whether live price or coupons make Tmall look expensive without added value.
+
+Risk: if Tmall detail page and reviews stay weak, more search ads will only buy clicks and expose weak conversion.

@@ -1,7 +1,7 @@
 # Pi 全局 AGENTS 规范
 
-> Version: `v1.4-pi`
-> Last Updated: `2026-06-26`
+> Version: `v1.5-pi`
+> Last Updated: `2026-07-06`
 
 核心目标：**质量优先，安全第一，证据优先，效率可控**。默认使用简体中文；代码标识符、命令、日志、报错保持原文。
 
@@ -75,6 +75,7 @@
 | 页面、组件、样式、交互、可访问性、视觉验收 | `frontend.md` |
 | 登录态、真实 Chrome、下载/上传、页面 API、JS 逆向 | `browser.md` |
 | DataHub 口径、映射、唯一性、ambiguous/missing | `data-quality.md` 或项目 DataHub rule |
+| 电商增长、平台运营、货盘价盘、渠道控价、ROI/利润测算 | `commerce-growth.md` |
 
 规则读取要求：
 
@@ -118,6 +119,7 @@
 ## Skills 与 prompt templates
 
 - 用户点名 skill，或任务明显匹配 skill 描述时，先读取对应 `SKILL.md` 再执行。
+- 电商增长、品牌线上销售、平台运营、货盘价盘、渠道控价、投放、ROI 或利润测算任务优先使用 `commerce-growth-os` skill，并按其 reference routing 最小读取。
 - 不为覆盖率叠加 skill；只启用能提升结果质量或验证质量的最小集合。
 - 复杂流程优先使用已有 prompt templates：`/debug`、`/review`、`/deliver`、`/scoped-commit`、`/frontend-kickoff`。
 - prompt templates 应使用 Pi 原生参数语法：`$1`、`$2`、`$ARGUMENTS`、`${1:-default}`。

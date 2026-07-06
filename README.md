@@ -11,7 +11,7 @@
 这个仓库把 `~/.pi/agent/` 中可复用、可公开的 Pi 配置整理成可安装版本。推荐长期形态是 `~/.pi/agent` 本身就是这个 Git checkout；它不是 minimal starter，而是完整 Pi 工作流发行包：
 
 - 常驻内核：`AGENTS.md` 只保留硬规则、工具分流、rules 读取契约和交付闭环。
-- 长规则外置：`rules/` 存放质量、架构、目录、性能、前端、浏览器、上下文和数据规则，按任务最小读取。
+- 长规则外置：`rules/` 存放质量、架构、目录、性能、前端、浏览器、上下文、数据和电商增长规则，按任务最小读取。
 - 扩展补强：`extensions/pi-rules-loader/` 给 Pi 注入 rules 索引；`extensions/xtalpi-pi-tools/` 让 Pi 本地托管 xtalpi 工具协议。
 - 生产力资产：Skills、Prompts、Docs、Templates 和脚本保持仓库化，便于审计、同步和回滚。
 
@@ -29,10 +29,10 @@
 | **核心配置** | `settings.json` | 默认 provider/model、Pi package 列表 |
 | **模型配置** | `models.example.json` | xtalpi-pi-tools / codex provider 模板 |
 | **MCP** | `mcp.example.json` | browser67 tmwd_browser、js-reverse、agent_memory 模板 |
-| **全局内核** | `AGENTS.md` | Pi 常驻行为规范（v1.4-pi kernel） |
-| **Rules** | `rules/` (8 篇) | 质量、架构、结构、性能、前端、浏览器、上下文、数据质量规则 |
+| **全局内核** | `AGENTS.md` | Pi 常驻行为规范（v1.5-pi kernel） |
+| **Rules** | `rules/` (9 篇) | 质量、架构、结构、性能、前端、浏览器、上下文、数据质量、电商增长规则 |
 | **自定义扩展** | `extensions/` (2 个) | `xtalpi-pi-tools` + `pi-rules-loader` |
-| **Shared Skills** | `shared-skills/` (31 个) | 安装到 `~/.agents/skills`，供 Pi/Codex 共用 |
+| **Shared Skills** | `shared-skills/` (32 个) | 安装到 `~/.agents/skills`，供 Pi/Codex 共用 |
 | **Skill 治理** | `docs/skill-governance.md` | skill 公开发行 / 个人 overlay / 过期治理规则 |
 | **文档** | `docs/` | 全量安装、doctor/report/status schema、排障、发布流程、MCP 优化、爬虫指南、工具速查、xtalpi 配置 |
 | **Prompts** | `prompts/` (5 个) | debug、deliver、frontend-kickoff、review、scoped-commit |
@@ -346,6 +346,7 @@ Pi 的长期规则分两层：
 | 页面、组件、样式、交互、可访问性 | `frontend.md` |
 | 登录态、真实 Chrome、下载/上传、JS 逆向 | `browser.md` |
 | 数据口径、映射、唯一性争议 | `data-quality.md` |
+| 电商增长、平台运营、货盘价盘、渠道控价、ROI/利润测算 | `commerce-growth.md` |
 
 ## 目录结构
 
@@ -356,7 +357,7 @@ pi-67/
 ├── CHANGELOG.md
 ├── install.sh                      # 一键符号链接安装脚本
 ├── .gitignore
-├── AGENTS.md                       # Pi v1.4-pi 常驻内核
+├── AGENTS.md                       # Pi v1.5-pi 常驻内核
 ├── settings.json                   # Pi 核心配置
 ├── models.example.json             # 模型配置模板（需填写 API key）
 ├── mcp.example.json                # MCP 服务配置模板（需修改路径）
@@ -377,13 +378,15 @@ pi-67/
 ├── rules/                          # Pi 按需读取长规则
 │   ├── architecture-quality.md
 │   ├── browser.md
+│   ├── commerce-growth.md
 │   ├── context-budget.md
 │   ├── data-quality.md
 │   ├── frontend.md
 │   ├── performance.md
 │   ├── project-structure.md
 │   └── quality.md
-├── shared-skills/                  # 31 个共享 Skills，安装到 ~/.agents/skills
+├── shared-skills/                  # 32 个共享 Skills，安装到 ~/.agents/skills
+│   ├── commerce-growth-os/         # 全域电商增长操盘 skill
 │   ├── lark-*                      # 飞书全系列
 │   ├── full-output-enforcement/
 │   ├── high-end-visual-design/
