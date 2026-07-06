@@ -479,6 +479,9 @@ function deriveReport(repository, version) {
         result: doctor.result || null,
         counts: doctor.counts || null,
         parseError: doctor.parseError || null,
+        warningMessages: Array.isArray(doctor.checks)
+          ? doctor.checks.filter((check) => check?.level === "WARN").map((check) => String(check.message || ""))
+          : [],
       }
     : null;
 
@@ -568,7 +571,19 @@ function deriveResult(repository, remote, report, xtalpiSmoke) {
       recommendations.push("Fix doctor FAIL items, then rerun pi67-doctor and pi67-report.");
     } else if ((doctor.counts?.warn || 0) > 0) {
       warnings.push(`doctor has ${doctor.counts.warn} warning(s)`);
-      recommendations.push("Use pi67-configure for missing local keys/paths, then rerun pi67-doctor.");
+      const doctorWarnings = Array.isArray(doctor.checks)
+        ? doctor.checks.filter((check) => check?.level === "WARN").map((check) => String(check.message || ""))
+        : Array.isArray(doctor.warningMessages)
+          ? doctor.warningMessages
+        : [];
+      if (
+        doctorWarnings.length > 0 &&
+        doctorWarnings.every((message) => message.includes("shared skill contents differ from pi-67 source"))
+      ) {
+        recommendations.push("Inspect shared skill drift: bash ~/.pi/agent/scripts/pi67-shared-skills-inventory.sh --json");
+      } else {
+        recommendations.push("Use pi67-configure for missing local keys/paths, then rerun pi67-doctor.");
+      }
     }
   } else if (report.valid) {
     warnings.push("report has no doctor block");
