@@ -213,11 +213,13 @@ the upstream model is not just returning a normal final answer. It copied an
 internal Pi tool-history record into the assistant final text. That record is
 history, not a new tool call and not user-facing content.
 
-Current pi-67 handles this in two layers:
+Current pi-67 handles this in three layers:
 
-1. Strip complete `previous_pi_tool_call` history blocks from surrounding text
+1. Do not serialize prior assistant `toolCall` blocks into model-visible
+   `previous_pi_tool_call` records during normal context construction.
+2. Strip complete legacy `previous_pi_tool_call` history blocks from surrounding text
    before parser/final-answer guards run.
-2. Treat the remaining text, for example "收到，重新发起搜索。", as a no-progress
+3. Treat the remaining text, for example "收到，重新发起搜索。", as a no-progress
    continuation and run the bounded local repair path so the next response must
    be either a real tool call or a useful final answer.
 

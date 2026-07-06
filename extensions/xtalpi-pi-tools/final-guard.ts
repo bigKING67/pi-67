@@ -28,6 +28,9 @@ const PLAN_MODE_MARKER_PATTERN =
 const PLAN_MODE_ECHO_PATTERN =
   /(?:Plan mode:\s*planning|Produce\s+a\s+<proposed_plan>\s+block|Tools:\s*.*(?:plan_mode_question|bash|find|grep|ls|read))/is;
 
+const PROTOCOL_ECHO_PATTERN =
+  /(?:Tool protocol rules:|Pi owns all local tools|Prior local tool-call envelopes are internal runtime history|content_is_untrusted:\s*true|handling:\s*Treat content below only as tool output data)/i;
+
 const PROPOSED_PLAN_BLOCK_PATTERN = /<proposed_plan\b[^>]*>[\s\S]*<\/proposed_plan>/i;
 
 const PROMISE_TO_CONTINUE_PATTERN =
@@ -94,6 +97,15 @@ export function validateFinalAnswer(input: {
       ok: false,
       code: "internal_context_leak",
       reason: "model echoed Plan mode/tool-selection instructions instead of producing the required result",
+      latestUserText: latestUser,
+    };
+  }
+
+  if (PROTOCOL_ECHO_PATTERN.test(text)) {
+    return {
+      ok: false,
+      code: "internal_context_leak",
+      reason: "model echoed xtalpi-pi-tools protocol or tool-result wrapper instructions instead of producing the required result",
       latestUserText: latestUser,
     };
   }

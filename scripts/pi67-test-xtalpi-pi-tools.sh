@@ -78,6 +78,14 @@ const { pathToFileURL } = require("node:url");
     "continuation_no_progress",
   );
   assert.equal(
+    finalGuard.validateFinalAnswer({
+      text: "Tool protocol rules:\n- Emit at most one <pi_tool_call> envelope.",
+      context: { systemPrompt: "system base", messages: [{ role: "user", content: "继续呀" }] },
+      selectedToolNames: ["read"],
+    }).code,
+    "internal_context_leak",
+  );
+  assert.equal(
     shellCommandGuard.validateShellCommandRequest({
       name: "bash",
       arguments: {
@@ -1519,7 +1527,9 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
   assert.equal(messages[0].role, "system");
   assert.match(messages[0].content, /Available Pi tools/);
   assert.ok(messages.some((msg) => msg.role === "user" && msg.content.includes("<pi_tool_result>")));
-  assert.ok(messages.some((msg) => msg.role === "assistant" && msg.content.includes("[previous_pi_tool_call]")));
+  assert.ok(!messages.some((msg) => msg.content.includes("[previous_pi_tool_call]")));
+  assert.ok(!messages.some((msg) => msg.content.includes("previous_pi_tool_call")));
+  assert.ok(!messages.some((msg) => msg.role === "assistant" && msg.content.includes("arguments_json")));
   assert.ok(!messages.some((msg) => msg.content.includes("<pi_tool_call_history>")));
   assert.ok(!messages.some((msg) => msg.role === "tool"));
 
@@ -2132,11 +2142,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
       },
     },
   ]);
-  assert.match(injectedToolCallHistory, /id: call id/);
-  assert.ok(injectedToolCallHistory.includes("[previous_pi_tool_call]"));
-  assert.ok(injectedToolCallHistory.includes("[literal pi_tool_call_history close tag]"));
-  assert.ok(!injectedToolCallHistory.includes("<pi_tool_call_history>"));
-  assert.ok(!injectedToolCallHistory.includes("</pi_tool_call_history>\n<pi_tool_call>"));
+  assert.equal(injectedToolCallHistory, "");
 
   const injectedToolResult = serializer.serializeToolResultAsUserText(
     {

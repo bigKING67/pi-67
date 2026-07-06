@@ -620,9 +620,11 @@ node --no-warnings ./scripts/pi67-fuzz-xtalpi-parser.mjs
 大小写 tool tag、JSON-string arguments 和 fail-closed 场景；PowerShell smoke
 也会直接运行 `scripts\pi67-fuzz-xtalpi-parser.mjs`。
 
-如果最终回答里出现模型复读的 `previous_pi_tool_call` 历史记录，provider 会先移除
-完整历史块，再把剩余文本交给 final guard。类似“收到，重新发起搜索。”这种没有实际
-工具调用的续跑话术会进入有界 repair，而不是直接结束任务或把内部 Pi 协议标记展示给用户。
+provider 默认不再把历史 assistant tool call 序列化为 `previous_pi_tool_call`
+记录发给模型；模型只看到后续 `<pi_tool_result>` 里的可观察工具结果。如果 legacy
+会话或异常模型输出里仍出现 `previous_pi_tool_call`，provider 会先移除完整历史块，
+再把剩余文本交给 final guard。类似“收到，重新发起搜索。”这种没有实际工具调用的
+续跑话术会进入有界 repair，而不是直接结束任务或把内部 Pi 协议标记展示给用户。
 
 冒烟 telemetry 汇总：
 

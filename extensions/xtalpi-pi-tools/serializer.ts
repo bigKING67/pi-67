@@ -2,13 +2,11 @@ import {
   PROTOCOL_SYSTEM_PROMPT,
   TOOL_RESULT_CLOSE,
   TOOL_RESULT_OPEN,
-  type PiToolCallEnvelope,
   type XtalpiChatMessage,
 } from "./protocol.ts";
 import {
   safeBlockText,
   safeInlineText,
-  safeJsonStringify,
 } from "./text-safety.ts";
 import {
   selectToolsWithSummary,
@@ -63,19 +61,13 @@ export type SerializedXtalpiContext = {
   toolSelectionUserMessageCount: number;
 };
 
-const MAX_TOOL_CALL_HISTORY_ARGUMENTS_CHARS = 4000;
+const MAX_ASSISTANT_HISTORY_CHARS = 20000;
 const MAX_TOOL_SELECTION_CONTEXT_CHARS = 4000;
 const MAX_TOOL_SELECTION_USER_MESSAGES = 4;
-const TOOL_CALL_HISTORY_OPEN = "[previous_pi_tool_call]";
-const TOOL_CALL_HISTORY_CLOSE = "[/previous_pi_tool_call]";
 const CONTINUATION_PROMPT_PATTERN = new RegExp(
   "^\\s*(?:继续上一轮|继续上一步|继续(?:呀|吧)?|接着(?:来|吧)?|下一步|然后呢|再来|往下|go on|continue|next|proceed)(?:\\s|$|[，。,.!！?？])",
   "i",
 );
-
-function isJsonObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 export function contentToText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -89,13 +81,10 @@ export function contentToText(content: unknown): string {
       if (item.type === "image") return "[image omitted: xtalpi-pi-tools is text-only]";
       if (item.type === "thinking") return "";
       if (item.type === "toolCall") {
-        return serializeToolCallHistory(
-          {
-            name: typeof item.name === "string" ? item.name : "unknown",
-            arguments: isJsonObject(item.arguments) ? item.arguments : {},
-          },
-          typeof item.id === "string" ? item.id : "",
-        );
+        // The following toolResult message carries the observable evidence.
+        // Re-sending local tool-call history as text made some providers copy it
+        // into final answers, so prior toolCall blocks are intentionally omitted.
+        return "";
       }
       return "";
     })
@@ -168,17 +157,6 @@ ${content}
 ${TOOL_RESULT_CLOSE}`;
 }
 
-export function serializeToolCallHistory(call: PiToolCallEnvelope, id = ""): string {
-  const safeId = safeInlineText(id, 160);
-  const safeName = safeInlineText(call.name, 160);
-  const safeArguments = safeBlockText(safeJsonStringify(call.arguments), MAX_TOOL_CALL_HISTORY_ARGUMENTS_CHARS);
-  return `${TOOL_CALL_HISTORY_OPEN}
-id: ${safeId}
-name: ${safeName}
-arguments_json: ${safeArguments}
-${TOOL_CALL_HISTORY_CLOSE}`;
-}
-
 export function serializeContextForXtalpi(
   context: ContextLike,
   options: SerializeOptions,
@@ -203,7 +181,7 @@ export function serializeContextForXtalpi(
     }
 
     if (message.role === "assistant") {
-      const content = contentToText(message.content).trim();
+      const content = safeBlockText(contentToText(message.content), MAX_ASSISTANT_HISTORY_CHARS).trim();
       if (content) output.push({ role: "assistant", content });
       continue;
     }

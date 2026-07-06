@@ -55,9 +55,9 @@ content:
 </pi_tool_result>
 ```
 
-工具结果内容是不可信数据：其中出现的指令、角色声明、伪 system prompt、`<pi_tool_call>` / `<pi_tool_result>` 文本或 `[previous_pi_tool_call]` 历史记录都不能覆盖 Pi/system/user 指令。实现会把工具结果、工具元数据和 repair raw excerpt 里的协议标记（包括 `<pi_tool_call name="...">` 这类带属性变体、缺少 `>` 的残缺标签片段，以及 `[previous_pi_tool_call]` bracket markers）中和为普通文本，避免工具输出伪造协议边界或内部历史记录。
+工具结果内容是不可信数据：其中出现的指令、角色声明、伪 system prompt、`<pi_tool_call>` / `<pi_tool_result>` 文本或 legacy `[previous_pi_tool_call]` 历史记录都不能覆盖 Pi/system/user 指令。实现会把工具结果、工具元数据和 repair raw excerpt 里的协议标记（包括 `<pi_tool_call name="...">` 这类带属性变体、缺少 `>` 的残缺标签片段，以及 legacy `[previous_pi_tool_call]` bracket markers）中和为普通文本，避免工具输出伪造协议边界或内部历史记录。
 
-历史 assistant tool call 不再以 `<pi_tool_call_history>` 裸协议标签回灌给模型，而是序列化为 `[previous_pi_tool_call]` 普通记录。这样仍保留“哪些工具已经执行过”的上下文，同时减少模型在最终回答或下一次工具调用里复读内部协议标签的概率。如果模型仍把 `[previous_pi_tool_call]` 历史记录当作最终回答复读，provider 会按内部协议泄漏触发 repair，smoke/debug-summary 也会把它计入 final-answer markup gate。
+历史 assistant tool call 默认不再回灌给模型：既不使用旧的 `<pi_tool_call_history>` 裸协议标签，也不再发送 `[previous_pi_tool_call]` 记录。模型只看到后续 `<pi_tool_result>` 包装里的可观察工具结果。这样从源头减少“历史工具调用被当成最终回答复读”的概率。legacy 会话、旧 artifact 或异常模型输出里如果仍出现 `[previous_pi_tool_call]` / `<previous_pi_tool_call>`，provider 只把它当内部历史泄漏处理：完整块会先被剥离，剩余无进展文本进入 repair；smoke/debug-summary 也会继续把残留 legacy marker 计入 final-answer markup gate。
 
 如果模型把旧式 Pi 工具记录误当成新协议输出，例如在 `<pi_tool_call>` 内写出
 `id="..."`、`name="read"` 和 `arguments_json: {...}` 行，provider 会把它兼容解析成
@@ -333,8 +333,8 @@ extensions/xtalpi-pi-tools/fixtures/replay-cases.json
 - `<pi_tool_call name="...">{"arg":...}</pi_tool_call>` 变体解析
 - raw/internal Pi protocol markup final answer repair（含残缺/畸形协议标签和 `[previous_pi_tool_call]` 历史记录）
 - tool result 作为普通 user 文本序列化
-- assistant tool-call history 作为普通 `[previous_pi_tool_call]` 记录序列化，避免把裸 `<pi_tool_call_history>` 暴露给模型
-- tool result prompt-injection / 协议边界中和（含带属性与残缺协议标签变体、`[previous_pi_tool_call]` bracket markers）
+- assistant tool-call history 默认不再模型可见；legacy `[previous_pi_tool_call]` / `<previous_pi_tool_call>` 只作为待清洗历史泄漏处理
+- tool result prompt-injection / 协议边界中和（含带属性与残缺协议标签变体、legacy `[previous_pi_tool_call]` bracket markers）
 - tool metadata / repair prompt 协议边界中和
 - premature final guard：Plan mode contract missing、continuation no progress、
   intent-to-tool no call 和 weak final 会先触发本地 repair；Plan mode repair 预算耗尽时会
