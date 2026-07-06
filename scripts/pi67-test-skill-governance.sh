@@ -106,6 +106,23 @@ if (!data.counts || typeof data.counts !== "object") {
 NODE
 }
 
+assert_json_schema_result() {
+  local file="$1"
+  local schema_id="$2"
+  local result="$3"
+  node - "$file" "$schema_id" "$result" <<'NODE'
+const fs = require("fs");
+const [, , file, schemaId, result] = process.argv;
+const data = JSON.parse(fs.readFileSync(file, "utf8"));
+if (data.schemaId !== schemaId) {
+  throw new Error(`unexpected schemaId: ${data.schemaId}`);
+}
+if (result && data.result !== result) {
+  throw new Error(`unexpected result: ${data.result}; expected ${result}`);
+}
+NODE
+}
+
 assert_json_count_at_least() {
   local file="$1"
   local count_path="$2"
@@ -125,6 +142,31 @@ if (typeof value !== "number" || value < minValue) {
 NODE
 }
 
+assert_external_sync_layout() {
+  local file="$1"
+  local expected_name="$2"
+  local expected_layout="$3"
+  node - "$file" "$expected_name" "$expected_layout" <<'NODE'
+const fs = require("fs");
+const [, , file, expectedName, expectedLayout] = process.argv;
+const data = JSON.parse(fs.readFileSync(file, "utf8"));
+const repo = data.repositories?.[0];
+if (!repo) {
+  throw new Error("missing first repository entry");
+}
+if (!Array.isArray(repo.sourceLayouts) || !repo.sourceLayouts.includes(expectedLayout)) {
+  throw new Error(`missing sourceLayouts entry ${expectedLayout}: ${JSON.stringify(repo.sourceLayouts)}`);
+}
+const skill = repo.skills?.find((entry) => entry.name === expectedName);
+if (!skill) {
+  throw new Error(`missing skill ${expectedName}`);
+}
+if (skill.sourceLayout !== expectedLayout) {
+  throw new Error(`unexpected sourceLayout for ${expectedName}: ${skill.sourceLayout}`);
+}
+NODE
+}
+
 echo ""
 echo -e "${CYAN}pi-67 skill governance tests${NC}"
 echo "Repository: $REPO_ROOT"
@@ -132,6 +174,7 @@ echo "Repository: $REPO_ROOT"
 [ -f "$REPO_ROOT/scripts/pi67-migrate-skills.sh" ] || fail "missing scripts/pi67-migrate-skills.sh"
 [ -f "$REPO_ROOT/scripts/pi67-sync-external-skills.sh" ] || fail "missing scripts/pi67-sync-external-skills.sh"
 [ -f "$REPO_ROOT/scripts/pi67-check-external-skills.sh" ] || fail "missing scripts/pi67-check-external-skills.sh"
+[ -f "$REPO_ROOT/scripts/pi67-sync-commerce-growth-os.sh" ] || fail "missing scripts/pi67-sync-commerce-growth-os.sh"
 command_exists node || fail "node is required"
 pass "required helpers found"
 
@@ -235,6 +278,93 @@ if [ ! -f "$EXTERNAL_SHARED/external-skill/SKILL.md" ]; then
 fi
 pass "external sync apply copies missing skills"
 
+section "External sync helper root-level dry-run"
+EXTERNAL_ROOT_REPO="$TMP_ROOT/external-root-repo"
+EXTERNAL_ROOT_SHARED="$TMP_ROOT/external-root-shared"
+mkdir -p "$EXTERNAL_ROOT_REPO/.git" "$EXTERNAL_ROOT_REPO/node_modules/ignored" "$EXTERNAL_ROOT_REPO/eval/answers"
+cat > "$EXTERNAL_ROOT_REPO/SKILL.md" <<'EOF'
+---
+name: root-skill
+description: Root-level skill governance fixture.
+---
+# Root Skill
+
+Root-level skill governance fixture.
+EOF
+printf 'ignored git metadata\n' > "$EXTERNAL_ROOT_REPO/.git/HEAD"
+printf 'ignored gitignore\n' > "$EXTERNAL_ROOT_REPO/.gitignore"
+printf 'ignored dependency\n' > "$EXTERNAL_ROOT_REPO/node_modules/ignored/package.json"
+printf 'ignored eval answer\n' > "$EXTERNAL_ROOT_REPO/eval/answers/private.txt"
+"$REPO_ROOT/scripts/pi67-sync-external-skills.sh" \
+  --repo "$EXTERNAL_ROOT_REPO" \
+  --skills-dir "$EXTERNAL_ROOT_SHARED" \
+  --dry-run \
+  --json > "$TMP_ROOT/external-root-dry.json"
+assert_json_result "$TMP_ROOT/external-root-dry.json" "pi67-external-skill-sync/v1" "READY_TO_APPLY"
+assert_external_sync_layout "$TMP_ROOT/external-root-dry.json" "root-skill" "repo-root"
+if [ -e "$EXTERNAL_ROOT_SHARED/root-skill" ]; then
+  fail "external root sync dry-run wrote files"
+fi
+pass "external sync discovers root-level SKILL.md without writing"
+
+section "External sync helper root-level apply"
+"$REPO_ROOT/scripts/pi67-sync-external-skills.sh" \
+  --repo "$EXTERNAL_ROOT_REPO" \
+  --skills-dir "$EXTERNAL_ROOT_SHARED" \
+  --apply \
+  --yes \
+  --json > "$TMP_ROOT/external-root-apply.json"
+assert_json_result "$TMP_ROOT/external-root-apply.json" "pi67-external-skill-sync/v1" "APPLIED"
+assert_json_count_at_least "$TMP_ROOT/external-root-apply.json" "counts.copied" 1
+assert_external_sync_layout "$TMP_ROOT/external-root-apply.json" "root-skill" "repo-root"
+if [ ! -f "$EXTERNAL_ROOT_SHARED/root-skill/SKILL.md" ]; then
+  fail "external root sync apply did not copy root-level skill"
+fi
+if [ -e "$EXTERNAL_ROOT_SHARED/root-skill/.git" ] || [ -e "$EXTERNAL_ROOT_SHARED/root-skill/.gitignore" ] || [ -e "$EXTERNAL_ROOT_SHARED/root-skill/node_modules" ] || [ -e "$EXTERNAL_ROOT_SHARED/root-skill/eval/answers" ]; then
+  fail "external root sync copied ignored repository/cache/eval-answer paths"
+fi
+pass "external sync copies root-level skills and filters repository/cache artifacts"
+
+section "Commerce growth vendored sync helper"
+COMMERCE_SOURCE="$TMP_ROOT/commerce-source"
+COMMERCE_DEST="$TMP_ROOT/commerce-dest/commerce-growth-os"
+mkdir -p "$COMMERCE_SOURCE/.git" "$COMMERCE_SOURCE/node_modules/ignored" "$COMMERCE_SOURCE/eval/answers" "$COMMERCE_SOURCE/references"
+cat > "$COMMERCE_SOURCE/SKILL.md" <<'EOF'
+---
+name: commerce-growth-os
+description: Commerce growth fixture.
+---
+# Commerce Growth OS
+EOF
+printf 'reference\n' > "$COMMERCE_SOURCE/references/business-model-and-profit.md"
+printf 'ignored git metadata\n' > "$COMMERCE_SOURCE/.git/HEAD"
+printf 'ignored dependency\n' > "$COMMERCE_SOURCE/node_modules/ignored/package.json"
+printf 'ignored private eval answer\n' > "$COMMERCE_SOURCE/eval/answers/private.txt"
+"$REPO_ROOT/scripts/pi67-sync-commerce-growth-os.sh" \
+  --source "$COMMERCE_SOURCE" \
+  --dest "$COMMERCE_DEST" \
+  --dry-run \
+  --json > "$TMP_ROOT/commerce-sync-dry.json"
+assert_json_schema_result "$TMP_ROOT/commerce-sync-dry.json" "pi67-commerce-growth-os-sync/v1" "READY_TO_APPLY"
+if [ -e "$COMMERCE_DEST" ]; then
+  fail "commerce sync dry-run wrote files"
+fi
+"$REPO_ROOT/scripts/pi67-sync-commerce-growth-os.sh" \
+  --source "$COMMERCE_SOURCE" \
+  --dest "$COMMERCE_DEST" \
+  --apply \
+  --yes \
+  --no-validate \
+  --json > "$TMP_ROOT/commerce-sync-apply.json"
+assert_json_schema_result "$TMP_ROOT/commerce-sync-apply.json" "pi67-commerce-growth-os-sync/v1" "APPLIED"
+if [ ! -f "$COMMERCE_DEST/SKILL.md" ] || [ ! -f "$COMMERCE_DEST/references/business-model-and-profit.md" ]; then
+  fail "commerce sync apply did not copy expected skill files"
+fi
+if [ -e "$COMMERCE_DEST/.git" ] || [ -e "$COMMERCE_DEST/node_modules" ] || [ -e "$COMMERCE_DEST/eval/answers" ]; then
+  fail "commerce sync copied ignored repository/cache/eval-answer paths"
+fi
+pass "commerce growth vendored sync helper dry-runs, applies, and filters artifacts"
+
 section "External sync helper conflict"
 EXTERNAL_CONFLICT_REPO="$TMP_ROOT/external-conflict-repo"
 EXTERNAL_CONFLICT_SHARED="$TMP_ROOT/external-conflict-shared"
@@ -272,6 +402,29 @@ if [ -e "$CHECK_SHARED/check-skill" ]; then
   fail "external check wrapper wrote files"
 fi
 pass "external check wrapper summarizes dry-run without writing"
+
+section "External skills check wrapper root-level"
+CHECK_ROOT_REPO="$TMP_ROOT/check-root-repo"
+CHECK_ROOT_SHARED="$TMP_ROOT/check-root-shared"
+mkdir -p "$CHECK_ROOT_REPO"
+cat > "$CHECK_ROOT_REPO/SKILL.md" <<'EOF'
+---
+name: check-root-skill
+description: Root-level external check fixture.
+---
+# Check Root Skill
+EOF
+"$REPO_ROOT/scripts/pi67-check-external-skills.sh" \
+  --repo-root "$REPO_ROOT" \
+  --repo "$CHECK_ROOT_REPO" \
+  --skills-dir "$CHECK_ROOT_SHARED" \
+  --json > "$TMP_ROOT/external-check-root.json"
+assert_json_result "$TMP_ROOT/external-check-root.json" "pi67-external-skills-check/v1" "READY_TO_APPLY"
+assert_external_sync_layout "$TMP_ROOT/external-check-root.json" "check-root-skill" "repo-root"
+if [ -e "$CHECK_ROOT_SHARED/check-root-skill" ]; then
+  fail "external check root wrapper wrote files"
+fi
+pass "external check wrapper handles root-level SKILL.md without writing"
 
 CHECK_CONFLICT_REPO="$TMP_ROOT/check-conflict-repo"
 CHECK_CONFLICT_SHARED="$TMP_ROOT/check-conflict-shared"

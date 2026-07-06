@@ -245,8 +245,33 @@ bash ~/.pi/agent/scripts/pi67-sync-external-skills.sh \
 ```
 
 That command copies `skills/*/SKILL.md` trees into `~/.agents/skills`, skips
-identical already-installed skills, and refuses conflicts. It does not edit
-`~/.pi/agent/git/...`, `settings.json`, or `mcp.json`.
+identical already-installed skills, and refuses conflicts. It also supports
+root-level skill repositories with `repo/SKILL.md`, such as
+`commerce-growth-os`:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-check-external-skills.sh \
+  --repo /path/to/commerce-growth-os
+
+bash ~/.pi/agent/scripts/pi67-sync-external-skills.sh \
+  --repo /path/to/commerce-growth-os \
+  --dry-run
+```
+
+It does not edit `~/.pi/agent/git/...`, `settings.json`, or `mcp.json`.
+
+Maintainers refreshing pi-67's vendored `shared-skills/commerce-growth-os`
+copy from the standalone upstream repo should use:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-sync-commerce-growth-os.sh \
+  --source /path/to/commerce-growth-os \
+  --dry-run
+
+bash ~/.pi/agent/scripts/pi67-sync-commerce-growth-os.sh \
+  --source /path/to/commerce-growth-os \
+  --apply --yes
+```
 
 Before applying real repo syncs, use the optional read-only checker when you
 want a concise local integration summary:

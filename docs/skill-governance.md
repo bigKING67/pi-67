@@ -167,14 +167,58 @@ bash scripts/pi67-sync-external-skills.sh \
   --apply --yes
 ```
 
-This command reads `skills/*/SKILL.md` from each repo and copies missing skills
-into `~/.agents/skills`. It skips identical skills and refuses different
-canonical copies. It deliberately does not modify Pi package cache directories
-or MCP config; for browser67 MCP paths, run:
+This command reads either `repo/SKILL.md` or `repo/skills/*/SKILL.md` from each
+repo and copies missing skills into `~/.agents/skills`. It skips identical
+skills and refuses different canonical copies. It deliberately does not modify
+Pi package cache directories or MCP config; for browser67 MCP paths, run:
 
 ```bash
 bash scripts/pi67-configure.sh --tmwd-repo /path/to/browser67 --no-prompt
 ```
+
+Root-level skill repos such as `commerce-growth-os` can be checked the same way:
+
+```bash
+bash scripts/pi67-check-external-skills.sh \
+  --repo /path/to/commerce-growth-os
+
+bash scripts/pi67-sync-external-skills.sh \
+  --repo /path/to/commerce-growth-os \
+  --dry-run
+```
+
+`pi67-sync-external-skills.sh` filters repository/cache/private-eval artifacts
+when it copies root-level skill repositories, including `.git`, `.gitignore`,
+Node/Python caches, virtual environments, build output, and `eval/answers`.
+
+## Vendored commerce-growth-os sync
+
+`commerce-growth-os` is also vendored in pi-67 under
+`shared-skills/commerce-growth-os` so ordinary users get it through the normal
+pi-67 update path. Maintainers should refresh that vendored copy from the
+standalone upstream checkout with:
+
+```bash
+bash scripts/pi67-sync-commerce-growth-os.sh \
+  --source /path/to/commerce-growth-os \
+  --dry-run
+
+bash scripts/pi67-sync-commerce-growth-os.sh \
+  --source /path/to/commerce-growth-os \
+  --apply --yes
+```
+
+The default source is resolved in this order:
+
+```text
+$COMMERCE_GROWTH_OS_REPO
+../commerce-growth-os next to the pi-67 checkout
+```
+
+Use `--source DIR` when the upstream checkout lives elsewhere. The helper
+requires `SKILL.md` frontmatter `name: commerce-growth-os`, replaces only
+`shared-skills/commerce-growth-os`, filters repository/cache/private-eval
+artifacts, and does not stage or commit changes.
 
 ## Validation helpers
 
@@ -192,7 +236,9 @@ It creates temporary legacy roots and external repositories, then validates:
 - migration conflicts return `NEEDS_REVIEW` and preserve both sides
 - external sync dry-run does not write
 - external sync apply copies missing skills
+- external sync supports both root-level `SKILL.md` and `skills/*/SKILL.md`
 - external sync conflicts return `NEEDS_REVIEW` and preserve canonical skills
+- commerce-growth-os vendored sync dry-runs/applies without copying repo/cache artifacts
 - migration and sync JSON outputs keep their documented schema IDs
 
 Use the optional external repo integration check before applying real

@@ -181,6 +181,9 @@ fi
 if [ -f "$REPO_ROOT/scripts/pi67-sync-external-skills.sh" ]; then
   bash -n "$REPO_ROOT/scripts/pi67-sync-external-skills.sh"
 fi
+if [ -f "$REPO_ROOT/scripts/pi67-sync-commerce-growth-os.sh" ]; then
+  bash -n "$REPO_ROOT/scripts/pi67-sync-commerce-growth-os.sh"
+fi
 if [ -f "$REPO_ROOT/scripts/pi67-test-skill-governance.sh" ]; then
   bash -n "$REPO_ROOT/scripts/pi67-test-skill-governance.sh"
 fi

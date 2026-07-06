@@ -4,8 +4,19 @@
 plan/result for copying skills from external repositories into the canonical
 shared skill registry.
 
-The command answers one question: which `skills/*/SKILL.md` directories can be
+The command answers one question: which external skill directories can be
 installed into `~/.agents/skills` without overwriting canonical skills?
+
+Supported source layouts:
+
+```text
+repo/SKILL.md
+repo/skills/<skill-name>/SKILL.md
+```
+
+For `repo/SKILL.md`, the canonical skill name is read from the `name:` field in
+the `SKILL.md` frontmatter. For `repo/skills/<skill-name>/SKILL.md`, the same
+frontmatter name is used when present; otherwise the directory basename is used.
 
 ## Schema versioning
 
@@ -50,7 +61,7 @@ Compatibility rule:
 | `READY_TO_APPLY` | Dry-run found missing canonical skills and no conflicts. |
 | `APPLIED` | Apply mode copied missing canonical skills. |
 | `NEEDS_REVIEW` | At least one canonical skill differs from an external copy; no overwrite is performed. |
-| `INVALID_INPUT` | At least one `--repo` does not exist or has no `skills/*/SKILL.md` entries. |
+| `INVALID_INPUT` | At least one `--repo` does not exist or has no `SKILL.md` / `skills/*/SKILL.md` entries. |
 
 When `--apply` sees `NEEDS_REVIEW` or `INVALID_INPUT`, the command exits
 non-zero and leaves canonical skills unchanged.
@@ -64,7 +75,21 @@ Each repository entry records whether a source repo has valid skill directories:
   "repo": "/path/to/design-craft",
   "exists": true,
   "skillsDir": "/path/to/design-craft/skills",
+  "sourceLayouts": ["skills-dir"],
   "skillCount": 2,
+  "skills": []
+}
+```
+
+Root-level skill repositories report `sourceLayouts: ["repo-root"]`:
+
+```json
+{
+  "repo": "/path/to/commerce-growth-os",
+  "exists": true,
+  "skillsDir": "/path/to/commerce-growth-os/skills",
+  "sourceLayouts": ["repo-root"],
+  "skillCount": 1,
   "skills": []
 }
 ```
@@ -76,6 +101,7 @@ Invalid entries include an `error` field:
   "repo": "/missing/repo",
   "exists": false,
   "skillsDir": "/missing/repo/skills",
+  "sourceLayouts": [],
   "skillCount": 0,
   "skills": [],
   "error": "repo not found"
@@ -90,6 +116,7 @@ Each skill entry compares an external repo skill with the canonical shared root:
 {
   "name": "design-craft",
   "status": "identical",
+  "sourceLayout": "skills-dir",
   "source": "/path/to/design-craft/skills/design-craft",
   "canonical": "~/.agents/skills/design-craft",
   "sourceHash": "sha256...",
@@ -108,6 +135,11 @@ Each skill entry compares an external repo skill with the canonical shared root:
 Fingerprints are directory-content SHA-256 digests over file paths and file
 content. They are intended for equality checks, not for user-facing security
 claims.
+
+For root-level repositories, repository/cache/private-eval artifacts are
+ignored for both fingerprints and copies. The filtered paths include `.git`,
+`.gitignore`, `.DS_Store`, Python/Node caches, common build output, virtual
+environments, and `eval/answers`.
 
 ## `actions[]`
 

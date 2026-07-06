@@ -19,7 +19,8 @@ Usage:
   scripts/pi67-check-external-skills.sh --repo DIR [--repo DIR ...] [options]
 
 Options:
-      --repo DIR        External repo containing skills/*/SKILL.md. Repeatable.
+      --repo DIR        External repo containing either SKILL.md at repo root
+                        or skills/*/SKILL.md. Repeatable.
       --skills-dir DIR  Canonical shared skill root. Defaults to ~/.agents/skills.
       --repo-root DIR   pi-67 repository root. Defaults to this script's parent.
       --dry-run         Accepted for clarity; this command never applies changes.
@@ -31,6 +32,8 @@ Examples:
   bash scripts/pi67-check-external-skills.sh \
     --repo /path/to/design-craft \
     --repo /path/to/browser67
+
+  bash scripts/pi67-check-external-skills.sh --repo /path/to/commerce-growth-os
 
   bash scripts/pi67-check-external-skills.sh --repo /path/to/design-craft --json
 USAGE
@@ -182,7 +185,7 @@ if (outputFormat === "json") {
     }
     console.log(`  INFO repo: ${display(repo.repo)}`);
     if (repo.error) {
-      console.log(`  WARN ${repo.error}: ${display(repo.skillsDir)}`);
+      console.log(`  WARN ${repo.error}: ${display(repo.repo)}`);
       continue;
     }
     for (const skill of repo.skills || []) {

@@ -19,7 +19,8 @@ Usage:
   scripts/pi67-sync-external-skills.sh --repo DIR [--repo DIR ...] [options]
 
 Options:
-      --repo DIR        External repo containing skills/*/SKILL.md. Repeatable.
+      --repo DIR        External repo containing either SKILL.md at repo root
+                        or skills/*/SKILL.md. Repeatable.
       --skills-dir DIR  Canonical shared skill root. Defaults to ~/.agents/skills.
       --backup-dir DIR  Reserved for future explicit replace flows; this command
                         does not overwrite and normally does not write backups.
@@ -32,6 +33,7 @@ Options:
 Examples:
   bash scripts/pi67-sync-external-skills.sh --repo /path/to/design-craft --dry-run
   bash scripts/pi67-sync-external-skills.sh --repo /path/to/browser67 --apply --yes
+  bash scripts/pi67-sync-external-skills.sh --repo /path/to/commerce-growth-os --dry-run
 
 Conflict policy:
   - missing canonical skill: copy into --skills-dir when applying
@@ -114,16 +116,71 @@ function displayPath(value) {
   return normalized === home ? "~" : normalized.startsWith(`${home}${path.sep}`) ? `~${normalized.slice(home.length)}` : normalized;
 }
 
-function readSkillDirs(root) {
+const IGNORED_SKILL_NAMES = new Set([
+  ".git",
+  ".DS_Store",
+  ".gitignore",
+  "__pycache__",
+  ".mypy_cache",
+  ".pytest_cache",
+  ".ruff_cache",
+  ".coverage",
+  "coverage",
+  "dist",
+  "build",
+  "node_modules",
+  ".venv",
+  "venv",
+  ".next",
+  "out",
+  "tmp",
+]);
+
+const IGNORED_SKILL_RELATIVE_PATHS = new Set([
+  "eval/answers",
+]);
+
+function shouldSkipSkillPath(fullPath, baseDir) {
+  const relative = path.relative(baseDir, fullPath).split(path.sep).join("/");
+  if (!relative) return false;
+  if (IGNORED_SKILL_RELATIVE_PATHS.has(relative)) return true;
+  const parts = relative.split("/");
+  return parts.some((part) => IGNORED_SKILL_NAMES.has(part));
+}
+
+function readSkillName(skillDir) {
+  const skillFile = path.join(skillDir, "SKILL.md");
+  let text = "";
   try {
-    return fs.readdirSync(root, { withFileTypes: true })
+    text = fs.readFileSync(skillFile, "utf8");
+  } catch {
+    return path.basename(skillDir);
+  }
+  const frontmatter = text.match(/^---\s*\n([\s\S]*?)\n---/);
+  const name = frontmatter?.[1]?.match(/^name:\s*["']?([^"'\n#]+)["']?\s*$/m)?.[1]?.trim();
+  return name || path.basename(skillDir);
+}
+
+function readSkillDirs(repo) {
+  const skills = [];
+
+  if (fs.existsSync(path.join(repo, "SKILL.md"))) {
+    skills.push({ dir: repo, layout: "repo-root" });
+  }
+
+  const root = path.join(repo, "skills");
+  try {
+    const nested = fs.readdirSync(root, { withFileTypes: true })
       .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
       .map((entry) => path.join(root, entry.name))
       .filter((dir) => fs.existsSync(path.join(dir, "SKILL.md")))
-      .sort((a, b) => path.basename(a).localeCompare(path.basename(b)));
+      .map((dir) => ({ dir, layout: "skills-dir" }));
+    skills.push(...nested);
   } catch {
-    return [];
+    // Repos with root-level SKILL.md do not need a skills/ directory.
   }
+
+  return skills.sort((a, b) => readSkillName(a.dir).localeCompare(readSkillName(b.dir)));
 }
 
 function collectFileHashes(dir, base = dir, output = []) {
@@ -137,6 +194,7 @@ function collectFileHashes(dir, base = dir, output = []) {
   entries.sort((a, b) => a.name.localeCompare(b.name));
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
+    if (shouldSkipSkillPath(full, base)) continue;
     let stat;
     try {
       stat = fs.statSync(full);
@@ -165,8 +223,30 @@ function skillFingerprint(dir) {
 }
 
 function copySkill(src, dest) {
-  fs.mkdirSync(path.dirname(dest), { recursive: true });
-  fs.cpSync(src, dest, { recursive: true, dereference: true, errorOnExist: true });
+  if (fs.existsSync(dest)) {
+    throw new Error(`destination already exists: ${dest}`);
+  }
+  fs.mkdirSync(dest, { recursive: true });
+
+  function copyDir(current, base, target) {
+    const entries = fs.readdirSync(current, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      const full = path.join(current, entry.name);
+      if (shouldSkipSkillPath(full, base)) continue;
+      const out = path.join(target, path.relative(base, full));
+      const stat = fs.statSync(full);
+      if (stat.isDirectory()) {
+        fs.mkdirSync(out, { recursive: true });
+        copyDir(full, base, target);
+      } else if (stat.isFile()) {
+        fs.mkdirSync(path.dirname(out), { recursive: true });
+        fs.copyFileSync(full, out);
+        fs.chmodSync(out, stat.mode);
+      }
+    }
+  }
+
+  copyDir(src, src, dest);
 }
 
 const report = {
@@ -197,6 +277,7 @@ for (const repo of repos) {
     repo: displayPath(repo),
     exists: fs.existsSync(repo),
     skillsDir: displayPath(path.join(repo, "skills")),
+    sourceLayouts: [],
     skillCount: 0,
     skills: [],
   };
@@ -208,20 +289,21 @@ for (const repo of repos) {
     continue;
   }
 
-  const skillsDir = path.join(repo, "skills");
-  const skillDirs = readSkillDirs(skillsDir);
+  const skillDirs = readSkillDirs(repo);
   repoEntry.skillCount = skillDirs.length;
+  repoEntry.sourceLayouts = [...new Set(skillDirs.map((entry) => entry.layout))].sort();
   if (skillDirs.length === 0) {
     report.counts.invalidRepos += 1;
-    repoEntry.error = "no skills/*/SKILL.md entries found";
+    repoEntry.error = "no SKILL.md or skills/*/SKILL.md entries found";
     report.repositories.push(repoEntry);
     continue;
   }
 
   report.counts.reposWithSkills += 1;
   const names = [];
-  for (const skillDir of skillDirs) {
-    const name = path.basename(skillDir);
+  for (const skill of skillDirs) {
+    const skillDir = skill.dir;
+    const name = readSkillName(skillDir);
     names.push(name);
     const canonical = path.join(sharedSkillsDir, name);
     const canonicalExists = fs.existsSync(path.join(canonical, "SKILL.md"));
@@ -249,6 +331,7 @@ for (const repo of repos) {
     repoEntry.skills.push({
       name,
       status,
+      sourceLayout: skill.layout,
       source: displayPath(skillDir),
       canonical: displayPath(canonical),
       sourceHash,
@@ -330,7 +413,7 @@ function printText(data) {
     }
     console.log(`  INFO repo: ${repo.repo}`);
     if (repo.error) {
-      console.log(`  FAIL ${repo.error}: ${repo.skillsDir}`);
+      console.log(`  FAIL ${repo.error}: ${repo.repo}`);
       continue;
     }
     for (const skill of repo.skills) {

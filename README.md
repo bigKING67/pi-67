@@ -87,6 +87,31 @@ bash ~/.pi/agent/scripts/pi67-sync-external-skills.sh \
   --dry-run
 ```
 
+同步工具同时支持 `repo/SKILL.md` 这种 root-level skill 仓库，例如
+`commerce-growth-os`：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-check-external-skills.sh \
+  --repo /path/to/commerce-growth-os
+
+bash ~/.pi/agent/scripts/pi67-sync-external-skills.sh \
+  --repo /path/to/commerce-growth-os \
+  --dry-run
+```
+
+维护 pi-67 vendored 发行副本时，用专门 helper 从上游 checkout 刷新
+`shared-skills/commerce-growth-os`；普通用户更新 pi-67 不需要执行这个：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-sync-commerce-growth-os.sh \
+  --source /path/to/commerce-growth-os \
+  --dry-run
+
+bash ~/.pi/agent/scripts/pi67-sync-commerce-growth-os.sh \
+  --source /path/to/commerce-growth-os \
+  --apply --yes
+```
+
 需要先检查真实外部仓库和当前 `~/.agents/skills` 是否会冲突时，用只读检查器：
 
 ```bash
@@ -430,6 +455,7 @@ pi-67/
 │   ├── pi67-smoke.ps1
 │   ├── pi67-smoke.sh
 │   ├── pi67-status.sh
+│   ├── pi67-sync-commerce-growth-os.sh
 │   ├── pi67-sync-external-skills.sh
 │   ├── pi67-test-skill-governance.sh
 │   ├── pi67-update.sh

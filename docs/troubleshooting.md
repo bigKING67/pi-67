@@ -281,6 +281,30 @@ bash ~/.pi/agent/scripts/pi67-sync-external-skills.sh \
   --dry-run
 ```
 
+The same helper also supports root-level skill repos such as
+`commerce-growth-os`:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-check-external-skills.sh \
+  --repo /path/to/commerce-growth-os
+
+bash ~/.pi/agent/scripts/pi67-sync-external-skills.sh \
+  --repo /path/to/commerce-growth-os \
+  --dry-run
+```
+
+Maintainers refreshing the vendored pi-67 distribution copy should use:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-sync-commerce-growth-os.sh \
+  --source /path/to/commerce-growth-os \
+  --dry-run
+
+bash ~/.pi/agent/scripts/pi67-sync-commerce-growth-os.sh \
+  --source /path/to/commerce-growth-os \
+  --apply --yes
+```
+
 For a read-only summary before applying a real repo sync, use:
 
 ```bash
