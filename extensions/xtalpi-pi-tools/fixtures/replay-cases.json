@@ -60,6 +60,182 @@
       }
     },
     {
+      "name": "json-id-name-arguments-json-string-call",
+      "input": "<pi_tool_call>\n{\"id\":\"pi_tool_read_1\",\"name\":\"read\",\"arguments_json\":\"{\\\"path\\\":\\\"package.json\\\"}\"}\n</pi_tool_call>",
+      "expect": {
+        "kind": "tool_call",
+        "name": "read",
+        "arguments": {
+          "path": "package.json"
+        },
+        "warningsContain": [
+          "arguments_json",
+          "JSON-string tool arguments",
+          "legacy tool-call metadata"
+        ]
+      }
+    },
+    {
+      "name": "alias-tool-args-call",
+      "input": "<pi_tool_call>\n{\"tool\":\"read\",\"args\":{\"path\":\"package.json\"}}\n</pi_tool_call>",
+      "expect": {
+        "kind": "tool_call",
+        "name": "read",
+        "arguments": {
+          "path": "package.json"
+        },
+        "warningsContain": [
+          "tool name alias",
+          "tool arguments alias"
+        ]
+      }
+    },
+    {
+      "name": "alias-tool-name-input-call",
+      "input": "<pi_tool_call>\n{\"tool_name\":\"read\",\"input\":{\"path\":\"package.json\"}}\n</pi_tool_call>",
+      "expect": {
+        "kind": "tool_call",
+        "name": "read",
+        "arguments": {
+          "path": "package.json"
+        },
+        "warningsContain": [
+          "tool_name",
+          "input"
+        ]
+      }
+    },
+    {
+      "name": "text-native-openai-tool-calls-call",
+      "input": "<pi_tool_call>\n{\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"package.json\\\"}\"}}]}\n</pi_tool_call>",
+      "expect": {
+        "kind": "tool_call",
+        "name": "read",
+        "arguments": {
+          "path": "package.json"
+        },
+        "warningsContain": [
+          "OpenAI tool_calls",
+          "JSON-string tool arguments"
+        ]
+      }
+    },
+    {
+      "name": "text-native-function-call-call",
+      "input": "<pi_tool_call>\n{\"function_call\":{\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"package.json\\\"}\"}}\n</pi_tool_call>",
+      "expect": {
+        "kind": "tool_call",
+        "name": "read",
+        "arguments": {
+          "path": "package.json"
+        },
+        "warningsContain": [
+          "function_call",
+          "JSON-string tool arguments"
+        ]
+      }
+    },
+    {
+      "name": "generic-tool-call-tag-read-call",
+      "input": "<tool_call name=read>\n{\"path\":\"package.json\"}\n</tool_call>",
+      "expect": {
+        "kind": "tool_call",
+        "name": "read",
+        "arguments": {
+          "path": "package.json"
+        },
+        "warningsContain": [
+          "attributed pi_tool_call"
+        ]
+      }
+    },
+    {
+      "name": "loose-tool-args-json-string-call",
+      "input": "<pi_tool_call>\ntool: read\nargs: \"{\\\"path\\\":\\\"package.json\\\"}\"\n</pi_tool_call>",
+      "expect": {
+        "kind": "tool_call",
+        "name": "read",
+        "arguments": {
+          "path": "package.json"
+        },
+        "warningsContain": [
+          "loose name/arguments",
+          "tool name alias",
+          "tool arguments alias",
+          "JSON-string tool arguments"
+        ]
+      }
+    },
+    {
+      "name": "arguments-json-object-alias-call",
+      "input": "<pi_tool_call>\n{\"name\":\"read\",\"arguments_json\":{\"path\":\"package.json\"}}\n</pi_tool_call>",
+      "expect": {
+        "kind": "tool_call",
+        "name": "read",
+        "arguments": {
+          "path": "package.json"
+        },
+        "warningsContain": [
+          "arguments_json"
+        ]
+      }
+    },
+    {
+      "name": "text-native-function-envelope-call",
+      "input": "<pi_tool_call>\n{\"function\":{\"name\":\"read\",\"arguments\":{\"path\":\"package.json\"}}}\n</pi_tool_call>",
+      "expect": {
+        "kind": "tool_call",
+        "name": "read",
+        "arguments": {
+          "path": "package.json"
+        },
+        "warningsContain": [
+          "function envelope"
+        ]
+      }
+    },
+    {
+      "name": "text-native-openai-tool-calls-flat-call",
+      "input": "<pi_tool_call>\n{\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\"name\":\"read\",\"arguments\":{\"path\":\"package.json\"}}]}\n</pi_tool_call>",
+      "expect": {
+        "kind": "tool_call",
+        "name": "read",
+        "arguments": {
+          "path": "package.json"
+        },
+        "warningsContain": [
+          "OpenAI tool_calls",
+          "legacy tool-call metadata"
+        ]
+      }
+    },
+    {
+      "name": "uppercase-pi-tool-call",
+      "input": "<PI_TOOL_CALL>\n{\"name\":\"read\",\"arguments\":{\"path\":\"package.json\"}}\n</PI_TOOL_CALL>",
+      "expect": {
+        "kind": "tool_call",
+        "name": "read",
+        "arguments": {
+          "path": "package.json"
+        }
+      }
+    },
+    {
+      "name": "nested-attributed-envelope-call",
+      "input": "<pi_tool_call name=\"read\">\n{\"name\":\"read\",\"arguments\":{\"path\":\"package.json\"}}\n</pi_tool_call>",
+      "expect": {
+        "kind": "tool_call",
+        "name": "read",
+        "arguments": {
+          "path": "package.json"
+        },
+        "warningsContain": [
+          "nested envelope",
+          "attributed pi_tool_call"
+        ]
+      }
+    },
+    {
       "name": "bare-json-call",
       "input": "{\"name\":\"bash\",\"arguments\":{\"command\":\"pwd\"}}",
       "expect": {
@@ -143,6 +319,54 @@
       "expect": {
         "kind": "error",
         "code": "unknown_top_level_field"
+      }
+    },
+    {
+      "name": "bare-invalid-tool-like-json",
+      "input": "{\"name\":\"read\",\"arguments\":{},\"extra\":1}",
+      "expect": {
+        "kind": "error",
+        "code": "unknown_top_level_field"
+      }
+    },
+    {
+      "name": "multiple-text-native-tool-calls",
+      "input": "<pi_tool_call>{\"tool_calls\":[{\"function\":{\"name\":\"read\",\"arguments\":\"{}\"}},{\"function\":{\"name\":\"bash\",\"arguments\":\"{}\"}}]}</pi_tool_call>",
+      "expect": {
+        "kind": "error",
+        "code": "multiple_tool_calls"
+      }
+    },
+    {
+      "name": "text-native-wrapper-extra-field",
+      "input": "<pi_tool_call>{\"tool_calls\":[{\"function\":{\"name\":\"read\",\"arguments\":\"{}\"}}],\"extra\":1}</pi_tool_call>",
+      "expect": {
+        "kind": "error",
+        "code": "unknown_top_level_field"
+      }
+    },
+    {
+      "name": "text-native-tool-call-item-extra-field",
+      "input": "<pi_tool_call>{\"tool_calls\":[{\"function\":{\"name\":\"read\",\"arguments\":\"{}\"},\"extra\":1}]}</pi_tool_call>",
+      "expect": {
+        "kind": "error",
+        "code": "unknown_top_level_field"
+      }
+    },
+    {
+      "name": "empty-arguments-string",
+      "input": "<pi_tool_call>{\"name\":\"read\",\"arguments\":\"\"}</pi_tool_call>",
+      "expect": {
+        "kind": "error",
+        "code": "invalid_arguments"
+      }
+    },
+    {
+      "name": "attributed-name-mismatch",
+      "input": "<pi_tool_call name=\"read\">{\"name\":\"bash\",\"arguments\":{}}</pi_tool_call>",
+      "expect": {
+        "kind": "error",
+        "code": "invalid_name"
       }
     }
   ],
@@ -290,6 +514,100 @@
               "path": "D:/codeproject/data-etl/douyin/compass/trade_sale_image.py",
               "offset": 155,
               "limit": 110
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "text-native-openai-tool-calls-tool-call",
+      "maxTools": 8,
+      "context": {
+        "systemPrompt": "system base",
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a file",
+            "parameters": {
+              "type": "object",
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": "read package.json"
+          }
+        ]
+      },
+      "responses": [
+        {
+          "content": "<pi_tool_call>\n{\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"package.json\\\"}\"}}]}\n</pi_tool_call>"
+        }
+      ],
+      "expect": {
+        "fetchCount": 1,
+        "stopReason": "toolUse",
+        "toolCalls": [
+          {
+            "name": "read",
+            "arguments": {
+              "path": "package.json"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "generic-tool-call-tag-tool-call",
+      "maxTools": 8,
+      "context": {
+        "systemPrompt": "system base",
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a file",
+            "parameters": {
+              "type": "object",
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": "read package.json"
+          }
+        ]
+      },
+      "responses": [
+        {
+          "content": "<tool_call name=read>\n{\"path\":\"package.json\"}\n</tool_call>"
+        }
+      ],
+      "expect": {
+        "fetchCount": 1,
+        "stopReason": "toolUse",
+        "toolCalls": [
+          {
+            "name": "read",
+            "arguments": {
+              "path": "package.json"
             }
           }
         ]

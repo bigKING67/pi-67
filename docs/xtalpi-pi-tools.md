@@ -64,6 +64,25 @@ content:
 标准本地工具调用。这类格式漂移会留下 parser warning，但不会因为 `arguments_json`
 不是完整 JSON envelope 而直接中断任务。
 
+为了避免每次遇到一个新等价格式才补一次，parser 现在按“宽进严出”的本地归一化策略覆盖
+高概率模型漂移形态：
+
+- canonical `<pi_tool_call>{"name":"...","arguments":{...}}</pi_tool_call>`
+- attributed `<pi_tool_call name="...">{...}</pi_tool_call>` 和常见 `<tool_call name=...>` 变体
+- legacy 行式 `name=...` / `arguments_json: {...}`，以及 `tool:` / `args:` 等别名行式输出
+- JSON envelope 中的 `tool` / `tool_name` / `function_name` 名称别名
+- `args` / `input` / `parameters` / `arguments_json` 参数别名
+- `arguments` 或 `arguments_json` 被模型写成 JSON string 的情况
+- 模型把 OpenAI text-native 结构写进文本时的 `function_call`、`function`、
+  `tool_calls[0].function` 和单个 flat `tool_calls[0]` 形态
+- 大小写漂移的 `<PI_TOOL_CALL>` 标签，以及 bare JSON tool envelope
+
+兼容不等于放开执行。归一化之后仍统一进入 selected-tool 白名单、schema 参数校验、重复工具检测、
+shell 语义 guard 和 debug/smoke gate。以下情况继续 fail closed 并触发 repair 或停止：
+一次返回多个工具调用、未知 top-level 字段、多个名称/参数别名同时出现、空参数字符串、坏 JSON、
+attribute 名称与嵌套 envelope 名称不一致、OpenAI wrapper/tool-call item 里混入未知字段，
+以及未展示给模型的 unknown tool。
+
 工具元数据同样按模型可见的不可信文本处理。工具描述、参数描述、repair prompt 里的旧模型输出和工具名列表都会做协议标记中和、单行化或截断，避免恶意/异常 MCP 工具说明伪造 `<pi_tool_call>` / `<pi_tool_result>` / `<pi_tool_call_history>` 边界。
 
 每轮只允许执行实际展示给模型的 selected tools。即使 `context.tools` 里存在更多工具，模型猜中未展示工具名也会被拒绝；unknown-tool 修复提示同样只列出 selected tools。
