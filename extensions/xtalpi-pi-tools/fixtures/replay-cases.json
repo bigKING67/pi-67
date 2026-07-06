@@ -97,6 +97,14 @@
       }
     },
     {
+      "name": "angle-previous-tool-history-record",
+      "input": "<previous_pi_tool_call>\nid: call_1\nname: read\narguments_json: {\"path\":\"package.json\"}\n</previous_pi_tool_call>\nPlan mode: planning\nTools: bash, find, grep, ls, read, plan_mode_question\nProduce a <proposed_plan> block.",
+      "expect": {
+        "kind": "error",
+        "code": "raw_protocol_markup"
+      }
+    },
+    {
       "name": "malformed-incomplete-tool-call-markup",
       "input": "I leaked a partial protocol tag:\n<pi_tool_call name=\"read\"\n{\"path\":\"package.json\"}",
       "expect": {

@@ -1,6 +1,6 @@
 const CONTROL_CHARS_EXCEPT_COMMON_WHITESPACE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 const PROTOCOL_MARKUP_TAG = /<\/?pi_tool_(?:call_history|call|result)\b(?:[^<>\r\n]*>|[^<>\r\n]*)/gi;
-const INTERNAL_HISTORY_MARKER = /\[\/?previous_pi_tool_call\]/gi;
+const INTERNAL_HISTORY_MARKER = /(?:<\/?previous_pi_tool_call\b(?:[^<>\r\n]*>|[^<>\r\n]*)|\[\/?previous_pi_tool_call\])/gi;
 
 export function truncateText(value: string, maxChars: number): string {
   if (maxChars <= 0 || value.length <= maxChars) return value;
@@ -15,7 +15,8 @@ function protocolMarkerLabel(tag: string): string {
 }
 
 function internalHistoryMarkerLabel(marker: string): string {
-  const direction = marker.toLowerCase().startsWith("[/") ? "close" : "open";
+  const normalized = marker.trim().toLowerCase();
+  const direction = normalized.startsWith("[/") || normalized.startsWith("</") ? "close" : "open";
   return `[literal previous_pi_tool_call ${direction} marker]`;
 }
 

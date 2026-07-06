@@ -277,7 +277,7 @@ function Write-JsonFile {
 
 function Contains-RawPiToolMarkup {
   param([string]$Text)
-  return [regex]::IsMatch([string]$Text, '(?:</?pi_tool_(?:call_history|call|result)\b(?:[^<>\r\n]*>|[^<>\r\n]*(?:$|\r?\n))|\[/?previous_pi_tool_call\])', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+  return [regex]::IsMatch([string]$Text, '(?:</?pi_tool_(?:call_history|call|result)\b(?:[^<>\r\n]*>|[^<>\r\n]*(?:$|\r?\n))|</?previous_pi_tool_call\b(?:[^<>\r\n]*>|[^<>\r\n]*(?:$|\r?\n))|\[/?previous_pi_tool_call\])', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
 }
 
 function Get-FinalAssistantText {
@@ -675,6 +675,14 @@ function Run-SelfTest {
     ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 8 } | Set-Content -LiteralPath $markupOut -Encoding UTF8
     $markup = Summarize-CaseArtifact "mcp-status" $CaseDefinitions["mcp-status"] $markupOut $err $debug 0 1 $false
     if ($markup.ok -eq $true) { throw "expected raw markup fixture to fail" }
+
+    $angleMarkupOut = Join-Path $tmp "angle-markup.jsonl"
+    @(
+      @{ type = "tool_execution_start"; toolName = "mcp"; args = @{} },
+      @{ type = "agent_end"; messages = @(@{ role = "assistant"; content = @(@{ type = "text"; text = "<previous_pi_tool_call>`nid: call_1`n</previous_pi_tool_call> EXTENSION_SMOKE_MCP_STATUS_OK MCP" }) }) }
+    ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 8 } | Set-Content -LiteralPath $angleMarkupOut -Encoding UTF8
+    $angleMarkup = Summarize-CaseArtifact "mcp-status" $CaseDefinitions["mcp-status"] $angleMarkupOut $err $debug 0 1 $false
+    if ($angleMarkup.ok -eq $true) { throw "expected angle history markup fixture to fail" }
 
     $badArgsOut = Join-Path $tmp "bad-args.jsonl"
     @(

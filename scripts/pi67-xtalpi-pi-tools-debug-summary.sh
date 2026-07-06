@@ -315,6 +315,12 @@ writeCase(neutral, "20260702-000005", "neutral-history", {
   finalText: "[previous_pi_tool_call]\nid: call_1\nname: read\narguments_json: {\"path\":\"package.json\"}\n[/previous_pi_tool_call]",
 });
 
+const angleHistory = ensureDir("angle-history");
+writeCase(angleHistory, "20260702-000006", "angle-history", {
+  toolNames: ["read"],
+  finalText: "<previous_pi_tool_call>\nid: call_1\nname: read\narguments_json: {\"path\":\"package.json\"}\n</previous_pi_tool_call>",
+});
+
 const recovery = ensureDir("recovery");
 writeCase(recovery, "20260702-000003", "recovering", {
   debugEvents: [

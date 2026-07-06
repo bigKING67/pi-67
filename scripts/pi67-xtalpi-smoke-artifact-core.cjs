@@ -122,11 +122,12 @@ function stripPiToolEnvelopes(text) {
     .replace(/<pi_tool_call_history\b[^>]*>[\s\S]*?<\/pi_tool_call_history>/g, "")
     .replace(/<pi_tool_call\b[^>]*>[\s\S]*?<\/pi_tool_call>/g, "")
     .replace(/<pi_tool_result\b[^>]*>[\s\S]*?<\/pi_tool_result>/g, "")
+    .replace(/<previous_pi_tool_call\b[^>]*>[\s\S]*?<\/previous_pi_tool_call>/g, "")
     .trim();
 }
 
 function containsRawPiToolMarkup(text) {
-  return /(?:<\/?pi_tool_(?:call_history|call|result)\b(?:[^<>\r\n]*>|[^<>\r\n]*(?:$|\r?\n))|\[\/?previous_pi_tool_call\])/i.test(String(text || ""));
+  return /(?:<\/?pi_tool_(?:call_history|call|result)\b(?:[^<>\r\n]*>|[^<>\r\n]*(?:$|\r?\n))|<\/?previous_pi_tool_call\b(?:[^<>\r\n]*>|[^<>\r\n]*(?:$|\r?\n))|\[\/?previous_pi_tool_call\])/i.test(String(text || ""));
 }
 
 function isRawToolMarkupFinalAnswer(text) {

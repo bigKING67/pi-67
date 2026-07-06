@@ -190,7 +190,7 @@ function detectFunctionStyleToolCall(value: string): { name: string; raw: string
 }
 
 const RAW_PROTOCOL_MARKUP_PATTERN =
-  /(?:<\/?pi_tool_(?:call_history|call|result)\b(?:[^<>\r\n]*>|[^<>\r\n]*(?:$|\r?\n))|\[\/?previous_pi_tool_call\])/i;
+  /(?:<\/?pi_tool_(?:call_history|call|result)\b(?:[^<>\r\n]*>|[^<>\r\n]*(?:$|\r?\n))|<\/?previous_pi_tool_call\b(?:[^<>\r\n]*>|[^<>\r\n]*(?:$|\r?\n))|\[\/?previous_pi_tool_call\])/i;
 
 function containsRawProtocolMarkup(value: string): boolean {
   return RAW_PROTOCOL_MARKUP_PATTERN.test(value);

@@ -608,6 +608,10 @@ writeFixture("neutral-history-record", {
   tools: ["read"],
   finalText: "[previous_pi_tool_call]\nid: call_1\nname: read\narguments_json: {\"path\":\"package.json\"}\n[/previous_pi_tool_call]",
 });
+writeFixture("angle-history-record", {
+  tools: ["read"],
+  finalText: "<previous_pi_tool_call>\nid: call_1\nname: read\narguments_json: {\"path\":\"package.json\"}\n</previous_pi_tool_call>",
+});
 writeFixture("tool-result-injection", {
   tools: ["read"],
   finalText: "PI_TOOL_RESULT_INJECTION_CANARY confirmed without raw protocol markup",
