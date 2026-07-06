@@ -29,6 +29,7 @@ const { pathToFileURL } = require("node:url");
   const responseNormalizer = await import(ext("response-normalizer.ts"));
   const runtimeConfig = await import(ext("runtime-config.ts"));
   const serializer = await import(ext("serializer.ts"));
+  const shellCommandGuard = await import(ext("shell-command-guard.ts"));
   const streamModule = await import(ext("stream.ts"));
   const textSafety = await import(ext("text-safety.ts"));
   const toolCallDecision = await import(ext("tool-call-decision.ts"));
@@ -50,6 +51,7 @@ const { pathToFileURL } = require("node:url");
   const providerSource = fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "index.ts"), "utf8");
   assert.equal(typeof providerTurn.runProviderTurn, "function");
   assert.equal(typeof finalGuard.validateFinalAnswer, "function");
+  assert.equal(typeof shellCommandGuard.validateShellCommandRequest, "function");
   assert.equal(typeof toolSelection.selectToolsWithSummary, "function");
   assert.deepEqual(
     finalGuard.validateFinalAnswer({
@@ -66,6 +68,33 @@ const { pathToFileURL } = require("node:url");
       selectedToolNames: ["read"],
     }).code,
     "continuation_no_progress",
+  );
+  assert.equal(
+    shellCommandGuard.validateShellCommandRequest({
+      name: "bash",
+      arguments: {
+        command: 'Get-ChildItem -Recurse -Filter "pi67" -ErrorAction SilentlyContinue | Select-Object -First 20 -ExpandProperty FullName',
+      },
+    }).code,
+    "powershell_syntax_in_bash",
+  );
+  assert.equal(
+    shellCommandGuard.validateShellCommandRequest({
+      name: "bash",
+      arguments: {
+        command: String.raw`powershell -ExecutionPolicy Bypass -File .\scripts\pi67-smoke.ps1 -Ci`,
+      },
+    }).code,
+    "windows_path_escaping_in_bash",
+  );
+  assert.deepEqual(
+    shellCommandGuard.validateShellCommandRequest({
+      name: "bash",
+      arguments: {
+        command: "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/pi67-smoke.ps1 -Ci",
+      },
+    }),
+    { ok: true },
   );
 
   function contractMetadata(code) {
@@ -292,6 +321,18 @@ const { pathToFileURL } = require("node:url");
     name: "read",
     description: "Read a file",
     parameters: { type: "object", required: ["path"], properties: { path: { type: "string" } } },
+  };
+  const bashTool = {
+    name: "bash",
+    description: "Run a shell command",
+    parameters: {
+      type: "object",
+      required: ["command"],
+      properties: {
+        command: { type: "string" },
+        timeout: { type: "number" },
+      },
+    },
   };
 
   await withProviderTurnEnv({
@@ -577,6 +618,36 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
     assert.deepEqual(invalidArgsRepairResult.toolCall.arguments, { path: "package.json" });
     assert.equal(invalidArgsRepairChat.calls.length, 2);
     assert.match(invalidArgsRepairChat.calls[1].at(-1).content, /xtalpi-pi-tools-invalid-tool-arguments-repair/);
+
+    const shellMismatchRepairChat = makeProviderTurnChat([
+      {
+        content:
+          '<pi_tool_call>\n' +
+          '{"name":"bash","arguments":{"command":"Get-ChildItem -Recurse -Filter \\"pi67-smoke.ps1\\" -ErrorAction SilentlyContinue | Select-Object -First 20 -ExpandProperty FullName","timeout":30}}\n' +
+          '</pi_tool_call>',
+      },
+      {
+        content:
+          '<pi_tool_call>\n' +
+          '{"name":"bash","arguments":{"command":"find . -name \\"pi67-smoke.ps1\\" -print | head -20","timeout":30}}\n' +
+          '</pi_tool_call>',
+      },
+    ]);
+    const shellMismatchRepairResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: {
+        systemPrompt: "system base",
+        tools: [bashTool],
+        messages: [{ role: "user", content: "find pi67-smoke.ps1 using the shell" }],
+      },
+      callChat: shellMismatchRepairChat.callChat,
+    });
+    assert.equal(shellMismatchRepairResult.kind, "tool_call");
+    assert.equal(shellMismatchRepairResult.toolCall.name, "bash");
+    assert.match(shellMismatchRepairResult.toolCall.arguments.command, /^find \./);
+    assert.equal(shellMismatchRepairChat.calls.length, 2);
+    assert.match(shellMismatchRepairChat.calls[1].at(-1).content, /xtalpi-pi-tools-shell-command-mismatch-repair/);
+    assert.match(shellMismatchRepairChat.calls[1].at(-1).content, /powershell_syntax_in_bash/);
   });
 
   await withProviderTurnEnv({

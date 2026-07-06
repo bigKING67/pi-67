@@ -7,8 +7,10 @@ import type { JsonObject } from "./protocol.ts";
 import {
   buildInvalidToolArgumentsRepairPrompt,
   buildRepeatedToolRepairPrompt,
+  buildShellCommandMismatchRepairPrompt,
   buildUnknownToolRepairPrompt,
 } from "./retry.ts";
+import { validateShellCommandRequest } from "./shell-command-guard.ts";
 import type { ToolLike } from "./serializer.ts";
 
 type ToolCallRequest = {
@@ -19,7 +21,8 @@ type ToolCallRequest = {
 export type ToolCallRecoveryEvent =
   | "recovery.unknown_tool"
   | "recovery.invalid_tool_arguments"
-  | "recovery.repeated_tool";
+  | "recovery.repeated_tool"
+  | "recovery.shell_command_mismatch";
 
 export type ToolCallDecision =
   | {
@@ -95,6 +98,36 @@ export function decideToolCallRequest(input: {
         `参数错误：${argumentValidation.errors.join("; ")}`,
       toolName: requestedCall.name,
       errors: argumentValidation.errors,
+      argumentValidationWarnings: argumentValidation.warnings,
+    };
+  }
+
+  const shellCommandGuard = validateShellCommandRequest(requestedCall);
+  if (!shellCommandGuard.ok) {
+    if (canRepair) {
+      return {
+        kind: "repair",
+        event: "recovery.shell_command_mismatch",
+        prompt: buildShellCommandMismatchRepairPrompt({
+          code: shellCommandGuard.code,
+          reason: shellCommandGuard.reason,
+          command: shellCommandGuard.command,
+          errors: shellCommandGuard.errors,
+        }),
+        toolName: requestedCall.name,
+        errors: shellCommandGuard.errors,
+        argumentValidationWarnings: argumentValidation.warnings,
+      };
+    }
+
+    return {
+      kind: "final",
+      text:
+        `xtalpi-pi-tools 检测到不安全或不匹配的 shell 工具调用：${requestedCall.name}。\n\n` +
+        `原因：${shellCommandGuard.reason}\n\n` +
+        `请改用 bash-compatible 命令，或显式调用 powershell.exe/pwsh 并正确引用路径。`,
+      toolName: requestedCall.name,
+      errors: shellCommandGuard.errors,
       argumentValidationWarnings: argumentValidation.warnings,
     };
   }

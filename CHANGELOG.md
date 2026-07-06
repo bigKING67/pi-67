@@ -17,6 +17,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - Pi AGENTS/rules documentation now routes commerce growth work to `commerce-growth-os` without adding local absolute paths or duplicate active package roots.
 - External skill sync now supports both root-level `repo/SKILL.md` skill repositories and legacy `repo/skills/*/SKILL.md` layouts, with fixture coverage for root-level discovery, apply, and read-only checks.
 - `xtalpi-pi-tools` now guards premature final answers: Plan mode instruction echoes, missing `<proposed_plan>` blocks, continuation no-progress replies, intent-to-tool promises without tool calls, and weak acknowledgements trigger a bounded local repair turn instead of silently ending the agent turn.
+- `xtalpi-pi-tools` now blocks obvious shell mismatches before execution when the model sends raw PowerShell cmdlets or unquoted Windows backslash script paths to the `bash` tool, then asks the model to repair with bash-compatible commands or an explicit `powershell.exe` / `pwsh` invocation.
 
 ## [0.10.0] - 2026-07-02
 

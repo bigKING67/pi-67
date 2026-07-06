@@ -162,6 +162,39 @@ ${TOOL_CALL_CLOSE}
 Do not repeat invalid arguments. Keep "arguments" as a JSON object.`;
 }
 
+export function buildShellCommandMismatchRepairPrompt(input: {
+  code: string;
+  reason: string;
+  command: string;
+  errors: string[];
+}): string {
+  const details = input.errors.slice(0, 8).map((error) => `- ${safeInlineText(error, 400)}`).join("\n") ||
+    "- the command does not match the shell used by the bash tool";
+  return `[xtalpi-pi-tools-shell-command-mismatch-repair]
+The previous bash tool call was blocked before execution because its command does not match the shell contract.
+
+Reason code: ${safeInlineText(input.code, 160)}
+Reason: ${safeInlineText(input.reason, 500)}
+
+Command excerpt:
+${safeBlockText(input.command, 1600)}
+
+Details:
+${details}
+
+The Pi tool name is "bash", so its "command" argument is interpreted as POSIX shell text.
+- Do not send raw PowerShell cmdlets such as Get-ChildItem, Select-Object, Where-Object, or Set-Location directly to bash.
+- If a shell command is still needed, prefer bash-compatible commands such as pwd, ls, find, test, sed, node, git, or npm.
+- If Windows PowerShell is specifically required, invoke it explicitly as powershell.exe or pwsh with -NoProfile and -Command/-File.
+- When invoking PowerShell from bash, avoid unquoted backslash paths like .\\scripts\\file.ps1; prefer ./scripts/file.ps1, or quote/escape the Windows path.
+- Before running repo scripts, verify the current directory with pwd or git rev-parse --show-toplevel.
+
+Return either a normal final answer, or exactly one corrected Pi tool envelope:
+${TOOL_CALL_OPEN}
+{"name":"bash","arguments":{"command":"pwd","timeout":30}}
+${TOOL_CALL_CLOSE}`;
+}
+
 export function buildRepeatedToolRepairPrompt(toolName: string): string {
   return `[xtalpi-pi-tools-repeated-tool-repair]
 You already received the result for the same ${formatToolNameForPrompt(toolName)} tool call.

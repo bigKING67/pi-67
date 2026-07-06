@@ -503,6 +503,62 @@
       }
     },
     {
+      "name": "powershell-cmdlet-in-bash-then-fixed",
+      "maxTools": 8,
+      "maxRepairRetries": 2,
+      "maxTotalRecoveries": 4,
+      "context": {
+        "systemPrompt": "system base",
+        "tools": [
+          {
+            "name": "bash",
+            "description": "Run a shell command",
+            "parameters": {
+              "type": "object",
+              "required": [
+                "command"
+              ],
+              "properties": {
+                "command": {
+                  "type": "string"
+                },
+                "timeout": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": "find pi67-smoke.ps1 using the shell"
+          }
+        ]
+      },
+      "responses": [
+        {
+          "content": "<pi_tool_call>\n{\"name\":\"bash\",\"arguments\":{\"command\":\"Get-ChildItem -Recurse -Filter \\\"pi67-smoke.ps1\\\" -ErrorAction SilentlyContinue | Select-Object -First 20 -ExpandProperty FullName\",\"timeout\":30}}\n</pi_tool_call>"
+        },
+        {
+          "content": "<pi_tool_call>\n{\"name\":\"bash\",\"arguments\":{\"command\":\"find . -name \\\"pi67-smoke.ps1\\\" -print | head -20\",\"timeout\":30}}\n</pi_tool_call>"
+        }
+      ],
+      "expect": {
+        "fetchCount": 2,
+        "stopReason": "toolUse",
+        "toolCalls": [
+          {
+            "name": "bash",
+            "arguments": {
+              "command": "find . -name \"pi67-smoke.ps1\" -print | head -20",
+              "timeout": 30
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "bounded-schema-args-then-fixed",
       "maxTools": 8,
       "maxRepairRetries": 2,
