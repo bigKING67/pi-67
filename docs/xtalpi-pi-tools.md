@@ -4,6 +4,22 @@
 
 核心原则：**晶泰只负责普通 chat 文本生成，Pi 本地负责工具协议、解析、校验、重试和执行。**
 
+## 根因与解决方案边界
+
+`xtalpi-pi-tools` 的根因判断是：晶泰代理能兼容 OpenAI Chat Completions 的
+`/v1/chat/completions` 文本请求格式，但不能被假定为完整稳定兼容 OpenAI native
+tool-calling runtime contract。Pi agent 场景需要的不只是普通聊天，还需要上游稳定处理
+`tools` / `tool_choice`、assistant `tool_calls`、`role=tool` continuation、streaming
+tool delta 和 `finish_reason`。这些边界任一不稳定，都会表现成空 assistant、不回复、
+工具结果后停止、不调用工具或把工具调用写成普通文本。
+
+因此本 provider 的解决方案不是继续调参数或再包一层 native-tools extension，而是把
+native tool contract 从晶泰侧移走：晶泰只接收普通 chat messages，所有工具选择、协议、
+参数校验、执行、repair、错误分类和 smoke gate 都由 Pi 本地负责。这样可以彻底绕开
+native tool 兼容层；晶泰上游偶发 timeout、429、5xx、network error 或 malformed response
+仍属于外部 provider 可用性问题，本地只负责把它们结构化归类、限次重试、写入 artifact，
+并保证不会被误判成空回复成功或工具调用成功。
+
 ## 为什么替代 xtalpi-tools
 
 旧的 `xtalpi-tools` 依赖 OpenAI 原生工具字段：
