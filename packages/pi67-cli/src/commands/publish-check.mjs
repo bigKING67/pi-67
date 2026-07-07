@@ -5,6 +5,7 @@ import { gitStatus } from "../lib/git.mjs";
 import { npmLatestVersion } from "../lib/npm-registry.mjs";
 import { captureCommand } from "../lib/shell-runner.mjs";
 import { readCliPackageJson, readTextIfExists, packageRoot } from "../lib/paths.mjs";
+import { buildDistroManifest } from "../lib/distro-manifest.mjs";
 import { fail, info, keyValue, pass, printJson, section, warn } from "../lib/output.mjs";
 
 export async function publishCheckCommand(ctx, argv) {
@@ -43,6 +44,8 @@ function buildPublishCheck(ctx, options) {
   });
   const auth = npmAuthCheck({ noRemote: options.noRemote });
   const pack = options.noPack ? skipped("pack dry-run skipped") : npmPackCheck();
+  const manifest = buildDistroManifest(ctx);
+  const manifestRelease = manifestReleaseCheck(manifest);
 
   const checks = [
     check("package_name", pkg.name === "@bigking67/pi-67", `expected @bigking67/pi-67, got ${pkg.name}`),
@@ -52,6 +55,7 @@ function buildPublishCheck(ctx, options) {
     check("bin_pi67_alias", pkg.bin?.pi67 === "bin/pi-67.mjs", "missing pi67 alias"),
     check("publish_public", pkg.publishConfig?.access === "public", "scoped package must publish as public"),
     check("trusted_publish_workflow", workflow.ok, workflow.message),
+    check("distro_manifest", manifestRelease.ok, manifestRelease.message),
     check("npm_pack_dry_run", pack.ok || pack.skipped, pack.message),
   ];
 
@@ -70,6 +74,7 @@ function buildPublishCheck(ctx, options) {
   if (registry.skipped) warnings.push("npm registry check skipped");
   if (auth.skipped) warnings.push("npm auth check skipped");
   if (pack.skipped) warnings.push("npm pack dry-run skipped");
+  warnings.push(...manifestRelease.warnings);
 
   let status = "ready";
   if (blockers.length > 0) status = "blocked";
@@ -95,6 +100,10 @@ function buildPublishCheck(ctx, options) {
     },
     git,
     workflow,
+    manifest: {
+      summary: manifest.summary,
+      release: manifestRelease,
+    },
     registry,
     auth,
     pack,
@@ -102,6 +111,51 @@ function buildPublishCheck(ctx, options) {
     blockers,
     warnings,
     nextSteps: nextSteps({ status, registryNotPublished, exactVersionPublished, authOk: auth.ok }),
+  };
+}
+
+function manifestReleaseCheck(manifest) {
+  const requiredPreserve = ["settings.json", "models.json", "auth.json", "mcp.json", "image-gen.json"];
+  const missingPreserve = requiredPreserve.filter((file) => !manifest.runtimeFiles?.preserve?.includes(file));
+  const requiredCommands = ["update", "repair", "alwaysFreshRepair", "upstreamPiExtensions"];
+  const missingCommands = requiredCommands.filter((name) => !manifest.commands?.[name]);
+  const missingLocalExtensions = (manifest.localExtensions || [])
+    .filter((item) => item.required && !item.exists)
+    .map((item) => item.name);
+  const userManagedPackages = manifest.userManagedPackages || [];
+  const policyProblems = [];
+
+  if (manifest.theme?.preserveSetting !== "settings.json.theme") {
+    policyProblems.push("theme preserveSetting must be settings.json.theme");
+  }
+  if (manifest.theme?.policy !== "install-theme-package-only-never-select-theme-on-update") {
+    policyProblems.push("theme policy must preserve selected theme during update");
+  }
+  if (manifest.sharedSkills?.policy !== "copy-by-default-preserve-different-existing-skills-unless-strict") {
+    policyProblems.push("shared skills policy must preserve existing differences unless strict");
+  }
+  if (manifest.externalReposPolicy?.dirtyRepo !== "preserve-and-block-update") {
+    policyProblems.push("dirty external repos must block update instead of being overwritten");
+  }
+
+  const problems = [
+    ...missingPreserve.map((item) => `missing preserved runtime file policy: ${item}`),
+    ...missingCommands.map((item) => `missing canonical command policy: ${item}`),
+    ...missingLocalExtensions.map((item) => `required local extension missing: ${item}`),
+    ...userManagedPackages.map((item) => `repo baseline contains user-managed runtime package: ${item.spec}`),
+    ...policyProblems,
+  ];
+
+  const warnings = [];
+  if (manifest.summary?.runtimePackages === 0) {
+    warnings.push("distro manifest has no runtime packages");
+  }
+
+  return {
+    ok: problems.length === 0,
+    message: problems.length === 0 ? "ownership manifest release policy ready" : problems.join("; "),
+    problems,
+    warnings,
   };
 }
 
@@ -189,6 +243,7 @@ function printReport(report) {
   keyValue("Package", `${report.package.name}@${report.package.version}`);
   keyValue("Distro", report.distro.version || "unknown");
   keyValue("Workflow", report.workflow.ok ? "trusted publishing ready" : report.workflow.message);
+  keyValue("Manifest", report.manifest.release.ok ? "ownership policy ready" : report.manifest.release.message);
   keyValue("Registry", registryLabel(report.registry));
   keyValue("npm auth", report.auth.skipped ? "skipped" : report.auth.ok ? report.auth.username : "not logged in");
   keyValue("Pack", report.pack.skipped ? "skipped" : report.pack.ok ? "passed" : report.pack.message);

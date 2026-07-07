@@ -113,6 +113,12 @@ difference from the bundled `shared-skills/` baseline must block the update.
 
 ## Publish readiness
 
+`pi-67 publish-check` validates package metadata, Trusted Publishing workflow
+drift, `npm pack --dry-run`, and the ownership manifest release policy. Manifest
+checks gate preserved runtime config files, required local extensions,
+user-managed baseline packages, theme preservation, shared-skill preservation,
+and dirty external-repo blocking policy.
+
 Maintainers can verify the npm publish path before using GitHub Actions:
 
 ```bash

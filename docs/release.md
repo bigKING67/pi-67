@@ -182,6 +182,10 @@ pi-67 publish-check
 The check reports version consistency, Trusted Publishing workflow readiness,
 npm registry state, local npm auth state, and `npm pack --dry-run`. A missing
 local `npm whoami` is not a blocker for GitHub Actions Trusted Publishing.
+It also gates the ownership manifest release policy, so preserved runtime
+config files, required local extensions, theme preservation, shared-skill
+preservation, external-repo dirty blocking, and unknown baseline runtime
+packages cannot drift silently before publish.
 Use `pi-67 manifest --json` when changing packages, extensions, themes, shared
 skills, or external repo behavior; it is the user-visible ownership contract
 that separates pi-67 managed resources from report-only user resources.

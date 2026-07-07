@@ -16,3 +16,6 @@
 - Adds `pi-67 update --strict-shared-skills` forwarding for Bash and Windows
   PowerShell parity checks without changing the default preserve-user-skills
   behavior.
+- Gates publish readiness on the ownership manifest so package, extension,
+  theme, shared-skill, external-repo, and runtime-config policies cannot drift
+  silently before npm publish.

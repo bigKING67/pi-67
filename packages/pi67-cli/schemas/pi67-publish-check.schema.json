@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/bigKING67/pi-67/schemas/pi67-publish-check.schema.json",
+  "title": "pi-67 npm publish check",
+  "type": "object",
+  "required": [
+    "schema",
+    "createdAt",
+    "status",
+    "package",
+    "distro",
+    "paths",
+    "git",
+    "workflow",
+    "manifest",
+    "registry",
+    "auth",
+    "pack",
+    "checks",
+    "blockers",
+    "warnings",
+    "nextSteps"
+  ],
+  "properties": {
+    "schema": {
+      "const": "pi67.publish-check.v1"
+    },
+    "createdAt": {
+      "type": "string"
+    },
+    "status": {
+      "enum": ["ready", "ready_with_notes", "blocked"]
+    },
+    "package": {
+      "type": "object",
+      "required": ["name", "version", "root"]
+    },
+    "distro": {
+      "type": "object",
+      "required": ["version", "rootPackageVersion"]
+    },
+    "paths": {
+      "type": "object",
+      "required": ["repoRoot", "agentDir", "workflow"]
+    },
+    "git": {
+      "type": "object"
+    },
+    "workflow": {
+      "type": "object",
+      "required": ["ok", "file", "message"]
+    },
+    "manifest": {
+      "type": "object",
+      "required": ["summary", "release"],
+      "properties": {
+        "summary": {
+          "type": "object"
+        },
+        "release": {
+          "type": "object",
+          "required": ["ok", "message", "problems", "warnings"]
+        }
+      },
+      "additionalProperties": true
+    },
+    "registry": {
+      "type": "object"
+    },
+    "auth": {
+      "type": "object"
+    },
+    "pack": {
+      "type": "object"
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "ok", "message"]
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "nextSteps": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": true
+}

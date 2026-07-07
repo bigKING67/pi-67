@@ -793,6 +793,11 @@ pi-67 publish-check
 pi-67 publish-check --json
 ```
 
+`publish-check` 不只检查 npm 包元数据，也会检查 ownership manifest：保留
+runtime config、主题不自动切换、shared skills 默认不覆盖、external dirty repo
+阻断更新、必需 local extensions 存在，以及发行版基线里不能混入未知
+user-managed runtime package。
+
 查看 pi-67 对 packages、extensions、theme、shared skills、external repos 的
 所有权边界：
 
