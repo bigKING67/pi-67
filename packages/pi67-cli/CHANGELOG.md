@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.10.3]
+
+- Deduplicates real update/repair runtime backups when preserved config files
+  are unchanged from the latest same-operation backup.
+- Deduplicates direct PowerShell `scripts/pi67-update.ps1` dirty runtime-config
+  preservation backups under `~/.pi/pi67/backups/`.
+- Removes the legacy PowerShell updater path that wrote new
+  `~/.pi/agent-backups/pre-update-*` snapshots; runtime preservation now stays
+  under `~/.pi/pi67/backups/`.
+- Avoids writing a theme backup when `pi-67 themes set <name>` is already the
+  active theme.
+
 ## [0.10.2]
 
 - Reads `Manager latest` through the npm registry HTTP API instead of spawning

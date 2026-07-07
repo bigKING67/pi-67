@@ -1,7 +1,8 @@
 #!/usr/bin/env pwsh
 # PowerShell-native updater for Windows users.
-# It preserves local runtime config files and only auto-resolves a narrow set of
-# known tracked migration conflicts after writing a backup.
+# It preserves local runtime config files through the first-class
+# ~/.pi/pi67/backups path. Legacy ~/.pi/agent-backups snapshots are no longer
+# written by the normal updater.
 
 [CmdletBinding()]
 param(
@@ -112,10 +113,6 @@ if (-not $SkillsDir) {
 
 $NpmDir = Join-Path $AgentDir "npm"
 $NpmInstallArgs = @("install", "--ignore-scripts", "--no-audit", "--no-fund", "--prefer-offline")
-$KnownMigrationConflictPaths = @(
-  "settings.json",
-  "extensions/xtalpi-compat/index.ts"
-)
 $UserPreservedTrackedUpdatePaths = @(
   "settings.json",
   "models.json",
@@ -787,56 +784,72 @@ function Invoke-Report {
   }
 }
 
-function Backup-And-RestoreKnownMigrationConflicts {
-  param([string[]]$TrackedStatus)
+function Get-UserRuntimeBackupRoot {
+  return Join-Path (Join-Path (Join-Path $HomePath ".pi") "pi67") "backups"
+}
 
-  $dirtyPaths = @()
-  foreach ($line in $TrackedStatus) {
-    $path = Get-StatusPath $line
-    if ($path) {
-      $dirtyPaths += $path
+function Get-SafeBackupFileName {
+  param([string]$Path)
+  return $Path -replace "[\\/]", "__"
+}
+
+function Test-StringArraySame {
+  param([string[]]$Left, [string[]]$Right)
+  $leftSorted = @($Left | Sort-Object)
+  $rightSorted = @($Right | Sort-Object)
+  if ($leftSorted.Count -ne $rightSorted.Count) {
+    return $false
+  }
+  return (($leftSorted -join "`n") -eq ($rightSorted -join "`n"))
+}
+
+function Test-BackupFilesMatchCurrentRuntime {
+  param([string]$BackupDir, [string[]]$DirtyPaths)
+
+  $filesDir = Join-Path $BackupDir "files"
+  foreach ($rel in $DirtyPaths) {
+    $target = Join-Path $RepoRoot ($rel -replace "/", [IO.Path]::DirectorySeparatorChar)
+    $backupFile = Join-Path $filesDir (Get-SafeBackupFileName $rel)
+    $targetExists = Test-Path -LiteralPath $target -PathType Leaf
+    $backupExists = Test-Path -LiteralPath $backupFile -PathType Leaf
+    if ($targetExists -ne $backupExists) {
+      return $false
+    }
+    if ($targetExists -and ((Get-FileHashValue $target) -ne (Get-FileHashValue $backupFile))) {
+      return $false
     }
   }
-
-  if ($dirtyPaths.Count -eq 0) {
-    return $false
-  }
-
-  $unknown = @($dirtyPaths | Where-Object { $KnownMigrationConflictPaths -notcontains $_ })
-  if ($unknown.Count -gt 0) {
-    return $false
-  }
-
-  if ($NoAutoResolveKnownConflicts) {
-    return $false
-  }
-
-  $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-  $backupDir = Join-Path (Join-Path (Join-Path $HomePath ".pi") "agent-backups") ("pre-update-{0}" -f $stamp)
-
-  Write-Warn "tracked changes are limited to known pi-67 migration conflict files"
-  Write-Warn ("backing them up before restore: {0}" -f $backupDir)
-
-  if ($DryRun) {
-    Write-Host ("  DRY-RUN backup known conflict files to {0}" -f $backupDir) -ForegroundColor Cyan
-    Write-Host ("  DRY-RUN git restore -- {0}" -f ($dirtyPaths -join " ")) -ForegroundColor Cyan
-    return $true
-  }
-
-  New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
-  Invoke-Git (@("diff", "--") + $dirtyPaths) | Set-Content -LiteralPath (Join-Path $backupDir "local.diff") -Encoding UTF8
-
-  foreach ($rel in $dirtyPaths) {
-    $source = Join-Path $RepoRoot ($rel -replace "/", [IO.Path]::DirectorySeparatorChar)
-    if (Test-Path -LiteralPath $source -PathType Leaf) {
-      $safeName = $rel -replace "[\\/]", "__"
-      Copy-Item -LiteralPath $source -Destination (Join-Path $backupDir $safeName)
-    }
-  }
-
-  Invoke-Git (@("restore", "--") + $dirtyPaths) | Out-Null
-  Write-Pass "known migration conflicts restored from HEAD after backup"
   return $true
+}
+
+function Find-EquivalentUserRuntimeBackup {
+  param([string[]]$DirtyPaths)
+
+  $root = Get-UserRuntimeBackupRoot
+  if (-not (Test-Path -LiteralPath $root -PathType Container)) {
+    return ""
+  }
+
+  $dirs = @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+  foreach ($dir in $dirs) {
+    $manifestPath = Join-Path $dir.FullName "manifest.json"
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+      continue
+    }
+    try {
+      $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    } catch {
+      continue
+    }
+    $paths = @($manifest.paths | ForEach-Object { [string]$_ })
+    if (-not (Test-StringArraySame $paths $DirtyPaths)) {
+      continue
+    }
+    if (Test-BackupFilesMatchCurrentRuntime $dir.FullName $DirtyPaths) {
+      return $dir.FullName
+    }
+  }
+  return ""
 }
 
 function Backup-And-ClearUserRuntimeTrackedEdits {
@@ -859,11 +872,35 @@ function Backup-And-ClearUserRuntimeTrackedEdits {
     return $null
   }
 
-  $stamp = Get-Date -Format "yyyyMMddTHHmmssZ"
-  $backupDir = Join-Path (Join-Path (Join-Path $HomePath ".pi") "pi67") (Join-Path "backups" ("pre-update-runtime-{0}" -f $stamp))
-  $filesDir = Join-Path $backupDir "files"
+  $existingBackupDir = Find-EquivalentUserRuntimeBackup $dirtyPaths
+  if ($existingBackupDir) {
+    Write-Warn "tracked edits are limited to user-owned runtime config files"
+    Write-Warn ("reusing existing identical runtime backup: {0}" -f $existingBackupDir)
+
+    if ($DryRun) {
+      Write-Host ("  DRY-RUN reuse preserved runtime backup {0}" -f $existingBackupDir) -ForegroundColor Cyan
+      Write-Host ("  DRY-RUN git restore --worktree --staged -- {0}" -f ($dirtyPaths -join " ")) -ForegroundColor Cyan
+      return [pscustomobject]@{
+        BackupDir = $existingBackupDir
+        Paths = $dirtyPaths
+        DryRun = $true
+        Reused = $true
+      }
+    }
+
+    Invoke-Git (@("restore", "--worktree", "--staged", "--") + $dirtyPaths) | Out-Null
+    return [pscustomobject]@{
+      BackupDir = $existingBackupDir
+      Paths = $dirtyPaths
+      DryRun = $false
+      Reused = $true
+    }
+  }
 
   Write-Warn "tracked edits are limited to user-owned runtime config files"
+  $stamp = Get-Date -Format "yyyyMMddTHHmmssZ"
+  $backupDir = Join-Path (Get-UserRuntimeBackupRoot) ("pre-update-runtime-{0}" -f $stamp)
+  $filesDir = Join-Path $backupDir "files"
   Write-Warn ("backing them up and restoring them after git update: {0}" -f $backupDir)
 
   if ($DryRun) {
@@ -882,8 +919,7 @@ function Backup-And-ClearUserRuntimeTrackedEdits {
   foreach ($rel in $dirtyPaths) {
     $source = Join-Path $RepoRoot ($rel -replace "/", [IO.Path]::DirectorySeparatorChar)
     if (Test-Path -LiteralPath $source -PathType Leaf) {
-      $safeName = $rel -replace "[\\/]", "__"
-      Copy-Item -LiteralPath $source -Destination (Join-Path $filesDir $safeName) -Force
+      Copy-Item -LiteralPath $source -Destination (Join-Path $filesDir (Get-SafeBackupFileName $rel)) -Force
     }
   }
 
@@ -899,6 +935,7 @@ function Backup-And-ClearUserRuntimeTrackedEdits {
     BackupDir = $backupDir
     Paths = $dirtyPaths
     DryRun = $false
+    Reused = $false
   }
 }
 
@@ -915,8 +952,7 @@ function Restore-UserRuntimeTrackedEdits {
 
   $filesDir = Join-Path $Backup.BackupDir "files"
   foreach ($rel in @($Backup.Paths)) {
-    $safeName = $rel -replace "[\\/]", "__"
-    $source = Join-Path $filesDir $safeName
+    $source = Join-Path $filesDir (Get-SafeBackupFileName $rel)
     $target = Join-Path $RepoRoot ($rel -replace "/", [IO.Path]::DirectorySeparatorChar)
     if (Test-Path -LiteralPath $source -PathType Leaf) {
       New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null

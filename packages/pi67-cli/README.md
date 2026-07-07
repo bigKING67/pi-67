@@ -78,6 +78,9 @@ Before a real `update` or `repair`, the npm manager acquires
 `~/.pi/pi67/backups/<timestamp>-update/`. This makes the public `npx -y
 @bigking67/pi-67@latest update --repair` path safe even for in-place checkouts
 where `settings.json` is tracked but user-owned.
+If the preserved runtime files are unchanged from the latest same-operation
+backup, the manager reuses that snapshot instead of writing another timestamped
+directory.
 
 Runtime backups are first-class CLI state:
 
@@ -94,9 +97,10 @@ The restore command only restores preserved runtime files and writes a
 pre-restore backup before overwriting current local config.
 
 Legacy PowerShell `~/.pi/agent-backups/pre-update-*` directories are read-only
-known-conflict snapshots from older migration paths. They are listed only with
-`--include-legacy` and are intentionally separate from restorable runtime
-backups under `~/.pi/pi67/backups/`.
+known-conflict snapshots from older migration paths; the normal updater no
+longer writes new ones. They are listed only with `--include-legacy` and are
+intentionally separate from restorable runtime backups under
+`~/.pi/pi67/backups/`.
 
 Theme changes are explicit only:
 

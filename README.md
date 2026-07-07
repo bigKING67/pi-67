@@ -4,7 +4,7 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
-当前发行版版本：`0.10.2`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.10.3`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 这是什么
 
@@ -188,6 +188,9 @@ pi-67 smoke --quick
 ~/.pi/pi67/locks/update.lock
 ```
 
+如果 preserved runtime 文件和最近一次同类型备份完全一致，`pi-67 update`
+会复用已有快照，不再每次生成新的时间戳目录。
+
 备份可直接用管理器查看和恢复；真实恢复前会再写一份 pre-restore 备份，避免
 把当前运行态覆盖到无法回退：
 
@@ -201,8 +204,8 @@ pi-67 backups restore --from <backup-id-or-path> --yes
 ```
 
 `~/.pi/agent-backups/pre-update-*` 是早期/兼容 PowerShell 更新器在处理
-known migration conflict 文件时写的安全快照；它不是错误，也不是当前运行态恢复
-主路径。当前主路径是 `~/.pi/pi67/backups/`。需要解释旧目录时只读查看：
+known migration conflict 文件时写的历史安全快照；当前 updater 不再写这个目录。
+当前主路径是 `~/.pi/pi67/backups/`。需要解释旧目录时只读查看：
 `pi-67 backups list --include-legacy`。
 
 主题只在显式执行下面命令时改变，且显式切主题前也会先写运行态备份：

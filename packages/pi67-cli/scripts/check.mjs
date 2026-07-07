@@ -370,6 +370,20 @@ function runUpdateSafetySelfTests() {
     listRuntimeBackups(ctx).some((item) => item.path === lifecycle.backupDir),
     "update lifecycle backups must be listable",
   );
+  const backupCountBeforeDedupe = listRuntimeBackups(ctx).length;
+  const duplicateLifecycle = beginUpdateLifecycle({
+    agentDir,
+    repoRoot: agentDir,
+    stateDir,
+  }, {
+    operation: "test",
+  });
+  assert(duplicateLifecycle.backupSkipped, "unchanged update lifecycle snapshots must be deduplicated");
+  duplicateLifecycle.release();
+  assert(
+    listRuntimeBackups(ctx).length === backupCountBeforeDedupe,
+    "deduplicated update lifecycle snapshots must not create new backup directories",
+  );
   assert(
     inspectRuntimeBackup(ctx, lifecycle.backupDir).fileCount >= 2,
     "update lifecycle backups must be inspectable",

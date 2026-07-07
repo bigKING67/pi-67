@@ -6,6 +6,22 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.3] - 2026-07-08
+
+### Changed
+
+- Real `pi-67 update` / `pi-67 update --repair` lifecycle backups are now
+  deduplicated: if the preserved runtime files are byte-for-byte identical to
+  the latest backup for the same operation, the manager reuses the existing
+  snapshot instead of creating another timestamped directory.
+- Direct PowerShell `scripts/pi67-update.ps1` runs also deduplicate identical
+  dirty runtime-config preservation snapshots under `~/.pi/pi67/backups/`.
+- The Windows PowerShell updater no longer contains the legacy
+  `~/.pi/agent-backups/pre-update-*` writer. Runtime config preservation is
+  handled only through the first-class `~/.pi/pi67/backups/` path.
+- `pi-67 themes set <name>` now exits without writing a backup when the
+  requested theme is already selected.
+
 ## [0.10.2] - 2026-07-08
 
 ### Fixed

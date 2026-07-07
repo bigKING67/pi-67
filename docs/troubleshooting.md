@@ -651,6 +651,11 @@ Before a real update/repair, the npm manager writes
 `~/.pi/pi67/backups/<timestamp>-update/`. In-place checkouts with dirty
 user-runtime config are backed up and restored after `git pull --ff-only`;
 unrelated tracked edits still block. Inspect or recover those snapshots with:
+If preserved runtime files are unchanged from the latest same-operation backup,
+the manager reuses the existing snapshot instead of creating another timestamped
+backup directory.
+Direct `scripts/pi67-update.ps1` runs use the same dedupe rule for dirty
+runtime-config preservation backups.
 
 ```bash
 pi-67 backups list
@@ -702,22 +707,16 @@ If execution policy blocks local scripts:
 powershell -ExecutionPolicy Bypass -File .\scripts\pi67-update.ps1
 ```
 
-During the `xtalpi-compat` -> `xtalpi-pi-tools` migration, the PowerShell
-updater auto-backs up and restores only the narrow known tracked conflict files:
-
-```text
-settings.json
-extensions/xtalpi-compat/index.ts
-```
-
-Backups are written under:
+Older PowerShell updaters from the `xtalpi-compat` -> `xtalpi-pi-tools`
+migration wrote legacy known-conflict snapshots under:
 
 ```text
 %USERPROFILE%\.pi\agent-backups\pre-update-*
 ```
 
-These legacy conflict backups are read-only diagnostics, not the current
-runtime restore path. The current restore path is `%USERPROFILE%\.pi\pi67\backups`.
+Current `pi67-update.ps1` no longer writes that legacy directory. These legacy
+conflict backups are read-only diagnostics, not the current runtime restore
+path. The current restore path is `%USERPROFILE%\.pi\pi67\backups`.
 Use this to see both kinds without deleting anything:
 
 ```powershell

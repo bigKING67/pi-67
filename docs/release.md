@@ -161,6 +161,9 @@ PowerShell updater. The selected theme lives in the `settings.json` `theme`
 field and must not be changed by update. In-place checkouts with only dirty
 user runtime config are backed up, temporarily cleaned for `git pull --ff-only`,
 and restored after the pull; unrelated tracked edits still block.
+Runtime snapshots are deduplicated by preserved-file existence, size, and
+sha256 within the same operation, so repeated no-change updates do not create
+new timestamped backup directories.
 
 Before publishing the npm package:
 
@@ -201,7 +204,8 @@ pre-restore backup first.
 Legacy PowerShell `~/.pi/agent-backups/pre-update-*` known-conflict snapshots
 are exposed as read-only diagnostics with `pi-67 backups list --include-legacy`
 and `pi-67 backups inspect <pre-update-id> --legacy`; they are not restored by
-the runtime backup restore path.
+the runtime backup restore path and are no longer written by the normal
+PowerShell updater.
 
 After the local release gates pass, use the public manager command to inspect
 the end-to-end npm publish path:

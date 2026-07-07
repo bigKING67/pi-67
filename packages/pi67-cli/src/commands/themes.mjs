@@ -56,6 +56,10 @@ function setTheme(ctx, argv) {
   const settingsFile = path.join(ctx.agentDir, "settings.json");
   const settings = readJsonFileIfExists(settingsFile) || {};
   const previous = settings.theme || "";
+  if (previous === name) {
+    pass(`theme already set: ${name}`);
+    return;
+  }
   settings.theme = name;
   if (ctx.dryRun || options.dryRun) {
     info(`DRY-RUN set theme ${previous || "unset"} -> ${name}`);

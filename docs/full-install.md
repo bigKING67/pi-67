@@ -70,6 +70,8 @@ theme value. A real update/repair first writes a repo-external lock and backup:
 Use the public backup commands to inspect or recover those snapshots. A real
 restore writes another pre-restore backup first and only restores preserved
 runtime files:
+Unchanged preserved runtime files reuse the latest equivalent backup instead
+of creating a duplicate timestamped directory.
 
 ```bash
 pi-67 backups list
@@ -81,8 +83,8 @@ pi-67 backups restore --from <backup-id-or-path> --yes
 ```
 
 `~/.pi/agent-backups/pre-update-*` is the legacy PowerShell known-conflict
-snapshot location. It is read-only diagnostic state; runtime restore uses
-`~/.pi/pi67/backups/`.
+snapshot location from older updaters. Current updates no longer write it. It
+is read-only diagnostic state; runtime restore uses `~/.pi/pi67/backups/`.
 
 Theme changes are explicit:
 

@@ -35,14 +35,19 @@ export function beginUpdateLifecycle(ctx, options = {}) {
   acquireLock(lockPath, { operation });
   let released = false;
   try {
-    const backedUp = createRuntimeBackup(ctx, backupDir, {
+    const backup = createRuntimeBackup(ctx, backupDir, {
       operation,
       plan: options.plan,
+      dedupe: true,
+      returnResult: true,
     });
     return {
       lockPath,
-      backupDir,
-      backedUp,
+      backupDir: backup.backupDir,
+      backedUp: backup.backedUp,
+      backupSkipped: backup.skipped,
+      backupReason: backup.reason || "",
+      reusedBackupDir: backup.reusedBackupDir || "",
       release() {
         if (released) return;
         released = true;
@@ -56,33 +61,36 @@ export function beginUpdateLifecycle(ctx, options = {}) {
 }
 
 export function createRuntimeBackup(ctx, backupDir, options = {}) {
+  const operation = options.operation || "update";
+  const preserved = collectPreservedRuntimeFiles(ctx);
+  if (options.dedupe) {
+    const equivalent = findEquivalentRuntimeBackup(ctx, preserved, operation);
+    if (equivalent) {
+      const result = {
+        backupDir: equivalent.path,
+        backedUp: [],
+        skipped: true,
+        reusedBackupDir: equivalent.path,
+        reason: `same preserved runtime snapshot already exists: ${equivalent.id}`,
+      };
+      return options.returnResult ? result : result.backedUp;
+    }
+  }
+
   fs.mkdirSync(backupDir, { recursive: true, mode: 0o700 });
   const filesDir = path.join(backupDir, "files");
   fs.mkdirSync(filesDir, { recursive: true, mode: 0o700 });
 
-  const preserved = [];
-  const backedUp = [];
   for (const rel of PRESERVED_RUNTIME_FILES) {
+    const item = preserved.find((entry) => entry.path === rel);
+    if (!item?.exists) continue;
     const source = path.join(ctx.agentDir, rel);
-    if (!fs.existsSync(source)) {
-      preserved.push({
-        path: rel,
-        exists: false,
-      });
-      continue;
-    }
     const target = path.join(filesDir, rel.replace(/[\\/]/g, "__"));
     fs.copyFileSync(source, target);
     chmodPrivate(target);
-    const item = {
-      path: rel,
-      exists: true,
-      bytes: fs.statSync(source).size,
-      sha256: sha256File(source),
-    };
-    preserved.push(item);
-    backedUp.push(item);
   }
+
+  const backedUp = preserved.filter((item) => item.exists !== false);
 
   if (options.plan) {
     fs.writeFileSync(
@@ -96,14 +104,15 @@ export function createRuntimeBackup(ctx, backupDir, options = {}) {
     `${JSON.stringify({
       schema: "pi67.update-backup.v1",
       createdAt: new Date().toISOString(),
-      operation: options.operation || "update",
+      operation,
       agentDir: ctx.agentDir,
       repoRoot: ctx.repoRoot,
       files: preserved,
     }, null, 2)}\n`,
     { mode: 0o600 },
   );
-  return backedUp;
+  const result = { backupDir, backedUp, skipped: false, reusedBackupDir: "", reason: "" };
+  return options.returnResult ? result : backedUp;
 }
 
 export function listRuntimeBackups(ctx) {
@@ -244,6 +253,39 @@ function isStaleLock(lockPath) {
     return true;
   }
   return false;
+}
+
+function collectPreservedRuntimeFiles(ctx) {
+  return PRESERVED_RUNTIME_FILES.map((rel) => {
+    const source = path.join(ctx.agentDir, rel);
+    if (!fs.existsSync(source)) {
+      return { path: rel, exists: false };
+    }
+    const stat = fs.statSync(source);
+    return {
+      path: rel,
+      exists: true,
+      bytes: stat.size,
+      sha256: sha256File(source),
+    };
+  });
+}
+
+function findEquivalentRuntimeBackup(ctx, preserved, operation) {
+  return listRuntimeBackups(ctx).find((backup) =>
+    backup.operation === operation && sameRuntimeFiles(backup.files, preserved));
+}
+
+function sameRuntimeFiles(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+  const leftByPath = new Map(left.map((item) => [item.path, item]));
+  return right.every((rightItem) => {
+    const leftItem = leftByPath.get(rightItem.path);
+    if (!leftItem) return false;
+    if ((leftItem.exists !== false) !== (rightItem.exists !== false)) return false;
+    if (rightItem.exists === false) return true;
+    return leftItem.bytes === rightItem.bytes && leftItem.sha256 === rightItem.sha256;
+  });
 }
 
 function sha256File(file) {

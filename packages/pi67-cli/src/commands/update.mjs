@@ -50,6 +50,8 @@ export async function updateCommand(ctx, argv) {
   });
   if (!dryRun && lifecycle.backedUp.length > 0) {
     info(`Preserved runtime backup: ${lifecycle.backupDir}`);
+  } else if (!dryRun && lifecycle.backupSkipped) {
+    info(`Preserved runtime backup skipped: ${lifecycle.backupReason}`);
   }
 
   const args = isWindows()
