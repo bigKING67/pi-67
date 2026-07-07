@@ -185,6 +185,13 @@ pi-67 smoke --quick
 pi-67 themes set gruvbox-dark
 ```
 
+如果要在 CI 或发布前把 shared skills 差异视为阻断，而不是默认保留用户已有
+版本，可显式执行：
+
+```bash
+pi-67 update --strict-shared-skills
+```
+
 脚本入口仍然保留，作为 CI、bootstrap 和高级排障使用；普通用户优先记
 `pi-67 update`、`pi-67 doctor`、`pi-67 smoke --quick`。
 
@@ -810,6 +817,8 @@ Windows PowerShell：
 ```powershell
 Set-Location $env:USERPROFILE\.pi\agent
 .\scripts\pi67-update.ps1
+# 发布/CI 严格模式；日常不用
+.\scripts\pi67-update.ps1 -StrictSharedSkills
 ```
 
 这个入口是一键日常更新：默认执行 `git pull --ff-only`，保留已有本地 key/config，

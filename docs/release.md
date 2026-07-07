@@ -165,6 +165,13 @@ node packages/pi67-cli/bin/pi-67.mjs --dry-run self-update
 npm pack --dry-run ./packages/pi67-cli
 ```
 
+For release/parity checks where different existing global shared skills should
+block instead of being preserved, run:
+
+```bash
+pi-67 update --strict-shared-skills --dry-run
+```
+
 After the local release gates pass, use the public manager command to inspect
 the end-to-end npm publish path:
 

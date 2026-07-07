@@ -107,6 +107,10 @@ pi-67 manifest
 pi-67 manifest --json
 ```
 
+`pi-67 update` preserves existing different global skills by default. Use
+`pi-67 update --strict-shared-skills` only in CI/release parity checks when a
+difference from the bundled `shared-skills/` baseline must block the update.
+
 ## Publish readiness
 
 Maintainers can verify the npm publish path before using GitHub Actions:

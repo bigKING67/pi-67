@@ -19,6 +19,7 @@ param(
   [switch]$NoReport,
   [switch]$NoDoctor,
   [switch]$AllowDirty,
+  [switch]$StrictSharedSkills,
   [switch]$NoAutoResolveKnownConflicts,
   [switch]$Help
 )
@@ -47,6 +48,9 @@ Options:
   -NoReport           Skip pi67-report.json generation.
   -NoDoctor           Do not embed PowerShell doctor output in the report.
   -AllowDirty         Let git attempt the update with local tracked edits.
+  -StrictSharedSkills Stop when an existing global shared skill differs from
+                      the pi-67 bundled baseline. Default keeps the existing
+                      global skill and continues.
   -NoAutoResolveKnownConflicts
                        Do not auto-backup/restore known migration conflicts.
   -Help               Show this help.
@@ -262,6 +266,40 @@ function Get-FileHashValue {
     return "missing"
   }
   return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Get-DirectoryHashValue {
+  param([string]$Path)
+  if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+    return "missing"
+  }
+
+  $root = [IO.Path]::GetFullPath($Path).TrimEnd(
+    [IO.Path]::DirectorySeparatorChar,
+    [IO.Path]::AltDirectorySeparatorChar
+  )
+  $hash = [System.Security.Cryptography.SHA256]::Create()
+  $separator = [byte[]](0)
+  try {
+    $files = @(Get-ChildItem -LiteralPath $Path -Recurse -File -Force | Sort-Object FullName)
+    foreach ($file in $files) {
+      $full = [IO.Path]::GetFullPath($file.FullName)
+      $relative = $full.Substring($root.Length).TrimStart(
+        [IO.Path]::DirectorySeparatorChar,
+        [IO.Path]::AltDirectorySeparatorChar
+      ).Replace("\", "/")
+      $relativeBytes = [System.Text.Encoding]::UTF8.GetBytes($relative)
+      $fileHashBytes = [System.Text.Encoding]::UTF8.GetBytes((Get-FileHashValue $file.FullName))
+      [void]$hash.TransformBlock($relativeBytes, 0, $relativeBytes.Length, $null, 0)
+      [void]$hash.TransformBlock($separator, 0, $separator.Length, $null, 0)
+      [void]$hash.TransformBlock($fileHashBytes, 0, $fileHashBytes.Length, $null, 0)
+      [void]$hash.TransformBlock($separator, 0, $separator.Length, $null, 0)
+    }
+    [void]$hash.TransformFinalBlock([byte[]]::new(0), 0, 0)
+    return ([BitConverter]::ToString($hash.Hash) -replace "-", "").ToLowerInvariant()
+  } finally {
+    $hash.Dispose()
+  }
 }
 
 function Copy-FileIfMissing {
@@ -550,8 +588,25 @@ function Sync-SharedSkills {
 
   foreach ($skill in $skillDirs) {
     $target = Join-Path $SkillsDir $skill.Name
+    $skillMd = Join-Path $skill.FullName "SKILL.md"
+    if (-not (Test-Path -LiteralPath $skillMd -PathType Leaf)) {
+      Write-Warn ("shared skill missing SKILL.md, skipped: {0}" -f $skill.Name)
+      continue
+    }
+
     if (Test-Path -LiteralPath $target) {
-      Write-Pass ("shared skill exists; kept: {0}" -f $skill.Name)
+      $sourceHash = Get-DirectoryHashValue $skill.FullName
+      $targetHash = Get-DirectoryHashValue $target
+      if ($sourceHash -eq $targetHash -and $targetHash -ne "missing") {
+        Write-Pass ("shared skill already synced: {0}" -f $skill.Name)
+        continue
+      }
+      if ($StrictSharedSkills) {
+        Write-Fail ("shared skill conflict: {0} (existing={1} dirHash={2} source={3} dirHash={4}). Strict mode enabled; resolve manually or choose a different -SkillsDir." -f $skill.Name, $target, $targetHash, $skill.FullName, $sourceHash)
+      }
+      Write-Warn ("shared skill differs from pi-67 baseline; keeping existing global skill: {0}" -f $skill.Name)
+      Write-Warn ("existing={0} dirHash={1}" -f $target, $targetHash)
+      Write-Warn ("source skipped={0} dirHash={1}" -f $skill.FullName, $sourceHash)
       continue
     }
 

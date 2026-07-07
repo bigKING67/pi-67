@@ -24,6 +24,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 - User-facing update docs now make `pi-67 update` the recommended pi-67 distribution update path, while keeping `pi update --extensions` scoped to upstream Pi extension updates.
 - `pi-67 update` documentation now explicitly preserves existing local config files, user packages, global skills, external repos, and `settings.json.theme`; theme changes require `pi-67 themes set <name>`.
+- `pi-67 update --strict-shared-skills` now forwards strict shared-skill parity checks through both Bash and Windows PowerShell update paths, while the default still preserves existing different global skills.
 - Pi AGENTS/rules documentation now routes commerce growth work to `commerce-growth-os` without adding local absolute paths or duplicate active package roots.
 - External skill sync now supports both root-level `repo/SKILL.md` skill repositories and legacy `repo/skills/*/SKILL.md` layouts, with fixture coverage for root-level discovery, apply, and read-only checks.
 - `scripts/pi67-status.sh` now classifies benign `settings.json` runtime-marker dirty state separately and reports recent xtalpi provider-health retry/failure trend from local smoke artifacts.

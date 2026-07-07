@@ -13,3 +13,6 @@
   workflow validation.
 - Adds `pi-67 manifest` for read-only package, extension, theme, shared skill,
   external repo, and preserved runtime config ownership reporting.
+- Adds `pi-67 update --strict-shared-skills` forwarding for Bash and Windows
+  PowerShell parity checks without changing the default preserve-user-skills
+  behavior.

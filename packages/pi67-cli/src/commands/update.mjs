@@ -20,6 +20,7 @@ export async function updateCommand(ctx, argv) {
       "include-external",
       "all",
       "yes",
+      "strict-shared-skills",
     ],
   });
   const dryRun = ctx.dryRun || options.dryRun;
@@ -58,6 +59,7 @@ function buildBashUpdateArgs(ctx, options, dryRun) {
   if (options.repair) args.push("--force-npm");
   if (options.noNpm) args.push("--no-npm");
   if (options.allowDirty) args.push("--allow-dirty");
+  if (options.strictSharedSkills) args.push("--strict-shared-skills");
   return args;
 }
 
@@ -67,6 +69,7 @@ function buildWindowsUpdateArgs(ctx, options, dryRun) {
   if (options.repair) args.push("-ForceNpm");
   if (options.noNpm) args.push("-NoNpm");
   if (options.allowDirty) args.push("-AllowDirty");
+  if (options.strictSharedSkills) args.push("-StrictSharedSkills");
   return args;
 }
 
