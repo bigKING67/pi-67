@@ -15,6 +15,14 @@ on:
         type: boolean
         required: true
         default: true
+      auth_mode:
+        description: "Publish auth mode. Use trusted normally; token-bootstrap is for first publish only with repo secret NPM_TOKEN."
+        type: choice
+        required: true
+        default: "trusted"
+        options:
+          - trusted
+          - token-bootstrap
       first_publish_confirm:
         description: "For first publish only: type @bigking67/pi-67 after npm scope and Trusted Publisher are configured"
         required: false
@@ -64,6 +72,7 @@ jobs:
         env:
           REQUESTED_VERSION: ${{ inputs.version }}
           NPM_TAG: ${{ inputs.tag }}
+          AUTH_MODE: ${{ inputs.auth_mode }}
         run: |
           set -euo pipefail
           version_file="$(tr -d '[:space:]' < VERSION)"
@@ -89,6 +98,13 @@ jobs:
             echo "npm tag must not look like a semver version: $NPM_TAG" >&2
             exit 1
           fi
+          case "$AUTH_MODE" in
+            trusted|token-bootstrap) ;;
+            *)
+              echo "invalid auth mode: $AUTH_MODE" >&2
+              exit 1
+              ;;
+          esac
 
       - name: Run npm manager checks
         run: |
@@ -128,8 +144,20 @@ jobs:
         if: ${{ !inputs.dry_run }}
         env:
           NPM_TAG: ${{ inputs.tag }}
+          AUTH_MODE: ${{ inputs.auth_mode }}
+          NODE_AUTH_TOKEN: ${{ inputs.auth_mode == 'token-bootstrap' && secrets.NPM_TOKEN || '' }}
         run: |
           set -euo pipefail
-          # No NODE_AUTH_TOKEN is configured here. npm Trusted Publishing uses
-          # GitHub Actions OIDC via the workflow id-token permission.
-          npm publish ./packages/pi67-cli --access public --tag "$NPM_TAG"
+          if [ "$AUTH_MODE" = "token-bootstrap" ]; then
+            if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+              echo "auth_mode=token-bootstrap requires repository secret NPM_TOKEN" >&2
+              exit 1
+            fi
+            # Bootstrap fallback for the first publish only. Remove/restrict the
+            # token after the package exists, then use trusted publishing.
+            npm publish ./packages/pi67-cli --access public --tag "$NPM_TAG" --provenance
+          else
+            # No long-lived token is configured here. npm Trusted Publishing uses
+            # GitHub Actions OIDC via the workflow id-token permission.
+            npm publish ./packages/pi67-cli --access public --tag "$NPM_TAG"
+          fi

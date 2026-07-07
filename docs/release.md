@@ -233,6 +233,13 @@ This keeps long-lived npm publish tokens out of the repository and out of
 maintainer machines. The workflow still uses `--access public` because
 `@bigking67/pi-67` is a scoped public package.
 
+If npm refuses the first Trusted Publishing attempt with a registry `E404` for
+`@bigking67/pi-67`, treat it as an npm-side identity/bootstrap problem, not a
+package build problem. It means the package is not visible to the publishing
+identity yet, the scope is not controlled by the maintainer account, or the
+Trusted Publisher has not been attached to the package. `npm publish --dry-run`
+does not prove this write permission.
+
 Manual publish remains a fallback when a trusted publisher has not been
 configured yet:
 
@@ -312,6 +319,29 @@ publish the first version once from an npm-authenticated maintainer shell, then
 immediately configure the trusted publisher and use the workflow for future
 releases.
 
+The workflow also has an explicit first-publish fallback:
+
+1. Create a short-lived npm granular access token with publish permission for
+   the owned scope/package.
+2. Add it as the repository secret `NPM_TOKEN`.
+3. Run the workflow with `auth_mode: token-bootstrap` and
+   `first_publish_confirm: @bigking67/pi-67`.
+4. Verify the package is public on npm.
+5. Delete or restrict `NPM_TOKEN`.
+6. Configure npm Trusted Publishing for future releases and return to
+   `auth_mode: trusted`.
+
+CLI equivalent:
+
+```bash
+gh workflow run npm-publish.yml \
+  -f version=0.10.0 \
+  -f tag=latest \
+  -f dry_run=false \
+  -f auth_mode=token-bootstrap \
+  -f first_publish_confirm=@bigking67/pi-67
+```
+
 Dry-run first from GitHub Actions:
 
 ```text
@@ -319,6 +349,7 @@ Actions -> npm publish pi-67 manager -> Run workflow
 version: 0.10.0
 tag: latest
 dry_run: true
+auth_mode: trusted
 ```
 
 Publish after CI and dry-run pass:
@@ -328,6 +359,7 @@ Actions -> npm publish pi-67 manager -> Run workflow
 version: 0.10.0
 tag: latest
 dry_run: false
+auth_mode: trusted
 first_publish_confirm: @bigking67/pi-67   # first publish only
 ```
 

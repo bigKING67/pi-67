@@ -227,9 +227,14 @@ function workflowCheck(file) {
     "publish-check --strict --no-pack",
     "--allow-first-publish",
     "npm publish ./packages/pi67-cli --access public --tag",
+    "auth_mode",
+    "token-bootstrap",
+    "inputs.auth_mode == 'token-bootstrap' && secrets.NPM_TOKEN",
+    "auth_mode=token-bootstrap requires repository secret NPM_TOKEN",
+    "No long-lived token is configured here",
   ];
   const missing = required.filter((fragment) => !text.includes(fragment));
-  const forbidden = ["secrets.NPM_TOKEN", "NODE_AUTH_TOKEN:"].filter((fragment) => text.includes(fragment));
+  const forbidden = [];
   const ok = missing.length === 0 && forbidden.length === 0;
   return {
     ok,

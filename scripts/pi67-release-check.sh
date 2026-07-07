@@ -177,8 +177,11 @@ if [ -f "$NPM_PUBLISH_WORKFLOW" ]; then
     && grep -q "publish-check --strict --no-pack" "$NPM_PUBLISH_WORKFLOW" \
     && grep -q -- "--allow-first-publish" "$NPM_PUBLISH_WORKFLOW" \
     && grep -q "npm publish ./packages/pi67-cli --access public --tag" "$NPM_PUBLISH_WORKFLOW" \
-    && ! grep -q "secrets.NPM_TOKEN" "$NPM_PUBLISH_WORKFLOW" \
-    && ! grep -q "NODE_AUTH_TOKEN:" "$NPM_PUBLISH_WORKFLOW"; then
+    && grep -q "auth_mode" "$NPM_PUBLISH_WORKFLOW" \
+    && grep -q "token-bootstrap" "$NPM_PUBLISH_WORKFLOW" \
+    && grep -q "inputs.auth_mode == 'token-bootstrap' && secrets.NPM_TOKEN" "$NPM_PUBLISH_WORKFLOW" \
+    && grep -q "auth_mode=token-bootstrap requires repository secret NPM_TOKEN" "$NPM_PUBLISH_WORKFLOW" \
+    && grep -q "No long-lived token is configured here" "$NPM_PUBLISH_WORKFLOW"; then
     pass "pi-67 npm publish workflow uses trusted publishing"
   else
     fail "pi-67 npm publish workflow is missing trusted publishing safeguards"
