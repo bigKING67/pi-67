@@ -1,0 +1,116 @@
+name: npm publish pi-67 manager
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish; must match VERSION and packages/pi67-cli/package.json"
+        required: true
+      tag:
+        description: "npm dist-tag"
+        required: true
+        default: "latest"
+      dry_run:
+        description: "Run npm publish --dry-run instead of publishing"
+        type: boolean
+        required: true
+        default: true
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-publish-pi-67-manager-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      - name: Use npm with trusted publishing support
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install -g npm@latest
+          npm_version="$(npm --version)"
+          node - "$npm_version" <<'NODE'
+          const [version] = process.argv.slice(2);
+          const match = /^([0-9]+)\.([0-9]+)\.([0-9]+)/.exec(version);
+          if (!match) throw new Error(`could not parse npm version: ${version}`);
+          const [major, minor, patch] = match.slice(1).map(Number);
+          const ok = major > 11 || (major === 11 && (minor > 5 || (minor === 5 && patch >= 1)));
+          if (!ok) {
+            throw new Error(`npm ${major}.${minor}.${patch} is too old for trusted publishing; require >= 11.5.1`);
+          }
+          NODE
+
+      - name: Validate requested version
+        shell: bash
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+          NPM_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          version_file="$(tr -d '[:space:]' < VERSION)"
+          package_version="$(node -p "require('./package.json').version")"
+          cli_version="$(node -p "require('./packages/pi67-cli/package.json').version")"
+          if [ "$REQUESTED_VERSION" != "$version_file" ]; then
+            echo "workflow version ($REQUESTED_VERSION) does not match VERSION ($version_file)" >&2
+            exit 1
+          fi
+          if [ "$package_version" != "$version_file" ]; then
+            echo "root package.json version ($package_version) does not match VERSION ($version_file)" >&2
+            exit 1
+          fi
+          if [ "$cli_version" != "$version_file" ]; then
+            echo "CLI package version ($cli_version) does not match VERSION ($version_file)" >&2
+            exit 1
+          fi
+          if ! [[ "$NPM_TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+            echo "invalid npm tag: $NPM_TAG" >&2
+            exit 1
+          fi
+          if [[ "$NPM_TAG" =~ ^v?[0-9]+(\.[0-9]+){0,2}([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "npm tag must not look like a semver version: $NPM_TAG" >&2
+            exit 1
+          fi
+
+      - name: Run npm manager checks
+        run: |
+          node packages/pi67-cli/scripts/check.mjs
+          node packages/pi67-cli/bin/pi-67.mjs --help >/dev/null
+          node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" update --check --json --no-remote >/dev/null
+          node packages/pi67-cli/bin/pi-67.mjs --dry-run self-update >/dev/null
+
+      - name: Run release metadata check
+        run: bash scripts/pi67-release-check.sh
+
+      - name: Pack npm manager
+        run: npm pack --dry-run ./packages/pi67-cli
+
+      - name: Publish dry-run
+        if: ${{ inputs.dry_run }}
+        env:
+          NPM_TAG: ${{ inputs.tag }}
+        run: npm publish ./packages/pi67-cli --access public --tag "$NPM_TAG" --dry-run
+
+      - name: Publish to npm
+        if: ${{ !inputs.dry_run }}
+        env:
+          NPM_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          # No NODE_AUTH_TOKEN is configured here. npm Trusted Publishing uses
+          # GitHub Actions OIDC via the workflow id-token permission.
+          npm publish ./packages/pi67-cli --access public --tag "$NPM_TAG"

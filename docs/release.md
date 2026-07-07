@@ -163,7 +163,13 @@ node packages/pi67-cli/bin/pi-67.mjs --dry-run self-update
 npm pack --dry-run ./packages/pi67-cli
 ```
 
-Publish from an npm-authenticated environment:
+Preferred publish path: GitHub Actions with npm Trusted Publishing / OIDC.
+This keeps long-lived npm publish tokens out of the repository and out of
+maintainer machines. The workflow still uses `--access public` because
+`@bigking67/pi-67` is a scoped public package.
+
+Manual publish remains a fallback when a trusted publisher has not been
+configured yet:
 
 ```bash
 npm publish ./packages/pi67-cli --access public --provenance
@@ -182,8 +188,71 @@ If publishing manually, verify identity first:
 npm whoami
 ```
 
-If publishing through GitHub Actions, store an npm automation token in the
-repository secret store and keep provenance enabled.
+For normal releases, do not configure `NODE_AUTH_TOKEN` in the workflow. npm
+Trusted Publishing uses GitHub Actions OIDC (`id-token: write`) and generates
+provenance for supported CI publishes.
+
+### GitHub Actions npm publish
+
+The checked-in workflow is:
+
+```text
+.github/workflows/npm-publish.yml
+```
+
+It is intentionally manual-only (`workflow_dispatch`) so normal pushes cannot
+publish a package by accident. It validates:
+
+- workflow input `version`
+- `VERSION`
+- root `package.json.version`
+- `packages/pi67-cli/package.json.version`
+- npm version support for Trusted Publishing
+- npm manager smoke commands
+- `scripts/pi67-release-check.sh`
+- `npm pack --dry-run ./packages/pi67-cli`
+
+Repository setup:
+
+1. In npm, configure a trusted publisher for `@bigking67/pi-67`.
+2. Use provider `GitHub Actions`, repository `bigKING67/pi-67`, and workflow
+   file `.github/workflows/npm-publish.yml`.
+3. Allow the `npm publish` action for the trusted publisher.
+4. Keep GitHub Actions permissions for the workflow at `contents: read` and
+   `id-token: write`.
+5. Keep the workflow manual-only (`workflow_dispatch`) so ordinary pushes cannot
+   publish a package.
+
+If npm requires the package to exist before Trusted Publishing can be attached,
+publish the first version once from an npm-authenticated maintainer shell, then
+immediately configure the trusted publisher and use the workflow for future
+releases.
+
+Dry-run first from GitHub Actions:
+
+```text
+Actions -> npm publish pi-67 manager -> Run workflow
+version: 0.10.0
+tag: latest
+dry_run: true
+```
+
+Publish after CI and dry-run pass:
+
+```text
+Actions -> npm publish pi-67 manager -> Run workflow
+version: 0.10.0
+tag: latest
+dry_run: false
+```
+
+Manual publish remains valid when an npm-authenticated maintainer shell is
+available:
+
+```bash
+npm whoami
+npm publish ./packages/pi67-cli --access public --provenance
+```
 
 ## Artifact smoke
 
