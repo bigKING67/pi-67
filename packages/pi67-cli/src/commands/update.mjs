@@ -26,7 +26,10 @@ export async function updateCommand(ctx, argv) {
   const dryRun = ctx.dryRun || options.dryRun;
   const json = ctx.json || options.json;
   if (options.check) {
-    const plan = buildUpdatePlan(ctx, { noRemote: ctx.noRemote || options.noRemote });
+    const plan = buildUpdatePlan(ctx, {
+      noRemote: ctx.noRemote || options.noRemote,
+      strictSharedSkills: options.strictSharedSkills,
+    });
     if (json) {
       printJson(plan);
       return;
@@ -96,6 +99,20 @@ function printPlan(plan) {
   keyValue("Shared skills", `${plan.skills.identical} ok, ${plan.skills.missing} missing, ${plan.skills.conflicts} conflicts`);
   for (const repo of plan.external) {
     keyValue(`External ${repo.name}`, repo.exists ? `${repo.git?.dirty ? "dirty" : "clean"} ${repo.git?.commit || ""}` : "missing");
+  }
+  if (plan.actions?.length > 0) {
+    section("Planned safe actions");
+    for (const action of plan.actions) {
+      info(`${action.id}: ${action.operation}; writes=${action.writes.join(", ")}; preserves=${action.preserves.join(", ")}`);
+    }
+  }
+  if (plan.blocked?.length > 0) {
+    section("Blocked actions");
+    for (const item of plan.blocked) warn(`${item.id}: ${item.reason}`);
+  }
+  if (plan.warnings?.length > 0) {
+    section("Warnings");
+    for (const item of plan.warnings) warn(item);
   }
   section("Recommendations");
   for (const item of plan.recommendations) info(item);

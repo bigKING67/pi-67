@@ -18,6 +18,9 @@
 - Adds `pi-67 update --strict-shared-skills` forwarding for Bash and Windows
   PowerShell parity checks without changing the default preserve-user-skills
   behavior.
+- Adds explicit `actions`, `blocked`, and `warnings` fields to
+  `pi-67 update --check --json`, including planned writes, preserved paths,
+  strict shared-skill blockers, and dirty external-repo blockers.
 - Gates publish readiness on the ownership manifest so package, extension,
   theme, shared-skill, external-repo, and runtime-config policies cannot drift
   silently before npm publish.

@@ -3,7 +3,7 @@
   "$id": "https://github.com/bigKING67/pi-67/schemas/pi67-update-plan.schema.json",
   "title": "pi-67 update plan",
   "type": "object",
-  "required": ["schema", "createdAt", "manager", "paths", "recommendations"],
+  "required": ["schema", "createdAt", "manager", "paths", "actions", "blocked", "warnings", "recommendations"],
   "properties": {
     "schema": {
       "const": "pi67.update-plan.v1"
@@ -30,6 +30,79 @@
     },
     "paths": {
       "type": "object"
+    },
+    "actions": {
+      "type": "array",
+      "description": "Safe update/repair actions that preserve user-owned config and local choices.",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "operation", "writes", "preserves", "risk", "reason"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1
+          },
+          "operation": {
+            "type": "string",
+            "minLength": 1
+          },
+          "writes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "preserves": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "risk": {
+            "enum": ["low", "medium", "high"]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "explicitCommand": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "blocked": {
+      "type": "array",
+      "description": "Actions blocked to preserve user state, dirty repos, detached repos, or strict-mode policy.",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "reason"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "recovery": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     },
     "recommendations": {
       "type": "array",

@@ -62,6 +62,18 @@ export function buildUpdatePlan(ctx, options = {}) {
   if (manifest.summary.userManagedRuntimePackages > 0) {
     recommendations.push("User-managed Pi runtime packages detected; pi-67 will report them but not overwrite them by default.");
   }
+  const decisions = buildPlanDecisions({
+    ctx,
+    git,
+    managerRegistry,
+    manifest,
+    skills,
+    external,
+    scriptStatus,
+    theme,
+    themeInstalled: theme ? hasTheme(ctx, theme) : false,
+    strictSharedSkills: Boolean(options.strictSharedSkills),
+  });
 
   return {
     schema: "pi67.update-plan.v1",
@@ -94,6 +106,143 @@ export function buildUpdatePlan(ctx, options = {}) {
     manifest: manifest.summary,
     skills: skills.summary,
     external,
+    actions: decisions.actions,
+    blocked: decisions.blocked,
+    warnings: decisions.warnings,
     recommendations,
   };
+}
+
+function buildPlanDecisions(context) {
+  const actions = [];
+  const blocked = [];
+  const warnings = [];
+  const preservedRuntimeFiles = context.manifest.runtimeFiles?.preserve || [];
+
+  if (context.managerRegistry.outdated) {
+    actions.push({
+      id: "pi67-manager",
+      kind: "npm-manager",
+      operation: "self-update",
+      writes: ["global npm package @bigking67/pi-67"],
+      preserves: ["upstream pi binary"],
+      risk: "low",
+      reason: "npm registry has a newer pi-67 manager version",
+      explicitCommand: "pi-67 self-update",
+    });
+  }
+
+  if (!context.git?.isRepo) {
+    blocked.push({
+      id: "repo-root",
+      kind: "distro",
+      reason: "repo root is not a git checkout; install/update needs operator inspection first",
+      recovery: "pi-67 install",
+    });
+  } else if (context.git.dirty) {
+    blocked.push({
+      id: "repo-root",
+      kind: "distro",
+      reason: "repo has local changes; pi-67 update blocks by default to avoid overwriting local work",
+      recovery: "commit/stash intentional changes or rerun the script-level updater with an explicit dirty override",
+    });
+  }
+
+  for (const item of context.manifest.localExtensions || []) {
+    if (item.owner === "pi67-managed" && !item.exists) {
+      actions.push({
+        id: item.name,
+        kind: "local-extension",
+        operation: "repair",
+        writes: [item.path],
+        preserves: preservedRuntimeFiles,
+        risk: "low",
+        reason: "required pi-67 managed local extension is missing",
+      });
+    }
+  }
+
+  const missingScripts = Object.entries(context.scriptStatus)
+    .filter(([, exists]) => !exists)
+    .map(([name]) => `scripts/${name}`);
+  if (missingScripts.length > 0) {
+    actions.push({
+      id: "distro-scripts",
+      kind: "distro",
+      operation: "repair",
+      writes: missingScripts,
+      preserves: preservedRuntimeFiles,
+      risk: "low",
+      reason: "required cross-platform helper scripts are missing",
+    });
+  }
+
+  if (context.theme && !context.themeInstalled) {
+    actions.push({
+      id: "pi-curated-themes",
+      kind: "theme-package",
+      operation: "verify-or-install-assets",
+      writes: ["npm/node_modules/@victor-software-house/pi-curated-themes"],
+      preserves: ["settings.json.theme"],
+      risk: "low",
+      reason: `current theme ${context.theme} is selected but theme assets are missing`,
+    });
+    warnings.push(`theme ${context.theme} is not installed; update may install assets but will not change the selected theme`);
+  }
+
+  if (context.skills.summary.missing > 0) {
+    actions.push({
+      id: "shared-skills",
+      kind: "skill-pack",
+      operation: "copy-missing-only",
+      writes: [`${context.ctx.skillsDir}/<missing-skill>`],
+      preserves: [`${context.ctx.skillsDir}/<existing-different-skill>`],
+      risk: "low",
+      reason: `${context.skills.summary.missing} shared skills are missing from the active skills root`,
+    });
+  }
+  if (context.skills.summary.conflicts > 0) {
+    const conflictMessage = `${context.skills.summary.conflicts} shared skills differ from the bundled baseline`;
+    if (context.strictSharedSkills) {
+      blocked.push({
+        id: "shared-skills",
+        kind: "skill-pack",
+        reason: `${conflictMessage}; strict mode blocks instead of overwriting`,
+        recovery: "inspect with pi-67 skills inventory, then sync or resolve manually",
+      });
+    } else {
+      warnings.push(`${conflictMessage}; default update preserves existing different skills`);
+    }
+  }
+
+  for (const repo of context.external) {
+    if (!repo.exists) {
+      warnings.push(`external repo ${repo.name} is missing; install is explicit via pi-67 external install ${repo.name}`);
+      continue;
+    }
+    if (!repo.git?.isRepo) {
+      blocked.push({
+        id: repo.name,
+        kind: "external-repo",
+        reason: `${repo.path} exists but is not a git repo`,
+        recovery: `inspect the path before running pi-67 external update ${repo.name}`,
+      });
+    } else if (repo.git.dirty) {
+      blocked.push({
+        id: repo.name,
+        kind: "external-repo",
+        reason: `external repo is dirty and will not be updated destructively: ${repo.path}`,
+        recovery: `commit/stash the external repo or skip pi-67 external update ${repo.name}`,
+      });
+    } else if (!repo.git.branch) {
+      blocked.push({
+        id: repo.name,
+        kind: "external-repo",
+        reason: `external repo is detached and will not be updated destructively: ${repo.path}`,
+        recovery: `checkout a branch before pi-67 external update ${repo.name}`,
+      });
+    }
+  }
+
+  return { actions, blocked, warnings };
 }

@@ -25,6 +25,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 - User-facing update docs now make `pi-67 update` the recommended pi-67 distribution update path, while keeping `pi update --extensions` scoped to upstream Pi extension updates.
 - `pi-67 update` documentation now explicitly preserves existing local config files, user packages, global skills, external repos, and `settings.json.theme`; theme changes require `pi-67 themes set <name>`.
+- `pi-67 update --check --json` now emits explicit `actions`, `blocked`, and `warnings` arrays so users can see planned writes, preserved paths, strict shared-skill blockers, and dirty external-repo blockers before running an update.
 - `pi-67 update --strict-shared-skills` now forwards strict shared-skill parity checks through both Bash and Windows PowerShell update paths, while the default still preserves existing different global skills.
 - `pi-67 publish-check` now gates the distro ownership manifest, including preserved runtime config policy, required local extensions, user-managed baseline packages, theme preservation, shared-skill preservation, and dirty external-repo blocking policy.
 - Extension-registry policy checks are now centralized in `packages/pi67-cli/src/lib/extension-registry.mjs`, with self-tests for duplicate ids, missing smoke gates, forbidden update behavior, unsafe config patches, theme drift, shared-skill drift, dirty external-repo drift, and unregistered managed extensions.

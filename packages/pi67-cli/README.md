@@ -45,6 +45,10 @@ manager itself is explicit:
 pi-67 self-update
 ```
 
+For automation, `pi-67 update --check --json` includes explicit `actions`,
+`blocked`, and `warnings` arrays. Each action lists planned writes and preserved
+paths, so update previews stay auditable instead of relying on prose output.
+
 If the local manager may be stale, run the latest npm package for one repair:
 
 ```bash

@@ -780,6 +780,16 @@ shared skills、xtalpi-pi-tools 本地协议状态没有对齐：
 pi-67 update --repair
 ```
 
+自动化或排障时用 JSON 预览：
+
+```bash
+pi-67 update --check --json
+```
+
+其中 `actions` 会列出计划写入和必须保留的路径，`blocked` 会列出 dirty repo、
+strict shared-skill 差异等阻断项，`warnings` 会列出默认保留但需要人工了解的
+状态；这样更新前可以明确知道 pi-67 会动什么、不会动什么。
+
 管理器自身更新是显式动作，不会被普通 update 静默触发：
 
 ```bash

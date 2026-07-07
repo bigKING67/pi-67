@@ -160,6 +160,7 @@ node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" versi
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" manifest --json
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" manifest --validate
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" update --check --json --no-remote
+node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" update --check --json --no-remote --strict-shared-skills
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" publish-check --json --no-remote
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" themes current --json
 node packages/pi67-cli/bin/pi-67.mjs --dry-run self-update
@@ -170,8 +171,12 @@ For release/parity checks where different existing global shared skills should
 block instead of being preserved, run:
 
 ```bash
-pi-67 update --strict-shared-skills --dry-run
+pi-67 update --check --strict-shared-skills
 ```
+
+`pi-67 update --check --json` must include `actions`, `blocked`, and `warnings`
+so release consumers can see planned writes, preserved user-owned paths, and
+policy blockers before a real update.
 
 After the local release gates pass, use the public manager command to inspect
 the end-to-end npm publish path:
