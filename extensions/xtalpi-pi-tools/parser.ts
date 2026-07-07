@@ -828,7 +828,7 @@ export function parseToolCall(text: string): ToolCallParseResult {
 
 export function parseJsonAction(text: string): ToolCallParseResult {
   const source = String(text ?? "");
-  const trimmed = source.trim();
+  const trimmed = stripMarkdownFence(source).trim();
 
   if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
     const functionStyle = detectFunctionStyleToolCall(source);

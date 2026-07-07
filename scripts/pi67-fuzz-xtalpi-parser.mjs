@@ -34,6 +34,28 @@ function assertError(input, code, label) {
   assert.equal(actual.code, code, label);
 }
 
+function assertJsonActionToolCall(input, label) {
+  cases += 1;
+  const actual = parser.parseJsonAction(input);
+  assert.equal(actual.kind, "tool_call", label);
+  assert.equal(actual.call.name, "read", label);
+  assert.deepEqual(actual.call.arguments, expectedArgs, label);
+}
+
+function assertJsonActionFinal(input, expectedTextPattern, label) {
+  cases += 1;
+  const actual = parser.parseJsonAction(input);
+  assert.equal(actual.kind, "none", label);
+  assert.match(actual.text, expectedTextPattern, label);
+}
+
+function assertJsonActionError(input, code, label) {
+  cases += 1;
+  const actual = parser.parseJsonAction(input);
+  assert.equal(actual.kind, "error", label);
+  assert.equal(actual.code, code, label);
+}
+
 for (const nameAlias of nameAliases) {
   for (const argumentAlias of argumentAliases) {
     for (const argumentValue of [expectedArgs, JSON.stringify(expectedArgs)]) {
@@ -83,6 +105,24 @@ assertToolCall(
   "json-action-tool-call",
 );
 
+assertJsonActionToolCall(
+  JSON.stringify({
+    kind: "tool_call",
+    name: "read",
+    arguments: expectedArgs,
+  }),
+  "strict-json-action-tool-call",
+);
+
+assertJsonActionToolCall(
+  `\`\`\`json\n${JSON.stringify({
+    kind: "tool_call",
+    name: "read",
+    arguments: expectedArgs,
+  })}\n\`\`\``,
+  "strict-json-action-fenced-tool-call",
+);
+
 {
   cases += 1;
   const actual = parser.parseToolCall(JSON.stringify({
@@ -92,6 +132,49 @@ assertToolCall(
   assert.equal(actual.kind, "none", "json-action-final");
   assert.equal(actual.text, "package name is pi-extensions", "json-action-final");
 }
+
+assertJsonActionFinal(
+  JSON.stringify({
+    kind: "final",
+    text: "package name is pi-extensions",
+  }),
+  /pi-extensions/,
+  "strict-json-action-final",
+);
+
+assertJsonActionFinal(
+  `\`\`\`json\n${JSON.stringify({
+    kind: "final",
+    text: "package name is pi-extensions",
+  })}\n\`\`\``,
+  /pi-extensions/,
+  "strict-json-action-fenced-final",
+);
+
+for (const keyword of ["洗护发", "头皮精华", "Groland个人护理"]) {
+  assertJsonActionFinal(
+    `{"kind":"final","text":"明白了，"${keyword}"是美妆个护逻辑，不是纸品日化。"}`,
+    new RegExp(`"${keyword}"`),
+    `strict-json-action-malformed-final-quotes:${keyword}`,
+  );
+  assertJsonActionFinal(
+    `\`\`\`json\n{"kind":"final","text":"明白了，"${keyword}"是美妆个护逻辑，不是纸品日化。"}\n\`\`\``,
+    new RegExp(`"${keyword}"`),
+    `strict-json-action-fenced-malformed-final-quotes:${keyword}`,
+  );
+}
+
+assertJsonActionError(
+  '{"kind":"tool_call","name":"read","arguments":{"path":"package.json","note":"读"这个"文件"}}',
+  "invalid_json",
+  "strict-json-action-malformed-tool-call-fails-closed",
+);
+
+assertJsonActionError(
+  '```json\n<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>\n```',
+  "raw_protocol_markup",
+  "strict-json-action-fenced-legacy-markup-fails-closed",
+);
 
 assertToolCall(
   `<pi_tool_call name="read">\n${JSON.stringify(expectedArgs)}\n</pi_tool_call>`,

@@ -194,6 +194,8 @@ content:
 - 模型把 OpenAI text-native 结构写进文本时的 `function_call`、`function`、
   `tool_calls[0].function` 和单个 flat `tool_calls[0]` 形态
 - 大小写漂移的 `<PI_TOOL_CALL>` 标签，以及 bare JSON tool envelope
+- JSON action 被包进 Markdown code fence 的形态，例如 ```json ... ``` 包住的
+  `{"kind":"tool_call","name":"read","arguments":{"path":"package.json"}}`
 - malformed JSON action `final` envelope 中用户可见文本未转义双引号的情况，例如
   `{"kind":"final","text":"..."洗护发"..."}`；本地只恢复 `final.text`，再继续走
   final-answer guard / Plan mode guard，不把它当 invalid tool JSON 直接停住

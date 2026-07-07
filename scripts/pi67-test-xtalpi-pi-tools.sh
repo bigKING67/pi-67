@@ -1167,9 +1167,18 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
   const strictJsonActionTool = parser.parseJsonAction('{"kind":"tool_call","name":"read","arguments":{"path":"package.json"}}');
   assert.equal(strictJsonActionTool.kind, "tool_call");
   assert.equal(strictJsonActionTool.call.name, "read");
+  const strictJsonActionFencedTool = parser.parseJsonAction('```json\n{"kind":"tool_call","name":"read","arguments":{"path":"package.json"}}\n```');
+  assert.equal(strictJsonActionFencedTool.kind, "tool_call");
+  assert.equal(strictJsonActionFencedTool.call.name, "read");
+  const strictJsonActionFencedFinal = parser.parseJsonAction('```json\n{"kind":"final","text":"package name is pi-extensions"}\n```');
+  assert.equal(strictJsonActionFencedFinal.kind, "none");
+  assert.equal(strictJsonActionFencedFinal.text, "package name is pi-extensions");
   const strictJsonRejectsLegacyMarkup = parser.parseJsonAction('<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>');
   assert.equal(strictJsonRejectsLegacyMarkup.kind, "error");
   assert.equal(strictJsonRejectsLegacyMarkup.code, "raw_protocol_markup");
+  const strictJsonRejectsFencedLegacyMarkup = parser.parseJsonAction('```json\n<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>\n```');
+  assert.equal(strictJsonRejectsFencedLegacyMarkup.kind, "error");
+  assert.equal(strictJsonRejectsFencedLegacyMarkup.code, "raw_protocol_markup");
   const strictJsonRejectsBareLegacyObject = parser.parseJsonAction('{"name":"read","arguments":{"path":"package.json"}}');
   assert.equal(strictJsonRejectsBareLegacyObject.kind, "error");
   assert.equal(strictJsonRejectsBareLegacyObject.code, "invalid_envelope");
@@ -1177,6 +1186,9 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
   assert.equal(strictJsonRecoversMalformedFinalQuotes.kind, "none");
   assert.match(strictJsonRecoversMalformedFinalQuotes.text, /"洗护发"/);
   assert.match(strictJsonRecoversMalformedFinalQuotes.text, /美妆个护逻辑/);
+  const strictJsonRecoversFencedMalformedFinalQuotes = parser.parseJsonAction('```json\n{"kind":"final","text":"明白了，"洗护发"是美妆个护逻辑，不是纸品日化。"}\n```');
+  assert.equal(strictJsonRecoversFencedMalformedFinalQuotes.kind, "none");
+  assert.match(strictJsonRecoversFencedMalformedFinalQuotes.text, /"洗护发"/);
   const strictJsonDoesNotRecoverMalformedToolCall = parser.parseJsonAction('{"kind":"tool_call","name":"read","arguments":{"path":"package.json","note":"读"这个"文件"}}');
   assert.equal(strictJsonDoesNotRecoverMalformedToolCall.kind, "error");
   assert.equal(strictJsonDoesNotRecoverMalformedToolCall.code, "invalid_json");
