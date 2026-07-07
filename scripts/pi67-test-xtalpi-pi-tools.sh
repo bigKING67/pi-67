@@ -872,6 +872,35 @@ Produce a <proposed_plan> block.`,
     assert.match(planModeContractRepairChat.calls[1].at(-1).content, /internal_context_leak|plan_mode_contract_missing/);
     assert.match(planModeContractRepairChat.calls[1].at(-1).content, /Plan mode is active/);
 
+    const malformedJsonActionPlanFinalChat = makeProviderTurnChat([
+      {
+        content: '{"kind":"final","text":"明白了，"洗护发"是美妆个护逻辑，不是纸品日化。"}',
+      },
+      {
+        content:
+          '{"kind":"final","text":"<proposed_plan>\\n' +
+          '1. 读取 commerce-growth-os 洗护个护 category pack。\\n' +
+          '2. 提炼洗发水、发膜、头皮精华策略。\\n' +
+          '3. 输出抖音内容和投放建议。\\n' +
+          '</proposed_plan>"}',
+      },
+    ]);
+    const malformedJsonActionPlanFinalResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: {
+        systemPrompt: "Plan mode: planning\nProduce a <proposed_plan> block.",
+        tools: [readTool],
+        messages: [{ role: "user", content: "我指的是洗发水，发膜，头皮精华这些" }],
+      },
+      callChat: malformedJsonActionPlanFinalChat.callChat,
+    });
+    assert.equal(malformedJsonActionPlanFinalResult.kind, "final");
+    assert.match(malformedJsonActionPlanFinalResult.text, /<proposed_plan>/);
+    assert.equal(malformedJsonActionPlanFinalChat.calls.length, 2);
+    assert.match(malformedJsonActionPlanFinalChat.calls[1].at(-1).content, /xtalpi-pi-tools-premature-final-repair/);
+    assert.match(malformedJsonActionPlanFinalChat.calls[1].at(-1).content, /Plan mode is active/);
+    assert.ok(!malformedJsonActionPlanFinalResult.text.includes("无法解析模型返回的工具调用"));
+
     const planModeFallbackChat = makeProviderTurnChat([
       {
         content: "I will inspect the ETL filename parser next.",
@@ -1144,6 +1173,13 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
   const strictJsonRejectsBareLegacyObject = parser.parseJsonAction('{"name":"read","arguments":{"path":"package.json"}}');
   assert.equal(strictJsonRejectsBareLegacyObject.kind, "error");
   assert.equal(strictJsonRejectsBareLegacyObject.code, "invalid_envelope");
+  const strictJsonRecoversMalformedFinalQuotes = parser.parseJsonAction('{"kind":"final","text":"明白了，"洗护发"是美妆个护逻辑，不是纸品日化。"}');
+  assert.equal(strictJsonRecoversMalformedFinalQuotes.kind, "none");
+  assert.match(strictJsonRecoversMalformedFinalQuotes.text, /"洗护发"/);
+  assert.match(strictJsonRecoversMalformedFinalQuotes.text, /美妆个护逻辑/);
+  const strictJsonDoesNotRecoverMalformedToolCall = parser.parseJsonAction('{"kind":"tool_call","name":"read","arguments":{"path":"package.json","note":"读"这个"文件"}}');
+  assert.equal(strictJsonDoesNotRecoverMalformedToolCall.kind, "error");
+  assert.equal(strictJsonDoesNotRecoverMalformedToolCall.code, "invalid_json");
 
   const badJsonAction = parser.parseToolCall('{"kind":"tool_call","name":"read","arguments":{"path":"package.json"},"extra":true}');
   assert.equal(badJsonAction.kind, "error");

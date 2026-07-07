@@ -125,6 +125,54 @@ function parseJsonWithLikelyWindowsPathRepair(raw: string): { value: unknown; js
   };
 }
 
+function escapeLooseJsonStringContentForParse(value: string): string {
+  let text = "";
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (char === "\"" && hasEvenBackslashPrefix(value, index)) {
+      text += "\\\"";
+    } else if (char === "\n") {
+      text += "\\n";
+    } else if (char === "\r") {
+      text += "\\r";
+    } else if (char === "\t") {
+      text += "\\t";
+    } else {
+      text += char;
+    }
+  }
+  return text;
+}
+
+function decodeLooseJsonStringContent(value: string): string {
+  const escapedQuotes = escapeLooseJsonStringContentForParse(value);
+  const repaired = escapeLikelyWindowsPathStringContent(escapedQuotes);
+  try {
+    return JSON.parse(`"${repaired.text}"`);
+  } catch {
+    return value
+      .replace(/\\n/g, "\n")
+      .replace(/\\r/g, "\r")
+      .replace(/\\t/g, "\t")
+      .replace(/\\"/g, "\"")
+      .replace(/\\\\/g, "\\");
+  }
+}
+
+function parseLooseJsonActionFinal(raw: string): ToolCallParseResult | undefined {
+  const cleaned = stripMarkdownFence(raw).trim();
+  const prefix = cleaned.match(/^\{\s*"kind"\s*:\s*"final"\s*,\s*"text"\s*:\s*"/);
+  if (!prefix) return undefined;
+
+  const suffix = cleaned.match(/"\s*\}\s*$/);
+  if (!suffix || suffix.index === undefined || suffix.index < prefix[0].length) return undefined;
+
+  return {
+    kind: "none",
+    text: decodeLooseJsonStringContent(cleaned.slice(prefix[0].length, suffix.index)),
+  };
+}
+
 const TOOL_NAME_ALIASES = ["name", "tool", "tool_name", "function_name"] as const;
 const TOOL_ARGUMENT_ALIASES = ["arguments", "args", "input", "parameters", "arguments_json"] as const;
 const TOOL_METADATA_FIELDS = ["id", "tool_call_id", "call_id", "type"] as const;
@@ -822,6 +870,9 @@ export function parseJsonAction(text: string): ToolCallParseResult {
     cleaned = parsedJson.jsonText;
     warnings = parsedJson.warnings;
   } catch (error) {
+    const looseFinal = parseLooseJsonActionFinal(trimmed);
+    if (looseFinal) return looseFinal;
+
     return {
       kind: "error",
       code: "invalid_json",

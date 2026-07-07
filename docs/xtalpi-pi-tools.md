@@ -194,12 +194,16 @@ content:
 - 模型把 OpenAI text-native 结构写进文本时的 `function_call`、`function`、
   `tool_calls[0].function` 和单个 flat `tool_calls[0]` 形态
 - 大小写漂移的 `<PI_TOOL_CALL>` 标签，以及 bare JSON tool envelope
+- malformed JSON action `final` envelope 中用户可见文本未转义双引号的情况，例如
+  `{"kind":"final","text":"..."洗护发"..."}`；本地只恢复 `final.text`，再继续走
+  final-answer guard / Plan mode guard，不把它当 invalid tool JSON 直接停住
 
 兼容不等于放开执行。归一化之后仍统一进入 selected-tool 白名单、schema 参数校验、重复工具检测、
 shell 语义 guard 和 debug/smoke gate。以下情况继续 fail closed 并触发 repair 或停止：
 一次返回多个工具调用、未知 top-level 字段、多个名称/参数别名同时出现、空参数字符串、坏 JSON、
 attribute 名称与嵌套 envelope 名称不一致、OpenAI wrapper/tool-call item 里混入未知字段，
-以及未展示给模型的 unknown tool。
+未展示给模型的 unknown tool，以及 malformed JSON action `tool_call` envelope。对 malformed
+`tool_call` 不做同等宽松恢复，是为了避免在无法可靠解析协议时执行意外工具。
 
 为了让这类 parser 兼容性不再靠人工回忆，`scripts/pi67-fuzz-xtalpi-parser.mjs`
 提供离线矩阵回归：它枚举名称别名、参数别名、对象 / JSON-string 参数、

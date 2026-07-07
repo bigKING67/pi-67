@@ -154,6 +154,14 @@ the current selected-tool set. These are repaired into one canonical local JSON
 action before any tool can run. Ordinary business JSON is allowed unless it
 matches the current tool registry or an explicit tool protocol wrapper.
 
+If xtalpi returns a malformed JSON-action final envelope because the natural
+language text contains unescaped quotes, for example
+`{"kind":"final","text":"..."洗护发"..."}`, the adapter recovers only the
+`final.text` string and then runs the normal final-answer guard. This is safe
+for user-visible text and prevents Plan mode from stopping on an invalid-JSON
+repair error. The same loose recovery is intentionally not applied to malformed
+`tool_call` envelopes; those still fail closed before any tool can execute.
+
 First run the local protocol test:
 
 ```bash
