@@ -55,6 +55,10 @@ If the local manager may be stale, run the latest npm package for one repair:
 npx -y @bigking67/pi-67@latest update --repair
 ```
 
+Use `npm install -g @bigking67/pi-67` for normal daily operation. Use `npx -y
+@bigking67/pi-67@latest ...` when you want a zero-install, always-fresh one-shot
+check or repair before trusting the globally installed manager.
+
 ## Safety defaults
 
 `pi-67 update` preserves local runtime choices:

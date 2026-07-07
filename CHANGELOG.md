@@ -6,6 +6,21 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-07-07
+
+### Fixed
+
+- Windows npm manager commands now fall back to `npm.cmd` when plain `npm`
+  cannot be spawned directly, so `pi-67 update --check` can report
+  `Manager latest` instead of `unknown (spawnSync npm ENOENT)`.
+
+### Changed
+
+- Clarified the public install/update path: `npm install -g @bigking67/pi-67`
+  is the recommended daily manager install, while `npx -y
+  @bigking67/pi-67@latest ...` remains the always-fresh one-shot recovery and
+  verification path.
+
 ### Added
 
 - `packages/pi67-cli/` as the publishable `@bigking67/pi-67` npm manager package, exposing `pi-67` / `pi67` for install, update, doctor, smoke, status, report, xtalpi, themes, skills, extensions, external, backups, and version workflows.

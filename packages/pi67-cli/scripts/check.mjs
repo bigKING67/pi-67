@@ -4,6 +4,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { npmPublishTargetStatus } from "../src/lib/npm-registry.mjs";
+import { commandCandidatesForPlatform } from "../src/lib/shell-runner.mjs";
 import { readExtensionRegistry, validateExtensionRegistry } from "../src/lib/extension-registry.mjs";
 import { buildPlanDecisions, classifyGitShort } from "../src/lib/update-plan.mjs";
 import {
@@ -26,6 +27,7 @@ for (const file of files.filter((item) => item.endsWith(".json"))) {
   JSON.parse(fs.readFileSync(file, "utf8"));
 }
 runPublishTargetSelfTests();
+runShellRunnerSelfTests();
 runExtensionRegistrySelfTests();
 runUpdatePlanSelfTests();
 runUpdateSafetySelfTests();
@@ -89,6 +91,21 @@ function runPublishTargetSelfTests() {
       allowFirstPublish: true,
     }).code === "first_publish_scope_probe_confirmed",
     "explicit first-publish confirmation should allow npm publish to be the authority for a new scope",
+  );
+}
+
+function runShellRunnerSelfTests() {
+  assert(
+    JSON.stringify(commandCandidatesForPlatform("npm", "win32")) === JSON.stringify(["npm", "npm.cmd"]),
+    "Windows npm execution must fall back to npm.cmd",
+  );
+  assert(
+    JSON.stringify(commandCandidatesForPlatform("git", "win32")) === JSON.stringify(["git"]),
+    "Windows non-npm execution should keep the requested command",
+  );
+  assert(
+    JSON.stringify(commandCandidatesForPlatform("npm", "darwin")) === JSON.stringify(["npm"]),
+    "POSIX npm execution should keep the requested command",
   );
 }
 

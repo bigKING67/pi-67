@@ -227,6 +227,11 @@ pi-67 self-update
 npx -y @bigking67/pi-67@latest update --repair
 ```
 
+`npm install -g @bigking67/pi-67` 是日常推荐安装方式；`npx -y
+@bigking67/pi-67@latest ...` 是零全局安装的一次性最新版执行方式，适合首次验证、
+临时修复或怀疑本机全局管理器落后时使用。二者最终管理的是同一个
+`~/.pi/agent` 发行版 checkout。
+
 管理器的轻量状态文件写到 repo 外：
 
 ```text

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.1]
+
+- Falls back from `npm` to `npm.cmd` on Windows when checking npm registry state
+  or running `pi-67 self-update`, avoiding `spawnSync npm ENOENT` in PowerShell
+  environments where only the command shim is directly spawnable.
+- Clarifies that global install is the normal daily path and `npx @latest` is
+  the always-fresh one-shot validation or recovery path.
+
 ## [0.10.0]
 
 - Initial npm manager CLI for pi-67.
