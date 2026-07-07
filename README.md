@@ -786,6 +786,14 @@ pi-67 publish-check
 pi-67 publish-check --json
 ```
 
+查看 pi-67 对 packages、extensions、theme、shared skills、external repos 的
+所有权边界：
+
+```bash
+pi-67 manifest
+pi-67 manifest --json
+```
+
 永远使用 npm 最新管理器的一次性命令：
 
 ```bash

@@ -80,6 +80,7 @@ pi-67 update --check
 pi-67 update --repair
 pi-67 self-update
 pi-67 publish-check
+pi-67 manifest
 pi-67 doctor
 pi-67 smoke --quick
 pi-67 status
@@ -92,6 +93,18 @@ pi-67 themes list
 pi-67 skills inventory
 pi-67 skills sync
 pi-67 external list
+```
+
+## Ownership manifest
+
+`pi-67 manifest` prints the distribution ownership boundary for npm packages,
+runtime packages, local extensions, themes, shared skills, external repos, and
+local runtime config files. It is read-only and documents what `pi-67 update`
+may manage versus what it must only report.
+
+```bash
+pi-67 manifest
+pi-67 manifest --json
 ```
 
 ## Publish readiness

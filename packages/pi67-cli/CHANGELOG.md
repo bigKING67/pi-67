@@ -11,3 +11,5 @@
   exposes explicit `pi-67 self-update`.
 - Adds `pi-67 publish-check` for npm publish readiness and Trusted Publishing
   workflow validation.
+- Adds `pi-67 manifest` for read-only package, extension, theme, shared skill,
+  external repo, and preserved runtime config ownership reporting.

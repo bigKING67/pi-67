@@ -1,0 +1,77 @@
+{
+  "schema": "pi67.distro-manifest.base.v1",
+  "ownership": {
+    "pi67Managed": "Installed, repaired, and smoked by pi-67; updates must preserve local user runtime choices.",
+    "userManaged": "Reported only; pi-67 must not remove, downgrade, or overwrite without an explicit user command."
+  },
+  "commands": {
+    "update": "pi-67 update",
+    "repair": "pi-67 update --repair",
+    "alwaysFreshRepair": "npx -y @bigking67/pi-67@latest update --repair",
+    "upstreamPiExtensions": "pi update --extensions"
+  },
+  "runtimeFiles": {
+    "preserve": [
+      "settings.json",
+      "models.json",
+      "auth.json",
+      "mcp.json",
+      "image-gen.json"
+    ],
+    "templateOnly": [
+      "models.example.json",
+      "auth.example.json",
+      "mcp.example.json",
+      "image-gen.example.json"
+    ]
+  },
+  "theme": {
+    "packageName": "@victor-software-house/pi-curated-themes",
+    "preserveSetting": "settings.json.theme",
+    "policy": "install-theme-package-only-never-select-theme-on-update",
+    "explicitCommands": [
+      "pi-67 themes current",
+      "pi-67 themes list",
+      "pi-67 themes set <name>"
+    ]
+  },
+  "sharedSkills": {
+    "sourceDir": "shared-skills",
+    "activeDirDefault": "~/.agents/skills",
+    "policy": "copy-by-default-preserve-different-existing-skills-unless-strict"
+  },
+  "localExtensions": [
+    {
+      "name": "xtalpi-pi-tools",
+      "path": "extensions/xtalpi-pi-tools",
+      "required": true,
+      "policy": "pi-local-json-action-provider"
+    },
+    {
+      "name": "pi-rules-loader",
+      "path": "extensions/pi-rules-loader",
+      "required": true,
+      "policy": "local-rules-index-extension"
+    }
+  ],
+  "runtimePackageSpecs": [
+    {
+      "spec": "git:github.com/justhil/pi-image-gen",
+      "packageName": "pi-image-gen",
+      "owner": "pi67-managed",
+      "policy": "runtime-package-preserve-user-config"
+    },
+    {
+      "spec": "git:github.com/arpagon/pi-rewind",
+      "packageName": "pi-rewind",
+      "owner": "pi67-managed",
+      "policy": "runtime-package-preserve-user-config"
+    }
+  ],
+  "externalReposPolicy": {
+    "defaultRoot": "~/.agents/packages",
+    "dirtyRepo": "preserve-and-block-update",
+    "detachedRepo": "preserve-and-block-update",
+    "explicitCommand": "pi-67 external update <name>"
+  }
+}

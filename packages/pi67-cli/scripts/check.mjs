@@ -7,9 +7,13 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const files = [];
 walk(path.join(root, "bin"), files);
 walk(path.join(root, "src"), files);
+walk(path.join(root, "schemas"), files);
 for (const file of files.filter((item) => item.endsWith(".mjs"))) {
   const result = spawnSync(process.execPath, ["--check", file], { stdio: "inherit" });
   if (result.status !== 0) process.exit(result.status || 1);
+}
+for (const file of files.filter((item) => item.endsWith(".json"))) {
+  JSON.parse(fs.readFileSync(file, "utf8"));
 }
 
 function walk(dir, files) {

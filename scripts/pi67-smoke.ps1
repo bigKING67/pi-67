@@ -277,8 +277,12 @@ $RequiredFiles = @(
   "packages/pi67-cli/package.json",
   "packages/pi67-cli/bin/pi-67.mjs",
   "packages/pi67-cli/src/cli.mjs",
+  "packages/pi67-cli/src/commands/manifest.mjs",
   "packages/pi67-cli/src/commands/self-update.mjs",
+  "packages/pi67-cli/src/data/distro-manifest.json",
+  "packages/pi67-cli/src/lib/distro-manifest.mjs",
   "packages/pi67-cli/src/lib/npm-registry.mjs",
+  "packages/pi67-cli/schemas/pi67-distro-manifest.schema.json",
   "packages/pi67-cli/schemas/pi67-state.schema.json",
   "packages/pi67-cli/schemas/pi67-update-plan.schema.json",
   "extensions/xtalpi-pi-tools/json-file.ts",
@@ -303,6 +307,8 @@ $JsonFiles = @(
   "mcp.example.json",
   "package.json",
   "packages/pi67-cli/package.json",
+  "packages/pi67-cli/src/data/distro-manifest.json",
+  "packages/pi67-cli/schemas/pi67-distro-manifest.schema.json",
   "packages/pi67-cli/schemas/pi67-state.schema.json",
   "packages/pi67-cli/schemas/pi67-update-plan.schema.json",
   "extensions/xtalpi-pi-tools/fixtures/replay-cases.json",
@@ -377,6 +383,7 @@ if ($NodeAvailable) {
     "packages/pi67-cli/src/commands/doctor.mjs",
     "packages/pi67-cli/src/commands/external.mjs",
     "packages/pi67-cli/src/commands/install.mjs",
+    "packages/pi67-cli/src/commands/manifest.mjs",
     "packages/pi67-cli/src/commands/publish-check.mjs",
     "packages/pi67-cli/src/commands/report.mjs",
     "packages/pi67-cli/src/commands/self-update.mjs",
@@ -387,6 +394,7 @@ if ($NodeAvailable) {
     "packages/pi67-cli/src/commands/update.mjs",
     "packages/pi67-cli/src/commands/version.mjs",
     "packages/pi67-cli/src/commands/xtalpi.mjs",
+    "packages/pi67-cli/src/lib/distro-manifest.mjs",
     "packages/pi67-cli/src/lib/npm-registry.mjs"
   )
   foreach ($file in $NodeCheckFiles) {
@@ -430,6 +438,7 @@ if ($NodeAvailable) {
   Run-Check "pi-67 npm CLI smoke passed" {
     Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--help") | Out-Null
     Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--agent-dir", $RepoRoot, "--repo-root", $RepoRoot, "version", "--json") | Out-Null
+    Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--agent-dir", $RepoRoot, "--repo-root", $RepoRoot, "manifest", "--json") | Out-Null
     Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--agent-dir", $RepoRoot, "--repo-root", $RepoRoot, "update", "--check", "--json", "--no-remote") | Out-Null
     Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--agent-dir", $RepoRoot, "--repo-root", $RepoRoot, "publish-check", "--json", "--no-remote") | Out-Null
     Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--agent-dir", $RepoRoot, "--repo-root", $RepoRoot, "themes", "current", "--json") | Out-Null

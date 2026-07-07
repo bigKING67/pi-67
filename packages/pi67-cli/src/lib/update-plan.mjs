@@ -7,6 +7,7 @@ import { listExternal } from "./external-repos.mjs";
 import { inventorySkills } from "./skill-policy.mjs";
 import { readCliPackageJson, readTextIfExists } from "./paths.mjs";
 import { npmLatestVersion } from "./npm-registry.mjs";
+import { buildDistroManifest } from "./distro-manifest.mjs";
 
 export function buildUpdatePlan(ctx, options = {}) {
   const versionFile = path.join(ctx.repoRoot, "VERSION");
@@ -17,6 +18,7 @@ export function buildUpdatePlan(ctx, options = {}) {
   const remote = !options.noRemote && git?.isRepo ? remoteHead(ctx.repoRoot) : { skipped: true };
   const skills = inventorySkills(ctx);
   const external = listExternal(ctx);
+  const manifest = buildDistroManifest(ctx);
   const requiredScripts = [
     "pi67-update.sh",
     "pi67-update.ps1",
@@ -57,8 +59,11 @@ export function buildUpdatePlan(ctx, options = {}) {
   if (theme && !hasTheme(ctx, theme)) {
     recommendations.push(`Current theme is missing: ${theme}. Run: pi-67 themes list`);
   }
+  if (manifest.summary.userManagedRuntimePackages > 0) {
+    recommendations.push("User-managed Pi runtime packages detected; pi-67 will report them but not overwrite them by default.");
+  }
 
-    return {
+  return {
     schema: "pi67.update-plan.v1",
     createdAt: new Date().toISOString(),
     manager: {
@@ -86,6 +91,7 @@ export function buildUpdatePlan(ctx, options = {}) {
       themesAvailable: themes.length,
     },
     scripts: scriptStatus,
+    manifest: manifest.summary,
     skills: skills.summary,
     external,
     recommendations,

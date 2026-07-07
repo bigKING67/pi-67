@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/bigKING67/pi-67/schemas/pi67-distro-manifest.schema.json",
+  "title": "pi-67 distro manifest",
+  "type": "object",
+  "required": [
+    "schema",
+    "createdAt",
+    "ownership",
+    "commands",
+    "runtimeFiles",
+    "theme",
+    "sharedSkills",
+    "localExtensions",
+    "dependencyPackages",
+    "runtimePackages",
+    "externalRepos",
+    "summary"
+  ],
+  "properties": {
+    "schema": {
+      "const": "pi67.distro-manifest.v1"
+    },
+    "createdAt": {
+      "type": "string"
+    },
+    "ownership": {
+      "type": "object"
+    },
+    "commands": {
+      "type": "object",
+      "required": ["update", "repair", "alwaysFreshRepair", "upstreamPiExtensions"]
+    },
+    "runtimeFiles": {
+      "type": "object",
+      "required": ["preserve", "templateOnly"]
+    },
+    "theme": {
+      "type": "object",
+      "required": ["packageName", "preserveSetting", "policy", "explicitCommands"]
+    },
+    "sharedSkills": {
+      "type": "object",
+      "required": ["sourceDir", "activeDirDefault", "policy", "activeDir"]
+    },
+    "localExtensions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "path", "required", "policy", "exists"]
+      }
+    },
+    "dependencyPackages": {
+      "type": "array"
+    },
+    "runtimePackages": {
+      "type": "array"
+    },
+    "externalRepos": {
+      "type": "array"
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "dependencies",
+        "runtimePackages",
+        "pi67ManagedRuntimePackages",
+        "userManagedRuntimePackages",
+        "localExtensions",
+        "missingLocalExtensions",
+        "externalRepos",
+        "runtimeFilesPreserved"
+      ]
+    }
+  }
+}
