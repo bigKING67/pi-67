@@ -121,6 +121,28 @@ jobs:
       - name: Pack npm manager
         run: npm pack --dry-run ./packages/pi67-cli
 
+      - name: Check npm version publication state
+        id: npm_version
+        shell: bash
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          package_name="@bigking67/pi-67"
+          set +e
+          output="$(npm view "${package_name}@${REQUESTED_VERSION}" version --json 2>&1)"
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "published_version=${output}" >> "$GITHUB_OUTPUT"
+          elif printf '%s\n' "$output" | grep -q 'E404'; then
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          else
+            printf '%s\n' "$output" >&2
+            exit "$status"
+          fi
+
       - name: Validate npm publish target
         if: ${{ !inputs.dry_run }}
         shell: bash
@@ -135,10 +157,21 @@ jobs:
           node "${args[@]}"
 
       - name: Publish dry-run
-        if: ${{ inputs.dry_run }}
+        if: ${{ inputs.dry_run && steps.npm_version.outputs.published != 'true' }}
         env:
           NPM_TAG: ${{ inputs.tag }}
         run: npm publish ./packages/pi67-cli --access public --tag "$NPM_TAG" --dry-run
+
+      - name: Published version dry-run compatibility
+        if: ${{ inputs.dry_run && steps.npm_version.outputs.published == 'true' }}
+        shell: bash
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          echo "@bigking67/pi-67@$REQUESTED_VERSION is already published."
+          echo "Skipping npm publish --dry-run because npm rejects dry-runs over an existing version."
+          echo "Pack, release metadata, workflow, and manager checks above cover this post-publish dry-run."
 
       - name: Publish to npm
         if: ${{ !inputs.dry_run }}
