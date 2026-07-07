@@ -392,7 +392,7 @@ if ($NodeAvailable) {
     Invoke-External "node" @("--no-warnings", (RepoPath "scripts/pi67-fuzz-xtalpi-parser.mjs"), $RepoRoot) | Out-Null
   }
 
-  Run-Check "pi-until-done runtime queue patch self-test passed" {
+  Run-Check "pi-until-done runtime queue/progress patch self-test passed" {
     Invoke-External "node" @((RepoPath "scripts/pi67-patch-pi-until-done-runtime-queue.mjs"), "--self-test") | Out-Null
   }
 

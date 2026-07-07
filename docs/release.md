@@ -49,7 +49,7 @@ Expected result:
 - Windows PowerShell doctor/report run on a PowerShell runtime when Windows install/update diagnostics changed
 - PowerShell xtalpi targeted smoke self-test passes; live targeted smoke covers read, FFF, batch fetch, sequential-thinking status, MCP, subagent, and recall when xtalpi credentials are available
 - xtalpi provider error-contract and debug-summary/profile self-tests pass
-- `pi-until-done` runtime queue compatibility check passes on the installed agent package when `/until-done` behavior or npm extensions changed
+- `pi-until-done` runtime queue/progress compatibility check passes on the installed agent package when `/until-done` behavior or npm extensions changed
 - smoke test passes locally
 - clean artifact smoke passes for the current worktree candidate
 - release notes preview is generated from `CHANGELOG.md`

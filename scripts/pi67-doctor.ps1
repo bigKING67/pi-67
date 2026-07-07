@@ -505,7 +505,7 @@ if (-not (Test-Path -LiteralPath $sourceSkillsRoot -PathType Container)) {
 Section "Extension runtime compatibility"
 $untilDoneQueueChecker = RepoPath "scripts/pi67-patch-pi-until-done-runtime-queue.mjs"
 if (-not (Test-CommandExists "node")) {
-  Warn "node not found; skipped pi-until-done runtime queue compatibility check"
+  Warn "node not found; skipped pi-until-done runtime queue/progress compatibility check"
 } elseif (-not (Test-Path -LiteralPath $untilDoneQueueChecker -PathType Leaf)) {
   Warn "pi-until-done runtime queue checker missing"
 } else {
@@ -525,9 +525,9 @@ if (-not (Test-CommandExists "node")) {
     }
   } catch {
     if ($queueResult.exitCode -eq 0) {
-      Pass "pi-until-done runtime queue compatibility check completed"
+      Pass "pi-until-done runtime queue/progress compatibility check completed"
     } else {
-      Fail "pi-until-done runtime queue compatibility check failed"
+      Fail "pi-until-done runtime queue/progress compatibility check failed"
     }
   }
 }

@@ -18,7 +18,8 @@ Usage:
   node scripts/pi67-patch-pi-until-done-runtime-queue.mjs --self-test
 
 The patch is intentionally version-aware. It only rewrites the known
-pi-until-done@0.2.2 call sites that use legacy sendUserMessage queue behavior.`);
+pi-until-done@0.2.2 call sites that use legacy sendUserMessage queue behavior
+or miss until_done_* progress signals needed for autonomous follow-up turns.`);
 }
 
 const args = process.argv.slice(2);
@@ -114,6 +115,15 @@ const FILE_SPECS = [
       {
         from: 'pi.sendUserMessage(text, { deliverAs: "followUp" });',
         to: 'pi.sendUserMessage(text, { deliverAs: "followUp", streamingBehavior: "followup" });',
+      },
+    ],
+  },
+  {
+    rel: "extensions/lib/hooks/tools.ts",
+    replacements: [
+      {
+        from: '\t\tif (event.toolName.startsWith("until_done_")) return undefined;\n\t\tstore.progressSignalsThisTurn += 2;',
+        to: '\t\tif (event.toolName.startsWith("until_done_")) {\n\t\t\tstore.progressSignalsThisTurn += 1;\n\t\t\treturn undefined;\n\t\t}\n\t\tstore.progressSignalsThisTurn += 2;',
       },
     ],
   },
@@ -216,6 +226,7 @@ function inspectPackage(pkgDir) {
   const version = String(pkg.version || "");
   const files = [];
   const missingStreamingBehavior = [];
+  const missingProgressSignals = [];
   const missingFiles = [];
   for (const spec of FILE_SPECS) {
     const file = path.join(pkgDir, spec.rel);
@@ -226,7 +237,22 @@ function inspectPackage(pkgDir) {
     const source = fs.readFileSync(file, "utf8");
     const calls = callExpressions(source);
     const missing = calls.filter((call) => !/\bstreamingBehavior\s*:/.test(call));
-    files.push({ file: spec.rel, sendUserMessageCalls: calls.length, missingStreamingBehavior: missing.length });
+    const untilDoneProgressSignal =
+      spec.rel === "extensions/lib/hooks/tools.ts"
+        ? /\bevent\.toolName\.startsWith\("until_done_"\)[\s\S]{0,160}\bstore\.progressSignalsThisTurn\s*\+=\s*1\b/.test(source)
+        : undefined;
+    files.push({
+      file: spec.rel,
+      sendUserMessageCalls: calls.length,
+      missingStreamingBehavior: missing.length,
+      ...(untilDoneProgressSignal !== undefined ? { untilDoneProgressSignal } : {}),
+    });
+    if (untilDoneProgressSignal === false) {
+      missingProgressSignals.push({
+        file: spec.rel,
+        reason: "until_done_* tool calls do not increment progressSignalsThisTurn",
+      });
+    }
     for (const call of missing) {
       missingStreamingBehavior.push({
         file: spec.rel,
@@ -235,18 +261,21 @@ function inspectPackage(pkgDir) {
     }
   }
 
-  const compatible = missingStreamingBehavior.length === 0 && missingFiles.length === 0;
+  const compatible =
+    missingStreamingBehavior.length === 0 &&
+    missingProgressSignals.length === 0 &&
+    missingFiles.length === 0;
   let status = compatible ? "compatible" : "unpatched";
   let ok = compatible;
   let message = compatible
-    ? `${PACKAGE_NAME}@${version} sendUserMessage calls include streamingBehavior`
-    : `${PACKAGE_NAME}@${version} has sendUserMessage calls without streamingBehavior`;
+    ? `${PACKAGE_NAME}@${version} sendUserMessage calls include streamingBehavior and until_done_* tools count as progress`
+    : `${PACKAGE_NAME}@${version} is missing queue/progress compatibility patches`;
 
   if (version !== EXPECTED_VERSION) {
     if (compatible) {
       status = "compatible_unexpected_version";
       ok = true;
-      message = `${PACKAGE_NAME}@${version} appears queue-compatible, but version is not ${EXPECTED_VERSION}`;
+      message = `${PACKAGE_NAME}@${version} appears queue/progress-compatible, but version is not ${EXPECTED_VERSION}`;
     } else {
       status = "review_required";
       ok = false;
@@ -265,6 +294,7 @@ function inspectPackage(pkgDir) {
     files,
     missingFiles,
     missingStreamingBehavior,
+    missingProgressSignals,
   };
 }
 
@@ -300,8 +330,8 @@ function applyKnownPatch(pkgDir) {
     changedFiles,
     skippedReplacements,
     message: after.ok
-      ? `${PACKAGE_NAME}@${EXPECTED_VERSION} runtime queue compatibility patch applied`
-      : `${PACKAGE_NAME}@${EXPECTED_VERSION} runtime queue compatibility patch incomplete`,
+      ? `${PACKAGE_NAME}@${EXPECTED_VERSION} runtime queue/progress compatibility patch applied`
+      : `${PACKAGE_NAME}@${EXPECTED_VERSION} runtime queue/progress compatibility patch incomplete`,
   };
 }
 
@@ -318,6 +348,11 @@ function emit(result) {
   if (result.missingStreamingBehavior?.length) {
     for (const item of result.missingStreamingBehavior) {
       console.log(`WARN missing streamingBehavior: ${item.file}: ${item.excerpt}`);
+    }
+  }
+  if (result.missingProgressSignals?.length) {
+    for (const item of result.missingProgressSignals) {
+      console.log(`WARN missing progress signal: ${item.file}: ${item.reason}`);
     }
   }
 }
@@ -346,7 +381,7 @@ if (selfTest) {
     if (!patched.ok) throw new Error(`patch did not make package compatible: ${patched.message}`);
     const second = applyKnownPatch(pkgDir);
     if (!second.ok) throw new Error(`idempotent patch check failed: ${second.message}`);
-    console.log("pi-until-done runtime queue patch self-test passed");
+    console.log("pi-until-done runtime queue/progress patch self-test passed");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -250,7 +250,8 @@ You must now do exactly one of these:
 ${noExtraProseInstruction(actionProtocol)}
 Do not answer with only a promise such as "I will inspect", "Let me check", or "continuing".
 Do not echo Plan mode/tool-selection instructions.
-Do not include raw Pi protocol tags, tool history records, or previous_pi_tool_call records in a final answer.`;
+Do not include raw Pi protocol tags, tool history records, or previous_pi_tool_call records in a final answer.
+Do not output a JSON array of tool calls, OpenAI tool_calls, or id/name/arguments pseudo tool-call lists. If a tool is needed, return exactly one canonical tool action for exactly one tool.`;
 }
 
 export function buildPlanModeFallbackPlan(input: {

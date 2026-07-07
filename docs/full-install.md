@@ -48,7 +48,7 @@ It runs a safe fast-forward Git update, keeps existing local runtime config
 files, creates missing config files from examples only when needed, normalizes
 parseable Windows JSON encoding issues such as UTF-16, UTF-8 BOM, or leading
 NUL bytes to UTF-8 without BOM after writing `*.bak-*-encoding` backups, syncs
-npm dependencies, applies the local `pi-until-done` runtime queue compatibility
+npm dependencies, applies the local `pi-until-done` runtime queue/progress compatibility
 patch when needed, runs the PowerShell smoke, and writes `pi67-report.json`.
 During the one-time `xtalpi-compat` -> `xtalpi-pi-tools` migration, it can
 auto-backup and restore the narrow known tracked conflict files before pulling.
@@ -178,7 +178,7 @@ pi-67 bundled-skill parity:
 7. Retires legacy `~/.pi/agent/skills` in linked installs by moving it into the installer backup directory.
 8. Copies `.example` config files only when local config files do not already exist.
 9. Installs npm packages into `~/.pi/agent/npm`.
-10. Applies the `pi-until-done@0.2.2` runtime queue compatibility patch when
+10. Applies the `pi-until-done@0.2.2` runtime queue/progress compatibility patch when
     that installed package still lacks `streamingBehavior` on
     `pi.sendUserMessage(...)`.
 11. Runs `scripts/pi67-doctor.sh`.
@@ -522,7 +522,7 @@ The PowerShell updater:
 4. Backs up and rewrites parseable local JSON files as UTF-8 without BOM when PowerShell/Windows saved them as UTF-16, UTF-8 BOM, or with leading NUL bytes.
 5. Applies the safe non-interactive `xtalpi` / `xtalpi-tools` to `xtalpi-pi-tools` local config migration directly in PowerShell.
 6. Syncs npm dependencies when `package.json` differs from `~/.pi/agent/npm/package.json`.
-7. Applies the `pi-until-done` runtime queue compatibility patch when needed.
+7. Applies the `pi-until-done` runtime queue/progress compatibility patch when needed.
 8. Runs `scripts\pi67-smoke.ps1 -Ci` after the update.
 9. Writes `~/.pi/agent/pi67-report.json` and embeds `scripts\pi67-doctor.ps1 -Json` unless `-NoDoctor` is used.
 

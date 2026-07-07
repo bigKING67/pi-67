@@ -301,6 +301,17 @@ function Contains-RawPiToolMarkup {
   return [regex]::IsMatch([string]$Text, '(?:</?pi_tool_(?:call_history|call|result)\b(?:[^<>\r\n]*>|[^<>\r\n]*(?:$|\r?\n))|</?previous_pi_tool_call\b(?:[^<>\r\n]*>|[^<>\r\n]*(?:$|\r?\n))|\[/?previous_pi_tool_call\])', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
 }
 
+function Contains-ToolCallLikeJsonArray {
+  param([string]$Text)
+  $value = [string]$Text
+  $options = [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::Singleline
+  $hasArrayObject = [regex]::IsMatch($value, '\[\s*\{', $options)
+  $hasArguments = [regex]::IsMatch($value, '"(?:arguments|args|input)"\s*:', $options)
+  $hasKnownName = [regex]::IsMatch($value, '"name"\s*:\s*"(?:until_done_[A-Za-z0-9_]+|bash|read|grep|find|ls|web_fetch|web_search|batch_web_fetch|bounded_read|fetch_content|fffind|ffgrep|mcp|subagent|recall)"', $options)
+  $hasPiToolId = [regex]::IsMatch($value, '"id"\s*:\s*"pi_tool_', $options)
+  return $hasArrayObject -and $hasArguments -and ($hasKnownName -or $hasPiToolId)
+}
+
 function Get-FinalAssistantText {
   param([object[]]$Events)
   $agentEvents = @($Events | Where-Object { $_.type -eq "agent_end" })
@@ -454,7 +465,8 @@ function Summarize-CaseArtifact {
     }
   }
   $rawMarkup = Contains-RawPiToolMarkup $finalText
-  $finalAnswerOk = $finalText.Trim().Length -gt 0 -and -not $rawMarkup -and $missingFinalText.Count -eq 0
+  $toolCallLikeJson = Contains-ToolCallLikeJsonArray $finalText
+  $finalAnswerOk = $finalText.Trim().Length -gt 0 -and -not $rawMarkup -and -not $toolCallLikeJson -and $missingFinalText.Count -eq 0
   $toolExpectationOk = $missingTools.Count -eq 0 -and $unexpectedTools.Count -eq 0
   $failureReasons = New-Object System.Collections.Generic.List[string]
   if ($ExitStatus -ne 0) { $failureReasons.Add(("exit_status_{0}" -f $ExitStatus)) }
@@ -467,6 +479,7 @@ function Summarize-CaseArtifact {
     $failureReasons.Add(("runtime_error:{0}" -f $errorText))
   }
   if ($rawMarkup) { $failureReasons.Add("final_answer_contains_raw_tool_markup") }
+  if ($toolCallLikeJson) { $failureReasons.Add("final_answer_contains_tool_call_like_json") }
   if ($finalText.Trim().Length -eq 0) {
     $failureReasons.Add("missing_final_assistant_text")
   } else {
@@ -496,6 +509,7 @@ function Summarize-CaseArtifact {
     missingFinalText = $missingFinalText
     finalAnswerQualityOk = $finalAnswerOk
     finalAnswerRawToolMarkup = $rawMarkup
+    finalAnswerToolCallLikeJson = $toolCallLikeJson
     errors = @($errors | ForEach-Object { if ($_.message.errorMessage) { $_.message.errorMessage } elseif ($_.error) { $_.error } else { $_.message } })
     stdoutFile = $OutFile
     stderrFile = $ErrFile
@@ -843,6 +857,16 @@ function Run-SelfTest {
     ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 8 } | Set-Content -LiteralPath $markupOut -Encoding UTF8
     $markup = Summarize-CaseArtifact "mcp-status" $CaseDefinitions["mcp-status"] $markupOut $err $debug 0 1 $false
     if ($markup.ok -eq $true) { throw "expected raw markup fixture to fail" }
+
+    $pseudoJsonOut = Join-Path $tmp "pseudo-json-tool-array.jsonl"
+    @(
+      @{ type = "agent_end"; messages = @(@{ role = "assistant"; content = @(@{ type = "text"; text = '阶段：ANALYSIS | T-003 [{"id":"pi_tool_until_done_task_update_mra0pzuf_done","name":"until_done_task_update","arguments":{"id":"T-003","patch":{"status":"in_progress"}}}] EXTENSION_SMOKE_MCP_STATUS_OK MCP' }) }) }
+    ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 12 } | Set-Content -LiteralPath $pseudoJsonOut -Encoding UTF8
+    $pseudoJson = Summarize-CaseArtifact "mcp-status" $CaseDefinitions["mcp-status"] $pseudoJsonOut $err $debug 0 1 $false
+    if ($pseudoJson.ok -eq $true) { throw "expected pseudo JSON tool-call array fixture to fail" }
+    if (@($pseudoJson.failureReasons) -notcontains "final_answer_contains_tool_call_like_json") {
+      throw "pseudo JSON tool-call array fixture should report final_answer_contains_tool_call_like_json"
+    }
 
     $angleMarkupOut = Join-Path $tmp "angle-markup.jsonl"
     @(

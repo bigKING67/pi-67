@@ -13,13 +13,14 @@ $ErrorActionPreference = "Stop"
 
 function Show-Usage {
   @"
-pi67-patch-pi-until-done-runtime-queue patches/checks pi-until-done queue compatibility.
+pi67-patch-pi-until-done-runtime-queue patches/checks pi-until-done queue and progress compatibility.
 
 Usage:
   .\scripts\pi67-patch-pi-until-done-runtime-queue.ps1 [-Check] [-Apply] [-Json] [-AgentDir DIR]
 
 Default mode is -Apply. The underlying patch is version-aware and only rewrites
-known pi-until-done@0.2.2 sendUserMessage call sites.
+known pi-until-done@0.2.2 sendUserMessage call sites and until_done_* progress
+signal handling.
 "@
 }
 

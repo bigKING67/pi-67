@@ -303,10 +303,10 @@ If the same raw-markup error still appears after those commands, check that the
 repo has the newest commit and that `extensions\xtalpi-pi-tools\parser.ts`
 contains `PREVIOUS_TOOL_CALL_HISTORY_BLOCK_PATTERN`.
 
-## `/until-done` stops with `Agent is already processing`
+## `/until-done` stops with `Agent is already processing` or after `until_done_task_update`
 
-This error is a `pi-until-done@0.2.2` runtime queue compatibility problem, not
-an xtalpi provider problem:
+These are `pi-until-done@0.2.2` runtime compatibility problems, not xtalpi
+provider transport problems:
 
 ```text
 Extension "<runtime>" error: Agent is already processing. Specify streamingBehavior ('steer' or 'followup') to queue the message.
@@ -316,6 +316,15 @@ Newer Pi runtime versions require extension calls to `pi.sendUserMessage(...)`
 to include `streamingBehavior: "followup"` or `streamingBehavior: "steer"` when
 the agent is already processing. `pi-until-done@0.2.2` still contains older call
 sites, so pi-67 patches that installed package locally after npm sync.
+
+There is a second failure mode where the UI shows a real
+`until_done_task_update` tool execution, then the loop stops and only resumes
+after the user types "continue". In `pi-until-done@0.2.2`, `until_done_*` tool
+calls did not increment `progressSignalsThisTurn`; a turn containing only task
+state updates could therefore be classified by the spin guard as "no progress"
+and would not queue the next `followUp`. The same patcher also makes
+`until_done_*` tools count as progress so state transitions can continue
+autonomously within the turn budget.
 
 Check or apply the patch manually:
 
@@ -334,8 +343,8 @@ Set-Location $env:USERPROFILE\.pi\agent
 ```
 
 `pi67-update.sh`, `pi67-update.ps1`, `install.sh`, doctor, smoke, and release
-checks all include this compatibility guard. If the installed package version is
-not `0.2.2`, the patcher does not blindly edit it; it reports
+checks all include this queue/progress compatibility guard. If the installed
+package version is not `0.2.2`, the patcher does not blindly edit it; it reports
 `review_required` so the new upstream package can be inspected first.
 
 ## MCP path warnings

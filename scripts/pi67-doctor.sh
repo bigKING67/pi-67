@@ -393,7 +393,7 @@ check_until_done_runtime_queue() {
     return
   fi
   if ! command_exists node; then
-    warn "node not found; skipped pi-until-done runtime queue compatibility check"
+    warn "node not found; skipped pi-until-done runtime queue/progress compatibility check"
     return
   fi
   tmp="$(mktemp "${TMPDIR:-/tmp}/pi67-until-done-queue.XXXXXX")"
@@ -415,7 +415,7 @@ try { data = JSON.parse(fs.readFileSync(process.argv[2], "utf8")); } catch {}
 if (data?.status === "review_required") {
   console.log(`WARN|${data.message}`);
 } else {
-  console.log(`FAIL|${data?.message || "pi-until-done runtime queue compatibility check failed"}`);
+  console.log(`FAIL|${data?.message || "pi-until-done runtime queue/progress compatibility check failed"}`);
 }
 NODE
   fi | while IFS='|' read -r level message; do

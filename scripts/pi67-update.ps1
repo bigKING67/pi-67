@@ -625,7 +625,7 @@ function Invoke-UntilDoneRuntimeQueuePatch {
 
 function Test-UntilDoneRuntimeQueueStatus {
   if (-not (Test-CommandExists "node")) {
-    Write-Warn "node not found; skipped pi-until-done runtime queue compatibility check"
+    Write-Warn "node not found; skipped pi-until-done runtime queue/progress compatibility check"
     return
   }
   $patcher = Join-Path (Join-Path $RepoRoot "scripts") "pi67-patch-pi-until-done-runtime-queue.ps1"
@@ -635,9 +635,9 @@ function Test-UntilDoneRuntimeQueueStatus {
   }
   & $patcher -Check -AgentDir $AgentDir | Out-Null
   if ($LASTEXITCODE -eq 0) {
-    Write-Pass "pi-until-done runtime queue compatibility is already patched or package is not installed"
+    Write-Pass "pi-until-done runtime queue/progress compatibility is already patched or package is not installed"
   } else {
-    Write-Warn "pi-until-done runtime queue compatibility would be patched after npm sync"
+    Write-Warn "pi-until-done runtime queue/progress compatibility would be patched after npm sync"
   }
 }
 

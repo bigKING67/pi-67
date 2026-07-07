@@ -243,6 +243,7 @@ const [smokeArtifactCorePath, file, stderrFile, status, expectedToolsRaw, debugF
 const {
   boolOrUndefined,
   containsRawPiToolMarkup,
+  containsToolCallLikeJsonArray,
   isToolEnvelopeOnlyFinalAnswer,
   numberOrUndefined,
   objectOrUndefined,
@@ -421,8 +422,13 @@ const emptyAssistantEnds = events.filter(
 const recoveries = recoveryEvents.length;
 const processExitedCleanly = Number(status) === 0;
 const finalAnswerRawToolMarkup = containsRawPiToolMarkup(finalText);
+const finalAnswerToolCallLikeJson = containsToolCallLikeJsonArray(finalText, actualToolNames);
 const finalAnswerEnvelopeOnly = isToolEnvelopeOnlyFinalAnswer(finalText);
-const finalAnswerQualityOk = finalText.trim().length > 0 && !finalAnswerRawToolMarkup && missingFinalText.length === 0;
+const finalAnswerQualityOk =
+  finalText.trim().length > 0 &&
+  !finalAnswerRawToolMarkup &&
+  !finalAnswerToolCallLikeJson &&
+  missingFinalText.length === 0;
 const hasUsableFinalAnswer = !!agent && errors.length === 0 && finalAnswerQualityOk;
 function parseToolList(raw) {
   return String(raw || "")
@@ -528,6 +534,7 @@ console.log(JSON.stringify({
   stderr: stderr.slice(0, 500),
   finalAnswerQualityOk,
   finalAnswerRawToolMarkup,
+  finalAnswerToolCallLikeJson,
   finalAnswerEnvelopeOnly,
   requiredFinalText,
   missingFinalText,
@@ -613,6 +620,10 @@ writeFixture("unexpected-tool", { tools: ["web_fetch", "mcp", "read"], finalText
 writeFixture("raw-markup", {
   tools: ["read"],
   finalText: "<pi_tool_call_history>\nid: call_1\nname: read\n</pi_tool_call_history>",
+});
+writeFixture("pseudo-json-tool-array", {
+  tools: [],
+  finalText: '阶段：ANALYSIS | T-003\n[{"id":"pi_tool_until_done_task_update_mra0pzuf_done","name":"until_done_task_update","arguments":{"id":"T-003","patch":{"status":"in_progress"}}}]',
 });
 writeFixture("malformed-markup", {
   tools: ["read"],
@@ -861,6 +872,12 @@ NODE
 
   if output="$(summarize_jsonl "$tmp_dir/raw-markup.jsonl" "$tmp_dir/raw-markup.stderr" 0 "read" "$tmp_dir/raw-markup.debug.jsonl" "$tmp_dir/raw-markup.lifecycle.json" 2>&1)"; then
     echo "expected raw-markup fixture to fail"
+    echo "$output"
+    return 1
+  fi
+
+  if output="$(summarize_jsonl "$tmp_dir/pseudo-json-tool-array.jsonl" "$tmp_dir/pseudo-json-tool-array.stderr" 0 "any" "$tmp_dir/pseudo-json-tool-array.debug.jsonl" "$tmp_dir/pseudo-json-tool-array.lifecycle.json" 2>&1)"; then
+    echo "expected pseudo-json-tool-array fixture to fail"
     echo "$output"
     return 1
   fi

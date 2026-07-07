@@ -87,6 +87,21 @@ const { pathToFileURL } = require("node:url");
     "internal_context_leak",
   );
   assert.equal(
+    finalGuard.validateFinalAnswer({
+      text: '阶段：ANALYSIS | T-003\n[{"id":"pi_tool_until_done_task_update_mra0pzuf_done","name":"until_done_task_update","arguments":{"id":"T-003","patch":{"status":"in_progress"}}}]',
+      context: { systemPrompt: "system base", messages: [{ role: "user", content: "继续呀" }] },
+      selectedToolNames: ["until_done_task_update"],
+    }).code,
+    "tool_call_like_final",
+  );
+  assert.equal(
+    finalGuard.containsToolCallLikeJsonArray({
+      text: '[{"name":"普通商品","arguments":{"销量":12}}]',
+      selectedToolNames: ["read"],
+    }),
+    false,
+  );
+  assert.equal(
     shellCommandGuard.validateShellCommandRequest({
       name: "bash",
       arguments: {
@@ -200,6 +215,18 @@ const { pathToFileURL } = require("node:url");
   assert.deepEqual(smokeArtifactCore.normalizeCaseSet(null, ["fallback"]).normalizedCases, ["fallback"]);
   assert.equal(smokeArtifactCore.containsRawPiToolMarkup("plain final answer"), false);
   assert.equal(smokeArtifactCore.isRawToolMarkupFinalAnswer("<pi_tool_call>{}</pi_tool_call>"), true);
+  assert.equal(
+    smokeArtifactCore.containsToolCallLikeJsonArray(
+      '阶段：ANALYSIS [{"id":"pi_tool_until_done_task_update_x","name":"until_done_task_update","arguments":{"id":"T-003","patch":{"status":"in_progress"}}}]',
+    ),
+    true,
+  );
+  assert.equal(
+    smokeArtifactCore.isRawToolMarkupFinalAnswer(
+      '阶段：ANALYSIS [{"id":"pi_tool_until_done_task_update_x","name":"until_done_task_update","arguments":{"id":"T-003","patch":{"status":"in_progress"}}}]',
+    ),
+    true,
+  );
   assert.equal(smokeArtifactCore.isToolEnvelopeOnlyFinalAnswer("<pi_tool_call>{}</pi_tool_call>"), true);
   assert.equal(
     smokeArtifactCore.stripPiToolEnvelopes("<pi_tool_call>{}</pi_tool_call>\nnormal final answer"),
@@ -351,6 +378,18 @@ const { pathToFileURL } = require("node:url");
     name: "read",
     description: "Read a file",
     parameters: { type: "object", required: ["path"], properties: { path: { type: "string" } } },
+  };
+  const untilDoneTaskUpdateTool = {
+    name: "until_done_task_update",
+    description: "Patch an until-done task",
+    parameters: {
+      type: "object",
+      required: ["id", "patch"],
+      properties: {
+        id: { type: "string" },
+        patch: { type: "object", additionalProperties: true },
+      },
+    },
   };
   const bashTool = {
     name: "bash",
@@ -761,6 +800,36 @@ Produce a <proposed_plan> block.`,
     assert.equal(intentToToolNoCallResult.toolCall.name, "read");
     assert.equal(intentToToolNoCallChat.calls.length, 2);
     assert.match(intentToToolNoCallChat.calls[1].at(-1).content, /intent_to_tool_no_call/);
+
+    const pseudoToolArrayFinalChat = makeProviderTurnChat([
+      {
+        content:
+          '阶段：ANALYSIS | T-003 - 输出结构化总结\n' +
+          '[{"id":"pi_tool_until_done_task_update_mra0pzuf_done","name":"until_done_task_update","arguments":{"id":"T-003","patch":{"status":"in_progress"}}}]',
+      },
+      {
+        content:
+          '{"kind":"tool_call","name":"until_done_task_update","arguments":{"id":"T-003","patch":{"status":"in_progress"}}}',
+      },
+    ]);
+    const pseudoToolArrayFinalResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: {
+        systemPrompt: "system base",
+        tools: [untilDoneTaskUpdateTool],
+        messages: [{ role: "user", content: "继续呀" }],
+      },
+      callChat: pseudoToolArrayFinalChat.callChat,
+    });
+    assert.equal(pseudoToolArrayFinalResult.kind, "tool_call");
+    assert.equal(pseudoToolArrayFinalResult.toolCall.name, "until_done_task_update");
+    assert.deepEqual(pseudoToolArrayFinalResult.toolCall.arguments, {
+      id: "T-003",
+      patch: { status: "in_progress" },
+    });
+    assert.equal(pseudoToolArrayFinalChat.calls.length, 2);
+    assert.match(pseudoToolArrayFinalChat.calls[1].at(-1).content, /tool_call_like_final/);
+    assert.match(pseudoToolArrayFinalChat.calls[1].at(-1).content, /JSON array of tool calls/);
 
     const weakFinalRepairChat = makeProviderTurnChat([
       { content: "OK" },
