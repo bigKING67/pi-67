@@ -15,6 +15,10 @@ on:
         type: boolean
         required: true
         default: true
+      first_publish_confirm:
+        description: "For first publish only: type @bigking67/pi-67 after npm scope and Trusted Publisher are configured"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -101,7 +105,16 @@ jobs:
 
       - name: Validate npm publish target
         if: ${{ !inputs.dry_run }}
-        run: node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" publish-check --quiet --strict --no-pack
+        shell: bash
+        env:
+          FIRST_PUBLISH_CONFIRM: ${{ inputs.first_publish_confirm }}
+        run: |
+          set -euo pipefail
+          args=(packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" publish-check --strict --no-pack)
+          if [ "$FIRST_PUBLISH_CONFIRM" = "@bigking67/pi-67" ]; then
+            args+=(--allow-first-publish)
+          fi
+          node "${args[@]}"
 
       - name: Publish dry-run
         if: ${{ inputs.dry_run }}

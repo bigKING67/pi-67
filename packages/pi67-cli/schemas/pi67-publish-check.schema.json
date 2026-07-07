@@ -13,6 +13,7 @@
     "git",
     "workflow",
     "scope",
+    "target",
     "manifest",
     "registry",
     "auth",
@@ -54,6 +55,19 @@
     "scope": {
       "type": "object",
       "required": ["skipped", "ok", "blocking", "scoped", "scope", "message"]
+    },
+    "target": {
+      "type": "object",
+      "required": [
+        "skipped",
+        "ok",
+        "blocking",
+        "packageName",
+        "firstPublish",
+        "allowFirstPublish",
+        "code",
+        "message"
+      ]
     },
     "manifest": {
       "type": "object",

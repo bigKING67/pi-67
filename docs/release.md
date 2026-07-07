@@ -240,8 +240,8 @@ publish a package by accident. It validates:
 - `scripts/pi67-release-check.sh`
 - `npm pack --dry-run ./packages/pi67-cli`
 - for real publishes, a remote `pi-67 publish-check --strict --no-pack`
-  preflight so missing npm scopes fail with a clear namespace error before the
-  final `npm publish`
+  preflight so missing npm scopes and unconfirmed first publishes fail before
+  the final `npm publish`
 
 Repository setup:
 
@@ -250,12 +250,25 @@ Repository setup:
    user/org first, or rename the package to a scope/name the maintainer owns.
 2. In npm, configure a trusted publisher for `@bigking67/pi-67`.
 3. Use provider `GitHub Actions`, repository `bigKING67/pi-67`, and workflow
-   file `.github/workflows/npm-publish.yml`.
+   filename `npm-publish.yml`.
 4. Allow the `npm publish` action for the trusted publisher.
 5. Keep GitHub Actions permissions for the workflow at `contents: read` and
    `id-token: write`.
 6. Keep the workflow manual-only (`workflow_dispatch`) so ordinary pushes cannot
    publish a package.
+
+`npm publish --dry-run` does not prove that a first publish can write the scoped
+package. For a package that has never been published, the real-publish workflow
+will stop during `Validate npm publish target` unless the maintainer explicitly
+types the package name in the `first_publish_confirm` input:
+
+```text
+first_publish_confirm: @bigking67/pi-67
+```
+
+Only use that confirmation after the npm scope exists and the Trusted Publisher
+is configured. The confirmation is intentionally not needed after the package is
+visible on the npm registry.
 
 If npm requires the package to exist before Trusted Publishing can be attached,
 publish the first version once from an npm-authenticated maintainer shell, then
@@ -278,6 +291,7 @@ Actions -> npm publish pi-67 manager -> Run workflow
 version: 0.10.0
 tag: latest
 dry_run: false
+first_publish_confirm: @bigking67/pi-67   # first publish only
 ```
 
 Manual publish remains valid when an npm-authenticated maintainer shell is

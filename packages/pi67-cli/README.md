@@ -114,10 +114,11 @@ difference from the bundled `shared-skills/` baseline must block the update.
 ## Publish readiness
 
 `pi-67 publish-check` validates package metadata, npm namespace visibility,
-Trusted Publishing workflow drift, `npm pack --dry-run`, and the ownership
-manifest release policy. Manifest checks gate preserved runtime config files,
-required local extensions, user-managed baseline packages, theme preservation,
-shared-skill preservation, and dirty external-repo blocking policy.
+first-publish confirmation, Trusted Publishing workflow drift,
+`npm pack --dry-run`, and the ownership manifest release policy. Manifest
+checks gate preserved runtime config files, required local extensions,
+user-managed baseline packages, theme preservation, shared-skill preservation,
+and dirty external-repo blocking policy.
 
 Maintainers can verify the npm publish path before using GitHub Actions:
 
@@ -131,3 +132,7 @@ npm pack dry-run, and the Trusted Publishing workflow. Local `npm whoami` is
 reported but is not required when publishing through GitHub Actions OIDC.
 If it reports that `@bigking67` is missing, create or claim that npm user/org
 scope first, or rename the package to a scope/name controlled by the maintainer.
+For a package that has never been published, `publish-check --strict` blocks
+until the maintainer explicitly passes `--allow-first-publish` after npm scope
+and Trusted Publisher setup are complete. The GitHub workflow exposes this as
+the `first_publish_confirm` input, which must equal `@bigking67/pi-67`.

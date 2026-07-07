@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { parseCommandOptions } from "../lib/args.mjs";
 import { gitStatus } from "../lib/git.mjs";
-import { npmLatestVersion, npmPackageScopeStatus } from "../lib/npm-registry.mjs";
+import { npmLatestVersion, npmPackageScopeStatus, npmPublishTargetStatus } from "../lib/npm-registry.mjs";
 import { captureCommand } from "../lib/shell-runner.mjs";
 import { readCliPackageJson, readTextIfExists, packageRoot } from "../lib/paths.mjs";
 import { buildDistroManifest } from "../lib/distro-manifest.mjs";
@@ -10,14 +10,18 @@ import { fail, info, keyValue, pass, printJson, section, warn } from "../lib/out
 
 export async function publishCheckCommand(ctx, argv) {
   const { options } = parseCommandOptions(argv, {
-    bools: ["json", "no-remote", "no-pack", "quiet", "strict"],
+    bools: ["json", "no-remote", "no-pack", "quiet", "strict", "allow-first-publish"],
   });
   const json = ctx.json || options.json;
   const quiet = options.quiet;
   const noRemote = ctx.noRemote || options.noRemote;
   const noPack = options.noPack;
   const strict = options.strict;
-  const report = buildPublishCheck(ctx, { noRemote, noPack });
+  const report = buildPublishCheck(ctx, {
+    noRemote,
+    noPack,
+    allowFirstPublish: options.allowFirstPublish,
+  });
   if (quiet) {
     // Intentionally silent for npm lifecycle hooks; exit status carries failure.
   } else if (json) {
@@ -46,6 +50,13 @@ function buildPublishCheck(ctx, options) {
     noRemote: options.noRemote,
     timeoutMs: 10000,
   });
+  const target = npmPublishTargetStatus(pkg.name, {
+    noRemote: options.noRemote,
+    timeoutMs: 10000,
+    registry,
+    scope,
+    allowFirstPublish: options.allowFirstPublish,
+  });
   const auth = npmAuthCheck({ noRemote: options.noRemote });
   const pack = options.noPack ? skipped("pack dry-run skipped") : npmPackCheck();
   const manifest = buildDistroManifest(ctx);
@@ -59,14 +70,15 @@ function buildPublishCheck(ctx, options) {
     check("bin_pi67_alias", pkg.bin?.pi67 === "bin/pi-67.mjs", "missing pi67 alias"),
     check("publish_public", pkg.publishConfig?.access === "public", "scoped package must publish as public"),
     check("trusted_publish_workflow", workflow.ok, workflow.message),
-    check("npm_scope", !scope.blocking, scope.message),
+    check("npm_scope", !scope.blocking || target.code === "first_publish_scope_probe_confirmed", scope.message),
+    check("npm_publish_target", !target.blocking, target.message),
     check("distro_manifest", manifestRelease.ok, manifestRelease.message),
     check("npm_pack_dry_run", pack.ok || pack.skipped, pack.message),
   ];
 
   const exactVersionPublished = registry.ok && registry.latestVersion === pkg.version;
   const registryNotPublished = !registry.ok && registry.message === "not published on npm registry yet";
-  const scopeMissing = Boolean(scope.blocking);
+  const scopeMissing = Boolean(scope.blocking && target.code !== "first_publish_scope_probe_confirmed");
   const blockers = checks.filter((item) => !item.ok).map((item) => `${item.name}: ${item.message}`);
   if (exactVersionPublished) {
     blockers.push(`npm_version_already_published: ${pkg.name}@${pkg.version}`);
@@ -77,7 +89,14 @@ function buildPublishCheck(ctx, options) {
   else if (git.dirty) warnings.push("repo has local changes; commit scoped release changes before publishing");
   if (registryNotPublished) warnings.push("npm package is not published yet; configure Trusted Publisher or do one manual first publish");
   if (scope.skipped) warnings.push("npm scope check skipped");
+  else if (target.code === "first_publish_scope_probe_confirmed") {
+    warnings.push(`npm scope probe did not prove ${scope.scope}; explicit first-publish confirmation lets final npm publish validate write permission`);
+  }
   else if (scope.scoped && !scope.ok && !scope.blocking) warnings.push(`npm scope check did not complete: ${scope.message}`);
+  if (target.skipped) warnings.push("npm publish target check skipped");
+  else if (target.firstPublish && target.allowFirstPublish && target.ok) {
+    warnings.push("first publish confirmation is explicit; npm still validates Trusted Publisher only during final npm publish");
+  }
   if (!options.noRemote && !auth.ok) warnings.push("local npm auth is missing; this is acceptable for GitHub Trusted Publishing");
   if (registry.skipped) warnings.push("npm registry check skipped");
   if (auth.skipped) warnings.push("npm auth check skipped");
@@ -109,6 +128,7 @@ function buildPublishCheck(ctx, options) {
     git,
     workflow,
     scope,
+    target,
     manifest: {
       summary: manifest.summary,
       release: manifestRelease,
@@ -127,6 +147,8 @@ function buildPublishCheck(ctx, options) {
       scopeMissing,
       scopeName: scope.scope,
       packageName: pkg.name,
+      firstPublishNeedsConfirmation: target.code === "first_publish_requires_confirmation",
+      allowFirstPublish: target.allowFirstPublish,
     }),
   };
 }
@@ -185,7 +207,9 @@ function workflowCheck(file) {
     "Use npm with trusted publishing support",
     "npm install -g npm@latest",
     "Validate npm publish target",
-    "publish-check --quiet --strict --no-pack",
+    "first_publish_confirm",
+    "publish-check --strict --no-pack",
+    "--allow-first-publish",
     "npm publish ./packages/pi67-cli --access public --tag",
   ];
   const missing = required.filter((fragment) => !text.includes(fragment));
@@ -250,6 +274,9 @@ function nextSteps(context) {
   if (context.scopeMissing) {
     steps.push(`Create or claim the npm scope ${context.scopeName} before publishing, or rename the npm package to an owned scope/name.`);
   }
+  if (context.firstPublishNeedsConfirmation) {
+    steps.push(`After npm scope and Trusted Publisher are configured, rerun with --allow-first-publish or set the workflow first_publish_confirm input to ${context.packageName}.`);
+  }
   if (context.registryNotPublished) {
     steps.push(`Configure npm Trusted Publisher for ${context.packageName}, or do one manual npm-authenticated first publish.`);
   }
@@ -266,6 +293,7 @@ function printReport(report) {
   keyValue("Distro", report.distro.version || "unknown");
   keyValue("Workflow", report.workflow.ok ? "trusted publishing ready" : report.workflow.message);
   keyValue("npm scope", report.scope.message);
+  keyValue("Publish target", report.target.message);
   keyValue("Manifest", report.manifest.release.ok ? "ownership policy ready" : report.manifest.release.message);
   keyValue("Registry", registryLabel(report.registry));
   keyValue("npm auth", report.auth.skipped ? "skipped" : report.auth.ok ? report.auth.username : "not logged in");
