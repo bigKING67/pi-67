@@ -11,6 +11,7 @@
     "runtimeFiles",
     "theme",
     "sharedSkills",
+    "extensionRegistry",
     "localExtensions",
     "dependencyPackages",
     "runtimePackages",
@@ -43,6 +44,21 @@
       "type": "object",
       "required": ["sourceDir", "activeDirDefault", "policy", "activeDir"]
     },
+    "extensionRegistry": {
+      "type": "object",
+      "required": ["schema", "governance", "extensions"],
+      "properties": {
+        "schema": {
+          "const": "pi67.extension-registry.v1"
+        },
+        "governance": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "array"
+        }
+      }
+    },
     "localExtensions": {
       "type": "array",
       "items": {
@@ -69,7 +85,8 @@
         "localExtensions",
         "missingLocalExtensions",
         "externalRepos",
-        "runtimeFilesPreserved"
+        "runtimeFilesPreserved",
+        "registeredExtensions"
       ]
     }
   }

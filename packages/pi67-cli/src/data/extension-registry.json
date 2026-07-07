@@ -1,0 +1,147 @@
+{
+  "schema": "pi67.extension-registry.v1",
+  "governance": {
+    "defaultUserConfigPolicy": "preserve-and-merge-only",
+    "forbiddenUpdateBehavior": [
+      "overwrite-user-config",
+      "select-theme-during-update",
+      "overwrite-different-shared-skill",
+      "update-dirty-external-repo",
+      "fallback-to-upstream-pi-extension-update"
+    ],
+    "configPatchModes": [
+      "merge-preserve",
+      "template-only",
+      "report-only"
+    ]
+  },
+  "extensions": [
+    {
+      "id": "xtalpi-pi-tools",
+      "kind": "local-provider",
+      "owner": "pi67-managed",
+      "path": "extensions/xtalpi-pi-tools",
+      "installStrategy": "package-owned-clean-overwrite",
+      "updateStrategy": "update-owned-code-preserve-user-config",
+      "repairStrategy": "local-json-action-protocol-repair",
+      "configPatches": [
+        {
+          "file": "models.json",
+          "path": "providers.xtalpi-pi-tools",
+          "mode": "merge-preserve"
+        },
+        {
+          "file": "settings.json",
+          "path": "defaultProvider",
+          "mode": "merge-preserve"
+        }
+      ],
+      "smoke": [
+        "pi-67 xtalpi health",
+        "pi-67 xtalpi smoke --quick"
+      ],
+      "notes": "xtalpi is treated as plain chat-completions transport; Pi local adapter owns JSON action protocol, repair, validation, and smoke gates."
+    },
+    {
+      "id": "pi-rules-loader",
+      "kind": "local-extension",
+      "owner": "pi67-managed",
+      "path": "extensions/pi-rules-loader",
+      "installStrategy": "package-owned-clean-overwrite",
+      "updateStrategy": "update-owned-code-preserve-user-config",
+      "repairStrategy": "rules-index-refresh",
+      "configPatches": [],
+      "smoke": [
+        "pi-67 manifest"
+      ],
+      "notes": "Rules index extension is package-owned; user AGENTS/settings remain user-owned."
+    },
+    {
+      "id": "pi-curated-themes",
+      "kind": "theme-package",
+      "owner": "pi67-managed",
+      "packageName": "@victor-software-house/pi-curated-themes",
+      "installStrategy": "install-theme-package",
+      "updateStrategy": "install-theme-package-only-never-select-theme-on-update",
+      "repairStrategy": "verify-theme-assets-without-changing-selection",
+      "configPatches": [
+        {
+          "file": "settings.json.theme",
+          "path": "theme",
+          "mode": "report-only"
+        }
+      ],
+      "explicitCommands": [
+        "pi-67 themes current",
+        "pi-67 themes list",
+        "pi-67 themes doctor",
+        "pi-67 themes set <name>"
+      ],
+      "smoke": [
+        "pi-67 themes current",
+        "pi-67 themes doctor"
+      ],
+      "notes": "Update may install theme assets but must never change the selected theme."
+    },
+    {
+      "id": "shared-skills",
+      "kind": "skill-pack",
+      "owner": "pi67-managed",
+      "path": "shared-skills",
+      "target": "~/.agents/skills",
+      "installStrategy": "copy-missing-skills",
+      "updateStrategy": "copy-by-default-preserve-different-existing-skills-unless-strict",
+      "repairStrategy": "inventory-and-copy-missing-only",
+      "configPatches": [],
+      "explicitCommands": [
+        "pi-67 skills inventory",
+        "pi-67 skills sync",
+        "pi-67 skills migrate"
+      ],
+      "smoke": [
+        "pi-67 skills inventory"
+      ],
+      "notes": "Different existing shared skills are user-owned by default; strict mode blocks instead of overwriting."
+    },
+    {
+      "id": "browser67",
+      "kind": "external-repo",
+      "owner": "external",
+      "repoUrl": "https://github.com/bigKING67/browser67.git",
+      "target": "~/.agents/packages/browser67",
+      "installStrategy": "explicit-external-install",
+      "updateStrategy": "preserve-and-block-update-when-dirty",
+      "repairStrategy": "doctor-only-when-dirty",
+      "configPatches": [],
+      "explicitCommands": [
+        "pi-67 external list",
+        "pi-67 external doctor",
+        "pi-67 external update browser67"
+      ],
+      "smoke": [
+        "pi-67 external list"
+      ],
+      "notes": "External repo updates are explicit and must not reset, clean, or overwrite dirty worktrees."
+    },
+    {
+      "id": "design-craft",
+      "kind": "external-repo",
+      "owner": "external",
+      "repoUrl": "https://github.com/bigKING67/design-craft",
+      "target": "~/.agents/packages/design-craft",
+      "installStrategy": "explicit-external-install",
+      "updateStrategy": "preserve-and-block-update-when-dirty",
+      "repairStrategy": "doctor-only-when-dirty",
+      "configPatches": [],
+      "explicitCommands": [
+        "pi-67 external list",
+        "pi-67 external doctor",
+        "pi-67 external update design-craft"
+      ],
+      "smoke": [
+        "pi-67 external list"
+      ],
+      "notes": "Frontend skill repo is external; pi-67 reports dirty state and blocks destructive updates."
+    }
+  ]
+}

@@ -6,6 +6,7 @@ import { packageRoot } from "./paths.mjs";
 
 export function buildDistroManifest(ctx) {
   const base = readBaseManifest();
+  const extensionRegistry = readExtensionRegistry();
   const rootPackage = readJsonFileIfExists(path.join(ctx.repoRoot, "package.json")) || {};
   const settings = readJsonFileIfExists(path.join(ctx.agentDir, "settings.json")) || {};
   const dependencies = rootPackage.dependencies || {};
@@ -65,6 +66,7 @@ export function buildDistroManifest(ctx) {
       activeDir: ctx.skillsDir,
     },
     externalReposPolicy: base.externalReposPolicy,
+    extensionRegistry,
     localExtensions,
     dependencyPackages,
     runtimePackages,
@@ -78,6 +80,7 @@ export function buildDistroManifest(ctx) {
       missingLocalExtensions: localExtensions.filter((item) => !item.exists).length,
       externalRepos: Object.keys(EXTERNAL_REPOS).length,
       runtimeFilesPreserved: base.runtimeFiles.preserve.length,
+      registeredExtensions: extensionRegistry.extensions.length,
     },
     userManagedPackages,
   };
@@ -123,5 +126,10 @@ function scanUserLocalExtensions(ctx, managedNames) {
 
 function readBaseManifest() {
   const file = path.join(packageRoot(), "src", "data", "distro-manifest.json");
+  return JSON.parse(fs.readFileSync(file, "utf8"));
+}
+
+function readExtensionRegistry() {
+  const file = path.join(packageRoot(), "src", "data", "extension-registry.json");
   return JSON.parse(fs.readFileSync(file, "utf8"));
 }

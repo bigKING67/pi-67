@@ -190,6 +190,12 @@ packages cannot drift silently before publish.
 Use `pi-67 manifest --json` when changing packages, extensions, themes, shared
 skills, or external repo behavior; it is the user-visible ownership contract
 that separates pi-67 managed resources from report-only user resources.
+New extensions must also be registered in
+`packages/pi67-cli/src/data/extension-registry.json` with owner,
+install/update/repair strategy, config patch mode, and smoke gates. The release
+gate rejects forbidden behaviors such as overwriting user config, selecting a
+theme during update, overwriting different shared skills, or updating dirty
+external repos.
 
 Preferred publish path: GitHub Actions with npm Trusted Publishing / OIDC.
 This keeps long-lived npm publish tokens out of the repository and out of

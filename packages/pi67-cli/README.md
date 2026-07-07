@@ -111,6 +111,13 @@ pi-67 manifest --json
 `pi-67 update --strict-shared-skills` only in CI/release parity checks when a
 difference from the bundled `shared-skills/` baseline must block the update.
 
+The manifest also embeds the extension registry from
+`src/data/extension-registry.json`. New local providers, theme packages,
+shared-skill packs, runtime packages, or external repos must declare owner,
+install/update/repair strategy, config patch mode, and smoke gates there before
+release. This keeps extension behavior explicit instead of scattering preserve
+rules across scripts.
+
 ## Publish readiness
 
 `pi-67 publish-check` validates package metadata, npm namespace visibility,
@@ -118,7 +125,7 @@ first-publish confirmation, Trusted Publishing workflow drift,
 `npm pack --dry-run`, and the ownership manifest release policy. Manifest
 checks gate preserved runtime config files, required local extensions,
 user-managed baseline packages, theme preservation, shared-skill preservation,
-and dirty external-repo blocking policy.
+dirty external-repo blocking policy, and extension-registry policy.
 
 Maintainers can verify the npm publish path before using GitHub Actions:
 

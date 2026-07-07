@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/bigKING67/pi-67/schemas/pi67-extension-registry.schema.json",
+  "title": "pi-67 extension registry",
+  "type": "object",
+  "required": ["schema", "governance", "extensions"],
+  "properties": {
+    "schema": {
+      "const": "pi67.extension-registry.v1"
+    },
+    "governance": {
+      "type": "object",
+      "required": ["defaultUserConfigPolicy", "forbiddenUpdateBehavior", "configPatchModes"]
+    },
+    "extensions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "owner",
+          "installStrategy",
+          "updateStrategy",
+          "repairStrategy",
+          "configPatches",
+          "smoke"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1
+          },
+          "owner": {
+            "enum": ["pi67-managed", "external", "user-managed"]
+          },
+          "configPatches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["file", "path", "mode"]
+            }
+          },
+          "smoke": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false
+}
