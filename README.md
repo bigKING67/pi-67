@@ -177,9 +177,28 @@ pi-67 smoke --quick
 - `pi-67 update` 是 pi-67 发行版主更新命令。
 - 如果误跑了 `pi update --extensions`，再运行 `pi-67 update --repair` 重新对齐 pi-67 管理状态。
 
-`pi-67 update` 默认不覆盖用户本地选择：现有 `models.json`、`auth.json`、
-`mcp.json`、`image-gen.json`、用户添加的 packages、全局 skills 和
-`settings.json.theme` 都会保留。主题只在显式执行下面命令时改变：
+`pi-67 update` 默认不覆盖用户本地选择：现有 `settings.json`、`models.json`、
+`auth.json`、`mcp.json`、`image-gen.json`、用户添加的 packages、全局 skills 和
+`settings.json` 里的 `theme` 选择都会保留；legacy `settings.json.theme` 若存在也
+按运行态文件备份/恢复。真实更新前 npm manager 会在 repo 外
+生成运行态快照和 update lock：
+
+```text
+~/.pi/pi67/backups/<timestamp>-update/
+~/.pi/pi67/locks/update.lock
+```
+
+备份可直接用管理器查看和恢复；真实恢复前会再写一份 pre-restore 备份，避免
+把当前运行态覆盖到无法回退：
+
+```bash
+pi-67 backups list
+pi-67 backups inspect <backup-id-or-path>
+pi-67 backups restore --from <backup-id-or-path> --dry-run
+pi-67 backups restore --from <backup-id-or-path> --yes
+```
+
+主题只在显式执行下面命令时改变，且显式切主题前也会先写运行态备份：
 
 ```bash
 pi-67 themes set gruvbox-dark
@@ -819,6 +838,17 @@ Publisher 都配置完成后显式使用 `--allow-first-publish`；GitHub workfl
 pi-67 manifest
 pi-67 manifest --json
 pi-67 manifest --validate
+pi-67 extensions doctor
+pi-67 extensions inspect xtalpi-pi-tools
+```
+
+查看和恢复 update/repair/theme-set 产生的 repo 外运行态备份：
+
+```bash
+pi-67 backups list
+pi-67 backups inspect <backup-id-or-path>
+pi-67 backups restore --from <backup-id-or-path> --dry-run
+pi-67 backups restore --from <backup-id-or-path> --yes
 ```
 
 扩展治理真源在 `packages/pi67-cli/src/data/extension-registry.json`。以后新增
@@ -850,9 +880,10 @@ Set-Location $env:USERPROFILE\.pi\agent
 
 这个入口是一键日常更新：默认执行 `git pull --ff-only`，保留已有本地 key/config，
 只在 `models.json` / `mcp.json` / `auth.json` / `image-gen.json` 缺失时从
-`.example` 创建。遇到这次 `xtalpi-compat` -> `xtalpi-pi-tools` 迁移里的已知
-tracked 冲突时，它会先备份到 `$env:USERPROFILE\.pi\agent-backups\pre-update-*`，
-再只恢复这些已知迁移文件后继续更新；其他 tracked 本地改动仍会停止，避免误覆盖。
+`.example` 创建。若 in-place checkout 里只有 `settings.json` 等用户运行态配置
+是 tracked dirty，它会先备份到 `$env:USERPROFILE\.pi\pi67\backups\pre-update-runtime-*`，
+临时清干净以便 fast-forward，然后在 pull 后把用户运行态文件恢复回来；其他
+tracked 本地改动仍会停止，避免误覆盖。
 更新流程还会在 npm sync 后检查并修补已安装的 `pi-until-done@0.2.2`，给旧版
 `pi.sendUserMessage(...)` 调用补上 Pi runtime queue 需要的
 `streamingBehavior: "followup"`，避免 `/until-done` 在 agent 正忙时中断。
@@ -890,18 +921,19 @@ bash ~/.pi/agent/scripts/pi67-status.sh
 PowerShell updater 会：
 
 1. 在 pi-67 仓库中执行 `git pull --ff-only`
-2. 保留本地 `models.json` / `mcp.json` / `auth.json` / `image-gen.json`
-3. 如果新增本地配置模板，只复制缺失文件，不覆盖已有配置
-4. 在备份后把可解析但编码不适合 Pi 启动的本地 JSON 规范化为 UTF-8 without BOM，例如 UTF-16、UTF-8 BOM 或前导 NUL 字节；备份名形如 `models.json.bak-YYYYMMDD-HHMMSS-encoding`
-5. 直接在 PowerShell 里做非交互配置迁移，例如把旧 `xtalpi` / `xtalpi-tools` 迁移到 `xtalpi-pi-tools`
-6. 如果 `package.json` 和 `~/.pi/agent/npm/package.json` 不一致，自动同步 npm 依赖
-7. 检查并按需修补 `pi-until-done` runtime queue 兼容性
-8. 运行 `scripts\pi67-smoke.ps1 -Ci` 复核 repo/update contract
-9. 覆盖写入 `~/.pi/agent/pi67-report.json`，并默认嵌入 `scripts\pi67-doctor.ps1 -Json` 结果
+2. 对 dirty 的用户运行态配置做 backup -> temporary restore HEAD -> pull -> restore user file，不覆盖主题和 key
+3. 保留本地 `settings.json` / `models.json` / `mcp.json` / `auth.json` / `image-gen.json`
+4. 如果新增本地配置模板，只复制缺失文件，不覆盖已有配置
+5. 在备份后把可解析但编码不适合 Pi 启动的本地 JSON 规范化为 UTF-8 without BOM，例如 UTF-16、UTF-8 BOM 或前导 NUL 字节；备份名形如 `models.json.bak-YYYYMMDD-HHMMSS-encoding`
+6. 直接在 PowerShell 里做非交互配置迁移，例如把旧 `xtalpi` / `xtalpi-tools` 迁移到 `xtalpi-pi-tools`
+7. 如果 `package.json` 和 `~/.pi/agent/npm/package.json` 不一致，自动同步 npm 依赖
+8. 检查并按需修补 `pi-until-done` runtime queue 兼容性
+9. 运行 `scripts\pi67-smoke.ps1 -Ci` 复核 repo/update contract
+10. 覆盖写入 `~/.pi/agent/pi67-report.json`，并默认嵌入 `scripts\pi67-doctor.ps1 -Json` 结果
 
 `pi-67 update` 在 Windows 上会调度这个 PowerShell-native updater；在 macOS/Linux
 上会调度 Bash updater。两边都遵守同一条主题策略：更新 theme package 可以，
-但不会改 `settings.json.theme`。要改主题必须显式运行：
+但不会改 `settings.json` 里的 `theme` 选择。要改主题必须显式运行：
 
 ```bash
 pi-67 themes current

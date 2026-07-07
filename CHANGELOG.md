@@ -8,11 +8,13 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ### Added
 
-- `packages/pi67-cli/` as the publishable `@bigking67/pi-67` npm manager package, exposing `pi-67` / `pi67` for install, update, doctor, smoke, status, report, xtalpi, themes, skills, external, and version workflows.
+- `packages/pi67-cli/` as the publishable `@bigking67/pi-67` npm manager package, exposing `pi-67` / `pi67` for install, update, doctor, smoke, status, report, xtalpi, themes, skills, extensions, external, backups, and version workflows.
 - `pi-67 self-update` plus npm latest-version hints in `pi-67 update --check`, so stale global managers are visible and users can run a single explicit manager update without changing Pi's upstream `pi` command.
 - `pi-67 publish-check` as a maintainer readiness gate for version consistency, Trusted Publishing workflow drift, npm registry state, local npm auth visibility, and `npm pack --dry-run`.
 - `pi-67 manifest` as a read-only ownership contract for pi-67 managed packages, runtime packages, local extensions, themes, shared skills, external repos, and preserved runtime config files.
 - `pi-67 manifest --validate` as a standalone extension-registry policy gate, sharing the same validator with `publish-check` and release checks.
+- `pi-67 extensions list`, `pi-67 extensions doctor`, `pi-67 extensions inspect <id>`, and `pi-67 extensions plan` as the user-facing extension ownership and policy diagnostics.
+- `pi-67 backups list`, `pi-67 backups inspect`, and `pi-67 backups restore` as the supported recovery path for repo-external update/repair/theme-set runtime snapshots.
 - `shared-skills/commerce-growth-os/` as the vendored Pi distribution copy of `https://github.com/bigKING67/commerce-growth-os`, so Pi/Codex can share the commerce growth skill through `~/.agents/skills`.
 - `rules/commerce-growth.md` plus Pi rules-loader routing for commerce growth, marketplace operation, assortment, pricing, channel control, ROI/profit, and platform-currentness tasks.
 - `scripts/pi67-sync-commerce-growth-os.sh` as a dry-run-first maintainer helper for refreshing the vendored `shared-skills/commerce-growth-os` copy from the standalone upstream checkout.
@@ -26,6 +28,12 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - User-facing update docs now make `pi-67 update` the recommended pi-67 distribution update path, while keeping `pi update --extensions` scoped to upstream Pi extension updates.
 - `pi-67 update` documentation now explicitly preserves existing local config files, user packages, global skills, external repos, and `settings.json.theme`; theme changes require `pi-67 themes set <name>`.
 - `pi-67 update --check --json` now emits explicit `actions`, `blocked`, and `warnings` arrays so users can see planned writes, preserved paths, strict shared-skill blockers, and dirty external-repo blockers before running an update.
+- `pi-67 update` / `pi-67 update --repair` now acquire a repo-external update lock and snapshot preserved runtime files under `~/.pi/pi67/backups/` before dispatching Bash or PowerShell update scripts.
+- Bash and PowerShell updaters now preserve dirty user runtime config in in-place checkouts by backing it up, temporarily clearing it for `git pull --ff-only`, and restoring it after the pull; unrelated tracked edits still block by default.
+- Backup restore is preserve-scoped: it only writes known runtime config files and creates a pre-restore backup before replacing the current local runtime state.
+- Backup manifests now record both present and missing preserved runtime slots, so restore can also remove a preserved config file that did not exist when the backup was created.
+- `pi-67 themes set <name>` now writes a runtime backup before explicitly changing the selected theme, while normal update remains forbidden from changing theme selection.
+- Update-plan self-tests now cover clean repo, runtime-config dirty preservation, unsafe dirty blockers, missing managed extension repair, missing theme assets, shared-skill default/strict behavior, dirty external repos, and manager self-update actions.
 - `pi-67 update --strict-shared-skills` now forwards strict shared-skill parity checks through both Bash and Windows PowerShell update paths, while the default still preserves existing different global skills.
 - `pi-67 publish-check` now gates the distro ownership manifest, including preserved runtime config policy, required local extensions, user-managed baseline packages, theme preservation, shared-skill preservation, and dirty external-repo blocking policy.
 - Extension-registry policy checks are now centralized in `packages/pi67-cli/src/lib/extension-registry.mjs`, with self-tests for duplicate ids, missing smoke gates, forbidden update behavior, unsafe config patches, theme drift, shared-skill drift, dirty external-repo drift, and unregistered managed extensions.

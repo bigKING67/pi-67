@@ -2,6 +2,7 @@ import path from "node:path";
 import { parseCommandOptions } from "../lib/args.mjs";
 import { currentTheme, hasTheme, listThemes } from "../lib/theme-policy.mjs";
 import { readJsonFileIfExists, writeJsonAtomic } from "../lib/config-json.mjs";
+import { createRuntimeBackup } from "../lib/update-safety.mjs";
 import { CliError, keyValue, printJson, section, pass, fail, info } from "../lib/output.mjs";
 
 export async function themesCommand(ctx, argv) {
@@ -40,7 +41,7 @@ function doctor(ctx, argv) {
   const installed = theme ? hasTheme(ctx, theme) : false;
   const data = { schema: "pi67.theme-doctor.v1", theme, installed };
   if (ctx.json || options.json) return printJson(data);
-  if (!theme) fail("settings.json.theme is unset");
+  if (!theme) fail("settings.json theme field is unset");
   else if (installed) pass(`theme exists: ${theme}`);
   else fail(`theme is configured but missing from installed theme packages: ${theme}`);
 }
@@ -60,6 +61,9 @@ function setTheme(ctx, argv) {
     info(`DRY-RUN set theme ${previous || "unset"} -> ${name}`);
     return;
   }
+  const backupDir = path.join(ctx.stateDir, "backups", `${new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "Z")}-themes-set`);
+  createRuntimeBackup(ctx, backupDir, { operation: "themes-set" });
   writeJsonAtomic(settingsFile, settings);
   pass(`theme set: ${previous || "unset"} -> ${name}`);
+  info(`Preserved runtime backup: ${backupDir}`);
 }

@@ -66,7 +66,7 @@
       "repairStrategy": "verify-theme-assets-without-changing-selection",
       "configPatches": [
         {
-          "file": "settings.json.theme",
+          "file": "settings.json",
           "path": "theme",
           "mode": "report-only"
         }

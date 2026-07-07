@@ -8,6 +8,7 @@ import { inventorySkills } from "./skill-policy.mjs";
 import { readCliPackageJson, readTextIfExists } from "./paths.mjs";
 import { npmLatestVersion } from "./npm-registry.mjs";
 import { buildDistroManifest } from "./distro-manifest.mjs";
+import { PRESERVED_RUNTIME_FILES } from "./update-safety.mjs";
 
 export function buildUpdatePlan(ctx, options = {}) {
   const versionFile = path.join(ctx.repoRoot, "VERSION");
@@ -102,6 +103,13 @@ export function buildUpdatePlan(ctx, options = {}) {
       themeInstalled: theme ? hasTheme(ctx, theme) : false,
       themesAvailable: themes.length,
     },
+    policy: {
+      userConfigPolicy: manifest.ownership?.userManaged || "preserve user-managed runtime files",
+      preservedRuntimeFiles: PRESERVED_RUNTIME_FILES,
+      themePolicy: manifest.theme?.policy || "",
+      sharedSkillsPolicy: manifest.sharedSkills?.policy || "",
+      externalDirtyPolicy: manifest.externalReposPolicy?.dirtyRepo || "",
+    },
     scripts: scriptStatus,
     manifest: manifest.summary,
     skills: skills.summary,
@@ -113,11 +121,14 @@ export function buildUpdatePlan(ctx, options = {}) {
   };
 }
 
-function buildPlanDecisions(context) {
+export function buildPlanDecisions(context) {
   const actions = [];
   const blocked = [];
   const warnings = [];
-  const preservedRuntimeFiles = context.manifest.runtimeFiles?.preserve || [];
+  const preservedRuntimeFiles = [
+    ...new Set([...(context.manifest.runtimeFiles?.preserve || []), ...PRESERVED_RUNTIME_FILES]),
+  ];
+  const dirty = classifyGitShort(context.git?.short || "");
 
   if (context.managerRegistry.outdated) {
     actions.push({
@@ -139,13 +150,27 @@ function buildPlanDecisions(context) {
       reason: "repo root is not a git checkout; install/update needs operator inspection first",
       recovery: "pi-67 install",
     });
-  } else if (context.git.dirty) {
+  } else if (context.git.dirty && dirty.unsafeTracked.length > 0) {
     blocked.push({
       id: "repo-root",
       kind: "distro",
-      reason: "repo has local changes; pi-67 update blocks by default to avoid overwriting local work",
+      reason: `repo has non-runtime local changes; pi-67 update blocks by default to avoid overwriting local work: ${dirty.unsafeTracked.join(", ")}`,
       recovery: "commit/stash intentional changes or rerun the script-level updater with an explicit dirty override",
     });
+  } else if (context.git.dirty && dirty.preservedRuntime.length > 0) {
+    actions.push({
+      id: "user-runtime-config",
+      kind: "runtime-config",
+      operation: "backup-and-restore-during-update",
+      writes: ["~/.pi/pi67/backups/<timestamp>-update"],
+      preserves: dirty.preservedRuntime,
+      risk: "low",
+      reason: "only user-owned runtime config files are dirty; update snapshots and restores them instead of overwriting",
+    });
+    warnings.push(`dirty user runtime config will be preserved across update: ${dirty.preservedRuntime.join(", ")}`);
+  }
+  if (context.git?.dirty && dirty.untracked.length > 0) {
+    warnings.push(`untracked files are present and will be preserved unless Git reports a path collision: ${dirty.untracked.join(", ")}`);
   }
 
   for (const item of context.manifest.localExtensions || []) {
@@ -245,4 +270,43 @@ function buildPlanDecisions(context) {
   }
 
   return { actions, blocked, warnings };
+}
+
+export function classifyGitShort(short) {
+  const preserved = new Set(PRESERVED_RUNTIME_FILES);
+  const result = {
+    preservedRuntime: [],
+    unsafeTracked: [],
+    untracked: [],
+  };
+  for (const line of String(short || "").split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const status = line.startsWith("??") ? "??" : line.slice(0, 2);
+    const file = parseStatusPath(line);
+    if (!file) continue;
+    if (status === "??") {
+      result.untracked.push(file);
+    } else if (preserved.has(file)) {
+      result.preservedRuntime.push(file);
+    } else {
+      result.unsafeTracked.push(file);
+    }
+  }
+  result.preservedRuntime = [...new Set(result.preservedRuntime)].sort();
+  result.unsafeTracked = [...new Set(result.unsafeTracked)].sort();
+  result.untracked = [...new Set(result.untracked)].sort();
+  return result;
+}
+
+function parseStatusPath(line) {
+  let file = "";
+  if (line.length >= 3 && line[2] === " ") {
+    file = line.slice(3).trim();
+  } else {
+    file = line.replace(/^[ MARCUD?!]{1,2}\s+/, "").trim();
+  }
+  const arrow = " -> ";
+  if (file.includes(arrow)) file = file.slice(file.indexOf(arrow) + arrow.length);
+  if (file.startsWith('"') && file.endsWith('"')) file = file.slice(1, -1);
+  return file.replace(/\\/g, "/");
 }

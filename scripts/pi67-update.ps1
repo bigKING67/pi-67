@@ -52,7 +52,8 @@ Options:
                       the pi-67 bundled baseline. Default keeps the existing
                       global skill and continues.
   -NoAutoResolveKnownConflicts
-                       Do not auto-backup/restore known migration conflicts.
+                       Do not auto-backup/restore dirty user runtime config
+                       files before git update.
   -Help               Show this help.
 
 Normal Windows update:
@@ -114,6 +115,14 @@ $NpmInstallArgs = @("install", "--ignore-scripts", "--no-audit", "--no-fund", "-
 $KnownMigrationConflictPaths = @(
   "settings.json",
   "extensions/xtalpi-compat/index.ts"
+)
+$UserPreservedTrackedUpdatePaths = @(
+  "settings.json",
+  "models.json",
+  "auth.json",
+  "mcp.json",
+  "image-gen.json",
+  "settings.json.theme"
 )
 
 function Write-Info {
@@ -830,6 +839,95 @@ function Backup-And-RestoreKnownMigrationConflicts {
   return $true
 }
 
+function Backup-And-ClearUserRuntimeTrackedEdits {
+  param([string[]]$TrackedStatus)
+
+  $dirtyPaths = @()
+  foreach ($line in $TrackedStatus) {
+    $path = Get-StatusPath $line
+    if ($path) {
+      $dirtyPaths += $path
+    }
+  }
+
+  if ($dirtyPaths.Count -eq 0) {
+    return $null
+  }
+
+  $unknown = @($dirtyPaths | Where-Object { $UserPreservedTrackedUpdatePaths -notcontains $_ })
+  if ($unknown.Count -gt 0) {
+    return $null
+  }
+
+  $stamp = Get-Date -Format "yyyyMMddTHHmmssZ"
+  $backupDir = Join-Path (Join-Path (Join-Path $HomePath ".pi") "pi67") (Join-Path "backups" ("pre-update-runtime-{0}" -f $stamp))
+  $filesDir = Join-Path $backupDir "files"
+
+  Write-Warn "tracked edits are limited to user-owned runtime config files"
+  Write-Warn ("backing them up and restoring them after git update: {0}" -f $backupDir)
+
+  if ($DryRun) {
+    Write-Host ("  DRY-RUN backup preserved runtime files to {0}" -f $backupDir) -ForegroundColor Cyan
+    Write-Host ("  DRY-RUN git restore --worktree --staged -- {0}" -f ($dirtyPaths -join " ")) -ForegroundColor Cyan
+    return [pscustomobject]@{
+      BackupDir = $backupDir
+      Paths = $dirtyPaths
+      DryRun = $true
+    }
+  }
+
+  New-Item -ItemType Directory -Force -Path $filesDir | Out-Null
+  Invoke-Git (@("diff", "--") + $dirtyPaths) | Set-Content -LiteralPath (Join-Path $backupDir "local.diff") -Encoding UTF8
+
+  foreach ($rel in $dirtyPaths) {
+    $source = Join-Path $RepoRoot ($rel -replace "/", [IO.Path]::DirectorySeparatorChar)
+    if (Test-Path -LiteralPath $source -PathType Leaf) {
+      $safeName = $rel -replace "[\\/]", "__"
+      Copy-Item -LiteralPath $source -Destination (Join-Path $filesDir $safeName) -Force
+    }
+  }
+
+  @{
+    schema = "pi67.runtime-preserve-backup.v1"
+    createdAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    repoRoot = $RepoRoot
+    paths = $dirtyPaths
+  } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $backupDir "manifest.json") -Encoding UTF8
+
+  Invoke-Git (@("restore", "--worktree", "--staged", "--") + $dirtyPaths) | Out-Null
+  return [pscustomobject]@{
+    BackupDir = $backupDir
+    Paths = $dirtyPaths
+    DryRun = $false
+  }
+}
+
+function Restore-UserRuntimeTrackedEdits {
+  param([object]$Backup)
+
+  if (-not $Backup) {
+    return
+  }
+  if ($Backup.DryRun) {
+    Write-Host ("  DRY-RUN restore preserved runtime files from {0}" -f $Backup.BackupDir) -ForegroundColor Cyan
+    return
+  }
+
+  $filesDir = Join-Path $Backup.BackupDir "files"
+  foreach ($rel in @($Backup.Paths)) {
+    $safeName = $rel -replace "[\\/]", "__"
+    $source = Join-Path $filesDir $safeName
+    $target = Join-Path $RepoRoot ($rel -replace "/", [IO.Path]::DirectorySeparatorChar)
+    if (Test-Path -LiteralPath $source -PathType Leaf) {
+      New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
+      Copy-Item -LiteralPath $source -Destination $target -Force
+    } elseif (Test-Path -LiteralPath $target) {
+      Remove-Item -LiteralPath $target -Force
+    }
+  }
+  Write-Pass "restored preserved runtime config after update"
+}
+
 function Show-ReportStatus {
   param(
     [string]$CurrentVersion,
@@ -915,9 +1013,9 @@ function Show-CheckOnly {
       Write-Host ("  {0}" -f $line)
     }
     $dirtyPaths = @($trackedStatus | ForEach-Object { Get-StatusPath $_ })
-    $unknown = @($dirtyPaths | Where-Object { $KnownMigrationConflictPaths -notcontains $_ })
+    $unknown = @($dirtyPaths | Where-Object { $UserPreservedTrackedUpdatePaths -notcontains $_ })
     if ($unknown.Count -eq 0 -and -not $NoAutoResolveKnownConflicts) {
-      Write-Pass "tracked edits are auto-resolvable known migration conflicts"
+      Write-Pass "tracked edits are user-owned runtime config and will be preserved across update"
     } else {
       Write-Warn "tracked edits require manual commit/stash or -AllowDirty"
     }
@@ -981,17 +1079,23 @@ function Update-Repo {
 
   $targetBranch = Get-CurrentBranch
   $trackedStatus = Get-GitStatusLines
+  $runtimeBackup = $null
 
-  if ($trackedStatus.Count -gt 0 -and -not $AllowDirty) {
-    $resolved = Backup-And-RestoreKnownMigrationConflicts $trackedStatus
-    if (-not $resolved) {
+  if ($trackedStatus.Count -gt 0 -and -not $AllowDirty -and -not $NoAutoResolveKnownConflicts) {
+    $runtimeBackup = Backup-And-ClearUserRuntimeTrackedEdits $trackedStatus
+    if (-not $runtimeBackup) {
       foreach ($line in $trackedStatus) {
         Write-Host $line
       }
-      Write-Fail "repo has tracked local changes; commit/stash them, rerun with -AllowDirty, or keep auto-resolve enabled for known migration conflicts"
+      Write-Fail "repo has non-runtime tracked local changes; commit/stash them or rerun with -AllowDirty"
     }
-  } elseif ($trackedStatus.Count -gt 0) {
+  } elseif ($trackedStatus.Count -gt 0 -and $AllowDirty) {
     Write-Warn "repo has tracked local changes; proceeding because -AllowDirty was provided"
+  } elseif ($trackedStatus.Count -gt 0) {
+    foreach ($line in $trackedStatus) {
+      Write-Host $line
+    }
+    Write-Fail "repo has tracked local changes and auto-preserve is disabled; commit/stash them or rerun with -AllowDirty"
   }
 
   $before = (Invoke-Git @("rev-parse", "--short", "HEAD") | Select-Object -First 1)
@@ -1001,7 +1105,13 @@ function Update-Repo {
     return
   }
 
-  Invoke-Git @("pull", "--ff-only", $Remote, $targetBranch) -Echo | Out-Null
+  try {
+    Invoke-Git @("pull", "--ff-only", $Remote, $targetBranch) -Echo | Out-Null
+  } catch {
+    Restore-UserRuntimeTrackedEdits $runtimeBackup
+    throw
+  }
+  Restore-UserRuntimeTrackedEdits $runtimeBackup
   $after = (Invoke-Git @("rev-parse", "--short", "HEAD") | Select-Object -First 1)
 
   if ($before -eq $after) {

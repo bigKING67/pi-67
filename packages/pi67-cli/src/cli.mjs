@@ -11,10 +11,12 @@ import { versionCommand } from "./commands/version.mjs";
 import { xtalpiCommand } from "./commands/xtalpi.mjs";
 import { themesCommand } from "./commands/themes.mjs";
 import { skillsCommand } from "./commands/skills.mjs";
+import { extensionsCommand } from "./commands/extensions.mjs";
 import { externalCommand } from "./commands/external.mjs";
 import { selfUpdateCommand } from "./commands/self-update.mjs";
 import { publishCheckCommand } from "./commands/publish-check.mjs";
 import { manifestCommand } from "./commands/manifest.mjs";
+import { backupsCommand } from "./commands/backups.mjs";
 
 const COMMANDS = {
   install: installCommand,
@@ -27,10 +29,12 @@ const COMMANDS = {
   xtalpi: xtalpiCommand,
   themes: themesCommand,
   skills: skillsCommand,
+  extensions: extensionsCommand,
   external: externalCommand,
   "self-update": selfUpdateCommand,
   "publish-check": publishCheckCommand,
   manifest: manifestCommand,
+  backups: backupsCommand,
 };
 
 export async function main(argv) {
@@ -80,10 +84,12 @@ Commands:
   xtalpi               xtalpi health/smoke/capability helpers
   themes               current/list/doctor/set without update-time overwrite
   skills               inventory/sync/migrate shared skills
+  extensions           list/doctor/inspect/plan extension ownership policy
   external             list/install/update/doctor external repos
   self-update          Explicitly update the npm manager package
   publish-check        Verify npm publish readiness and trusted publishing
   manifest             Show managed package/config/theme ownership policy
+  backups              list/inspect/restore preserved runtime backups
 
 Examples:
   pi-67 install
@@ -94,6 +100,8 @@ Examples:
   pi-67 publish-check
   pi-67 manifest
   pi-67 manifest --validate
+  pi-67 backups list
+  pi-67 extensions doctor
   pi-67 xtalpi smoke --quick
   pi-67 themes current
 `);

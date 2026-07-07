@@ -16,7 +16,8 @@
       "models.json",
       "auth.json",
       "mcp.json",
-      "image-gen.json"
+      "image-gen.json",
+      "settings.json.theme"
     ],
     "templateOnly": [
       "models.example.json",
@@ -27,7 +28,14 @@
   },
   "theme": {
     "packageName": "@victor-software-house/pi-curated-themes",
-    "preserveSetting": "settings.json.theme",
+    "preserveSetting": "settings.json:theme",
+    "selection": {
+      "file": "settings.json",
+      "path": "theme"
+    },
+    "legacyPreserveFiles": [
+      "settings.json.theme"
+    ],
     "policy": "install-theme-package-only-never-select-theme-on-update",
     "explicitCommands": [
       "pi-67 themes current",

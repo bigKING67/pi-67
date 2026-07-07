@@ -157,7 +157,13 @@ function validateConfigPatches(entry, label, allowedPatchModes, problems) {
 function isSafePatchMode(patch) {
   if (patch.mode === "merge-preserve") return true;
   if (patch.mode === "template-only" && String(patch.file || "").endsWith(".example.json")) return true;
-  if (patch.mode === "report-only" && patch.file === "settings.json.theme") return true;
+  if (patch.mode === "report-only" && isThemeSelectionReportOnlyPatch(patch)) return true;
+  return false;
+}
+
+function isThemeSelectionReportOnlyPatch(patch) {
+  if (patch.file === "settings.json" && patch.path === "theme") return true;
+  if (patch.file === "settings.json.theme") return true;
   return false;
 }
 
@@ -192,7 +198,7 @@ function validateManifestParity(entries, manifest, problems, warnings) {
     if (manifest.theme?.policy && theme.updateStrategy !== manifest.theme.policy) {
       problems.push("theme extension registry policy must match manifest theme policy");
     }
-    if (theme.configPatches?.some((patch) => patch.mode !== "report-only" || patch.file !== "settings.json.theme")) {
+    if (theme.configPatches?.some((patch) => patch.mode !== "report-only" || !isThemeSelectionReportOnlyPatch(patch))) {
       problems.push("theme extension registry must only report current theme selection during update");
     }
   }

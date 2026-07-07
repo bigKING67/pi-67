@@ -644,9 +644,23 @@ distribution updater. If it was run manually, use `pi-67 update --repair` to
 re-run the pi-67 npm sync, known patch checks, shared skill checks, smoke,
 doctor, and report path.
 
-`pi-67 update` preserves `settings.json.theme`; it may update the installed
-theme package, but it will not change the selected theme. Change theme only
-with:
+`pi-67 update` preserves `settings.json` and the selected theme value; it may
+update the installed theme package, but it will not change the selected theme.
+Before a real update/repair, the npm manager writes
+`~/.pi/pi67/locks/update.lock` and snapshots preserved runtime config under
+`~/.pi/pi67/backups/<timestamp>-update/`. In-place checkouts with dirty
+user-runtime config are backed up and restored after `git pull --ff-only`;
+unrelated tracked edits still block. Inspect or recover those snapshots with:
+
+```bash
+pi-67 backups list
+pi-67 backups inspect <backup-id-or-path>
+pi-67 backups restore --from <backup-id-or-path> --dry-run
+pi-67 backups restore --from <backup-id-or-path> --yes
+```
+
+Real restore writes a pre-restore backup first and only restores preserved
+runtime config files. Change theme only with:
 
 ```bash
 pi-67 themes set gruvbox-dark

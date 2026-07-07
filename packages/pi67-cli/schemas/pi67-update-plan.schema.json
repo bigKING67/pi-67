@@ -31,6 +31,32 @@
     "paths": {
       "type": "object"
     },
+    "policy": {
+      "type": "object",
+      "description": "Non-destructive update policy in force for user config, theme selection, shared skills, and external repos.",
+      "required": ["preservedRuntimeFiles", "themePolicy", "sharedSkillsPolicy", "externalDirtyPolicy"],
+      "properties": {
+        "userConfigPolicy": {
+          "type": "string"
+        },
+        "preservedRuntimeFiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "themePolicy": {
+          "type": "string"
+        },
+        "sharedSkillsPolicy": {
+          "type": "string"
+        },
+        "externalDirtyPolicy": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
     "actions": {
       "type": "array",
       "description": "Safe update/repair actions that preserve user-owned config and local choices.",

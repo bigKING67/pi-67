@@ -152,6 +152,16 @@ It does not replace or shadow the upstream `pi` binary. `pi update` and
 `pi update --extensions` remain upstream Pi commands; `pi-67 update` is the
 pi-67 distribution update command.
 
+The manager update path is preserve-first. A real `pi-67 update` / `pi-67
+update --repair` acquires `~/.pi/pi67/locks/update.lock` and snapshots
+`settings.json`, `models.json`, `auth.json`, `mcp.json`, `image-gen.json`, and
+legacy `settings.json.theme` if present under
+`~/.pi/pi67/backups/<timestamp>-update/` before dispatching the Bash or
+PowerShell updater. The selected theme lives in the `settings.json` `theme`
+field and must not be changed by update. In-place checkouts with only dirty
+user runtime config are backed up, temporarily cleaned for `git pull --ff-only`,
+and restored after the pull; unrelated tracked edits still block.
+
 Before publishing the npm package:
 
 ```bash
@@ -159,10 +169,12 @@ node packages/pi67-cli/bin/pi-67.mjs --help
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" version --json
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" manifest --json
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" manifest --validate
+node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" extensions doctor --json --no-remote
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" update --check --json --no-remote
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" update --check --json --no-remote --strict-shared-skills
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" publish-check --json --no-remote
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" themes current --json
+node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" backups list --json
 node packages/pi67-cli/bin/pi-67.mjs --dry-run self-update
 npm pack --dry-run ./packages/pi67-cli
 ```
@@ -177,6 +189,14 @@ pi-67 update --check --strict-shared-skills
 `pi-67 update --check --json` must include `actions`, `blocked`, and `warnings`
 so release consumers can see planned writes, preserved user-owned paths, and
 policy blockers before a real update.
+It must also expose `policy.preservedRuntimeFiles`, `policy.themePolicy`,
+`policy.sharedSkillsPolicy`, and `policy.externalDirtyPolicy` so scripts and
+docs can prove that update behavior is governed by the same manifest contract.
+`pi-67 backups list`, `pi-67 backups inspect <backup-id-or-path>`, and
+`pi-67 backups restore --from <backup-id-or-path> --dry-run|--yes` are the
+supported recovery path for repo-external update/repair/theme-set runtime
+snapshots; restore only writes preserved runtime files and creates a
+pre-restore backup first.
 
 After the local release gates pass, use the public manager command to inspect
 the end-to-end npm publish path:
@@ -198,6 +218,8 @@ skills, or external repo behavior; it is the user-visible ownership contract
 that separates pi-67 managed resources from report-only user resources.
 Use `pi-67 manifest --validate` for the standalone registry policy gate before
 publishing, even when no npm publish check is being run.
+Use `pi-67 extensions doctor` / `pi-67 extensions inspect <id>` for the
+operator-facing view of the same extension registry without editing user state.
 New extensions must also be registered in
 `packages/pi67-cli/src/data/extension-registry.json` with owner,
 install/update/repair strategy, config patch mode, and smoke gates. The release

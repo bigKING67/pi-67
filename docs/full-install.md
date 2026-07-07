@@ -58,9 +58,27 @@ Update boundary:
   restore the pi-67 managed state.
 
 `pi-67 update` preserves local choices by default. It does not overwrite
-existing `models.json`, `auth.json`, `mcp.json`, `image-gen.json`, user-added
-packages, user-added global skills, or `settings.json.theme`. Theme changes are
-explicit:
+existing `settings.json`, `models.json`, `auth.json`, `mcp.json`,
+`image-gen.json`, user-added packages, user-added global skills, or the selected
+theme value. A real update/repair first writes a repo-external lock and backup:
+
+```text
+~/.pi/pi67/locks/update.lock
+~/.pi/pi67/backups/<timestamp>-update/
+```
+
+Use the public backup commands to inspect or recover those snapshots. A real
+restore writes another pre-restore backup first and only restores preserved
+runtime files:
+
+```bash
+pi-67 backups list
+pi-67 backups inspect <backup-id-or-path>
+pi-67 backups restore --from <backup-id-or-path> --dry-run
+pi-67 backups restore --from <backup-id-or-path> --yes
+```
+
+Theme changes are explicit:
 
 ```bash
 pi-67 themes current
@@ -121,10 +139,11 @@ It runs a safe fast-forward Git update, keeps existing local runtime config
 files, creates missing config files from examples only when needed, normalizes
 parseable Windows JSON encoding issues such as UTF-16, UTF-8 BOM, or leading
 NUL bytes to UTF-8 without BOM after writing `*.bak-*-encoding` backups, syncs
-npm dependencies, applies the local `pi-until-done` runtime queue/progress compatibility
-patch when needed, runs the PowerShell smoke, and writes `pi67-report.json`.
-During the one-time `xtalpi-compat` -> `xtalpi-pi-tools` migration, it can
-auto-backup and restore the narrow known tracked conflict files before pulling.
+npm dependencies, applies the local `pi-until-done` runtime queue/progress
+compatibility patch when needed, runs the PowerShell smoke, and writes
+`pi67-report.json`. For in-place checkouts, dirty user runtime config such as
+`settings.json` is backed up, temporarily cleared for `git pull --ff-only`, and
+restored after the pull; unrelated tracked edits still block.
 
 For a fresh in-place Windows laptop checkout, this is the minimal bootstrap
 equivalent of the Bash installer:

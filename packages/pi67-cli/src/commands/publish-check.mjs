@@ -155,7 +155,7 @@ function buildPublishCheck(ctx, options) {
 }
 
 function manifestReleaseCheck(manifest) {
-  const requiredPreserve = ["settings.json", "models.json", "auth.json", "mcp.json", "image-gen.json"];
+  const requiredPreserve = ["settings.json", "models.json", "auth.json", "mcp.json", "image-gen.json", "settings.json.theme"];
   const missingPreserve = requiredPreserve.filter((file) => !manifest.runtimeFiles?.preserve?.includes(file));
   const requiredCommands = ["update", "repair", "alwaysFreshRepair", "upstreamPiExtensions"];
   const missingCommands = requiredCommands.filter((name) => !manifest.commands?.[name]);
@@ -170,8 +170,11 @@ function manifestReleaseCheck(manifest) {
   const userManagedPackages = manifest.userManagedPackages || [];
   const policyProblems = [];
 
-  if (manifest.theme?.preserveSetting !== "settings.json.theme") {
-    policyProblems.push("theme preserveSetting must be settings.json.theme");
+  if (manifest.theme?.preserveSetting !== "settings.json:theme") {
+    policyProblems.push("theme preserveSetting must be settings.json:theme");
+  }
+  if (manifest.theme?.selection?.file !== "settings.json" || manifest.theme?.selection?.path !== "theme") {
+    policyProblems.push("theme selection must be the settings.json theme field");
   }
   if (manifest.theme?.policy !== "install-theme-package-only-never-select-theme-on-update") {
     policyProblems.push("theme policy must preserve selected theme during update");
@@ -203,6 +206,11 @@ function manifestReleaseCheck(manifest) {
     message: problems.length === 0 ? "ownership manifest release policy ready" : problems.join("; "),
     problems,
     warnings,
+    extensionRegistry: {
+      ok: registryValidation.ok,
+      summary: registryValidation.summary,
+      warnings: registryValidation.warnings,
+    },
   };
 }
 

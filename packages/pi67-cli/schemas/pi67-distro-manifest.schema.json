@@ -38,7 +38,44 @@
     },
     "theme": {
       "type": "object",
-      "required": ["packageName", "preserveSetting", "policy", "explicitCommands"]
+      "required": ["packageName", "preserveSetting", "selection", "policy", "explicitCommands"],
+      "properties": {
+        "packageName": {
+          "type": "string"
+        },
+        "preserveSetting": {
+          "const": "settings.json:theme"
+        },
+        "selection": {
+          "type": "object",
+          "required": ["file", "path"],
+          "properties": {
+            "file": {
+              "const": "settings.json"
+            },
+            "path": {
+              "const": "theme"
+            }
+          },
+          "additionalProperties": true
+        },
+        "legacyPreserveFiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "policy": {
+          "type": "string"
+        },
+        "explicitCommands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
     },
     "sharedSkills": {
       "type": "object",

@@ -44,6 +44,16 @@ ALLOW_DIRTY=false
 FORCE_NPM=false
 DEV_LINK_SKILLS=false
 STRICT_SHARED_SKILLS=false
+PRESERVED_RUNTIME_FILES=(
+  "settings.json"
+  "models.json"
+  "auth.json"
+  "mcp.json"
+  "image-gen.json"
+  "settings.json.theme"
+)
+PRESERVED_RUNTIME_BACKUP_DIR=""
+PRESERVED_RUNTIME_BACKUP_PATHS=()
 
 usage() {
   cat <<'USAGE'
@@ -71,6 +81,8 @@ Options:
       --no-doctor       Skip doctor after update.
       --no-report       Skip ~/.pi/agent/pi67-report.json generation.
       --allow-dirty     Allow git pull with a dirty worktree. Default is to stop.
+                        Dirty user runtime config files are backed up and
+                        restored automatically; other tracked edits still stop.
   -h, --help            Show this help.
 
 First update on an old install that does not have this script yet:
@@ -196,6 +208,100 @@ real_dir() {
   else
     printf '%s\n' "$dir"
   fi
+}
+
+repo_status_path() {
+  local line="$1"
+  local file="${line:3}"
+  file="${file#"${file%%[![:space:]]*}"}"
+  if [[ "$file" == *" -> "* ]]; then
+    file="${file##* -> }"
+  fi
+  if [[ "$file" == \"*\" ]]; then
+    file="${file#\"}"
+    file="${file%\"}"
+  fi
+  printf '%s\n' "${file//\\//}"
+}
+
+is_preserved_runtime_file() {
+  local candidate="$1"
+  local rel
+  for rel in "${PRESERVED_RUNTIME_FILES[@]}"; do
+    if [ "$candidate" = "$rel" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+backup_and_clear_preserved_runtime_edits() {
+  local -a dirty_paths=("$@")
+  if [ "${#dirty_paths[@]}" -eq 0 ]; then
+    return 0
+  fi
+
+  local stamp backup_dir rel source safe_name
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  backup_dir="$HOME/.pi/pi67/backups/pre-update-runtime-$stamp"
+  PRESERVED_RUNTIME_BACKUP_DIR="$backup_dir"
+  PRESERVED_RUNTIME_BACKUP_PATHS=("${dirty_paths[@]}")
+
+  warn "tracked edits are limited to user-owned runtime config files"
+  warn "backing them up and restoring them after git update: $backup_dir"
+
+  if [ "$DRY_RUN" = true ]; then
+    say "  ${CYAN}DRY-RUN${NC} backup preserved runtime files to $backup_dir"
+    say "  ${CYAN}DRY-RUN${NC} git -C $REPO_ROOT restore --worktree --staged -- ${dirty_paths[*]}"
+    return 0
+  fi
+
+  mkdir -p "$backup_dir/files"
+  git -C "$REPO_ROOT" diff -- "${dirty_paths[@]}" > "$backup_dir/local.diff" || true
+  for rel in "${dirty_paths[@]}"; do
+    source="$REPO_ROOT/$rel"
+    safe_name="${rel//\//__}"
+    if [ -f "$source" ]; then
+      cp "$source" "$backup_dir/files/$safe_name"
+      chmod 600 "$backup_dir/files/$safe_name" 2>/dev/null || true
+    fi
+  done
+  cat > "$backup_dir/manifest.json" <<EOF
+{
+  "schema": "pi67.runtime-preserve-backup.v1",
+  "createdAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "repoRoot": "$REPO_ROOT",
+  "paths": [$(printf '"%s",' "${dirty_paths[@]}" | sed 's/,$//')]
+}
+EOF
+  chmod 600 "$backup_dir/manifest.json" 2>/dev/null || true
+  git -C "$REPO_ROOT" restore --worktree --staged -- "${dirty_paths[@]}"
+}
+
+restore_preserved_runtime_edits() {
+  if [ -z "$PRESERVED_RUNTIME_BACKUP_DIR" ] || [ "${#PRESERVED_RUNTIME_BACKUP_PATHS[@]}" -eq 0 ]; then
+    return 0
+  fi
+  local rel source target safe_name
+  if [ "$DRY_RUN" = true ]; then
+    say "  ${CYAN}DRY-RUN${NC} restore preserved runtime files from $PRESERVED_RUNTIME_BACKUP_DIR"
+    return 0
+  fi
+  for rel in "${PRESERVED_RUNTIME_BACKUP_PATHS[@]}"; do
+    safe_name="${rel//\//__}"
+    source="$PRESERVED_RUNTIME_BACKUP_DIR/files/$safe_name"
+    target="$REPO_ROOT/$rel"
+    if [ -f "$source" ]; then
+      mkdir -p "$(dirname "$target")"
+      cp "$source" "$target"
+      chmod 600 "$target" 2>/dev/null || true
+    elif [ -e "$target" ] || [ -L "$target" ]; then
+      rm -f "$target"
+    fi
+  done
+  pass "restored preserved runtime config after update"
+  PRESERVED_RUNTIME_BACKUP_DIR=""
+  PRESERVED_RUNTIME_BACKUP_PATHS=()
 }
 
 detect_install_mode() {
@@ -723,7 +829,24 @@ check_update_plan() {
   fi
 
   if [ -n "$dirty" ]; then
-    warn "repo has local changes; real update would stop unless --allow-dirty is used"
+    local -a dirty_tracked_paths=()
+    local -a unsafe_dirty_paths=()
+    local line rel
+    while IFS= read -r line; do
+      [ -z "$line" ] && continue
+      rel="$(repo_status_path "$line")"
+      dirty_tracked_paths+=("$rel")
+      if ! is_preserved_runtime_file "$rel"; then
+        unsafe_dirty_paths+=("$rel")
+      fi
+    done < <(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=no)
+    if [ "${#dirty_tracked_paths[@]}" -gt 0 ] && [ "${#unsafe_dirty_paths[@]}" -eq 0 ]; then
+      warn "repo has dirty user runtime config; update would back up and restore it"
+    elif [ "${#unsafe_dirty_paths[@]}" -gt 0 ]; then
+      warn "repo has non-runtime local changes; real update would stop unless --allow-dirty is used"
+    else
+      warn "repo has only untracked local files; update would preserve them unless Git reports a path collision"
+    fi
     say "$dirty"
   else
     pass "repo worktree is clean"
@@ -809,6 +932,9 @@ update_repo() {
   fi
 
   local current_branch dirty before after old_version new_version
+  local -a dirty_tracked_paths=()
+  local -a unsafe_dirty_paths=()
+  local line rel
   current_branch="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD)"
   if [ "$current_branch" = "HEAD" ] && [ -z "$BRANCH" ]; then
     fail "detached HEAD; pass --branch explicitly"
@@ -818,12 +944,28 @@ update_repo() {
   fi
 
   dirty="$(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all)"
-  if [ -n "$dirty" ] && [ "$ALLOW_DIRTY" != true ]; then
-    say "$dirty" >&2
-    fail "repo has local changes; commit/stash them or rerun with --allow-dirty"
-  fi
-  if [ -n "$dirty" ]; then
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    case "${line:0:2}" in
+      "??") continue ;;
+    esac
+    rel="$(repo_status_path "$line")"
+    dirty_tracked_paths+=("$rel")
+    if ! is_preserved_runtime_file "$rel"; then
+      unsafe_dirty_paths+=("$rel")
+    fi
+  done < <(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=no)
+
+  if [ "${#dirty_tracked_paths[@]}" -gt 0 ] && [ "$ALLOW_DIRTY" != true ]; then
+    if [ "${#unsafe_dirty_paths[@]}" -gt 0 ]; then
+      printf '%s\n' "$dirty" >&2
+      fail "repo has non-runtime local changes; commit/stash them or rerun with --allow-dirty"
+    fi
+    backup_and_clear_preserved_runtime_edits "${dirty_tracked_paths[@]}"
+  elif [ -n "$dirty" ] && [ "$ALLOW_DIRTY" = true ]; then
     warn "repo has local changes; proceeding because --allow-dirty was provided"
+  elif [ -n "$dirty" ]; then
+    warn "repo has only untracked local files; update will proceed unless Git reports a path collision"
   fi
 
   before="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
@@ -835,7 +977,11 @@ update_repo() {
     return
   fi
 
-  git -C "$REPO_ROOT" pull --ff-only "$REMOTE" "$BRANCH"
+  if ! git -C "$REPO_ROOT" pull --ff-only "$REMOTE" "$BRANCH"; then
+    restore_preserved_runtime_edits
+    fail "git pull failed"
+  fi
+  restore_preserved_runtime_edits
   after="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
   new_version="$(tr -d '[:space:]' < "$REPO_ROOT/VERSION" 2>/dev/null || true)"
 

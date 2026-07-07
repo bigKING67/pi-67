@@ -5,6 +5,7 @@ import { runDistroScript } from "../lib/distro-scripts.mjs";
 import { isWindows } from "../lib/platform.mjs";
 import { runCommand } from "../lib/shell-runner.mjs";
 import { writeState } from "../lib/state-store.mjs";
+import { beginUpdateLifecycle } from "../lib/update-safety.mjs";
 
 export async function updateCommand(ctx, argv) {
   const { options } = parseCommandOptions(argv, {
@@ -38,11 +39,28 @@ export async function updateCommand(ctx, argv) {
     return;
   }
 
+  const plan = buildUpdatePlan(ctx, {
+    noRemote: ctx.noRemote || options.noRemote,
+    strictSharedSkills: options.strictSharedSkills,
+  });
+  const lifecycle = beginUpdateLifecycle(ctx, {
+    operation: options.repair ? "repair" : "update",
+    dryRun,
+    plan,
+  });
+  if (!dryRun && lifecycle.backedUp.length > 0) {
+    info(`Preserved runtime backup: ${lifecycle.backupDir}`);
+  }
+
   const args = isWindows()
     ? buildWindowsUpdateArgs(ctx, options, dryRun)
     : buildBashUpdateArgs(ctx, options, dryRun);
-  runDistroScript(ctx, { sh: "pi67-update.sh", ps1: "pi67-update.ps1" }, args, { dryRun: false });
-  if (!dryRun) writeState(ctx, options.repair ? "repair" : "update");
+  try {
+    runDistroScript(ctx, { sh: "pi67-update.sh", ps1: "pi67-update.ps1" }, args, { dryRun: false });
+    if (!dryRun) writeState(ctx, options.repair ? "repair" : "update");
+  } finally {
+    lifecycle.release();
+  }
 
   if (options.includePi || options.all) {
     if (ctx.yes || options.yes) {

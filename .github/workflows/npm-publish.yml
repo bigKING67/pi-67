@@ -95,6 +95,8 @@ jobs:
           node packages/pi67-cli/scripts/check.mjs
           node packages/pi67-cli/bin/pi-67.mjs --help >/dev/null
           node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" update --check --json --no-remote >/dev/null
+          node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" extensions doctor --json --no-remote >/dev/null
+          node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" backups list --json >/dev/null
           node packages/pi67-cli/bin/pi-67.mjs --dry-run self-update >/dev/null
 
       - name: Run release metadata check

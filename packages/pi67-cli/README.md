@@ -59,17 +59,39 @@ npx -y @bigking67/pi-67@latest update --repair
 
 `pi-67 update` preserves local runtime choices:
 
+- existing `settings.json`
 - existing `models.json`, `auth.json`, `mcp.json`, and `image-gen.json`
-- `settings.json.theme`
+- the `theme` value inside `settings.json`
 - user-added Pi packages
 - user-added global skills
 - dirty external repos such as browser67 or design-craft
+
+Before a real `update` or `repair`, the npm manager acquires
+`~/.pi/pi67/locks/update.lock` and snapshots preserved runtime files under
+`~/.pi/pi67/backups/<timestamp>-update/`. This makes the public `npx -y
+@bigking67/pi-67@latest update --repair` path safe even for in-place checkouts
+where `settings.json` is tracked but user-owned.
+
+Runtime backups are first-class CLI state:
+
+```bash
+pi-67 backups list
+pi-67 backups inspect <backup-id-or-path>
+pi-67 backups restore --from <backup-id-or-path> --dry-run
+pi-67 backups restore --from <backup-id-or-path> --yes
+```
+
+The restore command only restores preserved runtime files and writes a
+pre-restore backup before overwriting current local config.
 
 Theme changes are explicit only:
 
 ```bash
 pi-67 themes set gruvbox-dark
 ```
+
+The explicit theme setter also writes a runtime backup before changing
+`settings.json`; normal update never changes the selected theme.
 
 The manager writes lightweight state outside the repo at `~/.pi/pi67/state.json`.
 It records versions, paths, theme, provider/model, and commit information; it
@@ -86,6 +108,10 @@ pi-67 self-update
 pi-67 publish-check
 pi-67 manifest
 pi-67 manifest --validate
+pi-67 extensions doctor
+pi-67 extensions inspect xtalpi-pi-tools
+pi-67 backups list
+pi-67 backups inspect <backup-id-or-path>
 pi-67 doctor
 pi-67 smoke --quick
 pi-67 status
@@ -122,7 +148,9 @@ The manifest also embeds the extension registry from
 shared-skill packs, runtime packages, or external repos must declare owner,
 install/update/repair strategy, config patch mode, and smoke gates there before
 release. This keeps extension behavior explicit instead of scattering preserve
-rules across scripts. `pi-67 manifest --validate`, `pi-67 publish-check`, and
+rules across scripts. `pi-67 extensions doctor` is the user-facing registry
+diagnostic, and `pi-67 extensions inspect <id>` shows the exact owner/update
+policy for one entry. `pi-67 manifest --validate`, `pi-67 publish-check`, and
 release gates reuse the same registry validator so duplicate ids, missing smoke
 gates, unsupported config patch modes, theme-selection drift, shared-skill
 overwrite drift, and dirty external-repo update drift fail consistently.
