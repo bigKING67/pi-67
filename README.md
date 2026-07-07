@@ -793,10 +793,12 @@ pi-67 publish-check
 pi-67 publish-check --json
 ```
 
-`publish-check` 不只检查 npm 包元数据，也会检查 ownership manifest：保留
-runtime config、主题不自动切换、shared skills 默认不覆盖、external dirty repo
-阻断更新、必需 local extensions 存在，以及发行版基线里不能混入未知
-user-managed runtime package。
+`publish-check` 不只检查 npm 包元数据，也会检查 npm scope 可见性和
+ownership manifest：保留 runtime config、主题不自动切换、shared skills 默认
+不覆盖、external dirty repo 阻断更新、必需 local extensions 存在，以及发行版
+基线里不能混入未知 user-managed runtime package。若提示 `@bigking67` scope
+不存在，需要先在 npm 创建/认领该用户或组织 scope，或把包名改成维护者拥有的
+scope/name。
 
 查看 pi-67 对 packages、extensions、theme、shared skills、external repos 的
 所有权边界：

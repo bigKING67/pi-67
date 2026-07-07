@@ -26,6 +26,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `pi-67 update` documentation now explicitly preserves existing local config files, user packages, global skills, external repos, and `settings.json.theme`; theme changes require `pi-67 themes set <name>`.
 - `pi-67 update --strict-shared-skills` now forwards strict shared-skill parity checks through both Bash and Windows PowerShell update paths, while the default still preserves existing different global skills.
 - `pi-67 publish-check` now gates the distro ownership manifest, including preserved runtime config policy, required local extensions, user-managed baseline packages, theme preservation, shared-skill preservation, and dirty external-repo blocking policy.
+- `pi-67 publish-check` now checks npm scope visibility during remote publish readiness, so missing npm namespaces fail before the final publish step with an actionable message.
 - Pi AGENTS/rules documentation now routes commerce growth work to `commerce-growth-os` without adding local absolute paths or duplicate active package roots.
 - External skill sync now supports both root-level `repo/SKILL.md` skill repositories and legacy `repo/skills/*/SKILL.md` layouts, with fixture coverage for root-level discovery, apply, and read-only checks.
 - `scripts/pi67-status.sh` now classifies benign `settings.json` runtime-marker dirty state separately and reports recent xtalpi provider-health retry/failure trend from local smoke artifacts.

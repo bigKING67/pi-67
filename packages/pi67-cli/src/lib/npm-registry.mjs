@@ -27,6 +27,63 @@ export function npmLatestVersion(packageName, options = {}) {
   };
 }
 
+export function npmPackageScopeStatus(packageName, options = {}) {
+  const scope = packageScope(packageName);
+  if (!scope) {
+    return {
+      skipped: false,
+      ok: true,
+      blocking: false,
+      scoped: false,
+      scope: "",
+      message: "unscoped npm package",
+    };
+  }
+  if (options.noRemote) {
+    return {
+      skipped: true,
+      ok: false,
+      blocking: false,
+      scoped: true,
+      scope,
+      message: "remote scope check skipped",
+    };
+  }
+
+  const scopeName = scope.slice(1);
+  const result = captureCommand("npm", ["org", "ls", scopeName, "--json"], {
+    timeoutMs: options.timeoutMs || 8000,
+  });
+  if (result.ok) {
+    return {
+      skipped: false,
+      ok: true,
+      blocking: false,
+      scoped: true,
+      scope,
+      message: `npm scope ${scope} is visible`,
+    };
+  }
+
+  const rawMessage = result.stderr || result.stdout || result.error || "npm scope lookup failed";
+  const missing = rawMessage.includes("Scope not found") || rawMessage.includes("E404");
+  return {
+    skipped: false,
+    ok: false,
+    blocking: missing,
+    scoped: true,
+    scope,
+    message: missing
+      ? `npm scope ${scope} was not found; create/claim the npm user or org before publishing`
+      : compactMessage(rawMessage),
+  };
+}
+
+function packageScope(packageName) {
+  const match = String(packageName || "").match(/^(@[^/]+)\//);
+  return match ? match[1] : "";
+}
+
 function parseNpmVersion(value) {
   const trimmed = String(value || "").trim();
   if (!trimmed) return "";

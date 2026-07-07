@@ -99,6 +99,10 @@ jobs:
       - name: Pack npm manager
         run: npm pack --dry-run ./packages/pi67-cli
 
+      - name: Validate npm publish target
+        if: ${{ !inputs.dry_run }}
+        run: node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" publish-check --quiet --strict --no-pack
+
       - name: Publish dry-run
         if: ${{ inputs.dry_run }}
         env:

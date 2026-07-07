@@ -12,6 +12,7 @@
     "paths",
     "git",
     "workflow",
+    "scope",
     "manifest",
     "registry",
     "auth",
@@ -49,6 +50,10 @@
     "workflow": {
       "type": "object",
       "required": ["ok", "file", "message"]
+    },
+    "scope": {
+      "type": "object",
+      "required": ["skipped", "ok", "blocking", "scoped", "scope", "message"]
     },
     "manifest": {
       "type": "object",

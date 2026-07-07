@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { parseCommandOptions } from "../lib/args.mjs";
 import { gitStatus } from "../lib/git.mjs";
-import { npmLatestVersion } from "../lib/npm-registry.mjs";
+import { npmLatestVersion, npmPackageScopeStatus } from "../lib/npm-registry.mjs";
 import { captureCommand } from "../lib/shell-runner.mjs";
 import { readCliPackageJson, readTextIfExists, packageRoot } from "../lib/paths.mjs";
 import { buildDistroManifest } from "../lib/distro-manifest.mjs";
@@ -42,6 +42,10 @@ function buildPublishCheck(ctx, options) {
     noRemote: options.noRemote,
     timeoutMs: 10000,
   });
+  const scope = npmPackageScopeStatus(pkg.name, {
+    noRemote: options.noRemote,
+    timeoutMs: 10000,
+  });
   const auth = npmAuthCheck({ noRemote: options.noRemote });
   const pack = options.noPack ? skipped("pack dry-run skipped") : npmPackCheck();
   const manifest = buildDistroManifest(ctx);
@@ -55,12 +59,14 @@ function buildPublishCheck(ctx, options) {
     check("bin_pi67_alias", pkg.bin?.pi67 === "bin/pi-67.mjs", "missing pi67 alias"),
     check("publish_public", pkg.publishConfig?.access === "public", "scoped package must publish as public"),
     check("trusted_publish_workflow", workflow.ok, workflow.message),
+    check("npm_scope", !scope.blocking, scope.message),
     check("distro_manifest", manifestRelease.ok, manifestRelease.message),
     check("npm_pack_dry_run", pack.ok || pack.skipped, pack.message),
   ];
 
   const exactVersionPublished = registry.ok && registry.latestVersion === pkg.version;
   const registryNotPublished = !registry.ok && registry.message === "not published on npm registry yet";
+  const scopeMissing = Boolean(scope.blocking);
   const blockers = checks.filter((item) => !item.ok).map((item) => `${item.name}: ${item.message}`);
   if (exactVersionPublished) {
     blockers.push(`npm_version_already_published: ${pkg.name}@${pkg.version}`);
@@ -70,6 +76,8 @@ function buildPublishCheck(ctx, options) {
   if (!git.isRepo) warnings.push("repo root is not a git checkout; release provenance will be weaker");
   else if (git.dirty) warnings.push("repo has local changes; commit scoped release changes before publishing");
   if (registryNotPublished) warnings.push("npm package is not published yet; configure Trusted Publisher or do one manual first publish");
+  if (scope.skipped) warnings.push("npm scope check skipped");
+  else if (scope.scoped && !scope.ok && !scope.blocking) warnings.push(`npm scope check did not complete: ${scope.message}`);
   if (!options.noRemote && !auth.ok) warnings.push("local npm auth is missing; this is acceptable for GitHub Trusted Publishing");
   if (registry.skipped) warnings.push("npm registry check skipped");
   if (auth.skipped) warnings.push("npm auth check skipped");
@@ -100,6 +108,7 @@ function buildPublishCheck(ctx, options) {
     },
     git,
     workflow,
+    scope,
     manifest: {
       summary: manifest.summary,
       release: manifestRelease,
@@ -110,7 +119,15 @@ function buildPublishCheck(ctx, options) {
     checks,
     blockers,
     warnings,
-    nextSteps: nextSteps({ status, registryNotPublished, exactVersionPublished, authOk: auth.ok }),
+    nextSteps: nextSteps({
+      status,
+      registryNotPublished,
+      exactVersionPublished,
+      authOk: auth.ok,
+      scopeMissing,
+      scopeName: scope.scope,
+      packageName: pkg.name,
+    }),
   };
 }
 
@@ -167,6 +184,8 @@ function workflowCheck(file) {
     "id-token: write",
     "Use npm with trusted publishing support",
     "npm install -g npm@latest",
+    "Validate npm publish target",
+    "publish-check --quiet --strict --no-pack",
     "npm publish ./packages/pi67-cli --access public --tag",
   ];
   const missing = required.filter((fragment) => !text.includes(fragment));
@@ -228,8 +247,11 @@ function nextSteps(context) {
   const steps = [
     "GitHub Actions -> npm publish pi-67 manager -> Run workflow with dry_run=true.",
   ];
+  if (context.scopeMissing) {
+    steps.push(`Create or claim the npm scope ${context.scopeName} before publishing, or rename the npm package to an owned scope/name.`);
+  }
   if (context.registryNotPublished) {
-    steps.push("Configure npm Trusted Publisher for @bigking67/pi-67, or do one manual npm-authenticated first publish.");
+    steps.push(`Configure npm Trusted Publisher for ${context.packageName}, or do one manual npm-authenticated first publish.`);
   }
   steps.push("After dry-run succeeds, rerun the workflow with dry_run=false.");
   if (!context.authOk) {
@@ -243,6 +265,7 @@ function printReport(report) {
   keyValue("Package", `${report.package.name}@${report.package.version}`);
   keyValue("Distro", report.distro.version || "unknown");
   keyValue("Workflow", report.workflow.ok ? "trusted publishing ready" : report.workflow.message);
+  keyValue("npm scope", report.scope.message);
   keyValue("Manifest", report.manifest.release.ok ? "ownership policy ready" : report.manifest.release.message);
   keyValue("Registry", registryLabel(report.registry));
   keyValue("npm auth", report.auth.skipped ? "skipped" : report.auth.ok ? report.auth.username : "not logged in");

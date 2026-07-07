@@ -180,8 +180,9 @@ pi-67 publish-check
 ```
 
 The check reports version consistency, Trusted Publishing workflow readiness,
-npm registry state, local npm auth state, and `npm pack --dry-run`. A missing
-local `npm whoami` is not a blocker for GitHub Actions Trusted Publishing.
+npm registry state, npm namespace visibility, local npm auth state, and
+`npm pack --dry-run`. A missing local `npm whoami` is not a blocker for GitHub
+Actions Trusted Publishing.
 It also gates the ownership manifest release policy, so preserved runtime
 config files, required local extensions, theme preservation, shared-skill
 preservation, external-repo dirty blocking, and unknown baseline runtime
@@ -238,16 +239,22 @@ publish a package by accident. It validates:
 - npm manager smoke commands
 - `scripts/pi67-release-check.sh`
 - `npm pack --dry-run ./packages/pi67-cli`
+- for real publishes, a remote `pi-67 publish-check --strict --no-pack`
+  preflight so missing npm scopes fail with a clear namespace error before the
+  final `npm publish`
 
 Repository setup:
 
-1. In npm, configure a trusted publisher for `@bigking67/pi-67`.
-2. Use provider `GitHub Actions`, repository `bigKING67/pi-67`, and workflow
+1. Make sure the npm scope `@bigking67` exists and is controlled by the
+   maintainer. If npm reports `Scope not found`, create or claim that npm
+   user/org first, or rename the package to a scope/name the maintainer owns.
+2. In npm, configure a trusted publisher for `@bigking67/pi-67`.
+3. Use provider `GitHub Actions`, repository `bigKING67/pi-67`, and workflow
    file `.github/workflows/npm-publish.yml`.
-3. Allow the `npm publish` action for the trusted publisher.
-4. Keep GitHub Actions permissions for the workflow at `contents: read` and
+4. Allow the `npm publish` action for the trusted publisher.
+5. Keep GitHub Actions permissions for the workflow at `contents: read` and
    `id-token: write`.
-5. Keep the workflow manual-only (`workflow_dispatch`) so ordinary pushes cannot
+6. Keep the workflow manual-only (`workflow_dispatch`) so ordinary pushes cannot
    publish a package.
 
 If npm requires the package to exist before Trusted Publishing can be attached,

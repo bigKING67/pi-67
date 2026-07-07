@@ -19,3 +19,5 @@
 - Gates publish readiness on the ownership manifest so package, extension,
   theme, shared-skill, external-repo, and runtime-config policies cannot drift
   silently before npm publish.
+- Gates real publish readiness on npm scope visibility, so a missing package
+  namespace fails before the final `npm publish` step with a clear repair path.
