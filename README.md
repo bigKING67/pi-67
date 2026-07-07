@@ -656,7 +656,7 @@ PowerShell：
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile quick
 ```
 
-旧 `<pi_tool_call>` 文本协议不再作为运行时选项。若上游返回这类 markup，adapter 会把它归类为协议漂移并进入 JSON action repair。
+旧 `<pi_tool_call>` 文本协议不再作为运行时选项。若上游返回这类 markup，provider 会把它归类为协议漂移并进入 JSON action repair。
 
 parser 兼容矩阵离线回归：
 

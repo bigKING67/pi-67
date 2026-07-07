@@ -897,7 +897,7 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   "$HOME/tmp/xtalpi-pi-tools-smoke"
 ```
 
-`full-suite-strict` 会设置 `--expect-cases 10`、完整 10-case `--expect-case-names`、`--max-empty-assistant-ends 0`、`--max-raw-tool-markup-final-answers 0`，并保留 bounded local repair 阈值：`--max-recoveries 2`、`--max-recovery-rate 0.15`、`--max-recovery-case-runs 3`。这些 repair 阈值用于表达“晶泰偶发 malformed / invalid JSON 可以由本地 adapter repair 并继续工作，但高频 repair 仍应进入 attention”；仍可显式传入 `--max-recoveries` 等数字阈值覆盖 profile 默认值。若要做上游 provider 纯净度专项审计，可额外传入 `--max-recoveries 0 --max-recovery-rate 0 --max-recovery-case-runs 0 --fail-on-recovery-increase`。
+`full-suite-strict` 会设置 `--expect-cases 10`、完整 10-case `--expect-case-names`、`--max-empty-assistant-ends 0`、`--max-raw-tool-markup-final-answers 0`，并保留 bounded local repair 阈值：`--max-recoveries 2`、`--max-recovery-rate 0.15`、`--max-recovery-case-runs 3`。这些 repair 阈值用于表达“晶泰偶发 malformed / invalid JSON 可以由本地 provider repair 并继续工作，但高频 repair 仍应进入 attention”；仍可显式传入 `--max-recoveries` 等数字阈值覆盖 profile 默认值。若要做上游 provider 纯净度专项审计，可额外传入 `--max-recoveries 0 --max-recovery-rate 0 --max-recovery-case-runs 0 --fail-on-recovery-increase`。
 
 `full-suite-strict` 还会默认设置 `--run-kind full-suite --require-run-kind full-suite`：局部 targeted run 可以保留在同一个 artifact 目录里用于排查，但不会污染“最近 N 次 full-suite 趋势”证据。trend-gate JSON 会保留 `history.totalArtifacts`、`history.candidateArtifacts`、`history.filteredOutArtifacts` 和 `history.filter.runKinds`，用于说明有多少 artifact 被过滤。
 

@@ -145,7 +145,7 @@ If you do not use xtalpi, change both fields to a provider/model that exists in 
 
 `xtalpi-pi-tools` is designed to avoid the old OpenAI-compatible tool continuation issue. It does not send native `tools`, `tool_choice`, `parallel_tool_calls`, `role=tool`, `thinking`, or `reasoning_effort` to xtalpi.
 
-The local adapter also owns the final-answer protocol boundary. If xtalpi returns
+The local provider also owns the final-answer protocol boundary. If xtalpi returns
 tool-call-like content as ordinary assistant text, Pi must not accept it as a
 successful final answer. The guard covers JSON action objects, bare
 `id/name/arguments` objects, JSON arrays, OpenAI-style `tool_calls`,
@@ -156,7 +156,7 @@ matches the current tool registry or an explicit tool protocol wrapper.
 
 If xtalpi returns a malformed JSON-action final envelope because the natural
 language text contains unescaped quotes, for example
-`{"kind":"final","text":"..."洗护发"..."}`, the adapter recovers only the
+`{"kind":"final","text":"..."洗护发"..."}`, the provider recovers only the
 `final.text` string and then runs the normal final-answer guard. This is safe
 for user-visible text and prevents Plan mode from stopping on an invalid-JSON
 repair error. The same loose recovery is intentionally not applied to malformed
