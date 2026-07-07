@@ -493,7 +493,7 @@ pi-67/
 
 xtalpi 是晶泰科技内部 API。`models.example.json` 中只保留一个晶泰 provider：`xtalpi-pi-tools`。
 
-`xtalpi-pi-tools` 不再向晶泰发送 OpenAI 原生 `tools` / `tool_choice` / `role=tool`，而是让晶泰只生成普通 Chat Completions 文本中的本地 JSON action；Pi 本地负责解析、校验、repair、错误分类和工具执行。旧 `<pi_tool_call>` 文本协议只作为显式 `XTALPI_PI_TOOLS_ACTION_PROTOCOL=legacy_text` 调试/回归 fallback。
+`xtalpi-pi-tools` 不再向晶泰发送 OpenAI 原生 `tools` / `tool_choice` / `role=tool`，而是让晶泰只生成普通 Chat Completions 文本中的本地 JSON action；Pi 本地负责解析、校验、repair、错误分类和工具执行。运行时只保留 JSON action 单协议；旧 `<pi_tool_call>` 文本只作为 provider drift 输入被识别、拒绝并修复回 JSON action，不再提供可切换 fallback。
 
 extension 工具识别不是写死名单：provider 每轮从 Pi runtime 的 `context.tools`
 动态读取当前可调用工具，再按 prompt 做 selected-tool ranking。以后安装新 extension 时，
@@ -640,9 +640,9 @@ prompt 偶发失败，只要 targeted JSON action 连续通过，推荐模式仍
 本地 JSON action 是 `xtalpi-pi-tools` 的 canonical 默认协议。它只启用
 `response_format: {"type":"json_object"}` 作为语法 hint，不信任上游
 schema/native tool 能力；所有 action schema、工具白名单、参数校验、repair 和执行仍在
-Pi 本地完成。实现边界集中在 `extensions/xtalpi-pi-tools/local-action-adapter.ts`：
-adapter 只选择本地协议、system prompt、`response_format` hint、assistant history 包装和
-repair transcript 策略，不把 OpenAI native tools 委托给晶泰。
+Pi 本地完成。实现边界集中在 `extensions/xtalpi-pi-tools/json-action-protocol.ts`：
+该模块只定义唯一 JSON action 协议、system prompt、`response_format` hint 和
+assistant history 包装，不把 OpenAI native tools 委托给晶泰，也不提供旧协议切换入口。
 
 ```bash
 bash ./scripts/pi67-test-xtalpi-pi-tools.sh
@@ -656,7 +656,7 @@ PowerShell：
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile quick
 ```
 
-如需临时复核旧文本协议，可显式设置 `XTALPI_PI_TOOLS_ACTION_PROTOCOL=legacy_text`；不要把它作为日常默认。
+旧 `<pi_tool_call>` 文本协议不再作为运行时选项。若上游返回这类 markup，adapter 会把它归类为协议漂移并进入 JSON action repair。
 
 parser 兼容矩阵离线回归：
 

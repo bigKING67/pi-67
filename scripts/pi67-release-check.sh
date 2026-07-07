@@ -70,7 +70,7 @@ XTALPI_PI_TOOLS_COVERAGE_AUDIT="$REPO_ROOT/scripts/pi67-xtalpi-tool-coverage-aud
 XTALPI_PI_TOOLS_REPLAY_FIXTURES="$REPO_ROOT/extensions/xtalpi-pi-tools/fixtures/replay-cases.json"
 XTALPI_PI_TOOLS_ERROR_CONTRACT="$REPO_ROOT/extensions/xtalpi-pi-tools/provider-error-contract.json"
 XTALPI_PI_TOOLS_JSON_FILE="$REPO_ROOT/extensions/xtalpi-pi-tools/json-file.ts"
-XTALPI_PI_TOOLS_LOCAL_ACTION_ADAPTER="$REPO_ROOT/extensions/xtalpi-pi-tools/local-action-adapter.ts"
+XTALPI_PI_TOOLS_JSON_ACTION_PROTOCOL="$REPO_ROOT/extensions/xtalpi-pi-tools/json-action-protocol.ts"
 XTALPI_PI_TOOLS_RUNTIME_CONFIG="$REPO_ROOT/extensions/xtalpi-pi-tools/runtime-config.ts"
 JSON_UTIL_CJS="$REPO_ROOT/scripts/pi67-json-utils.cjs"
 JSON_UTIL_PS="$REPO_ROOT/scripts/pi67-json-utils.ps1"
@@ -214,7 +214,7 @@ else
   fail "release artifact smoke is not documented"
 fi
 
-if [ -f "$XTALPI_PI_TOOLS_SCRIPT" ] && [ -f "$XTALPI_PI_TOOLS_TEST" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_PS" ] && [ -f "$XTALPI_PI_TOOLS_DEBUG_SUMMARY" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_STATUS_CORE" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_PLAN" ] && [ -f "$XTALPI_PI_TOOLS_PROVIDER_HEALTH" ] && [ -f "$XTALPI_PI_TOOLS_CAPABILITY_PROBE" ] && [ -f "$XTALPI_PI_TOOLS_ERROR_CONTRACT_CHECK" ] && [ -f "$XTALPI_PI_TOOLS_COVERAGE_AUDIT" ] && [ -f "$XTALPI_PI_TOOLS_REPLAY_FIXTURES" ] && [ -f "$XTALPI_PI_TOOLS_ERROR_CONTRACT" ] && [ -f "$XTALPI_PI_TOOLS_JSON_FILE" ] && [ -f "$XTALPI_PI_TOOLS_LOCAL_ACTION_ADAPTER" ] && [ -f "$XTALPI_PI_TOOLS_DOC" ] && [ -f "$UNTIL_DONE_QUEUE_PATCH_MJS" ] && [ -f "$UNTIL_DONE_QUEUE_PATCH_SH" ] && [ -f "$UNTIL_DONE_QUEUE_PATCH_PS" ]; then
+if [ -f "$XTALPI_PI_TOOLS_SCRIPT" ] && [ -f "$XTALPI_PI_TOOLS_TEST" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_PS" ] && [ -f "$XTALPI_PI_TOOLS_DEBUG_SUMMARY" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_STATUS_CORE" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_PLAN" ] && [ -f "$XTALPI_PI_TOOLS_PROVIDER_HEALTH" ] && [ -f "$XTALPI_PI_TOOLS_CAPABILITY_PROBE" ] && [ -f "$XTALPI_PI_TOOLS_ERROR_CONTRACT_CHECK" ] && [ -f "$XTALPI_PI_TOOLS_COVERAGE_AUDIT" ] && [ -f "$XTALPI_PI_TOOLS_REPLAY_FIXTURES" ] && [ -f "$XTALPI_PI_TOOLS_ERROR_CONTRACT" ] && [ -f "$XTALPI_PI_TOOLS_JSON_FILE" ] && [ -f "$XTALPI_PI_TOOLS_JSON_ACTION_PROTOCOL" ] && [ -f "$XTALPI_PI_TOOLS_DOC" ] && [ -f "$UNTIL_DONE_QUEUE_PATCH_MJS" ] && [ -f "$UNTIL_DONE_QUEUE_PATCH_SH" ] && [ -f "$UNTIL_DONE_QUEUE_PATCH_PS" ]; then
   pass "xtalpi-pi-tools and pi-until-done compatibility helpers exist"
 else
   fail "xtalpi-pi-tools or pi-until-done compatibility helpers are missing"
@@ -250,6 +250,7 @@ if command_exists node; then
   fi
   if bash "$XTALPI_PI_TOOLS_COVERAGE_AUDIT" --agent-dir "$REPO_ROOT" --include pi-rules-loader --json > "$COVERAGE_AUDIT_JSON" && node - "$COVERAGE_AUDIT_JSON" "$COVERAGE_AUDIT_HAS_DEPS" <<'NODE'
 const fs = require("fs");
+const path = require("path");
 const [file, hasDepsRaw] = process.argv.slice(2);
 const hasDeps = hasDepsRaw === "1";
 const data = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -369,17 +370,18 @@ if command_exists node; then
     "$XTALPI_PI_TOOLS_RUNTIME_CONFIG" \
     "$XTALPI_PI_TOOLS_PROVIDER_HEALTH" \
     "$XTALPI_PI_TOOLS_CAPABILITY_PROBE" \
-    "$XTALPI_PI_TOOLS_LOCAL_ACTION_ADAPTER" \
+    "$XTALPI_PI_TOOLS_JSON_ACTION_PROTOCOL" \
     "$REPO_ROOT/extensions/xtalpi-pi-tools/chat-client.ts" \
     "$REPO_ROOT/extensions/xtalpi-pi-tools/provider-turn.ts" \
     "$REPO_ROOT/extensions/xtalpi-pi-tools/response-normalizer.ts" <<'NODE'
 const fs = require("fs");
+const path = require("path");
 const [
   modelsFile,
   runtimeConfigFile,
   providerHealthFile,
   capabilityProbeFile,
-  localActionAdapterFile,
+  jsonActionProtocolFile,
   chatClientFile,
   providerTurnFile,
   responseNormalizerFile,
@@ -388,6 +390,7 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 const models = JSON.parse(fs.readFileSync(modelsFile, "utf8"));
+const repoRoot = path.dirname(modelsFile);
 const provider = models.providers?.["xtalpi-pi-tools"];
 assert(provider, "models.example.json missing xtalpi-pi-tools provider");
 assert(provider.api === "xtalpi-pi-tools", "xtalpi-pi-tools provider must not use openai-responses or another adapter");
@@ -398,34 +401,63 @@ assert(
 const runtimeConfig = fs.readFileSync(runtimeConfigFile, "utf8");
 const providerHealth = fs.readFileSync(providerHealthFile, "utf8");
 const capabilityProbe = fs.readFileSync(capabilityProbeFile, "utf8");
-const localActionAdapter = fs.readFileSync(localActionAdapterFile, "utf8");
+const jsonActionProtocol = fs.readFileSync(jsonActionProtocolFile, "utf8");
 const chatClient = fs.readFileSync(chatClientFile, "utf8");
 const providerTurn = fs.readFileSync(providerTurnFile, "utf8");
 const responseNormalizer = fs.readFileSync(responseNormalizerFile, "utf8");
+const repositorySources = [
+  ["README.md", fs.readFileSync(path.join(repoRoot, "README.md"), "utf8")],
+  ["CHANGELOG.md", fs.readFileSync(path.join(repoRoot, "CHANGELOG.md"), "utf8")],
+  ["docs/troubleshooting.md", fs.readFileSync(path.join(repoRoot, "docs", "troubleshooting.md"), "utf8")],
+  ["docs/xtalpi-pi-tools.md", fs.readFileSync(path.join(repoRoot, "docs", "xtalpi-pi-tools.md"), "utf8")],
+  ["runtime-config.ts", runtimeConfig],
+  ["capability-probe.mjs", capabilityProbe],
+  ["json-action-protocol.ts", jsonActionProtocol],
+  ["chat-client.ts", chatClient],
+  ["provider-turn.ts", providerTurn],
+  ["response-normalizer.ts", responseNormalizer],
+];
 assert(runtimeConfig.includes("/chat/completions"), "runtime-config must append /chat/completions");
 assert(providerHealth.includes("/chat/completions"), "provider-health must probe /chat/completions");
 assert(capabilityProbe.includes("/chat/completions"), "capability probe must probe /chat/completions");
 assert(!runtimeConfig.includes("/responses"), "runtime-config must not target OpenAI Responses API for xtalpi");
 assert(!providerHealth.includes("/responses"), "provider-health must not probe OpenAI Responses API for xtalpi");
 assert(!capabilityProbe.includes("/responses"), "capability probe must not probe OpenAI Responses API for xtalpi");
+assert(jsonActionProtocol.includes("JSON_ACTION_PROTOCOL"), "JSON action protocol module must expose the fixed protocol constant");
+assert(jsonActionProtocol.includes("jsonActionSystemPrompt"), "JSON action protocol module must expose the fixed system prompt");
+assert(jsonActionProtocol.includes("jsonActionResponseFormat"), "JSON action protocol module must expose the fixed response format");
 assert(
-  /DEFAULT_ACTION_PROTOCOL:\s*XtalpiActionProtocol\s*=\s*"json_action"/.test(localActionAdapter),
-  "xtalpi-pi-tools must default to local JSON action protocol",
-);
-assert(localActionAdapter.includes('"legacy_text"'), "legacy text protocol must be explicit and named legacy_text");
-assert(
-  chatClient.includes("DEFAULT_ACTION_PROTOCOL") && !chatClient.includes('actionProtocol: XtalpiActionProtocol = "legacy_text"'),
-  "chat response parsing must default to canonical JSON action protocol",
+  chatClient.includes("JSON_ACTION_PROTOCOL") && !chatClient.includes("actionProtocol?:"),
+  "chat response parsing must be hard-pinned to canonical JSON action protocol",
 );
 assert(
-  responseNormalizer.includes("DEFAULT_ACTION_PROTOCOL") && !responseNormalizer.includes('actionProtocol: XtalpiActionProtocol = "legacy_text"'),
-  "response normalization must default to canonical JSON action protocol",
+  !responseNormalizer.includes("actionProtocol"),
+  "response normalization must not branch by action protocol",
 );
-assert(providerTurn.includes("parseToolCallForProtocol"), "provider turn must parse according to selected local protocol");
 assert(
-  responseNormalizer.includes('actionProtocol === "json_action"'),
-  "native tool-call normalization must follow the local action protocol",
+  providerTurn.includes("parseJsonAction") && !providerTurn.includes(["parseToolCall", "ForProtocol"].join("")),
+  "provider turn must parse JSON action directly without protocol selection",
 );
+const forbiddenFragments = [
+  ["legacy", "_text"],
+  ["XTALPI_PI_TOOLS_ACTION", "_PROTOCOL"],
+  ["parseToolCall", "ForProtocol"],
+  ["resolveAction", "Protocol"],
+  ["createLocalAction", "Adapter"],
+  ["LocalAction", "Adapter"],
+  ["XtalpiAction", "Protocol"],
+  ["responseFormat", "ForProtocol"],
+  ["protocolSystem", "Prompt"],
+  ["protocolVersion", "For"],
+  ["wrapAssistantHistory", "ForProtocol"],
+  ["shouldReplayRawAssistant", "ForRepair"],
+  ["local_text", "_protocol"],
+].map((parts) => parts.join(""));
+for (const [label, source] of repositorySources) {
+  for (const fragment of forbiddenFragments) {
+    assert(!source.includes(fragment), `${label} retains old protocol selector residue`);
+  }
+}
 NODE
   then
     pass "xtalpi-pi-tools endpoint and local action contracts are canonical"
@@ -449,7 +481,7 @@ if command_exists git && git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/d
     fail "git diff --check failed"
   fi
 
-  if git -C "$REPO_ROOT" ls-files --error-unmatch VERSION CHANGELOG.md .github/workflows/ci.yml docs/release.md docs/report-schema.md docs/doctor-schema.md docs/status.md docs/skill-migration-schema.md docs/external-skill-sync-schema.md docs/skill-governance.md docs/troubleshooting.md docs/xtalpi-pi-tools.md scripts/pi67-check-external-skills.sh scripts/pi67-doctor.sh scripts/pi67-doctor.ps1 scripts/pi67-json-utils.cjs scripts/pi67-json-utils.ps1 scripts/pi67-migrate-skills.sh scripts/pi67-release-artifact-smoke.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-report.ps1 scripts/pi67-status.sh scripts/pi67-shared-skills-inventory.sh scripts/pi67-sync-commerce-growth-os.sh scripts/pi67-sync-external-skills.sh scripts/pi67-test-skill-governance.sh scripts/pi67-update.sh scripts/pi67-update.ps1 scripts/pi67-smoke.ps1 scripts/pi67-xtalpi-pi-tools.sh scripts/pi67-test-xtalpi-pi-tools.sh scripts/pi67-fuzz-xtalpi-parser.mjs scripts/pi67-patch-pi-until-done-runtime-queue.mjs scripts/pi67-patch-pi-until-done-runtime-queue.sh scripts/pi67-patch-pi-until-done-runtime-queue.ps1 scripts/pi67-xtalpi-pi-tools-smoke.sh scripts/pi67-xtalpi-pi-tools-smoke.ps1 scripts/pi67-xtalpi-pi-tools-debug-summary.sh scripts/pi67-xtalpi-tool-coverage-audit.sh scripts/pi67-xtalpi-smoke-status-core.cjs scripts/pi67-xtalpi-smoke-plan.mjs scripts/pi67-xtalpi-provider-health.mjs scripts/pi67-xtalpi-provider-capability-probe.mjs scripts/pi67-validate-xtalpi-provider-error-contract.mjs extensions/xtalpi-pi-tools/json-file.ts extensions/xtalpi-pi-tools/local-action-adapter.ts extensions/xtalpi-pi-tools/fixtures/replay-cases.json extensions/xtalpi-pi-tools/provider-error-contract.json >/dev/null 2>&1; then
+  if git -C "$REPO_ROOT" ls-files --error-unmatch VERSION CHANGELOG.md .github/workflows/ci.yml docs/release.md docs/report-schema.md docs/doctor-schema.md docs/status.md docs/skill-migration-schema.md docs/external-skill-sync-schema.md docs/skill-governance.md docs/troubleshooting.md docs/xtalpi-pi-tools.md scripts/pi67-check-external-skills.sh scripts/pi67-doctor.sh scripts/pi67-doctor.ps1 scripts/pi67-json-utils.cjs scripts/pi67-json-utils.ps1 scripts/pi67-migrate-skills.sh scripts/pi67-release-artifact-smoke.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-report.ps1 scripts/pi67-status.sh scripts/pi67-shared-skills-inventory.sh scripts/pi67-sync-commerce-growth-os.sh scripts/pi67-sync-external-skills.sh scripts/pi67-test-skill-governance.sh scripts/pi67-update.sh scripts/pi67-update.ps1 scripts/pi67-smoke.ps1 scripts/pi67-xtalpi-pi-tools.sh scripts/pi67-test-xtalpi-pi-tools.sh scripts/pi67-fuzz-xtalpi-parser.mjs scripts/pi67-patch-pi-until-done-runtime-queue.mjs scripts/pi67-patch-pi-until-done-runtime-queue.sh scripts/pi67-patch-pi-until-done-runtime-queue.ps1 scripts/pi67-xtalpi-pi-tools-smoke.sh scripts/pi67-xtalpi-pi-tools-smoke.ps1 scripts/pi67-xtalpi-pi-tools-debug-summary.sh scripts/pi67-xtalpi-tool-coverage-audit.sh scripts/pi67-xtalpi-smoke-status-core.cjs scripts/pi67-xtalpi-smoke-plan.mjs scripts/pi67-xtalpi-provider-health.mjs scripts/pi67-xtalpi-provider-capability-probe.mjs scripts/pi67-validate-xtalpi-provider-error-contract.mjs extensions/xtalpi-pi-tools/json-file.ts extensions/xtalpi-pi-tools/json-action-protocol.ts extensions/xtalpi-pi-tools/fixtures/replay-cases.json extensions/xtalpi-pi-tools/provider-error-contract.json >/dev/null 2>&1; then
     pass "release metadata files are tracked or staged"
   else
     warn "release metadata files are not all tracked yet; expected before final commit"

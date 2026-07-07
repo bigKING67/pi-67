@@ -4,10 +4,9 @@ import {
   type XtalpiChatMessage,
 } from "./protocol.ts";
 import {
-  protocolSystemPrompt,
-  wrapAssistantHistoryForProtocol,
-  type XtalpiActionProtocol,
-} from "./local-action-adapter.ts";
+  jsonActionSystemPrompt,
+  wrapAssistantHistoryAsJsonActionFinal,
+} from "./json-action-protocol.ts";
 import {
   safeBlockText,
   safeInlineText,
@@ -51,7 +50,6 @@ export type ContextLike = {
 export type SerializeOptions = {
   maxTools: number;
   maxToolResultChars: number;
-  actionProtocol?: XtalpiActionProtocol;
 };
 
 export type ToolSelectionPromptSource = "latest_user" | "recent_user_continuation";
@@ -172,7 +170,7 @@ export function serializeContextForXtalpi(
   const selectedToolNames = toolSelection.selectedToolNames;
   const systemParts = [
     context.systemPrompt?.trim() || "",
-    protocolSystemPrompt(options.actionProtocol),
+    jsonActionSystemPrompt(),
     serializeSelectedTools(selectedTools, context.tools?.length ?? selectedTools.length),
   ].filter(Boolean);
 
@@ -188,7 +186,7 @@ export function serializeContextForXtalpi(
     if (message.role === "assistant") {
       const content = safeBlockText(contentToText(message.content), MAX_ASSISTANT_HISTORY_CHARS).trim();
       if (content) {
-        output.push({ role: "assistant", content: wrapAssistantHistoryForProtocol(content, options.actionProtocol) });
+        output.push({ role: "assistant", content: wrapAssistantHistoryAsJsonActionFinal(content) });
       }
       continue;
     }

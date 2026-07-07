@@ -4,10 +4,10 @@ import {
   PROVIDER_ID,
 } from "./protocol.ts";
 import {
-  protocolVersionFor,
-  responseFormatForProtocol,
-  type XtalpiActionProtocol,
-} from "./local-action-adapter.ts";
+  JSON_ACTION_PROTOCOL,
+  JSON_ACTION_PROTOCOL_VERSION,
+  jsonActionResponseFormat,
+} from "./json-action-protocol.ts";
 import {
   maxEmptyRetries,
   maxRepairRetries,
@@ -26,7 +26,7 @@ export type TurnDebugContext = {
   provider: string;
   model: string;
   protocolVersion: string;
-  actionProtocol: XtalpiActionProtocol;
+  actionProtocol: typeof JSON_ACTION_PROTOCOL;
   responseFormat: string | null;
   selectedToolCount: number;
   selectedToolNames: string[];
@@ -62,7 +62,6 @@ export function buildTurnDebugContext(input: {
   serializedContext: SerializedXtalpiContext;
   maxTools: number;
   maxToolResultChars: number;
-  actionProtocol: XtalpiActionProtocol;
   options?: SimpleStreamOptions;
 }): TurnDebugContext {
   const selectedToolNames = sortedToolNames(input.serializedContext.selectedToolNames);
@@ -70,9 +69,9 @@ export function buildTurnDebugContext(input: {
   return {
     provider: PROVIDER_ID,
     model: input.model.id,
-    protocolVersion: protocolVersionFor(input.actionProtocol),
-    actionProtocol: input.actionProtocol,
-    responseFormat: responseFormatForProtocol(input.actionProtocol)?.type ?? null,
+    protocolVersion: JSON_ACTION_PROTOCOL_VERSION,
+    actionProtocol: JSON_ACTION_PROTOCOL,
+    responseFormat: jsonActionResponseFormat()?.type ?? null,
     selectedToolCount: input.serializedContext.selectedTools.length,
     selectedToolNames,
     selectedToolNamesHash: hashSelectedToolNames(selectedToolNames),

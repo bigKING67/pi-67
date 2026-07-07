@@ -329,7 +329,7 @@ function recommendedMode(summary) {
   if (summary.jsonAction?.ok) {
     return "local_json_action_protocol";
   }
-  return "local_text_protocol";
+  return "unsupported_json_action";
 }
 
 function makeProbeDefinitions(model, skipNativeProbes) {
@@ -677,7 +677,7 @@ function runSelfTest() {
     jsonObject: { supported: false },
     jsonAction: { ok: true },
   }) === "local_json_action_protocol", "targeted json action recommended mode failed");
-  assert(recommendedMode({}) === "local_text_protocol", "text protocol recommended mode failed");
+  assert(recommendedMode({}) === "unsupported_json_action", "unsupported JSON action mode failed");
 
   return {
     schema: "xtalpi-pi-tools.provider-capabilities-self-test.v1",

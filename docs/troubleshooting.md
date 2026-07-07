@@ -234,8 +234,8 @@ Interpretation:
   full OpenAI tool runtime.
 - `recommendedMode=local_json_action_protocol` is the `xtalpi-pi-tools` canonical default:
   Pi owns tool selection, action/schema validation, repair, execution, and error classification locally.
-- `recommendedMode=local_text_protocol` is only an emergency diagnostic outcome for providers
-  where even JSON object/action is unstable; runtime does not silently fallback to it.
+- `recommendedMode=unsupported_json_action` means even targeted JSON action is unstable; the
+  provider does not satisfy the `xtalpi-pi-tools` runtime contract.
 
 Test the default local JSON action runtime instead of enabling native OpenAI tools:
 
@@ -251,17 +251,13 @@ PowerShell:
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile quick
 ```
 
-To regression-test the old text protocol explicitly:
-
-```bash
-XTALPI_PI_TOOLS_ACTION_PROTOCOL=legacy_text bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case read
-```
-
 The default JSON action mode sends `response_format: {"type":"json_object"}` only as a syntax hint.
 Pi still validates the local action envelope, selected-tool allowlist, arguments,
 shell semantics, bounded repair, and smoke/debug gates locally.
+Old `<pi_tool_call>` text is treated only as provider drift or historical artifact leakage;
+it is rejected and repaired back to JSON action rather than exposed as a runtime protocol switch.
 The explicit local boundary for this is
-`extensions/xtalpi-pi-tools/local-action-adapter.ts`; do not replace it with
+`extensions/xtalpi-pi-tools/json-action-protocol.ts`; do not replace it with
 OpenAI native `tools` / `tool_choice` unless the capability probe proves those
 contracts are stable.
 

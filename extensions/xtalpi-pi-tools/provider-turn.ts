@@ -11,18 +11,13 @@ import {
 import { debugLog } from "./diagnostics.ts";
 import type { ArgumentValidationWarning } from "./argument-validator.ts";
 import type { XtalpiProviderTurnResult } from "./output-message.ts";
-import { parseToolCallForProtocol } from "./parser.ts";
+import { parseJsonAction } from "./parser.ts";
 import { validateFinalAnswer } from "./final-guard.ts";
 import {
   DEFAULT_MAX_TOOL_RESULT_CHARS,
   DEFAULT_MAX_TOOLS,
   type XtalpiChatMessage,
 } from "./protocol.ts";
-import {
-  resolveActionProtocol,
-  shouldReplayRawAssistantForRepair,
-  type XtalpiActionProtocol,
-} from "./local-action-adapter.ts";
 import { buildParseErrorRepairPlan } from "./recovery-decision.ts";
 import {
   buildEmptyResponseRepairPrompt,
@@ -49,7 +44,6 @@ export type ProviderTurnChatClient = (input: {
   messages: XtalpiChatMessage[];
   options?: SimpleStreamOptions;
   runtimeConfig?: ProviderRuntimeConfig;
-  actionProtocol?: XtalpiActionProtocol;
 }) => Promise<XtalpiChatResponse>;
 
 function argumentValidationTelemetry(warnings: readonly ArgumentValidationWarning[] | undefined): {
@@ -80,9 +74,8 @@ export async function runProviderTurn(input: {
     DEFAULT_MAX_TOOL_RESULT_CHARS,
     0,
   );
-  const actionProtocol = resolveActionProtocol();
   const contextLike = context as unknown as ContextLike;
-  const serializedContext = serializeContextForXtalpi(contextLike, { maxTools, maxToolResultChars, actionProtocol });
+  const serializedContext = serializeContextForXtalpi(contextLike, { maxTools, maxToolResultChars });
   const names = serializedContext.selectedToolNames;
   const selectedToolByName = new Map(serializedContext.selectedTools.map((tool) => [tool.name, tool]));
   const messages = serializedContext.messages;
@@ -93,7 +86,6 @@ export async function runProviderTurn(input: {
     serializedContext,
     maxTools,
     maxToolResultChars,
-    actionProtocol,
     options,
   });
   const selectedToolNames = debugContext.selectedToolNames;
@@ -106,22 +98,17 @@ export async function runProviderTurn(input: {
       /(?:Plan mode|<proposed_plan>)/i.test(input.reason);
   }
 
-  function addRawAssistantForRepair(raw: string): void {
-    if (!shouldReplayRawAssistantForRepair(actionProtocol)) return;
-    messages.push({ role: "assistant", content: raw.slice(0, 4000) });
-  }
-
   // Recovery turns must stay serial: each repair prompt depends on the exact
   // previous model response and on the current per-turn recovery budget.
   while (true) {
-    const response = await callChat({ model, messages, options, runtimeConfig, actionProtocol });
+    const response = await callChat({ model, messages, options, runtimeConfig });
     loopState.addResponse(response);
     const raw = response.content.trim();
 
     if (!raw) {
       if (loopState.canRecoverEmptyResponse(debugContext)) {
         const recovery = loopState.noteEmptyRecovery();
-        messages.push({ role: "user", content: buildEmptyResponseRepairPrompt(actionProtocol) });
+        messages.push({ role: "user", content: buildEmptyResponseRepairPrompt() });
         debugLog("recovery.empty_response", { ...debugContext, ...recovery });
         continue;
       }
@@ -134,12 +121,43 @@ export async function runProviderTurn(input: {
       };
     }
 
-    const parsed = parseToolCallForProtocol(raw, actionProtocol);
+    const parsed = parseJsonAction(raw);
     if (parsed.kind === "error") {
       if (loopState.canRecoverRepair(debugContext)) {
+        const parseErrorFinalGuard = validateFinalAnswer({
+          text: raw,
+          context: contextLike,
+          selectedToolNames,
+        });
+        if (
+          parsed.code === "invalid_json" &&
+          !raw.trim().startsWith("{") &&
+          !parseErrorFinalGuard.ok
+        ) {
+          const recovery = loopState.noteRepairRecovery();
+          messages.push({
+            role: "user",
+            content: buildPrematureFinalRepairPrompt({
+              code: parseErrorFinalGuard.code,
+              reason: parseErrorFinalGuard.reason,
+              raw,
+              latestUserText: parseErrorFinalGuard.latestUserText,
+              availableNames: selectedToolNames,
+              forcePlanBlock: finalGuardRequiresPlanBlock(parseErrorFinalGuard),
+            }),
+          });
+          debugLog("recovery.premature_final", {
+            ...debugContext,
+            code: parseErrorFinalGuard.code,
+            reason: parseErrorFinalGuard.reason,
+            ...recovery,
+            rawExcerpt: safeBlockText(raw, 500),
+          });
+          continue;
+        }
+
         const recovery = loopState.noteRepairRecovery();
-        const repairPlan = buildParseErrorRepairPlan(parsed, selectedToolNames, actionProtocol);
-        addRawAssistantForRepair(raw);
+        const repairPlan = buildParseErrorRepairPlan(parsed, selectedToolNames);
         messages.push({ role: "user", content: repairPlan.prompt });
         debugLog(repairPlan.event, {
           ...debugContext,
@@ -148,6 +166,30 @@ export async function runProviderTurn(input: {
           rawExcerpt: safeBlockText(parsed.raw, 500),
         });
         continue;
+      }
+
+      const parseErrorFinalGuard = validateFinalAnswer({
+        text: raw,
+        context: contextLike,
+        selectedToolNames,
+      });
+      if (!parseErrorFinalGuard.ok && finalGuardRequiresPlanBlock(parseErrorFinalGuard)) {
+        debugLog("recovery.plan_mode_fallback", {
+          ...debugContext,
+          code: parseErrorFinalGuard.code,
+          reason: parseErrorFinalGuard.reason,
+          ...loopState.snapshot(),
+          rawExcerpt: safeBlockText(raw, 500),
+        });
+        return {
+          kind: "final",
+          text: buildPlanModeFallbackPlan({
+            code: parseErrorFinalGuard.code,
+            reason: parseErrorFinalGuard.reason,
+            latestUserText: parseErrorFinalGuard.latestUserText,
+          }),
+          ...loopState.resultFields(),
+        };
       }
 
       return {
@@ -166,7 +208,6 @@ export async function runProviderTurn(input: {
       if (!finalGuard.ok) {
         if (loopState.canRecoverRepair(debugContext)) {
           const recovery = loopState.noteRepairRecovery();
-          addRawAssistantForRepair(raw);
           messages.push({
             role: "user",
             content: buildPrematureFinalRepairPrompt({
@@ -176,7 +217,6 @@ export async function runProviderTurn(input: {
               latestUserText: finalGuard.latestUserText,
               availableNames: selectedToolNames,
               forcePlanBlock: finalGuardRequiresPlanBlock(finalGuard),
-              actionProtocol,
             }),
           });
           debugLog("recovery.premature_final", {
@@ -233,12 +273,10 @@ export async function runProviderTurn(input: {
       selectedToolByName,
       lastCompletedCall,
       canRepair: loopState.canRecoverRepair(debugContext),
-      actionProtocol,
     });
 
     if (toolDecision.kind === "repair") {
       const recovery = loopState.noteRepairRecovery();
-      addRawAssistantForRepair(raw);
       messages.push({ role: "user", content: toolDecision.prompt });
       debugLog(toolDecision.event, {
         ...debugContext,

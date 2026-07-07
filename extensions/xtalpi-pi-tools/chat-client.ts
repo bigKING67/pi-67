@@ -16,11 +16,9 @@ import {
   type XtalpiChatMessage,
 } from "./protocol.ts";
 import {
-  DEFAULT_ACTION_PROTOCOL,
-  resolveActionProtocol,
-  responseFormatForProtocol,
-  type XtalpiActionProtocol,
-} from "./local-action-adapter.ts";
+  JSON_ACTION_PROTOCOL,
+  jsonActionResponseFormat,
+} from "./json-action-protocol.ts";
 import {
   extractTextFromMessage,
   usageFromResponse,
@@ -101,10 +99,7 @@ async function fetchTextWithTimeout(
   }
 }
 
-export function parseXtalpiChatResponse(
-  body: string,
-  actionProtocol: XtalpiActionProtocol = DEFAULT_ACTION_PROTOCOL,
-): XtalpiChatResponse {
+export function parseXtalpiChatResponse(body: string): XtalpiChatResponse {
   let json: unknown;
   try {
     json = JSON.parse(body);
@@ -140,7 +135,7 @@ export function parseXtalpiChatResponse(
   }
 
   return {
-    content: extractTextFromMessage(message, actionProtocol),
+    content: extractTextFromMessage(message),
     usage: usageFromResponse(root.usage),
     responseModel: typeof root.model === "string" ? root.model : undefined,
     finishReason: typeof firstChoice?.finish_reason === "string" ? firstChoice.finish_reason : undefined,
@@ -152,9 +147,8 @@ export async function callXtalpiChat(input: {
   messages: XtalpiChatMessage[];
   options?: SimpleStreamOptions;
   runtimeConfig?: Pick<ProviderRuntimeConfig, "apiKey" | "baseUrl">;
-  actionProtocol?: XtalpiActionProtocol;
 }): Promise<XtalpiChatResponse> {
-  const { model, messages, options, runtimeConfig, actionProtocol } = input;
+  const { model, messages, options, runtimeConfig } = input;
   throwIfCallerAborted(options?.signal);
 
   const apiKey = options?.apiKey || runtimeConfig?.apiKey || "";
@@ -165,8 +159,7 @@ export async function callXtalpiChat(input: {
     );
   }
 
-  const effectiveActionProtocol = actionProtocol ?? resolveActionProtocol();
-  const payload = buildChatCompletionPayload(model, messages, options, effectiveActionProtocol);
+  const payload = buildChatCompletionPayload(model, messages, options);
   const timeoutMs = resolveRequestTimeoutMs(options);
   debugLog("request", {
     provider: PROVIDER_ID,
@@ -174,8 +167,8 @@ export async function callXtalpiChat(input: {
     messageCount: payload.messages.length,
     maxTokens: payload.max_tokens,
     nativeToolsPresent: false,
-    actionProtocol: effectiveActionProtocol,
-    responseFormat: responseFormatForProtocol(effectiveActionProtocol)?.type ?? null,
+    actionProtocol: JSON_ACTION_PROTOCOL,
+    responseFormat: jsonActionResponseFormat()?.type ?? null,
     timeoutMs,
   });
 
@@ -207,7 +200,7 @@ export async function callXtalpiChat(input: {
     throw buildHttpError(response.status, body);
   }
 
-  const parsed = parseXtalpiChatResponse(body, effectiveActionProtocol);
+  const parsed = parseXtalpiChatResponse(body);
   debugLog("response", {
     provider: PROVIDER_ID,
     model: model.id,

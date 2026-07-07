@@ -61,8 +61,8 @@ node .\scripts\pi67-xtalpi-provider-capability-probe.mjs --skip-native-probes
 - `local_json_action_protocol`：`xtalpi-pi-tools` 的 canonical 默认路径。不要使用 native tools；
   只把 `json_object` 当“JSON 语法提示”，再由 Pi 本地做 action schema 校验、selected-tool
   白名单、参数校验、repair 和工具执行。
-- `local_text_protocol`：仅表示上游连 JSON object/action 都不稳定时的应急诊断结果。运行时不自动
-  fallback；如确需回归旧协议，必须显式设置 `XTALPI_PI_TOOLS_ACTION_PROTOCOL=legacy_text`。
+- `unsupported_json_action`：capability probe 发现上游连 targeted JSON action 都不稳定。运行时不再
+  切换到另一个本地协议；这类结果应视为 provider health / compatibility 风险。
 
 当前治理原则是：**`json_object` 只是语法 hint，不是 schema guarantee；targeted
 `json_action_N` 能稳定通过时使用本地 JSON action；`json_schema strict`
@@ -87,9 +87,9 @@ envelope，Pi 本地解析、schema validate、repair、分类错误并执行工
 tag 漂移概率。未知字段、坏 `kind`、非对象 `arguments`、未展示工具、参数 schema 不匹配、
 重复工具调用和 shell 语义不匹配仍由 Pi 本地 fail closed 并进入有界 repair。
 
-实现上这层边界是 `extensions/xtalpi-pi-tools/local-action-adapter.ts`。它集中决定：
+实现上这层边界是 `extensions/xtalpi-pi-tools/json-action-protocol.ts`。它集中决定：
 
-- 当前本地协议：默认 `json_action`；`legacy_text` 仅显式 debug/regression fallback。
+- 当前本地协议：固定 `json_action`；没有运行时协议切换或旧文本 fallback。
 - 协议版本和 system prompt。
 - 是否给 Chat Completions payload 加 `response_format: {"type":"json_object"}`。
 - assistant 历史是否包装成 `{"kind":"final","text":"..."}`，避免 JSON action 模式被旧裸文本污染。
@@ -134,13 +134,7 @@ Windows PowerShell：
   `<pi_tool_call>` XML tag 协议。JSON action mode 下如果上游输出旧 `<pi_tool_call>` markup，
   Pi 会把它归类为协议漂移并要求 repair，而不是静默当旧协议执行。
 
-如需临时回归旧文本协议，可显式运行：
-
-```bash
-XTALPI_PI_TOOLS_ACTION_PROTOCOL=legacy_text bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case read
-```
-
-无论使用哪种本地协议，都不要重新打开 OpenAI native `tools` / `tool_choice` / `role=tool`
+不要重新打开 OpenAI native `tools` / `tool_choice` / `role=tool`
 链路，除非 capability probe 明确显示它们可用。
 
 ## 为什么替代 xtalpi-tools
@@ -180,7 +174,7 @@ content:
 
 历史 assistant tool call 默认不再回灌给模型：既不使用旧的 `<pi_tool_call_history>` 裸协议标签，也不再发送 `[previous_pi_tool_call]` 记录。模型只看到后续 `<pi_tool_result>` 包装里的可观察工具结果。这样从源头减少“历史工具调用被当成最终回答复读”的概率。legacy 会话、旧 artifact 或异常模型输出里如果仍出现 `[previous_pi_tool_call]` / `<previous_pi_tool_call>`，provider 只把它当内部历史泄漏处理：完整块会先被剥离，剩余无进展文本进入 repair；smoke/debug-summary 也会继续把残留 legacy marker 计入 final-answer markup gate。
 
-如果显式启用 `XTALPI_PI_TOOLS_ACTION_PROTOCOL=legacy_text`，parser 仍支持旧式 Pi 工具记录，例如在 `<pi_tool_call>` 内写出 `id="..."`、`name="read"` 和 `arguments_json: {...}` 行。默认 JSON action mode 不再静默执行这类旧 markup；它会把旧协议输出归类为协议漂移并进入 JSON action repair。
+如果模型或旧 artifact 泄漏旧式 Pi 工具记录，例如在 `<pi_tool_call>` 内写出 `id="..."`、`name="read"` 和 `arguments_json: {...}` 行，parser 只把它们当 provider drift / 历史污染输入处理；运行时不会静默执行旧 markup，而是归类为协议漂移并进入 JSON action repair。
 
 为了避免每次遇到一个新等价格式才补一次，parser 现在按“宽进严出”的本地归一化策略覆盖
 高概率模型漂移形态：

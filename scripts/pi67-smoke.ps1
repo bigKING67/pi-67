@@ -275,7 +275,7 @@ $RequiredFiles = @(
   "scripts/pi67-patch-pi-until-done-runtime-queue.ps1",
   "scripts/pi67-shared-skills-inventory.sh",
   "extensions/xtalpi-pi-tools/json-file.ts",
-  "extensions/xtalpi-pi-tools/local-action-adapter.ts",
+  "extensions/xtalpi-pi-tools/json-action-protocol.ts",
   "extensions/xtalpi-pi-tools/runtime-config.ts",
   "extensions/xtalpi-pi-tools/fixtures/replay-cases.json",
   "extensions/xtalpi-pi-tools/provider-error-contract.json"
@@ -439,7 +439,7 @@ Run-Check "xtalpi-pi-tools endpoint contract uses chat/completions" {
   }
 
   $runtimeConfig = RepoPath "extensions/xtalpi-pi-tools/runtime-config.ts"
-  $localActionAdapter = RepoPath "extensions/xtalpi-pi-tools/local-action-adapter.ts"
+  $jsonActionProtocol = RepoPath "extensions/xtalpi-pi-tools/json-action-protocol.ts"
   $chatClient = RepoPath "extensions/xtalpi-pi-tools/chat-client.ts"
   $providerTurn = RepoPath "extensions/xtalpi-pi-tools/provider-turn.ts"
   $responseNormalizer = RepoPath "extensions/xtalpi-pi-tools/response-normalizer.ts"
@@ -454,14 +454,47 @@ Run-Check "xtalpi-pi-tools endpoint contract uses chat/completions" {
   Assert-ContentNotContains $runtimeConfig "/response/completions"
   Assert-ContentNotContains $providerHealth "/response/completions"
   Assert-ContentNotContains $capabilityProbe "/response/completions"
-  Assert-ContentContains $localActionAdapter 'DEFAULT_ACTION_PROTOCOL: XtalpiActionProtocol = "json_action"'
-  Assert-ContentContains $localActionAdapter '"legacy_text"'
-  Assert-ContentContains $chatClient "DEFAULT_ACTION_PROTOCOL"
-  Assert-ContentNotContains $chatClient 'actionProtocol: XtalpiActionProtocol = "legacy_text"'
-  Assert-ContentContains $responseNormalizer "DEFAULT_ACTION_PROTOCOL"
-  Assert-ContentNotContains $responseNormalizer 'actionProtocol: XtalpiActionProtocol = "legacy_text"'
-  Assert-ContentContains $providerTurn "parseToolCallForProtocol"
-  Assert-ContentContains $responseNormalizer 'actionProtocol === "json_action"'
+  Assert-ContentContains $jsonActionProtocol "JSON_ACTION_PROTOCOL"
+  Assert-ContentContains $jsonActionProtocol "jsonActionSystemPrompt"
+  Assert-ContentContains $jsonActionProtocol "jsonActionResponseFormat"
+  Assert-ContentContains $chatClient "JSON_ACTION_PROTOCOL"
+  Assert-ContentNotContains $chatClient 'actionProtocol?:'
+  Assert-ContentNotContains $responseNormalizer "actionProtocol"
+  Assert-ContentContains $providerTurn "parseJsonAction"
+  Assert-ContentNotContains $providerTurn (@("parseToolCall", "ForProtocol") -join "")
+
+  $forbiddenFragments = @(
+    (@("legacy", "_text") -join ""),
+    (@("XTALPI_PI_TOOLS_ACTION", "_PROTOCOL") -join ""),
+    (@("parseToolCall", "ForProtocol") -join ""),
+    (@("resolveAction", "Protocol") -join ""),
+    (@("createLocalAction", "Adapter") -join ""),
+    (@("LocalAction", "Adapter") -join ""),
+    (@("XtalpiAction", "Protocol") -join ""),
+    (@("responseFormat", "ForProtocol") -join ""),
+    (@("protocolSystem", "Prompt") -join ""),
+    (@("protocolVersion", "For") -join ""),
+    (@("wrapAssistantHistory", "ForProtocol") -join ""),
+    (@("shouldReplayRawAssistant", "ForRepair") -join ""),
+    (@("local_text", "_protocol") -join "")
+  )
+  $contractFiles = @(
+    (RepoPath "README.md"),
+    (RepoPath "CHANGELOG.md"),
+    (RepoPath "docs/troubleshooting.md"),
+    (RepoPath "docs/xtalpi-pi-tools.md"),
+    $runtimeConfig,
+    $capabilityProbe,
+    $jsonActionProtocol,
+    $chatClient,
+    $providerTurn,
+    $responseNormalizer
+  )
+  foreach ($file in $contractFiles) {
+    foreach ($fragment in $forbiddenFragments) {
+      Assert-ContentNotContains $file $fragment
+    }
+  }
 }
 
 Section "PowerShell documentation"
@@ -537,7 +570,7 @@ if ($GitAvailable) {
     "scripts/pi67-fuzz-xtalpi-parser.mjs",
     "scripts/pi67-shared-skills-inventory.sh",
     "extensions/xtalpi-pi-tools/json-file.ts",
-    "extensions/xtalpi-pi-tools/local-action-adapter.ts",
+    "extensions/xtalpi-pi-tools/json-action-protocol.ts",
     ".github/workflows/ci.yml"
   )
   Run-Check "Windows smoke release files are tracked or staged" {

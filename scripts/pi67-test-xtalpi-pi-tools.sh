@@ -25,7 +25,7 @@ const { pathToFileURL } = require("node:url");
   const errors = await import(ext("errors.ts"));
   const finalGuard = await import(ext("final-guard.ts"));
   const jsonUtils = await import(ext("json-utils.ts"));
-  const localActionAdapter = await import(ext("local-action-adapter.ts"));
+  const jsonActionProtocol = await import(ext("json-action-protocol.ts"));
   const recoveryDecision = await import(ext("recovery-decision.ts"));
   const retry = await import(ext("retry.ts"));
   const responseNormalizer = await import(ext("response-normalizer.ts"));
@@ -367,8 +367,6 @@ const { pathToFileURL } = require("node:url");
   }
 
   async function assertProviderReplayFixture(fixture, registeredProvider, originalFetch) {
-    const previousActionProtocol = process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL;
-    process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL = String(fixture.actionProtocol ?? "legacy_text");
     process.env.XTALPI_PI_TOOLS_MAX_TOOLS = String(fixture.maxTools ?? 8);
     process.env.XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES = String(fixture.maxRepairRetries ?? 2);
     process.env.XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES = String(fixture.maxTotalRecoveries ?? 4);
@@ -414,11 +412,6 @@ const { pathToFileURL } = require("node:url");
       }
     } finally {
       global.fetch = originalFetch;
-      if (previousActionProtocol === undefined) {
-        delete process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL;
-      } else {
-        process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL = previousActionProtocol;
-      }
     }
   }
 
@@ -514,7 +507,6 @@ const { pathToFileURL } = require("node:url");
   };
 
   await withProviderTurnEnv({
-    XTALPI_PI_TOOLS_ACTION_PROTOCOL: undefined,
     XTALPI_PI_TOOLS_MAX_TOOLS: "8",
     XTALPI_PI_TOOLS_MAX_EMPTY_RETRIES: "1",
     XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES: "1",
@@ -562,13 +554,12 @@ const { pathToFileURL } = require("node:url");
   });
 
   await withProviderTurnEnv({
-    XTALPI_PI_TOOLS_ACTION_PROTOCOL: "legacy_text",
     XTALPI_PI_TOOLS_MAX_TOOLS: "8",
     XTALPI_PI_TOOLS_MAX_EMPTY_RETRIES: "1",
     XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES: "1",
     XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES: "2",
   }, async () => {
-    const finalChat = makeProviderTurnChat([{ content: "direct final answer" }]);
+    const finalChat = makeProviderTurnChat([{ content: '{"kind":"final","text":"direct final answer"}' }]);
     const finalResult = await providerTurn.runProviderTurn({
       model: providerTurnModel,
       context: { systemPrompt: "system base", tools: [], messages: [{ role: "user", content: "hello" }] },
@@ -581,6 +572,7 @@ const { pathToFileURL } = require("node:url");
 
     const toolChat = makeProviderTurnChat([
       { content: '<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>' },
+      { content: '{"kind":"tool_call","name":"read","arguments":{"path":"package.json"}}' },
     ]);
     const toolResult = await providerTurn.runProviderTurn({
       model: providerTurnModel,
@@ -590,10 +582,10 @@ const { pathToFileURL } = require("node:url");
     assert.equal(toolResult.kind, "tool_call");
     assert.equal(toolResult.toolCall.name, "read");
     assert.deepEqual(toolResult.toolCall.arguments, { path: "package.json" });
-    assert.equal(toolChat.calls.length, 1);
+    assert.equal(toolChat.calls.length, 2);
+    assert.match(toolChat.calls[1].at(-1).content, /xtalpi-pi-tools-raw-protocol-markup-repair/);
 
     await withProviderTurnEnv({
-      XTALPI_PI_TOOLS_ACTION_PROTOCOL: "json",
       XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES: "1",
       XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES: "1",
     }, async () => {
@@ -607,7 +599,6 @@ const { pathToFileURL } = require("node:url");
         },
         callChat: async (input) => {
           jsonActionCalls.push(JSON.parse(JSON.stringify({
-            actionProtocol: input.actionProtocol,
             messages: input.messages,
           })));
           return {
@@ -620,7 +611,6 @@ const { pathToFileURL } = require("node:url");
       assert.equal(jsonActionResult.kind, "tool_call");
       assert.equal(jsonActionResult.toolCall.name, "read");
       assert.deepEqual(jsonActionResult.toolCall.arguments, { path: "package.json" });
-      assert.equal(jsonActionCalls[0].actionProtocol, "json_action");
       assert.match(jsonActionCalls[0].messages[0].content, /All assistant responses MUST be exactly one compact JSON object/);
       assert.match(jsonActionCalls[0].messages[0].content, /"kind":"tool_call"/);
 
@@ -702,7 +692,7 @@ const { pathToFileURL } = require("node:url");
         XTALPI_PI_TOOLS_DEBUG_PATH: warningDebugFile,
       }, async () => {
         const warningChat = makeProviderTurnChat([
-          { content: `<pi_tool_call>\n{"name":"unsafe_pattern","arguments":{"value":"${"a".repeat(2048)}!"}}\n</pi_tool_call>` },
+          { content: `{"kind":"tool_call","name":"unsafe_pattern","arguments":{"value":"${"a".repeat(2048)}!"}}` },
         ]);
         const warningResult = await providerTurn.runProviderTurn({
           model: providerTurnModel,
@@ -732,8 +722,8 @@ const { pathToFileURL } = require("node:url");
       parameters: { type: "object", properties: {} },
     };
     const selectedToolBoundaryChat = makeProviderTurnChat([
-      { content: '<pi_tool_call>\n{"name":"hidden_admin","arguments":{}}\n</pi_tool_call>' },
-      { content: "final after selected tool repair" },
+      { content: '{"kind":"tool_call","name":"hidden_admin","arguments":{}}' },
+      { content: '{"kind":"final","text":"final after selected tool repair"}' },
     ]);
     await withProviderTurnEnv({
       XTALPI_PI_TOOLS_MAX_TOOLS: "1",
@@ -766,7 +756,7 @@ const { pathToFileURL } = require("node:url");
 
     const emptyRecoveryChat = makeProviderTurnChat([
       { content: "" },
-      { content: "recovered after empty response" },
+      { content: '{"kind":"final","text":"recovered after empty response"}' },
     ]);
     const emptyRecoveryResult = await providerTurn.runProviderTurn({
       model: providerTurnModel,
@@ -780,7 +770,7 @@ const { pathToFileURL } = require("node:url");
 
     const parseRepairChat = makeProviderTurnChat([
       { content: 'read({"path":"package.json"})' },
-      { content: '<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>' },
+      { content: '{"kind":"tool_call","name":"read","arguments":{"path":"package.json"}}' },
     ]);
     const parseRepairResult = await providerTurn.runProviderTurn({
       model: providerTurnModel,
@@ -806,7 +796,7 @@ Tools: bash, find, grep, ls, read, plan_mode_question
 Produce a <proposed_plan> block.`,
       },
       {
-        content: "<proposed_plan>\n1. Inspect source discovery.\n2. Verify actual directories.\n</proposed_plan>",
+        content: '{"kind":"final","text":"<proposed_plan>\\n1. Inspect source discovery.\\n2. Verify actual directories.\\n</proposed_plan>"}',
       },
     ]);
     const planModeLeakRepairResult = await providerTurn.runProviderTurn({
@@ -818,8 +808,7 @@ Produce a <proposed_plan> block.`,
     assert.match(planModeLeakRepairResult.text, /<proposed_plan>/);
     assert.ok(!planModeLeakRepairResult.text.includes("<previous_pi_tool_call>"));
     assert.equal(planModeLeakRepairChat.calls.length, 2);
-    assert.match(planModeLeakRepairChat.calls[1].at(-1).content, /xtalpi-pi-tools-premature-final-repair/);
-    assert.match(planModeLeakRepairChat.calls[1].at(-1).content, /internal_context_leak|plan_mode_contract_missing/);
+    assert.match(planModeLeakRepairChat.calls[1].at(-1).content, /xtalpi-pi-tools-raw-protocol-markup-repair/);
     assert.match(planModeLeakRepairChat.calls[1].at(-1).content, /<proposed_plan>/);
 
     const mismatchedHistoryContinuationChat = makeProviderTurnChat([
@@ -832,7 +821,7 @@ arguments_json: {"queries":["2026年 618 抖音 洗护 行业 销售数据 报�
 </previous_pi_tool_call>`,
       },
       {
-        content: '<pi_tool_call>\n{"name":"web_search","arguments":{"queries":["2026年 618 抖音 洗护 行业 销售数据 报告"],"numResults":8,"recencyFilter":"month"}}\n</pi_tool_call>',
+        content: '{"kind":"tool_call","name":"web_search","arguments":{"queries":["2026年 618 抖音 洗护 行业 销售数据 报告"],"numResults":8,"recencyFilter":"month"}}',
       },
     ]);
     const mismatchedHistoryContinuationResult = await providerTurn.runProviderTurn({
@@ -843,7 +832,7 @@ arguments_json: {"queries":["2026年 618 抖音 洗护 行业 销售数据 报�
     assert.equal(mismatchedHistoryContinuationResult.kind, "tool_call");
     assert.equal(mismatchedHistoryContinuationResult.toolCall.name, "web_search");
     assert.equal(mismatchedHistoryContinuationChat.calls.length, 2);
-    assert.match(mismatchedHistoryContinuationChat.calls[1].at(-1).content, /xtalpi-pi-tools-premature-final-repair/);
+    assert.match(mismatchedHistoryContinuationChat.calls[1].at(-1).content, /xtalpi-pi-tools-raw-protocol-markup-repair/);
     assert.ok(!mismatchedHistoryContinuationResult.leadingText.includes("previous_pi_tool_call"));
 
     const planModeContractRepairChat = makeProviderTurnChat([
@@ -853,7 +842,7 @@ Tools: bash, find, grep, ls, read, plan_mode_question
 Produce a <proposed_plan> block.`,
       },
       {
-        content: "<proposed_plan>\n1. Inspect source discovery.\n2. Verify actual directories.\n</proposed_plan>",
+        content: '{"kind":"final","text":"<proposed_plan>\\n1. Inspect source discovery.\\n2. Verify actual directories.\\n</proposed_plan>"}',
       },
     ]);
     const planModeContractRepairResult = await providerTurn.runProviderTurn({
@@ -869,7 +858,6 @@ Produce a <proposed_plan> block.`,
     assert.match(planModeContractRepairResult.text, /<proposed_plan>/);
     assert.equal(planModeContractRepairChat.calls.length, 2);
     assert.match(planModeContractRepairChat.calls[1].at(-1).content, /xtalpi-pi-tools-premature-final-repair/);
-    assert.match(planModeContractRepairChat.calls[1].at(-1).content, /internal_context_leak|plan_mode_contract_missing/);
     assert.match(planModeContractRepairChat.calls[1].at(-1).content, /Plan mode is active/);
 
     const malformedJsonActionPlanFinalChat = makeProviderTurnChat([
@@ -930,7 +918,7 @@ Produce a <proposed_plan> block.`,
 
     const continuationNoProgressChat = makeProviderTurnChat([
       { content: "I will inspect the file next." },
-      { content: '<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>' },
+      { content: '{"kind":"tool_call","name":"read","arguments":{"path":"package.json"}}' },
     ]);
     const continuationNoProgressResult = await providerTurn.runProviderTurn({
       model: providerTurnModel,
@@ -944,7 +932,7 @@ Produce a <proposed_plan> block.`,
 
     const intentToToolNoCallChat = makeProviderTurnChat([
       { content: "I need to read package.json first." },
-      { content: '<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>' },
+      { content: '{"kind":"tool_call","name":"read","arguments":{"path":"package.json"}}' },
     ]);
     const intentToToolNoCallResult = await providerTurn.runProviderTurn({
       model: providerTurnModel,
@@ -993,7 +981,7 @@ Produce a <proposed_plan> block.`,
           '{"id":"pi_tool_read_x","name":"read","arguments":{"path":"package.json"}}',
       },
       {
-        content: '<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>',
+        content: '{"kind":"tool_call","name":"read","arguments":{"path":"package.json"}}',
       },
     ]);
     const pseudoToolObjectFinalResult = await providerTurn.runProviderTurn({
@@ -1013,7 +1001,7 @@ Produce a <proposed_plan> block.`,
 
     const weakFinalRepairChat = makeProviderTurnChat([
       { content: "OK" },
-      { content: "Concrete final answer after continuing." },
+      { content: '{"kind":"final","text":"Concrete final answer after continuing."}' },
     ]);
     const weakFinalRepairResult = await providerTurn.runProviderTurn({
       model: providerTurnModel,
@@ -1032,6 +1020,9 @@ name: "read"
 arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
 </pi_tool_call>`,
       },
+      {
+        content: String.raw`{"kind":"tool_call","name":"read","arguments":{"path":"D:\\codeproject\\data-etl\\main.py","offset":1,"limit":30}}`,
+      },
     ]);
     const looseEnvelopeResult = await providerTurn.runProviderTurn({
       model: providerTurnModel,
@@ -1040,16 +1031,17 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
     });
     assert.equal(looseEnvelopeResult.kind, "tool_call");
     assert.equal(looseEnvelopeResult.toolCall.name, "read");
+    assert.equal(looseEnvelopeChat.calls.length, 2);
+    assert.match(looseEnvelopeChat.calls[1].at(-1).content, /xtalpi-pi-tools-raw-protocol-markup-repair/);
     assert.deepEqual(looseEnvelopeResult.toolCall.arguments, {
       path: String.raw`D:\codeproject\data-etl\main.py`,
       offset: 1,
       limit: 30,
     });
-    assert.equal(looseEnvelopeChat.calls.length, 1);
 
     const invalidJsonRepairChat = makeProviderTurnChat([
-      { content: '<pi_tool_call>\n{"name":"read","arguments":\n</pi_tool_call>' },
-      { content: '<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>' },
+      { content: '{"kind":"tool_call","name":"read","arguments":' },
+      { content: '{"kind":"tool_call","name":"read","arguments":{"path":"package.json"}}' },
     ]);
     const invalidJsonRepairResult = await providerTurn.runProviderTurn({
       model: providerTurnModel,
@@ -1063,8 +1055,8 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
     assert.match(invalidJsonRepairChat.calls[1].at(-1).content, /Available tool names:\n"read"/);
 
     const invalidArgsRepairChat = makeProviderTurnChat([
-      { content: '<pi_tool_call>\n{"name":"read","arguments":{"path":42}}\n</pi_tool_call>' },
-      { content: '<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>' },
+      { content: '{"kind":"tool_call","name":"read","arguments":{"path":42}}' },
+      { content: '{"kind":"tool_call","name":"read","arguments":{"path":"package.json"}}' },
     ]);
     const invalidArgsRepairResult = await providerTurn.runProviderTurn({
       model: providerTurnModel,
@@ -1079,15 +1071,11 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
     const shellMismatchRepairChat = makeProviderTurnChat([
       {
         content:
-          '<pi_tool_call>\n' +
-          '{"name":"bash","arguments":{"command":"Get-ChildItem -Recurse -Filter \\"pi67-smoke.ps1\\" -ErrorAction SilentlyContinue | Select-Object -First 20 -ExpandProperty FullName","timeout":30}}\n' +
-          '</pi_tool_call>',
+          '{"kind":"tool_call","name":"bash","arguments":{"command":"Get-ChildItem -Recurse -Filter \\"pi67-smoke.ps1\\" -ErrorAction SilentlyContinue | Select-Object -First 20 -ExpandProperty FullName","timeout":30}}',
       },
       {
         content:
-          '<pi_tool_call>\n' +
-          '{"name":"bash","arguments":{"command":"find . -name \\"pi67-smoke.ps1\\" -print | head -20","timeout":30}}\n' +
-          '</pi_tool_call>',
+          '{"kind":"tool_call","name":"bash","arguments":{"command":"find . -name \\"pi67-smoke.ps1\\" -print | head -20","timeout":30}}',
       },
     ]);
     const shellMismatchRepairResult = await providerTurn.runProviderTurn({
@@ -1108,7 +1096,6 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
   });
 
   await withProviderTurnEnv({
-    XTALPI_PI_TOOLS_ACTION_PROTOCOL: "json_action",
     XTALPI_PI_TOOLS_MAX_TOOLS: "8",
     XTALPI_PI_TOOLS_MAX_EMPTY_RETRIES: "0",
     XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES: "0",
@@ -1618,7 +1605,6 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
         { id: "deepseek-v4-pro", maxTokens: 2048 },
         [{ role: "user", content: "hello" }],
         { maxTokens: 4096, temperature: 0.2 },
-        "legacy_text",
       ),
       {
         model: "deepseek-v4-pro",
@@ -1626,6 +1612,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
         stream: false,
         max_tokens: 2048,
         temperature: 0.2,
+        response_format: { type: "json_object" },
       },
     );
     assert.deepEqual(
@@ -1633,7 +1620,6 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
         { id: "deepseek-v4-pro", maxTokens: 2048 },
         [{ role: "user", content: "hello" }],
         { maxTokens: 4096 },
-        "json_action",
       ),
       {
         model: "deepseek-v4-pro",
@@ -1643,43 +1629,14 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
         response_format: { type: "json_object" },
       },
     );
-    const previousActionProtocolEnv = process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL;
-    try {
-      delete process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL;
-      assert.equal(localActionAdapter.resolveActionProtocol(), "json_action");
-      process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL = "local_json_action_protocol";
-      assert.equal(localActionAdapter.resolveActionProtocol(), "json_action");
-      process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL = "legacy_text";
-      assert.equal(localActionAdapter.resolveActionProtocol(), "legacy_text");
-    } finally {
-      if (previousActionProtocolEnv === undefined) {
-        delete process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL;
-      } else {
-        process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL = previousActionProtocolEnv;
-      }
-    }
-    assert.equal(localActionAdapter.protocolVersionFor("json_action"), localActionAdapter.JSON_ACTION_PROTOCOL_VERSION);
-    assert.equal(localActionAdapter.responseFormatForProtocol("json_action").type, "json_object");
-    assert.match(localActionAdapter.protocolSystemPrompt("json_action"), /exactly one compact JSON object/);
+    assert.equal(jsonActionProtocol.JSON_ACTION_PROTOCOL, "json_action");
+    assert.equal(jsonActionProtocol.JSON_ACTION_PROTOCOL_VERSION, "xtalpi-pi-tools.json-action.v1");
+    assert.equal(jsonActionProtocol.jsonActionResponseFormat().type, "json_object");
+    assert.match(jsonActionProtocol.jsonActionSystemPrompt(), /exactly one compact JSON object/);
     assert.deepEqual(
-      JSON.parse(localActionAdapter.wrapAssistantHistoryForProtocol("hello", "json_action")),
+      JSON.parse(jsonActionProtocol.wrapAssistantHistoryAsJsonActionFinal("hello")),
       { kind: "final", text: "hello" },
     );
-    assert.equal(localActionAdapter.wrapAssistantHistoryForProtocol("hello", "legacy_text"), "hello");
-    assert.equal(localActionAdapter.shouldReplayRawAssistantForRepair("json_action"), false);
-    assert.equal(localActionAdapter.shouldReplayRawAssistantForRepair("legacy_text"), true);
-    const jsonAdapter = localActionAdapter.createLocalActionAdapter("json_action");
-    assert.equal(jsonAdapter.protocol, "json_action");
-    assert.equal(jsonAdapter.protocolVersion, localActionAdapter.JSON_ACTION_PROTOCOL_VERSION);
-    assert.deepEqual(jsonAdapter.responseFormat, { type: "json_object" });
-    assert.deepEqual(JSON.parse(jsonAdapter.wrapAssistantHistory("hello")), { kind: "final", text: "hello" });
-    assert.equal(jsonAdapter.shouldReplayRawAssistantForRepair(), false);
-    const legacyAdapter = localActionAdapter.createLocalActionAdapter("legacy_text");
-    assert.equal(legacyAdapter.protocol, "legacy_text");
-    assert.equal(legacyAdapter.protocolVersion, localActionAdapter.LEGACY_TEXT_PROTOCOL_VERSION);
-    assert.equal(legacyAdapter.responseFormat, undefined);
-    assert.equal(legacyAdapter.wrapAssistantHistory("hello"), "hello");
-    assert.equal(legacyAdapter.shouldReplayRawAssistantForRepair(), true);
   } finally {
     if (previousPayloadMaxOutputEnv === undefined) {
       delete process.env.XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS;
@@ -1872,18 +1829,6 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
     name: "read",
     arguments: { path: "package.json" },
   });
-  const normalizedNativeToolCall = responseNormalizer.extractTextFromMessage({
-    content: "",
-    tool_calls: [
-      {
-        type: "function",
-        function: { name: "read", arguments: '{"path":"package.json"}' },
-      },
-    ],
-  }, "legacy_text");
-  assert.match(normalizedNativeToolCall, /<pi_tool_call>/);
-  assert.match(normalizedNativeToolCall, /"name":"read"/);
-  assert.match(normalizedNativeToolCall, /"path":"package\.json"/);
   const normalizedJsonActionNativeToolCall = responseNormalizer.extractTextFromMessage({
     content: "",
     tool_calls: [
@@ -1892,23 +1837,12 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
         function: { name: "read", arguments: '{"path":"package.json"}' },
       },
     ],
-  }, "json_action");
+  });
   assert.deepEqual(JSON.parse(normalizedJsonActionNativeToolCall), {
     kind: "tool_call",
     name: "read",
     arguments: { path: "package.json" },
   });
-  const normalizedBadNativeToolCall = responseNormalizer.extractTextFromMessage({
-    content: null,
-    tool_calls: [
-      {
-        type: "function",
-        function: { name: "noop", arguments: '<pi_tool_call name="bash"\n{"unterminated":' },
-      },
-    ],
-  }, "legacy_text");
-  assert.match(normalizedBadNativeToolCall, /"_invalid_native_arguments"/);
-  assert.ok(normalizedBadNativeToolCall.includes("[literal pi_tool_call open tag]"));
   const normalizedJsonActionBadNativeToolCall = responseNormalizer.extractTextFromMessage({
     content: null,
     tool_calls: [
@@ -1917,7 +1851,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
         function: { name: "noop", arguments: '<pi_tool_call name="bash"\n{"unterminated":' },
       },
     ],
-  }, "json_action");
+  });
   assert.match(normalizedJsonActionBadNativeToolCall, /"_invalid_native_arguments"/);
   assert.ok(normalizedJsonActionBadNativeToolCall.includes("[literal pi_tool_call open tag]"));
 
@@ -1931,7 +1865,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
     diagnostics.debugLog("turn.start", {
       provider: "xtalpi-pi-tools",
       model: "deepseek-v4-pro",
-      protocolVersion: localActionAdapter.JSON_ACTION_PROTOCOL_VERSION,
+      protocolVersion: jsonActionProtocol.JSON_ACTION_PROTOCOL_VERSION,
       actionProtocol: "json_action",
       responseFormat: "json_object",
       selectedToolCount: 2,
@@ -1969,7 +1903,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
     });
     const debugEvent = JSON.parse(fs.readFileSync(debugFile, "utf8").trim());
     assert.equal(debugEvent.schema, "xtalpi-pi-tools.debug.v1");
-    assert.equal(debugEvent.protocol_version, localActionAdapter.JSON_ACTION_PROTOCOL_VERSION);
+    assert.equal(debugEvent.protocol_version, jsonActionProtocol.JSON_ACTION_PROTOCOL_VERSION);
     assert.equal(debugEvent.action_protocol, "json_action");
     assert.equal(debugEvent.response_format, "json_object");
     assert.equal(debugEvent.selected_tool_names_hash, "abc123fingerprint");
@@ -2072,7 +2006,6 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
   const jsonActionMessages = serializer.serializeContextToXtalpiMessages(context, {
     maxTools: 8,
     maxToolResultChars: 2000,
-    actionProtocol: "json_action",
   });
   assert.match(jsonActionMessages[0].content, /exactly one compact JSON object/);
   assert.match(jsonActionMessages[0].content, /"kind":"final"/);
@@ -2090,7 +2023,6 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
     {
       maxTools: 8,
       maxToolResultChars: 2000,
-      actionProtocol: "json_action",
     },
   );
   const historicalAssistant = jsonActionHistoryMessages.find((msg) => msg.role === "assistant");
@@ -2362,7 +2294,6 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
   assert.equal(dynamicMcpDirectContext.toolSelectionSummary.clipped, true);
 
   await withProviderTurnEnv({
-    XTALPI_PI_TOOLS_ACTION_PROTOCOL: "json_action",
     XTALPI_PI_TOOLS_MAX_TOOLS: "1",
     XTALPI_PI_TOOLS_MAX_EMPTY_RETRIES: "0",
     XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES: "0",
@@ -2518,7 +2449,6 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
     assert.match(adapterRegisteredContext.messages[0].content, /text:string required/);
 
     await withProviderTurnEnv({
-      XTALPI_PI_TOOLS_ACTION_PROTOCOL: "json_action",
       XTALPI_PI_TOOLS_MAX_TOOLS: "1",
       XTALPI_PI_TOOLS_MAX_EMPTY_RETRIES: "0",
       XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES: "0",
@@ -2798,7 +2728,6 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
   process.env.XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES = "4";
 
   let registeredProvider;
-  process.env.XTALPI_PI_TOOLS_ACTION_PROTOCOL = "json_action";
   provider.default({
     registerProvider(id, config) {
       assert.equal(id, "xtalpi-pi-tools");

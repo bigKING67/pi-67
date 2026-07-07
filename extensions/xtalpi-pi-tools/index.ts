@@ -33,10 +33,12 @@ export {
   resolveRequestTimeoutMs,
 } from "./runtime-config.ts";
 export {
-  createLocalActionAdapter,
-  resolveActionProtocol,
-  type XtalpiActionProtocol,
-} from "./local-action-adapter.ts";
+  JSON_ACTION_PROTOCOL,
+  JSON_ACTION_PROTOCOL_VERSION,
+  jsonActionResponseFormat,
+  jsonActionSystemPrompt,
+  wrapAssistantHistoryAsJsonActionFinal,
+} from "./json-action-protocol.ts";
 
 function streamXtalpiPiTools(
   model: Model<Api>,

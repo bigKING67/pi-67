@@ -1,9 +1,5 @@
 import type { ToolCallParseResult } from "./parser.ts";
 import {
-  DEFAULT_ACTION_PROTOCOL,
-  type XtalpiActionProtocol,
-} from "./local-action-adapter.ts";
-import {
   buildFunctionStyleToolRepairPrompt,
   buildInvalidToolJsonRepairPrompt,
   buildRawProtocolMarkupRepairPrompt,
@@ -40,25 +36,24 @@ export function canRecoverRepair(
 export function buildParseErrorRepairPlan(
   parsed: ParseErrorResult,
   selectedToolNames: readonly string[],
-  actionProtocol: XtalpiActionProtocol = DEFAULT_ACTION_PROTOCOL,
 ): ParseErrorRepairPlan {
   const names = [...selectedToolNames];
   if (parsed.code === "function_style_tool_call") {
     return {
       event: "recovery.function_style_tool_call",
-      prompt: buildFunctionStyleToolRepairPrompt(parsed.raw, names, actionProtocol),
+      prompt: buildFunctionStyleToolRepairPrompt(parsed.raw, names),
     };
   }
 
   if (parsed.code === "raw_protocol_markup") {
     return {
       event: "recovery.raw_protocol_markup",
-      prompt: buildRawProtocolMarkupRepairPrompt(parsed.raw, names, actionProtocol),
+      prompt: buildRawProtocolMarkupRepairPrompt(parsed.raw, names),
     };
   }
 
   return {
     event: "recovery.invalid_tool_json",
-    prompt: buildInvalidToolJsonRepairPrompt(parsed.message, parsed.raw, names, actionProtocol),
+    prompt: buildInvalidToolJsonRepairPrompt(parsed.message, parsed.raw, names),
   };
 }

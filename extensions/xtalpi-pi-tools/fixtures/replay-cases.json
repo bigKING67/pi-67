@@ -406,10 +406,13 @@
       "responses": [
         {
           "content": "{\"name\":\"bash\",\"arguments\":{\"command\":\"pwd\"}}"
+        },
+        {
+          "content": "{\"kind\":\"tool_call\",\"name\":\"bash\",\"arguments\":{\"command\":\"pwd\"}}"
         }
       ],
       "expect": {
-        "fetchCount": 1,
+        "fetchCount": 2,
         "stopReason": "toolUse",
         "toolCalls": [
           {
@@ -453,13 +456,14 @@
       "responses": [
         {
           "content": "I will inspect it first.\n<pi_tool_call>\n{\"name\":\"read\",\"arguments\":{\"path\":\"README.md\"}}\n</pi_tool_call>\nThen I will summarize."
+        },
+        {
+          "content": "{\"kind\":\"tool_call\",\"name\":\"read\",\"arguments\":{\"path\":\"README.md\"}}"
         }
       ],
       "expect": {
-        "fetchCount": 1,
+        "fetchCount": 2,
         "stopReason": "toolUse",
-        "leadingTextIncludes": "inspect it",
-        "trailingTextIncludes": "summarize",
         "toolCalls": [
           {
             "name": "read",
@@ -508,10 +512,13 @@
       "responses": [
         {
           "content": "<pi_tool_call>\nid=\"pi_tool_read_mr8x2ffi_xirqj9\"\nname=\"read\"\narguments_json: {\"path\":\"D:/codeproject/data-etl/douyin/compass/trade_sale_image.py\",\"offset\":155,\"limit\":110}\n</pi_tool_call>"
+        },
+        {
+          "content": "{\"kind\":\"tool_call\",\"name\":\"read\",\"arguments\":{\"path\":\"D:/codeproject/data-etl/douyin/compass/trade_sale_image.py\",\"offset\":155,\"limit\":110}}"
         }
       ],
       "expect": {
-        "fetchCount": 1,
+        "fetchCount": 2,
         "stopReason": "toolUse",
         "toolCalls": [
           {
@@ -557,10 +564,13 @@
       "responses": [
         {
           "content": "<pi_tool_call>\n{\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"package.json\\\"}\"}}]}\n</pi_tool_call>"
+        },
+        {
+          "content": "{\"kind\":\"tool_call\",\"name\":\"read\",\"arguments\":{\"path\":\"package.json\"}}"
         }
       ],
       "expect": {
-        "fetchCount": 1,
+        "fetchCount": 2,
         "stopReason": "toolUse",
         "toolCalls": [
           {
@@ -604,10 +614,13 @@
       "responses": [
         {
           "content": "<tool_call name=read>\n{\"path\":\"package.json\"}\n</tool_call>"
+        },
+        {
+          "content": "{\"kind\":\"tool_call\",\"name\":\"read\",\"arguments\":{\"path\":\"package.json\"}}"
         }
       ],
       "expect": {
-        "fetchCount": 1,
+        "fetchCount": 2,
         "stopReason": "toolUse",
         "toolCalls": [
           {
@@ -651,10 +664,13 @@
       "responses": [
         {
           "content": "<pi_tool_call name=\"read\">\n{\"path\":\"package.json\"}\n</pi_tool_call>"
+        },
+        {
+          "content": "{\"kind\":\"tool_call\",\"name\":\"read\",\"arguments\":{\"path\":\"package.json\"}}"
         }
       ],
       "expect": {
-        "fetchCount": 1,
+        "fetchCount": 2,
         "stopReason": "toolUse",
         "toolCalls": [
           {
@@ -702,7 +718,7 @@
           "content": "<pi_tool_call_history>\nid: call_1\nname: read\narguments: {\"path\":\"package.json\"}\n</pi_tool_call_history>"
         },
         {
-          "content": "Package summary is available without raw protocol markup."
+          "content": "{\"kind\":\"final\",\"text\":\"Package summary is available without raw protocol markup.\"}"
         }
       ],
       "expect": {
@@ -747,7 +763,7 @@
           "content": "[previous_pi_tool_call]\nid: call_1\nname: read\narguments_json: {\"path\":\"package.json\"}\n[/previous_pi_tool_call]"
         },
         {
-          "content": "Package summary is available without internal history records."
+          "content": "{\"kind\":\"final\",\"text\":\"Package summary is available without internal history records.\"}"
         }
       ],
       "expect": {
@@ -792,7 +808,7 @@
           "content": "<pi_tool_call name=\"read\"\n{\"path\":\"package.json\"}"
         },
         {
-          "content": "Recovered from malformed protocol markup."
+          "content": "{\"kind\":\"final\",\"text\":\"Recovered from malformed protocol markup.\"}"
         }
       ],
       "expect": {
@@ -837,7 +853,7 @@
           "content": "Plan mode: planning\nTools: bash, find, grep, ls, read, plan_mode_question\nProduce a <proposed_plan> block."
         },
         {
-          "content": "<proposed_plan>\n1. Inspect source discovery.\n2. Verify actual directories.\n</proposed_plan>"
+          "content": "{\"kind\":\"final\",\"text\":\"<proposed_plan>\\n1. Inspect source discovery.\\n2. Verify actual directories.\\n</proposed_plan>\"}"
         }
       ],
       "expect": {
@@ -927,7 +943,7 @@
           "content": "I will inspect the file next."
         },
         {
-          "content": "<pi_tool_call>\n{\"name\":\"read\",\"arguments\":{\"path\":\"package.json\"}}\n</pi_tool_call>"
+          "content": "{\"kind\":\"tool_call\",\"name\":\"read\",\"arguments\":{\"path\":\"package.json\"}}"
         }
       ],
       "expect": {
@@ -979,10 +995,10 @@
       },
       "responses": [
         {
-          "content": "<pi_tool_call>\n{\"name\":\"bash\",\"arguments\":{\"command\":\"Get-ChildItem -Recurse -Filter \\\"pi67-smoke.ps1\\\" -ErrorAction SilentlyContinue | Select-Object -First 20 -ExpandProperty FullName\",\"timeout\":30}}\n</pi_tool_call>"
+          "content": "{\"kind\":\"tool_call\",\"name\":\"bash\",\"arguments\":{\"command\":\"Get-ChildItem -Recurse -Filter \\\"pi67-smoke.ps1\\\" -ErrorAction SilentlyContinue | Select-Object -First 20 -ExpandProperty FullName\",\"timeout\":30}}"
         },
         {
-          "content": "<pi_tool_call>\n{\"name\":\"bash\",\"arguments\":{\"command\":\"find . -name \\\"pi67-smoke.ps1\\\" -print | head -20\",\"timeout\":30}}\n</pi_tool_call>"
+          "content": "{\"kind\":\"tool_call\",\"name\":\"bash\",\"arguments\":{\"command\":\"find . -name \\\"pi67-smoke.ps1\\\" -print | head -20\",\"timeout\":30}}"
         }
       ],
       "expect": {
@@ -1051,10 +1067,10 @@
       },
       "responses": [
         {
-          "content": "<pi_tool_call>\n{\"name\":\"bounded_read\",\"arguments\":{\"path\":\"\",\"limit\":9,\"tags\":[],\"extra\":true}}\n</pi_tool_call>"
+          "content": "{\"kind\":\"tool_call\",\"name\":\"bounded_read\",\"arguments\":{\"path\":\"\",\"limit\":9,\"tags\":[],\"extra\":true}}"
         },
         {
-          "content": "<pi_tool_call>\n{\"name\":\"bounded_read\",\"arguments\":{\"path\":\"package.json\",\"limit\":5,\"tags\":[\"pkg\"]}}\n</pi_tool_call>"
+          "content": "{\"kind\":\"tool_call\",\"name\":\"bounded_read\",\"arguments\":{\"path\":\"package.json\",\"limit\":5,\"tags\":[\"pkg\"]}}"
         }
       ],
       "expect": {
@@ -1112,10 +1128,10 @@
       },
       "responses": [
         {
-          "content": "<pi_tool_call>\n{\"name\":\"hidden_admin\",\"arguments\":{\"action\":\"dump\"}}\n</pi_tool_call>"
+          "content": "{\"kind\":\"tool_call\",\"name\":\"hidden_admin\",\"arguments\":{\"action\":\"dump\"}}"
         },
         {
-          "content": "<pi_tool_call>\n{\"name\":\"read\",\"arguments\":{\"path\":\"package.json\"}}\n</pi_tool_call>"
+          "content": "{\"kind\":\"tool_call\",\"name\":\"read\",\"arguments\":{\"path\":\"package.json\"}}"
         }
       ],
       "expect": {

@@ -955,10 +955,6 @@ export function parseJsonAction(text: string): ToolCallParseResult {
   };
 }
 
-export function parseToolCallForProtocol(text: string, protocol: "json_action" | "legacy_text"): ToolCallParseResult {
-  return protocol === "json_action" ? parseJsonAction(text) : parseToolCall(text);
-}
-
 export function hasToolCall(text: string): boolean {
   return parseToolCall(text).kind === "tool_call";
 }
