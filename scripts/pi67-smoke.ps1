@@ -274,6 +274,13 @@ $RequiredFiles = @(
   "scripts/pi67-patch-pi-until-done-runtime-queue.sh",
   "scripts/pi67-patch-pi-until-done-runtime-queue.ps1",
   "scripts/pi67-shared-skills-inventory.sh",
+  "packages/pi67-cli/package.json",
+  "packages/pi67-cli/bin/pi-67.mjs",
+  "packages/pi67-cli/src/cli.mjs",
+  "packages/pi67-cli/src/commands/self-update.mjs",
+  "packages/pi67-cli/src/lib/npm-registry.mjs",
+  "packages/pi67-cli/schemas/pi67-state.schema.json",
+  "packages/pi67-cli/schemas/pi67-update-plan.schema.json",
   "extensions/xtalpi-pi-tools/json-file.ts",
   "extensions/xtalpi-pi-tools/json-action-protocol.ts",
   "extensions/xtalpi-pi-tools/runtime-config.ts",
@@ -295,6 +302,9 @@ $JsonFiles = @(
   "models.example.json",
   "mcp.example.json",
   "package.json",
+  "packages/pi67-cli/package.json",
+  "packages/pi67-cli/schemas/pi67-state.schema.json",
+  "packages/pi67-cli/schemas/pi67-update-plan.schema.json",
   "extensions/xtalpi-pi-tools/fixtures/replay-cases.json",
   "extensions/xtalpi-pi-tools/provider-error-contract.json"
 )
@@ -360,7 +370,23 @@ if ($NodeAvailable) {
     "scripts/pi67-xtalpi-provider-capability-probe.mjs",
     "scripts/pi67-validate-xtalpi-provider-error-contract.mjs",
     "scripts/pi67-fuzz-xtalpi-parser.mjs",
-    "scripts/pi67-patch-pi-until-done-runtime-queue.mjs"
+    "scripts/pi67-patch-pi-until-done-runtime-queue.mjs",
+    "packages/pi67-cli/scripts/check.mjs",
+    "packages/pi67-cli/bin/pi-67.mjs",
+    "packages/pi67-cli/src/cli.mjs",
+    "packages/pi67-cli/src/commands/doctor.mjs",
+    "packages/pi67-cli/src/commands/external.mjs",
+    "packages/pi67-cli/src/commands/install.mjs",
+    "packages/pi67-cli/src/commands/report.mjs",
+    "packages/pi67-cli/src/commands/self-update.mjs",
+    "packages/pi67-cli/src/commands/skills.mjs",
+    "packages/pi67-cli/src/commands/smoke.mjs",
+    "packages/pi67-cli/src/commands/status.mjs",
+    "packages/pi67-cli/src/commands/themes.mjs",
+    "packages/pi67-cli/src/commands/update.mjs",
+    "packages/pi67-cli/src/commands/version.mjs",
+    "packages/pi67-cli/src/commands/xtalpi.mjs",
+    "packages/pi67-cli/src/lib/npm-registry.mjs"
   )
   foreach ($file in $NodeCheckFiles) {
     Run-Check ("node --check: {0}" -f $file) {
@@ -394,6 +420,18 @@ if ($NodeAvailable) {
 
   Run-Check "pi-until-done runtime queue/progress patch self-test passed" {
     Invoke-External "node" @((RepoPath "scripts/pi67-patch-pi-until-done-runtime-queue.mjs"), "--self-test") | Out-Null
+  }
+
+  Run-Check "pi-67 npm CLI syntax suite passed" {
+    Invoke-External "node" @((RepoPath "packages/pi67-cli/scripts/check.mjs")) | Out-Null
+  }
+
+  Run-Check "pi-67 npm CLI smoke passed" {
+    Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--help") | Out-Null
+    Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--agent-dir", $RepoRoot, "--repo-root", $RepoRoot, "version", "--json") | Out-Null
+    Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--agent-dir", $RepoRoot, "--repo-root", $RepoRoot, "update", "--check", "--json", "--no-remote") | Out-Null
+    Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--agent-dir", $RepoRoot, "--repo-root", $RepoRoot, "themes", "current", "--json") | Out-Null
+    Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--dry-run", "self-update") | Out-Null
   }
 
   Run-Check "xtalpi extension smoke plan validation passed" {
@@ -565,6 +603,15 @@ if ($GitAvailable) {
     "scripts/pi67-json-utils.ps1",
     "scripts/pi67-json-utils.cjs",
     "scripts/pi67-release-check.sh",
+    "packages/pi67-cli/package.json",
+    "packages/pi67-cli/README.md",
+    "packages/pi67-cli/CHANGELOG.md",
+    "packages/pi67-cli/bin/pi-67.mjs",
+    "packages/pi67-cli/src/cli.mjs",
+    "packages/pi67-cli/src/commands/self-update.mjs",
+    "packages/pi67-cli/src/lib/npm-registry.mjs",
+    "packages/pi67-cli/schemas/pi67-state.schema.json",
+    "packages/pi67-cli/schemas/pi67-update-plan.schema.json",
     "scripts/pi67-xtalpi-pi-tools-smoke.ps1",
     "scripts/pi67-xtalpi-smoke-plan.mjs",
     "scripts/pi67-fuzz-xtalpi-parser.mjs",

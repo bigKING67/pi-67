@@ -20,6 +20,71 @@ Missing API keys, local MCP repositories, or optional binaries are expected on a
 
 ## Install
 
+### Recommended npm manager path
+
+For normal users, install the pi-67 manager first. The manager owns the
+cross-platform public UX; internal Bash/PowerShell scripts stay available for
+CI, bootstrap, and advanced troubleshooting.
+
+Windows PowerShell:
+
+```powershell
+npm install -g @earendil-works/pi-coding-agent
+npm install -g @bigking67/pi-67
+pi --version
+pi-67 install
+pi-67 update
+pi-67 doctor
+pi-67 smoke --quick
+```
+
+macOS/Linux:
+
+```bash
+npm install -g @earendil-works/pi-coding-agent
+npm install -g @bigking67/pi-67
+pi --version
+pi-67 install
+pi-67 update
+pi-67 doctor
+pi-67 smoke --quick
+```
+
+Update boundary:
+
+- `pi update` / `pi update --extensions` belongs to the upstream Pi CLI.
+- `pi-67 update` is the pi-67 distribution update path.
+- If someone ran `pi update --extensions`, run `pi-67 update --repair` to
+  restore the pi-67 managed state.
+
+`pi-67 update` preserves local choices by default. It does not overwrite
+existing `models.json`, `auth.json`, `mcp.json`, `image-gen.json`, user-added
+packages, user-added global skills, or `settings.json.theme`. Theme changes are
+explicit:
+
+```bash
+pi-67 themes current
+pi-67 themes list
+pi-67 themes set gruvbox-dark
+```
+
+The manager writes lightweight state outside the checkout at
+`~/.pi/pi67/state.json`. It records versions, paths, theme, provider/model, and
+commit information, but never API keys.
+
+`pi-67 update --check` also checks whether the npm manager package is outdated
+unless `--no-remote` is used. Manager self-updates are explicit:
+
+```bash
+pi-67 self-update
+```
+
+To bypass a stale local manager for one run:
+
+```bash
+npx -y @bigking67/pi-67@latest update --repair
+```
+
 ### Windows PowerShell first path
 
 On Windows, use PowerShell as the primary entrypoint. Do not assume an extra
@@ -42,6 +107,14 @@ For day-to-day updates on Windows, use the PowerShell-native updater:
 ```powershell
 Set-Location $env:USERPROFILE\.pi\agent
 .\scripts\pi67-update.ps1
+```
+
+When `@bigking67/pi-67` is installed, prefer the public wrapper:
+
+```powershell
+pi-67 update
+pi-67 update --check
+pi-67 update --repair
 ```
 
 It runs a safe fast-forward Git update, keeps existing local runtime config
@@ -498,6 +571,20 @@ bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp --mcp-timeout-ms 5000
 The normal doctor only checks MCP commands and local paths. `--deep-mcp` briefly starts each stdio MCP server from `mcp.json`, sends JSON-RPC `initialize`, then calls `tools/list`. This is intentionally opt-in because it can start local MCP processes and may require machine-specific dependencies.
 
 ## Updating
+
+Recommended cross-platform entrypoint:
+
+```bash
+pi-67 update
+pi-67 update --check
+pi-67 update --repair
+```
+
+`pi update --extensions` is intentionally not the pi-67 update path. It only
+updates upstream Pi extensions according to Pi's own semantics. Use
+`pi-67 update --repair` after manual upstream extension updates when you want
+pi-67 to re-run npm sync, known patch checks, shared skill checks, doctor,
+smoke, report generation, and theme-preserving configuration checks.
 
 If your installed pi-67 already includes the updater:
 

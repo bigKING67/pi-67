@@ -1,0 +1,46 @@
+{
+  "name": "@bigking67/pi-67",
+  "version": "0.10.0",
+  "description": "Cross-platform manager CLI for the pi-67 Pi Coding Agent distribution.",
+  "type": "module",
+  "bin": {
+    "pi-67": "bin/pi-67.mjs",
+    "pi67": "bin/pi-67.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "scripts/",
+    "schemas/",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "check": "node scripts/check.mjs",
+    "smoke": "node bin/pi-67.mjs --help && node bin/pi-67.mjs --agent-dir ../.. version --json && node bin/pi-67.mjs --agent-dir ../.. update --check --json --no-remote && node bin/pi-67.mjs --dry-run self-update"
+  },
+  "keywords": [
+    "pi",
+    "pi-67",
+    "coding-agent",
+    "agent",
+    "xtalpi"
+  ],
+  "author": "bigKING67",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bigKING67/pi-67.git",
+    "directory": "packages/pi67-cli"
+  },
+  "bugs": {
+    "url": "https://github.com/bigKING67/pi-67/issues"
+  },
+  "homepage": "https://github.com/bigKING67/pi-67#readme",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

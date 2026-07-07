@@ -249,10 +249,16 @@ fi
 if [ -f "$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.mjs" ]; then
   node --check "$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.mjs" >/dev/null
 fi
+if [ -d "$REPO_ROOT/packages/pi67-cli" ]; then
+  while IFS= read -r -d '' file; do
+    node --check "$file" >/dev/null
+  done < <(find "$REPO_ROOT/packages/pi67-cli" -type f -name '*.mjs' -print0)
+  node "$REPO_ROOT/packages/pi67-cli/bin/pi-67.mjs" --dry-run self-update >/dev/null
+fi
 pass "shell scripts parse"
 
 section "JSON"
-for file in settings.json auth.example.json image-gen.example.json models.example.json mcp.example.json package.json; do
+for file in settings.json auth.example.json image-gen.example.json models.example.json mcp.example.json package.json packages/pi67-cli/package.json; do
   json_valid "$REPO_ROOT/$file"
   pass "valid JSON: $file"
 done

@@ -148,6 +148,67 @@ npm install -g @earendil-works/pi-coding-agent
 pi --version
 ```
 
+### 首选：npm 管理器 `pi-67`
+
+面向普通用户和长期维护，推荐先安装 pi-67 的 npm 管理器。它只提供
+`pi-67` / `pi67` 命令，不覆盖 Pi 官方 `pi` 命令：
+
+```bash
+npm install -g @bigking67/pi-67
+pi-67 install
+pi-67 update
+pi-67 doctor
+pi-67 smoke --quick
+```
+
+Windows PowerShell 使用同一套命令：
+
+```powershell
+npm install -g @bigking67/pi-67
+pi-67 install
+pi-67 update
+pi-67 doctor
+pi-67 smoke --quick
+```
+
+长期边界：
+
+- `pi update` / `pi update --extensions` 是 Pi 官方上游更新命令。
+- `pi-67 update` 是 pi-67 发行版主更新命令。
+- 如果误跑了 `pi update --extensions`，再运行 `pi-67 update --repair` 重新对齐 pi-67 管理状态。
+
+`pi-67 update` 默认不覆盖用户本地选择：现有 `models.json`、`auth.json`、
+`mcp.json`、`image-gen.json`、用户添加的 packages、全局 skills 和
+`settings.json.theme` 都会保留。主题只在显式执行下面命令时改变：
+
+```bash
+pi-67 themes set gruvbox-dark
+```
+
+脚本入口仍然保留，作为 CI、bootstrap 和高级排障使用；普通用户优先记
+`pi-67 update`、`pi-67 doctor`、`pi-67 smoke --quick`。
+
+如果本机安装的 npm 管理器本身落后，`pi-67 update --check` 会提示更新。
+显式更新管理器用：
+
+```bash
+pi-67 self-update
+```
+
+如果想完全绕过本机旧管理器，直接用 npm 最新版执行一次修复更新：
+
+```bash
+npx -y @bigking67/pi-67@latest update --repair
+```
+
+管理器的轻量状态文件写到 repo 外：
+
+```text
+~/.pi/pi67/state.json
+```
+
+它只记录版本、commit、theme、provider/model 和本地路径，不保存 API key。
+
 ### 推荐：原地 checkout 到 `~/.pi/agent`
 
 Windows PowerShell：
@@ -686,6 +747,49 @@ bash ./scripts/pi67-xtalpi-pi-tools-debug-summary.sh --latest
 
 ## 更新
 
+推荐入口：
+
+```bash
+pi-67 update
+```
+
+只读预览，不拉取也不写文件：
+
+```bash
+pi-67 update --check
+```
+
+这会同时检查发行版 git 状态和 npm 管理器是否有新版；如果只想离线/本地
+检查，使用：
+
+```bash
+pi-67 update --check --no-remote
+```
+
+如果曾经手动跑过 `pi update --extensions`，或者怀疑 npm 扩展、known patch、
+shared skills、xtalpi-pi-tools 本地协议状态没有对齐：
+
+```bash
+pi-67 update --repair
+```
+
+管理器自身更新是显式动作，不会被普通 update 静默触发：
+
+```bash
+pi-67 self-update
+```
+
+永远使用 npm 最新管理器的一次性命令：
+
+```bash
+npx -y @bigking67/pi-67@latest update --repair
+```
+
+注意：`pi update --extensions` 只属于 Pi 官方上游扩展更新语义，不是 pi-67
+完整更新路径。pi-67 的 AGENTS、rules、scripts、xtalpi-pi-tools、shared skills、
+doctor/smoke/report、theme preserve 和 external repo 检查都由 `pi-67 update`
+编排。
+
 Windows PowerShell：
 
 ```powershell
@@ -743,6 +847,16 @@ PowerShell updater 会：
 7. 检查并按需修补 `pi-until-done` runtime queue 兼容性
 8. 运行 `scripts\pi67-smoke.ps1 -Ci` 复核 repo/update contract
 9. 覆盖写入 `~/.pi/agent/pi67-report.json`，并默认嵌入 `scripts\pi67-doctor.ps1 -Json` 结果
+
+`pi-67 update` 在 Windows 上会调度这个 PowerShell-native updater；在 macOS/Linux
+上会调度 Bash updater。两边都遵守同一条主题策略：更新 theme package 可以，
+但不会改 `settings.json.theme`。要改主题必须显式运行：
+
+```bash
+pi-67 themes current
+pi-67 themes list
+pi-67 themes set gruvbox-dark
+```
 
 `npm sync` 只在依赖清单变化或显式强制时运行；成功同步后再次更新应显示
 `npm package.json already synced` 并跳过。若只是临时想快速拉代码、确认当前依赖
@@ -836,7 +950,9 @@ bash ~/.pi/agent/scripts/pi67-update.sh --no-configure
 
 ## 发布维护
 
-pi-67 自身版本以 `VERSION` 为准，`package.json.version` 与它保持一致。用户可见变更记录在 `CHANGELOG.md`，发布流程见 `docs/release.md`。
+pi-67 自身版本以 `VERSION` 为准，`package.json.version` 与
+`packages/pi67-cli/package.json.version` 都要保持一致。用户可见变更记录在
+`CHANGELOG.md`，发布流程见 `docs/release.md`。
 
 发布或修改安装链路前运行：
 
@@ -854,6 +970,7 @@ macOS/Linux 和当前 CI 主链路：
 bash scripts/pi67-release-check.sh
 bash scripts/pi67-smoke.sh --ci
 bash scripts/pi67-release-artifact-smoke.sh --ref WORKTREE
+npm pack --dry-run ./packages/pi67-cli
 ```
 
 生成发布计划和 release notes 预览：

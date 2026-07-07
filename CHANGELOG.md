@@ -8,6 +8,8 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ### Added
 
+- `packages/pi67-cli/` as the publishable `@bigking67/pi-67` npm manager package, exposing `pi-67` / `pi67` for install, update, doctor, smoke, status, report, xtalpi, themes, skills, external, and version workflows.
+- `pi-67 self-update` plus npm latest-version hints in `pi-67 update --check`, so stale global managers are visible and users can run a single explicit manager update without changing Pi's upstream `pi` command.
 - `shared-skills/commerce-growth-os/` as the vendored Pi distribution copy of `https://github.com/bigKING67/commerce-growth-os`, so Pi/Codex can share the commerce growth skill through `~/.agents/skills`.
 - `rules/commerce-growth.md` plus Pi rules-loader routing for commerce growth, marketplace operation, assortment, pricing, channel control, ROI/profit, and platform-currentness tasks.
 - `scripts/pi67-sync-commerce-growth-os.sh` as a dry-run-first maintainer helper for refreshing the vendored `shared-skills/commerce-growth-os` copy from the standalone upstream checkout.
@@ -18,6 +20,8 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ### Changed
 
+- User-facing update docs now make `pi-67 update` the recommended pi-67 distribution update path, while keeping `pi update --extensions` scoped to upstream Pi extension updates.
+- `pi-67 update` documentation now explicitly preserves existing local config files, user packages, global skills, external repos, and `settings.json.theme`; theme changes require `pi-67 themes set <name>`.
 - Pi AGENTS/rules documentation now routes commerce growth work to `commerce-growth-os` without adding local absolute paths or duplicate active package roots.
 - External skill sync now supports both root-level `repo/SKILL.md` skill repositories and legacy `repo/skills/*/SKILL.md` layouts, with fixture coverage for root-level discovery, apply, and read-only checks.
 - `scripts/pi67-status.sh` now classifies benign `settings.json` runtime-marker dirty state separately and reports recent xtalpi provider-health retry/failure trend from local smoke artifacts.

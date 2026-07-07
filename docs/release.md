@@ -6,6 +6,8 @@ pi-67 is a full-stack Pi workspace distribution. A release should communicate ex
 
 - `VERSION` is the pi-67 distribution version.
 - `package.json.version` mirrors `VERSION` for tooling visibility.
+- `packages/pi67-cli/package.json.version` mirrors `VERSION` for the
+  `@bigking67/pi-67` npm manager package.
 - `CHANGELOG.md` records user-visible changes.
 
 Do not use the upstream Pi CLI version as the pi-67 release version. Pi itself has its own lifecycle.
@@ -39,6 +41,7 @@ bash scripts/pi67-patch-pi-until-done-runtime-queue.sh --check --agent-dir ~/.pi
 bash scripts/pi67-smoke.sh --ci
 bash scripts/pi67-release-artifact-smoke.sh --ref WORKTREE
 bash scripts/pi67-release.sh --dry-run
+npm pack --dry-run ./packages/pi67-cli
 git status --short
 ```
 
@@ -52,6 +55,7 @@ Expected result:
 - `pi-until-done` runtime queue/progress compatibility check passes on the installed agent package when `/until-done` behavior or npm extensions changed
 - smoke test passes locally
 - clean artifact smoke passes for the current worktree candidate
+- npm manager package packs as `@bigking67/pi-67`
 - release notes preview is generated from `CHANGELOG.md`
 - worktree is clean except the intentional release commit before committing
 - GitHub Actions passes after push
@@ -61,11 +65,14 @@ Expected result:
 
 1. Update `VERSION`.
 2. Update `package.json.version`.
-3. Add a dated entry at the top of `CHANGELOG.md`.
-4. If install/configure/doctor behavior changed, update:
+3. Update `packages/pi67-cli/package.json.version`.
+4. Add a dated entry at the top of `CHANGELOG.md`.
+5. If install/configure/doctor/manager behavior changed, update:
    - `README.md`
    - `docs/full-install.md`
    - `docs/troubleshooting.md`
+   - `packages/pi67-cli/README.md` if public npm command behavior changed
+   - `packages/pi67-cli/CHANGELOG.md` if npm manager behavior changed
    - `docs/report-schema.md` if `pi67-report.json` fields changed
    - `docs/doctor-schema.md` if doctor JSON fields changed
    - `docs/status.md` if `scripts/pi67-status.sh` behavior changed
@@ -74,7 +81,7 @@ Expected result:
    - `docs/skill-governance.md` if skill registry, migration, or external sync behavior changed
    - update workflow docs if `scripts/pi67-update.sh` or `scripts/pi67-update.ps1` changed
    - release artifact docs if `scripts/pi67-release-artifact-smoke.sh` changed
-5. Run:
+6. Run:
 
 ```powershell
 .\scripts\pi67-smoke.ps1 -Ci
@@ -90,15 +97,16 @@ bash scripts/pi67-patch-pi-until-done-runtime-queue.sh --check --agent-dir ~/.pi
 bash scripts/pi67-smoke.sh --ci
 bash scripts/pi67-release-artifact-smoke.sh --ref WORKTREE
 bash scripts/pi67-release.sh --dry-run
+npm pack --dry-run ./packages/pi67-cli
 ```
 
-6. Commit with a scoped message, for example:
+7. Commit with a scoped message, for example:
 
 ```bash
 git commit -m "chore: release pi-67 0.2.0"
 ```
 
-7. Push and confirm CI:
+8. Push and confirm CI:
 
 ```bash
 git push
@@ -128,6 +136,54 @@ Preview without writing:
 ```bash
 bash scripts/pi67-release.sh --dry-run
 ```
+
+## npm manager package
+
+The npm package is a thin, long-term public entrypoint for users:
+
+```bash
+npm install -g @bigking67/pi-67
+pi-67 install
+pi-67 update
+pi-67 doctor
+```
+
+It does not replace or shadow the upstream `pi` binary. `pi update` and
+`pi update --extensions` remain upstream Pi commands; `pi-67 update` is the
+pi-67 distribution update command.
+
+Before publishing the npm package:
+
+```bash
+node packages/pi67-cli/bin/pi-67.mjs --help
+node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" version --json
+node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" update --check --json --no-remote
+node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" themes current --json
+node packages/pi67-cli/bin/pi-67.mjs --dry-run self-update
+npm pack --dry-run ./packages/pi67-cli
+```
+
+Publish from an npm-authenticated environment:
+
+```bash
+npm publish ./packages/pi67-cli --access public --provenance
+```
+
+After publishing, verify the public latest-version path from a clean shell:
+
+```bash
+npx -y @bigking67/pi-67@latest --help
+npx -y @bigking67/pi-67@latest update --check --no-remote
+```
+
+If publishing manually, verify identity first:
+
+```bash
+npm whoami
+```
+
+If publishing through GitHub Actions, store an npm automation token in the
+repository secret store and keep provenance enabled.
 
 ## Artifact smoke
 

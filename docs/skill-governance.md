@@ -15,6 +15,17 @@ for release/parity checks where differing global skills should block.
 duplicate source and remove or back it up after confirming the same skills exist
 in `~/.agents/skills`.
 
+Normal users can inspect and sync the shared registry through the npm manager:
+
+```bash
+pi-67 skills inventory
+pi-67 skills sync
+```
+
+The sync command copies only missing bundled shared skills. If an existing
+`~/.agents/skills/<name>` differs from the pi-67 baseline, it is reported and
+preserved; pi-67 does not overwrite a user's global skill choice by default.
+
 The installer handles linked installs by backing up `~/.pi/agent/skills` into
 the normal install backup directory. The update helper removes only old
 pi-67-owned skill symlinks; local non-symlink directories are preserved and

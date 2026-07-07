@@ -630,6 +630,40 @@ it until Pi works after reinstalling.
 
 ## Update stops because the checkout is dirty
 
+For normal users, prefer the npm manager:
+
+```bash
+pi-67 update --check
+pi-67 update
+pi-67 update --repair
+pi-67 self-update
+```
+
+`pi update --extensions` is the upstream Pi extension updater, not the pi-67
+distribution updater. If it was run manually, use `pi-67 update --repair` to
+re-run the pi-67 npm sync, known patch checks, shared skill checks, smoke,
+doctor, and report path.
+
+`pi-67 update` preserves `settings.json.theme`; it may update the installed
+theme package, but it will not change the selected theme. Change theme only
+with:
+
+```bash
+pi-67 themes set gruvbox-dark
+```
+
+If `pi-67 update --check` says the npm manager is outdated, update it explicitly:
+
+```bash
+pi-67 self-update
+```
+
+If the installed manager is too old to trust, use the latest package for one run:
+
+```bash
+npx -y @bigking67/pi-67@latest update --repair
+```
+
 `pi67-update.ps1` / `pi67-update.sh` default to safe fast-forward updates.
 On Windows, use the PowerShell-native updater first:
 

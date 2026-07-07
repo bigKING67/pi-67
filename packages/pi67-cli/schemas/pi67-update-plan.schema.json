@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/bigKING67/pi-67/schemas/pi67-update-plan.schema.json",
+  "title": "pi-67 update plan",
+  "type": "object",
+  "required": ["schema", "createdAt", "manager", "paths", "recommendations"],
+  "properties": {
+    "schema": {
+      "const": "pi67.update-plan.v1"
+    },
+    "createdAt": {
+      "type": "string"
+    },
+    "manager": {
+      "type": "object",
+      "required": ["package", "version"],
+      "properties": {
+        "package": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "registry": {
+          "type": "object",
+          "description": "npm registry latest-version check; skipped when --no-remote is used."
+        }
+      },
+      "additionalProperties": true
+    },
+    "paths": {
+      "type": "object"
+    },
+    "recommendations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": true
+}

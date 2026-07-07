@@ -31,3 +31,9 @@ Thumbs.db
 # 二进制
 bin/
 git/
+
+# npm manager CLI entrypoint must remain tracked even though root runtime bins are ignored.
+!packages/
+!packages/pi67-cli/
+!packages/pi67-cli/bin/
+!packages/pi67-cli/bin/pi-67.mjs

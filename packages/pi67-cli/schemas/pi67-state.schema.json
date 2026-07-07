@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/bigKING67/pi-67/schemas/pi67-state.schema.json",
+  "title": "pi-67 local manager state",
+  "type": "object",
+  "required": ["schema", "managerVersion", "agentDir"],
+  "properties": {
+    "schema": {
+      "const": "pi67.state.v1"
+    },
+    "managerVersion": {
+      "type": "string"
+    },
+    "agentDir": {
+      "type": "string"
+    },
+    "lastUpdateAt": {
+      "type": "string"
+    },
+    "lastKnownCommit": {
+      "type": "string"
+    },
+    "lastKnownVersion": {
+      "type": "string"
+    },
+    "lastTheme": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}

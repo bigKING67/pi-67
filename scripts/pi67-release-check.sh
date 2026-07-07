@@ -42,6 +42,9 @@ echo "Repository: $REPO_ROOT"
 VERSION_FILE="$REPO_ROOT/VERSION"
 CHANGELOG="$REPO_ROOT/CHANGELOG.md"
 PACKAGE_JSON="$REPO_ROOT/package.json"
+PI67_CLI_DIR="$REPO_ROOT/packages/pi67-cli"
+PI67_CLI_PACKAGE_JSON="$PI67_CLI_DIR/package.json"
+PI67_CLI_BIN="$PI67_CLI_DIR/bin/pi-67.mjs"
 RELEASE_DOC="$REPO_ROOT/docs/release.md"
 REPORT_SCHEMA_DOC="$REPO_ROOT/docs/report-schema.md"
 DOCTOR_SCHEMA_DOC="$REPO_ROOT/docs/doctor-schema.md"
@@ -107,6 +110,56 @@ else
   warn "node not found; skipped package.json version check"
 fi
 
+if [ -d "$PI67_CLI_DIR" ] && [ -f "$PI67_CLI_PACKAGE_JSON" ] && [ -f "$PI67_CLI_BIN" ]; then
+  pass "pi-67 npm CLI package files exist"
+else
+  fail "pi-67 npm CLI package files are missing under packages/pi67-cli"
+fi
+
+if command_exists node; then
+  if node - "$PI67_CLI_PACKAGE_JSON" "$VERSION" <<'NODE'
+const fs = require("fs");
+const [pkgFile, version] = process.argv.slice(2);
+const pkg = JSON.parse(fs.readFileSync(pkgFile, "utf8"));
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+assert(pkg.name === "@bigking67/pi-67", `unexpected CLI package name: ${pkg.name}`);
+assert(pkg.version === version, `CLI package version ${pkg.version} does not match VERSION ${version}`);
+assert(pkg.type === "module", "CLI package must be ESM");
+assert(pkg.bin?.["pi-67"] === "bin/pi-67.mjs", "CLI package must expose pi-67 bin");
+assert(pkg.bin?.pi67 === "bin/pi-67.mjs", "CLI package must expose pi67 alias");
+assert(pkg.publishConfig?.access === "public", "scoped CLI package must publish as public");
+NODE
+  then
+    pass "pi-67 npm CLI package metadata is valid"
+  else
+    fail "pi-67 npm CLI package metadata is invalid"
+  fi
+
+  while IFS= read -r -d '' file; do
+    node --check "$file" >/dev/null
+  done < <(find "$PI67_CLI_DIR" -type f -name '*.mjs' -print0)
+  pass "pi-67 npm CLI JavaScript syntax checks passed"
+
+  node "$PI67_CLI_BIN" --help >/dev/null
+  node "$PI67_CLI_BIN" --agent-dir "$REPO_ROOT" --repo-root "$REPO_ROOT" version --json >/dev/null
+  node "$PI67_CLI_BIN" --agent-dir "$REPO_ROOT" --repo-root "$REPO_ROOT" update --check --json --no-remote >/dev/null
+  node "$PI67_CLI_BIN" --agent-dir "$REPO_ROOT" --repo-root "$REPO_ROOT" themes current --json >/dev/null
+  node "$PI67_CLI_BIN" --agent-dir "$REPO_ROOT" --repo-root "$REPO_ROOT" external list --json >/dev/null
+  node "$PI67_CLI_BIN" --dry-run self-update >/dev/null
+  pass "pi-67 npm CLI smoke commands passed"
+else
+  warn "node not found; skipped pi-67 npm CLI checks"
+fi
+
+if command_exists npm; then
+  npm pack --dry-run "$PI67_CLI_DIR" >/dev/null 2>&1
+  pass "pi-67 npm CLI package packs cleanly"
+else
+  warn "npm not found; skipped pi-67 npm CLI pack dry-run"
+fi
+
 if [ -f "$CHANGELOG" ]; then
   pass "CHANGELOG.md exists"
   if [ -n "$VERSION" ] && grep -q "^## \\[$VERSION\\]" "$CHANGELOG"; then
@@ -128,6 +181,12 @@ if grep -q "pi67-release-check.sh" "$REPO_ROOT/README.md" && grep -q "pi67-relea
   pass "release check is documented"
 else
   fail "release check is not documented in README.md and docs/release.md"
+fi
+
+if grep -q "npm install -g @bigking67/pi-67" "$REPO_ROOT/README.md" && grep -q "pi-67 update" "$REPO_ROOT/README.md" && grep -q "pi update --extensions" "$REPO_ROOT/README.md" && grep -q "settings.json.theme" "$REPO_ROOT/README.md" && grep -q "npm publish .*--access public" "$RELEASE_DOC"; then
+  pass "pi-67 npm CLI install/update/theme/publish docs are present"
+else
+  fail "pi-67 npm CLI install/update/theme/publish docs are missing"
 fi
 
 if [ -f "$POWERSHELL_SMOKE" ] && [ -f "$POWERSHELL_UPDATE" ] && [ -f "$POWERSHELL_DOCTOR" ] && [ -f "$POWERSHELL_REPORT" ] && [ -f "$JSON_UTIL_PS" ] && [ -f "$JSON_UTIL_CJS" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_PS" ] && grep -q "pi67-smoke.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-smoke.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-smoke.ps1" "$RELEASE_DOC" && grep -q "pi67-update.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-update.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-update.ps1" "$RELEASE_DOC" && grep -q "pi67-doctor.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-doctor.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-doctor.ps1" "$RELEASE_DOC" && grep -q "pi67-report.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-report.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-report.ps1" "$RELEASE_DOC" && grep -q "pi67-xtalpi-pi-tools-smoke.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-xtalpi-pi-tools-smoke.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-xtalpi-pi-tools-smoke.ps1" "$RELEASE_DOC" && grep -q "PowerShell" "$XTALPI_PI_TOOLS_DOC"; then
@@ -481,7 +540,7 @@ if command_exists git && git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/d
     fail "git diff --check failed"
   fi
 
-  if git -C "$REPO_ROOT" ls-files --error-unmatch VERSION CHANGELOG.md .github/workflows/ci.yml docs/release.md docs/report-schema.md docs/doctor-schema.md docs/status.md docs/skill-migration-schema.md docs/external-skill-sync-schema.md docs/skill-governance.md docs/troubleshooting.md docs/xtalpi-pi-tools.md scripts/pi67-check-external-skills.sh scripts/pi67-doctor.sh scripts/pi67-doctor.ps1 scripts/pi67-json-utils.cjs scripts/pi67-json-utils.ps1 scripts/pi67-migrate-skills.sh scripts/pi67-release-artifact-smoke.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-report.ps1 scripts/pi67-status.sh scripts/pi67-shared-skills-inventory.sh scripts/pi67-sync-commerce-growth-os.sh scripts/pi67-sync-external-skills.sh scripts/pi67-test-skill-governance.sh scripts/pi67-update.sh scripts/pi67-update.ps1 scripts/pi67-smoke.ps1 scripts/pi67-xtalpi-pi-tools.sh scripts/pi67-test-xtalpi-pi-tools.sh scripts/pi67-fuzz-xtalpi-parser.mjs scripts/pi67-patch-pi-until-done-runtime-queue.mjs scripts/pi67-patch-pi-until-done-runtime-queue.sh scripts/pi67-patch-pi-until-done-runtime-queue.ps1 scripts/pi67-xtalpi-pi-tools-smoke.sh scripts/pi67-xtalpi-pi-tools-smoke.ps1 scripts/pi67-xtalpi-pi-tools-debug-summary.sh scripts/pi67-xtalpi-tool-coverage-audit.sh scripts/pi67-xtalpi-smoke-status-core.cjs scripts/pi67-xtalpi-smoke-plan.mjs scripts/pi67-xtalpi-provider-health.mjs scripts/pi67-xtalpi-provider-capability-probe.mjs scripts/pi67-validate-xtalpi-provider-error-contract.mjs extensions/xtalpi-pi-tools/json-file.ts extensions/xtalpi-pi-tools/json-action-protocol.ts extensions/xtalpi-pi-tools/fixtures/replay-cases.json extensions/xtalpi-pi-tools/provider-error-contract.json >/dev/null 2>&1; then
+  if git -C "$REPO_ROOT" ls-files --error-unmatch VERSION CHANGELOG.md .github/workflows/ci.yml docs/release.md docs/report-schema.md docs/doctor-schema.md docs/status.md docs/skill-migration-schema.md docs/external-skill-sync-schema.md docs/skill-governance.md docs/troubleshooting.md docs/xtalpi-pi-tools.md packages/pi67-cli/package.json packages/pi67-cli/README.md packages/pi67-cli/CHANGELOG.md packages/pi67-cli/bin/pi-67.mjs packages/pi67-cli/src/cli.mjs packages/pi67-cli/src/commands/self-update.mjs packages/pi67-cli/src/lib/npm-registry.mjs packages/pi67-cli/schemas/pi67-state.schema.json packages/pi67-cli/schemas/pi67-update-plan.schema.json scripts/pi67-check-external-skills.sh scripts/pi67-doctor.sh scripts/pi67-doctor.ps1 scripts/pi67-json-utils.cjs scripts/pi67-json-utils.ps1 scripts/pi67-migrate-skills.sh scripts/pi67-release-artifact-smoke.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-report.ps1 scripts/pi67-status.sh scripts/pi67-shared-skills-inventory.sh scripts/pi67-sync-commerce-growth-os.sh scripts/pi67-sync-external-skills.sh scripts/pi67-test-skill-governance.sh scripts/pi67-update.sh scripts/pi67-update.ps1 scripts/pi67-smoke.ps1 scripts/pi67-xtalpi-pi-tools.sh scripts/pi67-test-xtalpi-pi-tools.sh scripts/pi67-fuzz-xtalpi-parser.mjs scripts/pi67-patch-pi-until-done-runtime-queue.mjs scripts/pi67-patch-pi-until-done-runtime-queue.sh scripts/pi67-patch-pi-until-done-runtime-queue.ps1 scripts/pi67-xtalpi-pi-tools-smoke.sh scripts/pi67-xtalpi-pi-tools-smoke.ps1 scripts/pi67-xtalpi-pi-tools-debug-summary.sh scripts/pi67-xtalpi-tool-coverage-audit.sh scripts/pi67-xtalpi-smoke-status-core.cjs scripts/pi67-xtalpi-smoke-plan.mjs scripts/pi67-xtalpi-provider-health.mjs scripts/pi67-xtalpi-provider-capability-probe.mjs scripts/pi67-validate-xtalpi-provider-error-contract.mjs extensions/xtalpi-pi-tools/json-file.ts extensions/xtalpi-pi-tools/json-action-protocol.ts extensions/xtalpi-pi-tools/fixtures/replay-cases.json extensions/xtalpi-pi-tools/provider-error-contract.json >/dev/null 2>&1; then
     pass "release metadata files are tracked or staged"
   else
     warn "release metadata files are not all tracked yet; expected before final commit"
