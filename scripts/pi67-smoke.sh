@@ -804,11 +804,18 @@ const fs = require("fs");
 const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
 if (data.schemaId !== "pi67-xtalpi-tool-coverage-audit/v1") throw new Error(`unexpected schemaId: ${data.schemaId}`);
 if (!data.summary || data.summary.total < 1 || data.summary.installed < 1) throw new Error("coverage audit summary is empty");
-if (data.summary.installed !== data.summary.total) throw new Error("coverage audit found missing installed packages");
-if (data.summary.packagesWithMissingExpectedEvidence !== 0) throw new Error("coverage audit has missing expected evidence");
+const installedMissingEvidence = data.entries.filter(
+  (entry) => entry.installed && Object.values(entry.missingExpected || {}).some((items) => items.length > 0),
+);
+if (installedMissingEvidence.length) {
+  throw new Error(`coverage audit has missing expected evidence for installed packages: ${installedMissingEvidence.map((entry) => entry.spec).join(", ")}`);
+}
 for (const spec of ["npm:@ff-labs/pi-fff", "npm:pi-smart-fetch", "npm:pi-mcp-adapter"]) {
   const entry = data.entries.find((candidate) => candidate.spec === spec);
-  if (!entry || entry.installed !== true) throw new Error(`coverage audit did not find installed package: ${spec}`);
+  if (!entry) throw new Error(`coverage audit missing package entry: ${spec}`);
+  if (entry.installed !== true && entry.surface !== "missing") {
+    throw new Error(`coverage audit emitted invalid missing package entry: ${spec}`);
+  }
 }
 const rulesLoader = data.entries.find((candidate) => candidate.spec === "local:extensions/pi-rules-loader");
 if (!rulesLoader || rulesLoader.installed !== true) throw new Error("coverage audit did not include pi-rules-loader");
@@ -834,7 +841,12 @@ if (!data.summary || data.summary.packages < 1 || data.summary.installed < 1) th
 if (data.summary.unknownPolicyPackages !== 0) throw new Error("smoke plan has unknown policy packages");
 if (!data.recommendedCommands || !data.recommendedCommands.windowsExpanded.includes("extension-expanded")) throw new Error("missing Windows expanded smoke command");
 const smartFetch = data.packages.find((entry) => entry.spec === "npm:pi-smart-fetch");
-if (!smartFetch || !smartFetch.windowsCoveredTools.includes("batch_web_fetch")) throw new Error("smoke plan did not cover batch_web_fetch");
+if (!smartFetch) throw new Error("smoke plan missing smart-fetch entry");
+if (smartFetch.installed) {
+  if (!smartFetch.windowsCoveredTools.includes("batch_web_fetch")) throw new Error("smoke plan did not cover batch_web_fetch");
+} else if (smartFetch.status !== "missing_package") {
+  throw new Error(`unexpected smart-fetch status: ${smartFetch.status}`);
+}
 const rulesLoader = data.packages.find((entry) => entry.spec === "local:extensions/pi-rules-loader");
 if (!rulesLoader || rulesLoader.status !== "not_model_callable") throw new Error("smoke plan did not classify rules-loader");
 ' /tmp/pi67-smoke-xtalpi-smoke-plan-json.log

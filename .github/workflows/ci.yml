@@ -37,6 +37,13 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Install Pi extension dependencies
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path npm | Out-Null
+          Copy-Item package.json npm\package.json -Force
+          npm --prefix npm install --ignore-scripts
+
       - name: Run pi-67 PowerShell smoke
         shell: pwsh
         run: .\scripts\pi67-smoke.ps1 -Ci

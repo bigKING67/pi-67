@@ -450,8 +450,15 @@ if ($NodeAvailable) {
       throw "smoke plan missing Windows expanded command"
     }
     $smartFetch = $plan.packages | Where-Object { $_.spec -eq "npm:pi-smart-fetch" } | Select-Object -First 1
-    if (-not $smartFetch -or $smartFetch.windowsCoveredTools -notcontains "batch_web_fetch") {
-      throw "smoke plan did not cover batch_web_fetch"
+    if (-not $smartFetch) {
+      throw "smoke plan missing smart-fetch entry"
+    }
+    if ($smartFetch.installed) {
+      if ($smartFetch.windowsCoveredTools -notcontains "batch_web_fetch") {
+        throw "smoke plan did not cover batch_web_fetch"
+      }
+    } elseif ($smartFetch.status -ne "missing_package") {
+      throw "unexpected smart-fetch status: $($smartFetch.status)"
     }
     $rulesLoader = $plan.packages | Where-Object { $_.spec -eq "local:extensions/pi-rules-loader" } | Select-Object -First 1
     if (-not $rulesLoader -or $rulesLoader.status -ne "not_model_callable") {

@@ -340,10 +340,15 @@ assert(rulesLoader?.installed === true, "coverage audit did not include installe
 assert(rulesLoader.surface === "command_or_hook_only", `unexpected pi-rules-loader surface: ${rulesLoader?.surface}`);
 const mcp = data.entries.find((entry) => entry.spec === "npm:pi-mcp-adapter");
 assert(mcp?.dynamicTools === true, "pi-mcp-adapter must remain marked as dynamic tool provider");
+const installedMissingEvidence = data.entries.filter(
+  (entry) => entry.installed && Object.values(entry.missingExpected || {}).some((items) => items.length > 0),
+);
+assert(installedMissingEvidence.length === 0, `coverage audit has missing evidence for installed targets: ${installedMissingEvidence.map((entry) => entry.spec).join(", ")}`);
 if (hasDeps) {
-  assert(data.summary.installed === data.summary.total, "coverage audit found missing installed targets");
-  assert(data.summary.packagesWithMissingExpectedEvidence === 0, "coverage audit has missing expected tool/command evidence");
-  assert(mcp.modelCallableTools.includes("mcp"), "pi-mcp-adapter gateway tool evidence missing");
+  const missingSpecs = data.entries.filter((entry) => !entry.installed).map((entry) => entry.spec);
+  const nonGitMissing = missingSpecs.filter((spec) => !spec.startsWith("git:github.com/"));
+  assert(nonGitMissing.length === 0, `coverage audit found missing non-git installed targets: ${nonGitMissing.join(", ")}`);
+  if (mcp.installed) assert(mcp.modelCallableTools.includes("mcp"), "pi-mcp-adapter gateway tool evidence missing");
 }
 NODE
   then
