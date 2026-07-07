@@ -427,6 +427,10 @@ request-latency telemetry when it is present in smoke summaries:
 `requestLatencyMsAvg`, `slowRequestCount`, and `slowRequestThresholdMs`. Older
 artifacts that predate latency telemetry are backfilled from per-case debug
 JSONL when those files are present; otherwise these fields may report as `null`.
+The profile gates user-visible protocol failures while allowing bounded local
+repair for recovered xtalpi malformed / invalid JSON turns; repair counters
+remain available as quality telemetry and can be tightened with explicit
+`--max-recoveries 0 --max-recovery-rate 0` provider-purity checks.
 
 The `rankingTrendGate` block is compatibility-aware. It is enforced only when
 all selected full-suite runs already contain reason-code telemetry. If old

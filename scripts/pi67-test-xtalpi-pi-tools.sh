@@ -18,6 +18,7 @@ const { pathToFileURL } = require("node:url");
   const chatClient = await import(ext("chat-client.ts"));
   const outputMessage = await import(ext("output-message.ts"));
   const parser = await import(ext("parser.ts"));
+  const protocolBoundary = await import(ext("protocol-boundary.ts"));
   const protocol = await import(ext("protocol.ts"));
   const providerTurn = await import(ext("provider-turn.ts"));
   const diagnostics = await import(ext("diagnostics.ts"));
@@ -100,6 +101,101 @@ const { pathToFileURL } = require("node:url");
       selectedToolNames: ["read"],
     }),
     false,
+  );
+  const protocolBoundaryToolNames = [
+    "read",
+    "bash",
+    "web_fetch",
+    "fffind",
+    "ffgrep",
+    "mcp",
+    "subagent",
+    "recall",
+    "until_done_task_update",
+    "custom_dynamic_tool",
+  ];
+  function sampleArgumentsForTool(name) {
+    if (name === "bash") return { command: "pwd" };
+    if (name === "web_fetch") return { url: "https://example.invalid/" };
+    if (name === "mcp") return {};
+    if (name === "subagent") return { action: "list" };
+    if (name === "recall") return { id: "deadbeef0000" };
+    if (name === "until_done_task_update") return { id: "T-001", patch: { status: "in_progress" } };
+    if (name === "custom_dynamic_tool") return { foo: "bar" };
+    return { path: "package.json" };
+  }
+  function toolCallLikeText(shape, name) {
+    const args = sampleArgumentsForTool(name);
+    if (shape === "array") {
+      return JSON.stringify([{ id: `pi_tool_${name}_x`, name, arguments: args }]);
+    }
+    if (shape === "object") {
+      return `I am going to call a tool now:\n${JSON.stringify({ id: `pi_tool_${name}_x`, name, arguments: args })}`;
+    }
+    if (shape === "openai") {
+      return JSON.stringify({
+        tool_calls: [
+          {
+            id: `call_${name}`,
+            type: "function",
+            function: { name, arguments: JSON.stringify(args) },
+          },
+        ],
+      });
+    }
+    if (shape === "function_call") {
+      return `工具调用如下：\n${JSON.stringify({ function_call: { name, arguments: args } })}`;
+    }
+    throw new Error(`unknown protocol boundary shape: ${shape}`);
+  }
+  for (const name of protocolBoundaryToolNames) {
+    for (const shape of ["array", "object", "openai", "function_call"]) {
+      const text = toolCallLikeText(shape, name);
+      const finding = protocolBoundary.detectToolCallLikeFinal({ text, selectedToolNames: [name] });
+      assert.equal(finding.ok, false, `${shape}:${name}`);
+      assert.equal(finding.matchedToolName, name, `${shape}:${name}`);
+      assert.equal(
+        smokeArtifactCore.detectToolCallLikeFinal({ text, selectedToolNames: [name] }).ok,
+        false,
+        `smoke core ${shape}:${name}`,
+      );
+    }
+  }
+  assert.equal(
+    protocolBoundary.detectToolCallLikeFinal({
+      text: '{"name":"custom_dynamic_tool","arguments":{"foo":"bar"}}',
+      selectedToolNames: ["custom_dynamic_tool"],
+    }).ok,
+    false,
+  );
+  assert.equal(
+    protocolBoundary.detectToolCallLikeFinal({
+      text: '{"name":"custom_dynamic_tool","arguments":{"foo":"bar"}}',
+      selectedToolNames: ["read"],
+    }).ok,
+    true,
+  );
+  assert.equal(
+    protocolBoundary.detectToolCallLikeFinal({
+      text: '[{"name":"普通商品","arguments":{"销量":12}}]',
+      selectedToolNames: ["read"],
+    }).ok,
+    true,
+  );
+  assert.equal(
+    protocolBoundary.detectToolCallLikeFinal({
+      text: '{"name":"商品A","arguments":{"卖点":["温和","便携"]}}',
+      selectedToolNames: ["read"],
+    }).ok,
+    true,
+  );
+  assert.equal(
+    finalGuard.validateFinalAnswer({
+      text: '我将调用工具：{"name":"custom_dynamic_tool","arguments":{"foo":"bar"}}',
+      context: { systemPrompt: "system base", messages: [{ role: "user", content: "continue" }] },
+      selectedToolNames: ["custom_dynamic_tool"],
+    }).code,
+    "tool_call_like_final",
   );
   assert.equal(
     shellCommandGuard.validateShellCommandRequest({
@@ -557,6 +653,36 @@ const { pathToFileURL } = require("node:url");
       assert.equal(jsonRepairCalls[1].at(-1).role, "user");
       assert.match(jsonRepairCalls[1].at(-1).content, /xtalpi-pi-tools-function-style-tool-repair/);
       assert.ok(!jsonRepairCalls[1].some((msg) => msg.role === "assistant" && msg.content.includes('read({"path"')));
+
+      const jsonActionPseudoFinalCalls = [];
+      let jsonActionPseudoFinalIndex = 0;
+      const jsonActionPseudoFinalResult = await providerTurn.runProviderTurn({
+        model: providerTurnModel,
+        context: {
+          systemPrompt: "system base",
+          tools: [readTool],
+          messages: [{ role: "user", content: "继续呀" }],
+        },
+        callChat: async (input) => {
+          jsonActionPseudoFinalCalls.push(JSON.parse(JSON.stringify(input.messages)));
+          const contents = [
+            '{"kind":"final","text":"我将调用工具：{\\"name\\":\\"read\\",\\"arguments\\":{\\"path\\":\\"package.json\\"}}"}',
+            '{"kind":"tool_call","name":"read","arguments":{"path":"package.json"}}',
+          ];
+          const content = contents[Math.min(jsonActionPseudoFinalIndex, contents.length - 1)];
+          jsonActionPseudoFinalIndex += 1;
+          return {
+            content,
+            usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2 },
+            responseModel: "deepseek-v4-pro",
+          };
+        },
+      });
+      assert.equal(jsonActionPseudoFinalResult.kind, "tool_call");
+      assert.equal(jsonActionPseudoFinalResult.toolCall.name, "read");
+      assert.equal(jsonActionPseudoFinalCalls.length, 2);
+      assert.match(jsonActionPseudoFinalCalls[1].at(-1).content, /tool_call_like_final/);
+      assert.match(jsonActionPseudoFinalCalls[1].at(-1).content, /shape=json_object/);
     });
 
     const unsafePatternTool = {
@@ -829,7 +955,32 @@ Produce a <proposed_plan> block.`,
     });
     assert.equal(pseudoToolArrayFinalChat.calls.length, 2);
     assert.match(pseudoToolArrayFinalChat.calls[1].at(-1).content, /tool_call_like_final/);
-    assert.match(pseudoToolArrayFinalChat.calls[1].at(-1).content, /JSON array of tool calls/);
+    assert.match(pseudoToolArrayFinalChat.calls[1].at(-1).content, /tool-call-like JSON\/protocol content/);
+
+    const pseudoToolObjectFinalChat = makeProviderTurnChat([
+      {
+        content:
+          '我将调用工具读取文件：\n' +
+          '{"id":"pi_tool_read_x","name":"read","arguments":{"path":"package.json"}}',
+      },
+      {
+        content: '<pi_tool_call>\n{"name":"read","arguments":{"path":"package.json"}}\n</pi_tool_call>',
+      },
+    ]);
+    const pseudoToolObjectFinalResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: {
+        systemPrompt: "system base",
+        tools: [readTool],
+        messages: [{ role: "user", content: "继续呀" }],
+      },
+      callChat: pseudoToolObjectFinalChat.callChat,
+    });
+    assert.equal(pseudoToolObjectFinalResult.kind, "tool_call");
+    assert.equal(pseudoToolObjectFinalResult.toolCall.name, "read");
+    assert.equal(pseudoToolObjectFinalChat.calls.length, 2);
+    assert.match(pseudoToolObjectFinalChat.calls[1].at(-1).content, /tool_call_like_final/);
+    assert.match(pseudoToolObjectFinalChat.calls[1].at(-1).content, /shape=json_object/);
 
     const weakFinalRepairChat = makeProviderTurnChat([
       { content: "OK" },

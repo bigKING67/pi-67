@@ -161,6 +161,14 @@ artifacts. Text output includes `eligible`, `filtered_out`, and
 `run_kind_filter` so a targeted diagnostic run can be distinguished from full
 suite evidence instead of silently weakening the trend gate.
 
+`full-suite-strict` is strict about user-visible protocol quality: empty final
+answers, raw Pi tool markup, tool-envelope-only finals, process lifecycle
+failures, provider errors, and case-set drift remain gated. It allows bounded
+local repair for known xtalpi malformed / invalid JSON behavior so a recovered
+turn does not become an operational `ATTENTION` by itself. Recovery counts and
+rates are still preserved in history, trend, and drift output for provider
+quality monitoring.
+
 The drift block is observational rather than a gate: it can show historical
 runtime or provider-health changes even when the strict trend gate is currently
 green. Text output prints drift flags for provider/model, case-set,

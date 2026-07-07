@@ -145,6 +145,15 @@ If you do not use xtalpi, change both fields to a provider/model that exists in 
 
 `xtalpi-pi-tools` is designed to avoid the old OpenAI-compatible tool continuation issue. It does not send native `tools`, `tool_choice`, `parallel_tool_calls`, `role=tool`, `thinking`, or `reasoning_effort` to xtalpi.
 
+The local adapter also owns the final-answer protocol boundary. If xtalpi returns
+tool-call-like content as ordinary assistant text, Pi must not accept it as a
+successful final answer. The guard covers JSON action objects, bare
+`id/name/arguments` objects, JSON arrays, OpenAI-style `tool_calls`,
+`function_call`, `pi_tool_...` ids, `until_done_*` tools, and dynamic tools from
+the current selected-tool set. These are repaired into one canonical local JSON
+action before any tool can run. Ordinary business JSON is allowed unless it
+matches the current tool registry or an explicit tool protocol wrapper.
+
 First run the local protocol test:
 
 ```bash

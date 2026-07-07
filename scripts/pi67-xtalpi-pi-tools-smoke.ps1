@@ -77,6 +77,7 @@ $ScriptPath = if ($PSCommandPath) { $PSCommandPath } else { $MyInvocation.MyComm
 $ScriptDir = Split-Path -Parent $ScriptPath
 $RepoRoot = (Resolve-Path (Join-Path $ScriptDir "..")).Path
 $ArtifactCorePath = Join-Path $ScriptDir "pi67-xtalpi-smoke-artifact-core.cjs"
+$ProtocolBoundaryCorePath = Join-Path $ScriptDir "pi67-xtalpi-protocol-boundary-core.cjs"
 $ProviderHealthScript = Join-Path $ScriptDir "pi67-xtalpi-provider-health.mjs"
 
 $AvailableCases = @(
@@ -301,15 +302,28 @@ function Contains-RawPiToolMarkup {
   return [regex]::IsMatch([string]$Text, '(?:</?pi_tool_(?:call_history|call|result)\b(?:[^<>\r\n]*>|[^<>\r\n]*(?:$|\r?\n))|</?previous_pi_tool_call\b(?:[^<>\r\n]*>|[^<>\r\n]*(?:$|\r?\n))|\[/?previous_pi_tool_call\])', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
 }
 
+function Get-ProtocolBoundaryFinding {
+  param([string]$Text, [string[]]$ToolNames = @())
+  $payload = [ordered]@{
+    text = [string]$Text
+    selectedToolNames = @($ToolNames | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+  } | ConvertTo-Json -Compress -Depth 8
+  $nodeScript = "const fs=require('node:fs');const core=require(process.argv[1]);const input=JSON.parse(fs.readFileSync(0,'utf8'));process.stdout.write(JSON.stringify(core.detectToolCallLikeFinal(input)));"
+  try {
+    $output = $payload | & node -e $nodeScript $ProtocolBoundaryCorePath
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($output)) {
+      return [pscustomobject]@{ ok = $false; code = "protocol_boundary_helper_failed"; matchedShape = "node_helper" }
+    }
+    return ($output | ConvertFrom-Json)
+  } catch {
+    return [pscustomobject]@{ ok = $false; code = "protocol_boundary_helper_failed"; matchedShape = "node_helper" }
+  }
+}
+
 function Contains-ToolCallLikeJsonArray {
-  param([string]$Text)
-  $value = [string]$Text
-  $options = [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::Singleline
-  $hasArrayObject = [regex]::IsMatch($value, '\[\s*\{', $options)
-  $hasArguments = [regex]::IsMatch($value, '"(?:arguments|args|input)"\s*:', $options)
-  $hasKnownName = [regex]::IsMatch($value, '"name"\s*:\s*"(?:until_done_[A-Za-z0-9_]+|bash|read|grep|find|ls|web_fetch|web_search|batch_web_fetch|bounded_read|fetch_content|fffind|ffgrep|mcp|subagent|recall)"', $options)
-  $hasPiToolId = [regex]::IsMatch($value, '"id"\s*:\s*"pi_tool_', $options)
-  return $hasArrayObject -and $hasArguments -and ($hasKnownName -or $hasPiToolId)
+  param([string]$Text, [string[]]$ToolNames = @())
+  $finding = Get-ProtocolBoundaryFinding $Text $ToolNames
+  return $finding.ok -eq $false
 }
 
 function Get-FinalAssistantText {
@@ -465,7 +479,9 @@ function Summarize-CaseArtifact {
     }
   }
   $rawMarkup = Contains-RawPiToolMarkup $finalText
-  $toolCallLikeJson = Contains-ToolCallLikeJsonArray $finalText
+  $protocolBoundaryNames = @($actualToolNames + $expectedTools | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+  $toolCallLikeFinding = Get-ProtocolBoundaryFinding $finalText $protocolBoundaryNames
+  $toolCallLikeJson = $toolCallLikeFinding.ok -eq $false
   $finalAnswerOk = $finalText.Trim().Length -gt 0 -and -not $rawMarkup -and -not $toolCallLikeJson -and $missingFinalText.Count -eq 0
   $toolExpectationOk = $missingTools.Count -eq 0 -and $unexpectedTools.Count -eq 0
   $failureReasons = New-Object System.Collections.Generic.List[string]
@@ -510,6 +526,9 @@ function Summarize-CaseArtifact {
     finalAnswerQualityOk = $finalAnswerOk
     finalAnswerRawToolMarkup = $rawMarkup
     finalAnswerToolCallLikeJson = $toolCallLikeJson
+    finalAnswerToolCallLikeShape = if ($toolCallLikeJson) { $toolCallLikeFinding.matchedShape } else { $null }
+    finalAnswerToolCallLikeCode = if ($toolCallLikeJson) { $toolCallLikeFinding.code } else { $null }
+    finalAnswerToolCallLikeName = if ($toolCallLikeJson) { $toolCallLikeFinding.matchedToolName } else { $null }
     errors = @($errors | ForEach-Object { if ($_.message.errorMessage) { $_.message.errorMessage } elseif ($_.error) { $_.error } else { $_.message } })
     stdoutFile = $OutFile
     stderrFile = $ErrFile
@@ -866,6 +885,18 @@ function Run-SelfTest {
     if ($pseudoJson.ok -eq $true) { throw "expected pseudo JSON tool-call array fixture to fail" }
     if (@($pseudoJson.failureReasons) -notcontains "final_answer_contains_tool_call_like_json") {
       throw "pseudo JSON tool-call array fixture should report final_answer_contains_tool_call_like_json"
+    }
+    if (-not (Contains-ToolCallLikeJsonArray 'prefix {"name":"mcp","arguments":{}}' @("mcp"))) {
+      throw "pseudo JSON tool-call object fixture should be detected"
+    }
+    if (-not (Contains-ToolCallLikeJsonArray '{"tool_calls":[{"id":"call_x","type":"function","function":{"name":"subagent","arguments":"{\"action\":\"list\"}"}}]}' @("subagent"))) {
+      throw "pseudo OpenAI tool_calls fixture should be detected"
+    }
+    if (-not (Contains-ToolCallLikeJsonArray '{"function_call":{"name":"custom_dynamic_tool","arguments":{"foo":"bar"}}}' @("custom_dynamic_tool"))) {
+      throw "pseudo dynamic function_call fixture should be detected"
+    }
+    if (Contains-ToolCallLikeJsonArray '[{"name":"普通商品","arguments":{"销量":12}}]' @("read")) {
+      throw "business JSON fixture should not be detected as a tool call"
     }
 
     $angleMarkupOut = Join-Path $tmp "angle-markup.jsonl"

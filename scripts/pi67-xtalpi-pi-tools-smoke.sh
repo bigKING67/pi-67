@@ -243,7 +243,7 @@ const [smokeArtifactCorePath, file, stderrFile, status, expectedToolsRaw, debugF
 const {
   boolOrUndefined,
   containsRawPiToolMarkup,
-  containsToolCallLikeJsonArray,
+  detectToolCallLikeFinal,
   isToolEnvelopeOnlyFinalAnswer,
   numberOrUndefined,
   objectOrUndefined,
@@ -372,6 +372,19 @@ const agent = events.findLast?.((event) => event.type === "agent_end");
 const toolStartEvents = events.filter((event) => event.type === "tool_execution_start");
 const actualToolNames = toolStartEvents.map((event) => String(event.toolName || ""));
 const toolStarts = toolStartEvents.map((event) => `${event.toolName}:${JSON.stringify(event.args)}`);
+function protocolBoundaryToolNames(rawExpectation, actualNames) {
+  const names = [...actualNames];
+  for (const clause of String(rawExpectation || "").split(/[;,]/)) {
+    const normalized = clause.trim().replace(/^(?:all|any|only):/, "").trim();
+    if (!normalized || normalized === "any" || normalized === "none") continue;
+    for (const name of normalized.split(",")) {
+      const trimmed = name.trim();
+      if (trimmed && trimmed !== "any" && trimmed !== "none") names.push(trimmed);
+    }
+  }
+  return uniqueStrings(names);
+}
+const protocolBoundaryNames = protocolBoundaryToolNames(expectedToolsRaw, actualToolNames);
 const relativePackageReadCases = new Set([
   "read",
   "bash-read",
@@ -422,7 +435,11 @@ const emptyAssistantEnds = events.filter(
 const recoveries = recoveryEvents.length;
 const processExitedCleanly = Number(status) === 0;
 const finalAnswerRawToolMarkup = containsRawPiToolMarkup(finalText);
-const finalAnswerToolCallLikeJson = containsToolCallLikeJsonArray(finalText, actualToolNames);
+const finalAnswerToolCallLikeFinding = detectToolCallLikeFinal({
+  text: finalText,
+  selectedToolNames: protocolBoundaryNames,
+});
+const finalAnswerToolCallLikeJson = finalAnswerToolCallLikeFinding.ok === false;
 const finalAnswerEnvelopeOnly = isToolEnvelopeOnlyFinalAnswer(finalText);
 const finalAnswerQualityOk =
   finalText.trim().length > 0 &&
@@ -535,6 +552,9 @@ console.log(JSON.stringify({
   finalAnswerQualityOk,
   finalAnswerRawToolMarkup,
   finalAnswerToolCallLikeJson,
+  finalAnswerToolCallLikeShape: finalAnswerToolCallLikeFinding.ok === false ? finalAnswerToolCallLikeFinding.matchedShape : undefined,
+  finalAnswerToolCallLikeCode: finalAnswerToolCallLikeFinding.ok === false ? finalAnswerToolCallLikeFinding.code : undefined,
+  finalAnswerToolCallLikeName: finalAnswerToolCallLikeFinding.ok === false ? finalAnswerToolCallLikeFinding.matchedToolName : undefined,
   finalAnswerEnvelopeOnly,
   requiredFinalText,
   missingFinalText,
@@ -624,6 +644,18 @@ writeFixture("raw-markup", {
 writeFixture("pseudo-json-tool-array", {
   tools: [],
   finalText: '阶段：ANALYSIS | T-003\n[{"id":"pi_tool_until_done_task_update_mra0pzuf_done","name":"until_done_task_update","arguments":{"id":"T-003","patch":{"status":"in_progress"}}}]',
+});
+writeFixture("pseudo-json-tool-object", {
+  tools: [],
+  finalText: '工具调用如下：{"name":"read","arguments":{"path":"package.json"}}',
+});
+writeFixture("pseudo-openai-tool-calls", {
+  tools: [],
+  finalText: '{"tool_calls":[{"id":"call_x","type":"function","function":{"name":"subagent","arguments":"{\\"action\\":\\"list\\"}"}}]}',
+});
+writeFixture("business-json-not-tool", {
+  tools: [],
+  finalText: '[{"name":"普通商品","arguments":{"销量":12}}]',
 });
 writeFixture("malformed-markup", {
   tools: ["read"],
@@ -878,6 +910,20 @@ NODE
 
   if output="$(summarize_jsonl "$tmp_dir/pseudo-json-tool-array.jsonl" "$tmp_dir/pseudo-json-tool-array.stderr" 0 "any" "$tmp_dir/pseudo-json-tool-array.debug.jsonl" "$tmp_dir/pseudo-json-tool-array.lifecycle.json" 2>&1)"; then
     echo "expected pseudo-json-tool-array fixture to fail"
+    echo "$output"
+    return 1
+  fi
+  if output="$(summarize_jsonl "$tmp_dir/pseudo-json-tool-object.jsonl" "$tmp_dir/pseudo-json-tool-object.stderr" 0 "read" "$tmp_dir/pseudo-json-tool-object.debug.jsonl" "$tmp_dir/pseudo-json-tool-object.lifecycle.json" 2>&1)"; then
+    echo "expected pseudo-json-tool-object fixture to fail"
+    echo "$output"
+    return 1
+  fi
+  if output="$(summarize_jsonl "$tmp_dir/pseudo-openai-tool-calls.jsonl" "$tmp_dir/pseudo-openai-tool-calls.stderr" 0 "subagent" "$tmp_dir/pseudo-openai-tool-calls.debug.jsonl" "$tmp_dir/pseudo-openai-tool-calls.lifecycle.json" 2>&1)"; then
+    echo "expected pseudo-openai-tool-calls fixture to fail"
+    echo "$output"
+    return 1
+  fi
+  if ! output="$(summarize_jsonl "$tmp_dir/business-json-not-tool.jsonl" "$tmp_dir/business-json-not-tool.stderr" 0 "any" "$tmp_dir/business-json-not-tool.debug.jsonl" "$tmp_dir/business-json-not-tool.lifecycle.json" 2>&1)"; then
     echo "$output"
     return 1
   fi

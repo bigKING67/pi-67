@@ -121,10 +121,9 @@ apply_profile_defaults() {
       REQUIRE_RUN_KIND="${REQUIRE_RUN_KIND:-full-suite}"
       MAX_EMPTY_ASSISTANT_ENDS="${MAX_EMPTY_ASSISTANT_ENDS:-0}"
       MAX_RAW_TOOL_MARKUP_FINAL_ANSWERS="${MAX_RAW_TOOL_MARKUP_FINAL_ANSWERS:-0}"
-      MAX_RECOVERIES="${MAX_RECOVERIES:-0}"
-      MAX_RECOVERY_RATE="${MAX_RECOVERY_RATE:-0}"
-      MAX_RECOVERY_CASE_RUNS="${MAX_RECOVERY_CASE_RUNS:-0}"
-      FAIL_ON_RECOVERY_INCREASE="1"
+      MAX_RECOVERIES="${MAX_RECOVERIES:-2}"
+      MAX_RECOVERY_RATE="${MAX_RECOVERY_RATE:-0.15}"
+      MAX_RECOVERY_CASE_RUNS="${MAX_RECOVERY_CASE_RUNS:-3}"
       if [ "$PROFILE" = "full-suite-runtime-strict" ]; then
         REQUIRE_STABLE_RUNTIME_FINGERPRINT="1"
         REQUIRE_STABLE_RUNTIME_BOUNDS="1"
@@ -1181,8 +1180,10 @@ function assert(condition, message) {
 assert(data.ok === true, "full-suite-strict profile should pass for clean full-suite history");
 assert(data.limits.profile === "full-suite-strict", "profile should be visible in trend gate limits");
 assert(data.limits.expectCases === 10, "profile should set full-suite case count");
-assert(data.limits.maxRecoveries === 0, "profile should set zero-recovery default");
-assert(data.limits.failOnRecoveryIncrease === true, "profile should fail on recovery increase");
+assert(data.limits.maxRecoveries === 2, "profile should allow bounded local repair");
+assert(data.limits.maxRecoveryRate === 0.15, "profile should cap local repair rate");
+assert(data.limits.maxRecoveryCaseRuns === 3, "profile should cap repeated recovered case runs");
+assert(data.limits.failOnRecoveryIncrease !== true, "profile should not fail solely on bounded repair increase");
 assert(data.history.runs.every((run) => run.runKind === "full-suite"), "profile fixture should classify full-suite runs");
 assert(
   JSON.stringify(data.limits.expectCaseNames) === JSON.stringify([

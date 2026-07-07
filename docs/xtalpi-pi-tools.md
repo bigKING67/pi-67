@@ -95,6 +95,22 @@ tag 漂移概率。未知字段、坏 `kind`、非对象 `arguments`、未展示
 - assistant 历史是否包装成 `{"kind":"final","text":"..."}`，避免 JSON action 模式被旧裸文本污染。
 - repair 时是否回灌上一轮 raw assistant；JSON action 模式默认不回灌，raw excerpt 只放在 user repair prompt 里当 untrusted data。
 
+最终文本的协议防火墙在 `extensions/xtalpi-pi-tools/protocol-boundary.ts`。它不是按固定
+extension allowlist 猜工具，而是优先使用本轮 selected tools / runtime tools 作为动态工具注册表；
+只要模型把任何高置信工具协议伪装成普通 final text，就 fail-closed 并进入 bounded repair：
+
+- JSON action：`{"kind":"tool_call","name":"read","arguments":{...}}`
+- bare/object：`{"id":"pi_tool_...","name":"read","arguments":{...}}`
+- array/list：`[{"id":"pi_tool_...","name":"read","arguments":{...}}]`
+- OpenAI text-native：`{"tool_calls":[{"function":{"name":"read","arguments":"{...}"}}]}`
+- legacy function-call：`{"function_call":{"name":"read","arguments":{...}}}`
+- dynamic extension tool：只要工具名出现在本轮 selected tools，就按同一规则处理
+
+普通业务 JSON 不会因为字段恰好叫 `name` / `arguments` 就被误杀；必须同时命中本轮工具名、
+`pi_tool_` 协议 id、`until_done_*` 保留工具名前缀，或显式 OpenAI/JSON action 工具协议 wrapper。
+同一策略在 `scripts/pi67-xtalpi-protocol-boundary-core.cjs` 中提供 smoke/debug-summary 的 CJS
+实现，并由测试矩阵强制与 runtime 行为对齐。
+
 `local_json_action_protocol` 现在是默认 runtime，日常测试不需要再设置协议环境变量：
 
 ```bash
@@ -434,10 +450,9 @@ extensions/xtalpi-pi-tools/fixtures/replay-cases.json
 - `id=...` / `name="..."` / `arguments_json: {...}` 旧式 Pi 工具记录兼容解析
 - `<pi_tool_call name="...">{"arg":...}</pi_tool_call>` 变体解析
 - raw/internal Pi protocol markup final answer repair（含残缺/畸形协议标签和 `[previous_pi_tool_call]` 历史记录）
-- pseudo tool-call JSON array final answer repair（例如模型把
-  `[{"id":"pi_tool_...","name":"until_done_task_update","arguments":{...}}]`
-  当普通最终文本输出时，本地必须判定为 `tool_call_like_final`，repair 成单个
-  canonical JSON action 后才允许执行）
+- protocol-boundary final answer repair：模型把 JSON action、`id/name/arguments` object、
+  JSON array、OpenAI `tool_calls`、`function_call` 或动态 extension tool 调用伪装成普通最终文本时，
+  本地必须判定为 `tool_call_like_final`，repair 成单个 canonical JSON action 后才允许执行
 - tool result 作为普通 user 文本序列化
 - assistant tool-call history 默认不再模型可见；legacy `[previous_pi_tool_call]` / `<previous_pi_tool_call>` 只作为待清洗历史泄漏处理
 - tool result prompt-injection / 协议边界中和（含带属性与残缺协议标签变体、legacy `[previous_pi_tool_call]` bracket markers）
@@ -456,8 +471,8 @@ extensions/xtalpi-pi-tools/fixtures/replay-cases.json
 - payload 不包含 `role=tool`
 - TypeScript error code/category union 与 provider error contract manifest 同步
 - smoke summarizer self-test：`all:` / `only:` 工具边界、low-`maxTools` tool-selection clipping telemetry、raw markup final answer 和 tool-result-injection canary 缺失负向样例
-- smoke summarizer self-test：伪工具调用 JSON array 不能作为最终答案通过，必须报
-  `final_answer_contains_tool_call_like_json`
+- smoke summarizer self-test：伪工具调用 JSON array / object / OpenAI `tool_calls` 不能作为最终答案通过，
+  必须报 `final_answer_contains_tool_call_like_json`；普通业务 JSON 必须通过，避免误杀正常结构化回答
 - smoke continuation self-test：多轮 session case 必须在第二轮 `继续` 时暴露 `tool_selection_prompt_source=recent_user_continuation`，并仍只执行 selected `read`
 - smoke runner self-test：用 fake `pi` 离线验证 `PI_BIN` override、`--case` case 过滤、summary artifact、`--expect-cases` / `--expect-case-names` debug-summary gate 传参，以及无效 `PI_BIN` / debug-summary helper fail-fast 路径
 - debug-summary self-test：case 数、recovery 阈值和 raw markup final answer threshold gate 负向样例
@@ -882,7 +897,7 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   "$HOME/tmp/xtalpi-pi-tools-smoke"
 ```
 
-`full-suite-strict` 会设置 `--expect-cases 10`、完整 10-case `--expect-case-names`、`--max-empty-assistant-ends 0`、`--max-raw-tool-markup-final-answers 0`、`--max-recoveries 0`、`--max-recovery-rate 0`、`--max-recovery-case-runs 0` 和 `--fail-on-recovery-increase`。仍可显式传入 `--max-recoveries` 等数字阈值覆盖 profile 默认值。
+`full-suite-strict` 会设置 `--expect-cases 10`、完整 10-case `--expect-case-names`、`--max-empty-assistant-ends 0`、`--max-raw-tool-markup-final-answers 0`，并保留 bounded local repair 阈值：`--max-recoveries 2`、`--max-recovery-rate 0.15`、`--max-recovery-case-runs 3`。这些 repair 阈值用于表达“晶泰偶发 malformed / invalid JSON 可以由本地 adapter repair 并继续工作，但高频 repair 仍应进入 attention”；仍可显式传入 `--max-recoveries` 等数字阈值覆盖 profile 默认值。若要做上游 provider 纯净度专项审计，可额外传入 `--max-recoveries 0 --max-recovery-rate 0 --max-recovery-case-runs 0 --fail-on-recovery-increase`。
 
 `full-suite-strict` 还会默认设置 `--run-kind full-suite --require-run-kind full-suite`：局部 targeted run 可以保留在同一个 artifact 目录里用于排查，但不会污染“最近 N 次 full-suite 趋势”证据。trend-gate JSON 会保留 `history.totalArtifacts`、`history.candidateArtifacts`、`history.filteredOutArtifacts` 和 `history.filter.runKinds`，用于说明有多少 artifact 被过滤。
 
@@ -896,7 +911,7 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
   "$HOME/tmp/xtalpi-pi-tools-smoke"
 ```
 
-`full-suite-ranking-strict` 继承 `full-suite-strict` 的 case 集、runKind 和 recovery / raw-markup 阈值，并额外要求 full-suite summary 的 `tool_selection_reason_codes` 与 `selected_tool_selection_reason_codes` 包含 `core_tool,prompt_path_file`，`omitted_tool_selection_reason_codes` 包含 `core_tool`，同时禁止 aggregate reason code 出现 `prompt_tool_exclusive`。它不默认启用 runtime stability gate，避免 prompt length、timeout 或 runtime bounds 的正常调整影响 ranking 专项判断。
+`full-suite-ranking-strict` 继承 `full-suite-strict` 的 case 集、runKind、bounded repair 和 raw-markup 阈值，并额外要求 full-suite summary 的 `tool_selection_reason_codes` 与 `selected_tool_selection_reason_codes` 包含 `core_tool,prompt_path_file`，`omitted_tool_selection_reason_codes` 包含 `core_tool`，同时禁止 aggregate reason code 出现 `prompt_tool_exclusive`。它不默认启用 runtime stability gate，避免 prompt length、timeout 或 runtime bounds 的正常调整影响 ranking 专项判断。
 
 `pi67-status.sh` / `pi67-report.sh` 会自动做兼容型 ranking gate：如果 selected full-suite artifact 都已经包含 reason-code telemetry，则执行 `full-suite-ranking-strict` 并把失败报告为 attention；如果 artifact 来自旧版本、reason-code counts 为空，则输出 `Ranking gate: skipped` 和 unsupported run ids，不把旧 artifact 误判为回归。status 文本还会输出 `Tool select:`，展示最近 full-suite 的 selected tool names、`maxTools`、valid / omitted count 和 clipped 状态，方便装新 extension 后判断它是没注册、被 maxTools 截断，还是 prompt 没选中。
 

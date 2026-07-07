@@ -597,7 +597,10 @@ function deriveResult(repository, remote, report, xtalpiSmoke) {
         `xtalpi provider-health has ${providerTrend.failedPreflights}/${providerTrend.totalPreflights} recent failed preflight(s)`,
       );
       recommendations.push("Inspect xtalpi provider health before long tasks; failures usually indicate upstream/network/key issues, not local tool protocol.");
-    } else if (providerTrend?.retriedPreflights >= Math.max(2, Math.ceil((providerTrend.totalPreflights || 0) / 2))) {
+    } else if (
+      providerTrend &&
+      providerTrend.retriedPreflights >= Math.max(2, Math.ceil((providerTrend.totalPreflights || 0) / 2))
+    ) {
       warnings.push(
         `xtalpi provider-health retried ${providerTrend.retriedPreflights}/${providerTrend.totalPreflights} recent preflight(s)`,
       );
