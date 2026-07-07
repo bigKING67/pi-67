@@ -12,6 +12,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `pi-67 self-update` plus npm latest-version hints in `pi-67 update --check`, so stale global managers are visible and users can run a single explicit manager update without changing Pi's upstream `pi` command.
 - `pi-67 publish-check` as a maintainer readiness gate for version consistency, Trusted Publishing workflow drift, npm registry state, local npm auth visibility, and `npm pack --dry-run`.
 - `pi-67 manifest` as a read-only ownership contract for pi-67 managed packages, runtime packages, local extensions, themes, shared skills, external repos, and preserved runtime config files.
+- `pi-67 manifest --validate` as a standalone extension-registry policy gate, sharing the same validator with `publish-check` and release checks.
 - `shared-skills/commerce-growth-os/` as the vendored Pi distribution copy of `https://github.com/bigKING67/commerce-growth-os`, so Pi/Codex can share the commerce growth skill through `~/.agents/skills`.
 - `rules/commerce-growth.md` plus Pi rules-loader routing for commerce growth, marketplace operation, assortment, pricing, channel control, ROI/profit, and platform-currentness tasks.
 - `scripts/pi67-sync-commerce-growth-os.sh` as a dry-run-first maintainer helper for refreshing the vendored `shared-skills/commerce-growth-os` copy from the standalone upstream checkout.
@@ -26,6 +27,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `pi-67 update` documentation now explicitly preserves existing local config files, user packages, global skills, external repos, and `settings.json.theme`; theme changes require `pi-67 themes set <name>`.
 - `pi-67 update --strict-shared-skills` now forwards strict shared-skill parity checks through both Bash and Windows PowerShell update paths, while the default still preserves existing different global skills.
 - `pi-67 publish-check` now gates the distro ownership manifest, including preserved runtime config policy, required local extensions, user-managed baseline packages, theme preservation, shared-skill preservation, and dirty external-repo blocking policy.
+- Extension-registry policy checks are now centralized in `packages/pi67-cli/src/lib/extension-registry.mjs`, with self-tests for duplicate ids, missing smoke gates, forbidden update behavior, unsafe config patches, theme drift, shared-skill drift, dirty external-repo drift, and unregistered managed extensions.
 - `pi-67 publish-check` now checks npm scope visibility during remote publish readiness, so missing npm namespaces fail before the final publish step with an actionable message.
 - Pi AGENTS/rules documentation now routes commerce growth work to `commerce-growth-os` without adding local absolute paths or duplicate active package roots.
 - External skill sync now supports both root-level `repo/SKILL.md` skill repositories and legacy `repo/skills/*/SKILL.md` layouts, with fixture coverage for root-level discovery, apply, and read-only checks.

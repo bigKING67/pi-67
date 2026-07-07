@@ -81,6 +81,7 @@ pi-67 update --repair
 pi-67 self-update
 pi-67 publish-check
 pi-67 manifest
+pi-67 manifest --validate
 pi-67 doctor
 pi-67 smoke --quick
 pi-67 status
@@ -105,6 +106,7 @@ may manage versus what it must only report.
 ```bash
 pi-67 manifest
 pi-67 manifest --json
+pi-67 manifest --validate
 ```
 
 `pi-67 update` preserves existing different global skills by default. Use
@@ -116,7 +118,10 @@ The manifest also embeds the extension registry from
 shared-skill packs, runtime packages, or external repos must declare owner,
 install/update/repair strategy, config patch mode, and smoke gates there before
 release. This keeps extension behavior explicit instead of scattering preserve
-rules across scripts.
+rules across scripts. `pi-67 manifest --validate`, `pi-67 publish-check`, and
+release gates reuse the same registry validator so duplicate ids, missing smoke
+gates, unsupported config patch modes, theme-selection drift, shared-skill
+overwrite drift, and dirty external-repo update drift fail consistently.
 
 ## Publish readiness
 

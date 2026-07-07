@@ -158,6 +158,7 @@ Before publishing the npm package:
 node packages/pi67-cli/bin/pi-67.mjs --help
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" version --json
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" manifest --json
+node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" manifest --validate
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" update --check --json --no-remote
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" publish-check --json --no-remote
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" themes current --json
@@ -190,12 +191,15 @@ packages cannot drift silently before publish.
 Use `pi-67 manifest --json` when changing packages, extensions, themes, shared
 skills, or external repo behavior; it is the user-visible ownership contract
 that separates pi-67 managed resources from report-only user resources.
+Use `pi-67 manifest --validate` for the standalone registry policy gate before
+publishing, even when no npm publish check is being run.
 New extensions must also be registered in
 `packages/pi67-cli/src/data/extension-registry.json` with owner,
 install/update/repair strategy, config patch mode, and smoke gates. The release
-gate rejects forbidden behaviors such as overwriting user config, selecting a
-theme during update, overwriting different shared skills, or updating dirty
-external repos.
+gate and `publish-check` use the same validator and reject duplicate extension
+ids, missing smoke gates, unsupported config patch modes, and forbidden
+behaviors such as overwriting user config, selecting a theme during update,
+overwriting different shared skills, or updating dirty external repos.
 
 Preferred publish path: GitHub Actions with npm Trusted Publishing / OIDC.
 This keeps long-lived npm publish tokens out of the repository and out of

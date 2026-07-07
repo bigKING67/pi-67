@@ -13,11 +13,17 @@
   workflow validation.
 - Adds `pi-67 manifest` for read-only package, extension, theme, shared skill,
   external repo, and preserved runtime config ownership reporting.
+- Adds `pi-67 manifest --validate` for standalone extension-registry policy
+  validation.
 - Adds `pi-67 update --strict-shared-skills` forwarding for Bash and Windows
   PowerShell parity checks without changing the default preserve-user-skills
   behavior.
 - Gates publish readiness on the ownership manifest so package, extension,
   theme, shared-skill, external-repo, and runtime-config policies cannot drift
   silently before npm publish.
+- Centralizes extension-registry policy validation in a reusable library with
+  self-tests for duplicate ids, missing smoke gates, forbidden behavior,
+  unsupported patch modes, theme drift, shared-skill drift, dirty external-repo
+  drift, and unregistered managed extensions.
 - Gates real publish readiness on npm scope visibility, so a missing package
   namespace fails before the final `npm publish` step with a clear repair path.

@@ -1,14 +1,25 @@
 import { parseCommandOptions } from "../lib/args.mjs";
 import { buildDistroManifest } from "../lib/distro-manifest.mjs";
-import { info, keyValue, pass, printJson, section, warn } from "../lib/output.mjs";
+import { validateExtensionRegistry } from "../lib/extension-registry.mjs";
+import { fail, info, keyValue, pass, printJson, section, warn } from "../lib/output.mjs";
 
 export async function manifestCommand(ctx, argv) {
   const { options } = parseCommandOptions(argv, {
-    bools: ["json"],
+    bools: ["json", "validate"],
   });
   const manifest = buildDistroManifest(ctx);
+  const validation = validateExtensionRegistry(manifest.extensionRegistry, { manifest });
   if (ctx.json || options.json) {
-    printJson(manifest);
+    printJson(options.validate ? {
+      schema: "pi67.manifest-validation.v1",
+      createdAt: manifest.createdAt,
+      extensionRegistry: validation,
+    } : manifest);
+    if (options.validate && !validation.ok) process.exitCode = 1;
+    return;
+  }
+  if (options.validate) {
+    printValidation(validation);
     return;
   }
   section("pi-67 distro manifest");
@@ -37,6 +48,8 @@ export async function manifestCommand(ctx, argv) {
   for (const item of manifest.extensionRegistry.extensions) {
     info(`${item.id}: ${item.kind}; update=${item.updateStrategy}; repair=${item.repairStrategy}`);
   }
+  if (validation.ok) pass("extension registry policy ready");
+  else warn(`extension registry policy drift: ${validation.message}`);
 
   if (manifest.userManagedPackages.length > 0) {
     section("User-managed runtime packages");
@@ -44,4 +57,18 @@ export async function manifestCommand(ctx, argv) {
       warn(`${item.spec} is report-only; pi-67 will not overwrite it by default.`);
     }
   }
+}
+
+function printValidation(validation) {
+  section("pi-67 manifest validation");
+  keyValue("Registry entries", validation.summary.entries);
+  keyValue("Smoke gates", validation.summary.smokeGates);
+  keyValue("Config patches", validation.summary.configPatches);
+  if (validation.ok) {
+    pass(validation.message);
+  } else {
+    for (const problem of validation.problems) fail(problem);
+    process.exitCode = 1;
+  }
+  for (const warning of validation.warnings) warn(warning);
 }

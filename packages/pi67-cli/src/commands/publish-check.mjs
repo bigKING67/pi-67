@@ -6,6 +6,7 @@ import { npmLatestVersion, npmPackageScopeStatus, npmPublishTargetStatus } from 
 import { captureCommand } from "../lib/shell-runner.mjs";
 import { readCliPackageJson, readTextIfExists, packageRoot } from "../lib/paths.mjs";
 import { buildDistroManifest } from "../lib/distro-manifest.mjs";
+import { REQUIRED_EXTENSION_REGISTRY_IDS, validateExtensionRegistry } from "../lib/extension-registry.mjs";
 import { fail, info, keyValue, pass, printJson, section, warn } from "../lib/output.mjs";
 
 export async function publishCheckCommand(ctx, argv) {
@@ -162,22 +163,10 @@ function manifestReleaseCheck(manifest) {
     .filter((item) => item.required && !item.exists)
     .map((item) => item.name);
   const registry = manifest.extensionRegistry || {};
-  const registryExtensions = Array.isArray(registry.extensions) ? registry.extensions : [];
-  const registryIds = new Set(registryExtensions.map((item) => item.id));
-  const requiredRegistryIds = [
-    "xtalpi-pi-tools",
-    "pi-rules-loader",
-    "pi-curated-themes",
-    "shared-skills",
-    "browser67",
-    "design-craft",
-  ];
-  const missingRegistryIds = requiredRegistryIds.filter((id) => !registryIds.has(id));
-  const unmanagedLocalRegistryIds = (manifest.localExtensions || [])
-    .filter((item) => item.owner === "pi67-managed")
-    .map((item) => item.name)
-    .filter((name) => !registryIds.has(name));
-  const registryPolicyProblems = extensionRegistryPolicyProblems(registryExtensions, manifest);
+  const registryValidation = validateExtensionRegistry(registry, {
+    manifest,
+    requiredIds: REQUIRED_EXTENSION_REGISTRY_IDS,
+  });
   const userManagedPackages = manifest.userManagedPackages || [];
   const policyProblems = [];
 
@@ -198,9 +187,7 @@ function manifestReleaseCheck(manifest) {
     ...missingPreserve.map((item) => `missing preserved runtime file policy: ${item}`),
     ...missingCommands.map((item) => `missing canonical command policy: ${item}`),
     ...missingLocalExtensions.map((item) => `required local extension missing: ${item}`),
-    ...missingRegistryIds.map((item) => `missing extension registry entry: ${item}`),
-    ...unmanagedLocalRegistryIds.map((item) => `managed local extension missing registry entry: ${item}`),
-    ...registryPolicyProblems,
+    ...registryValidation.problems,
     ...userManagedPackages.map((item) => `repo baseline contains user-managed runtime package: ${item.spec}`),
     ...policyProblems,
   ];
@@ -209,6 +196,7 @@ function manifestReleaseCheck(manifest) {
   if (manifest.summary?.runtimePackages === 0) {
     warnings.push("distro manifest has no runtime packages");
   }
+  warnings.push(...registryValidation.warnings);
 
   return {
     ok: problems.length === 0,
@@ -216,54 +204,6 @@ function manifestReleaseCheck(manifest) {
     problems,
     warnings,
   };
-}
-
-function extensionRegistryPolicyProblems(entries, manifest) {
-  const problems = [];
-  const allowedPatchModes = new Set(manifest.extensionRegistry?.governance?.configPatchModes || []);
-  const forbiddenFragments = manifest.extensionRegistry?.governance?.forbiddenUpdateBehavior || [];
-  const seen = new Set();
-  for (const entry of entries) {
-    if (seen.has(entry.id)) problems.push(`duplicate extension registry id: ${entry.id}`);
-    seen.add(entry.id);
-    const policyText = [
-      entry.installStrategy,
-      entry.updateStrategy,
-      entry.repairStrategy,
-    ].join(" ");
-    for (const fragment of forbiddenFragments) {
-      if (policyText.includes(fragment)) {
-        problems.push(`extension ${entry.id} uses forbidden behavior: ${fragment}`);
-      }
-    }
-    if (!Array.isArray(entry.smoke) || entry.smoke.length === 0) {
-      problems.push(`extension ${entry.id} must declare at least one smoke gate`);
-    }
-    for (const patch of entry.configPatches || []) {
-      if (!allowedPatchModes.has(patch.mode)) {
-        problems.push(`extension ${entry.id} has unsupported config patch mode: ${patch.mode}`);
-      }
-      if (patch.mode !== "merge-preserve" && patch.file !== "settings.json.theme") {
-        problems.push(`extension ${entry.id} config patch for ${patch.file} must be merge-preserve or theme report-only`);
-      }
-    }
-  }
-
-  const theme = entries.find((item) => item.id === "pi-curated-themes");
-  if (theme && theme.updateStrategy !== manifest.theme?.policy) {
-    problems.push("theme extension registry policy must match manifest theme policy");
-  }
-  const sharedSkills = entries.find((item) => item.id === "shared-skills");
-  if (sharedSkills && sharedSkills.updateStrategy !== manifest.sharedSkills?.policy) {
-    problems.push("shared-skills extension registry policy must match manifest shared skills policy");
-  }
-  for (const external of ["browser67", "design-craft"]) {
-    const entry = entries.find((item) => item.id === external);
-    if (entry && entry.updateStrategy !== "preserve-and-block-update-when-dirty") {
-      problems.push(`external repo ${external} must block dirty updates`);
-    }
-  }
-  return problems;
 }
 
 function workflowCheck(file) {

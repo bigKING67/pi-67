@@ -93,6 +93,7 @@ Examples:
   pi-67 self-update
   pi-67 publish-check
   pi-67 manifest
+  pi-67 manifest --validate
   pi-67 xtalpi smoke --quick
   pi-67 themes current
 `);

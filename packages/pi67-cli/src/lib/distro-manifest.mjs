@@ -3,6 +3,7 @@ import path from "node:path";
 import { EXTERNAL_REPOS } from "./external-repos.mjs";
 import { readJsonFileIfExists } from "./config-json.mjs";
 import { packageRoot } from "./paths.mjs";
+import { readExtensionRegistry } from "./extension-registry.mjs";
 
 export function buildDistroManifest(ctx) {
   const base = readBaseManifest();
@@ -126,10 +127,5 @@ function scanUserLocalExtensions(ctx, managedNames) {
 
 function readBaseManifest() {
   const file = path.join(packageRoot(), "src", "data", "distro-manifest.json");
-  return JSON.parse(fs.readFileSync(file, "utf8"));
-}
-
-function readExtensionRegistry() {
-  const file = path.join(packageRoot(), "src", "data", "extension-registry.json");
   return JSON.parse(fs.readFileSync(file, "utf8"));
 }

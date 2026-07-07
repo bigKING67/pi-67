@@ -808,13 +808,15 @@ Publisher 都配置完成后显式使用 `--allow-first-publish`；GitHub workfl
 ```bash
 pi-67 manifest
 pi-67 manifest --json
+pi-67 manifest --validate
 ```
 
 扩展治理真源在 `packages/pi67-cli/src/data/extension-registry.json`。以后新增
 provider、theme package、shared-skill pack、runtime package 或 external repo，
 都必须先登记 owner、install/update/repair 策略、config patch mode 和 smoke gate；
-`publish-check` / `release-check` 会阻断覆盖用户配置、更新时切主题、覆盖不同
-shared skill、更新 dirty external repo 这类行为漂移。
+`pi-67 manifest --validate`、`publish-check` 和 `release-check` 会复用同一个
+registry validator，阻断重复 extension id、缺失 smoke gate、覆盖用户配置、
+更新时切主题、覆盖不同 shared skill、更新 dirty external repo 这类行为漂移。
 
 永远使用 npm 最新管理器的一次性命令：
 
