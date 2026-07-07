@@ -9,3 +9,5 @@
   report, and version entrypoints.
 - Reports npm manager update availability during `pi-67 update --check` and
   exposes explicit `pi-67 self-update`.
+- Adds `pi-67 publish-check` for npm publish readiness and Trusted Publishing
+  workflow validation.

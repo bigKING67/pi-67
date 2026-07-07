@@ -79,6 +79,7 @@ pi-67 update
 pi-67 update --check
 pi-67 update --repair
 pi-67 self-update
+pi-67 publish-check
 pi-67 doctor
 pi-67 smoke --quick
 pi-67 status
@@ -92,3 +93,16 @@ pi-67 skills inventory
 pi-67 skills sync
 pi-67 external list
 ```
+
+## Publish readiness
+
+Maintainers can verify the npm publish path before using GitHub Actions:
+
+```bash
+pi-67 publish-check
+pi-67 publish-check --json
+```
+
+The check validates version consistency, package metadata, npm pack dry-run,
+and the Trusted Publishing workflow. Local `npm whoami` is reported but is not
+required when publishing through GitHub Actions OIDC.

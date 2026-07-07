@@ -158,10 +158,22 @@ Before publishing the npm package:
 node packages/pi67-cli/bin/pi-67.mjs --help
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" version --json
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" update --check --json --no-remote
+node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" publish-check --json --no-remote
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" themes current --json
 node packages/pi67-cli/bin/pi-67.mjs --dry-run self-update
 npm pack --dry-run ./packages/pi67-cli
 ```
+
+After the local release gates pass, use the public manager command to inspect
+the end-to-end npm publish path:
+
+```bash
+pi-67 publish-check
+```
+
+The check reports version consistency, Trusted Publishing workflow readiness,
+npm registry state, local npm auth state, and `npm pack --dry-run`. A missing
+local `npm whoami` is not a blocker for GitHub Actions Trusted Publishing.
 
 Preferred publish path: GitHub Actions with npm Trusted Publishing / OIDC.
 This keeps long-lived npm publish tokens out of the repository and out of

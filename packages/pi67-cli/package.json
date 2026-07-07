@@ -17,7 +17,8 @@
   ],
   "scripts": {
     "check": "node scripts/check.mjs",
-    "smoke": "node bin/pi-67.mjs --help && node bin/pi-67.mjs --agent-dir ../.. version --json && node bin/pi-67.mjs --agent-dir ../.. update --check --json --no-remote && node bin/pi-67.mjs --dry-run self-update"
+    "smoke": "node bin/pi-67.mjs --help && node bin/pi-67.mjs --agent-dir ../.. version --json && node bin/pi-67.mjs --agent-dir ../.. update --check --json --no-remote && node bin/pi-67.mjs --agent-dir ../.. --repo-root ../.. publish-check --json --no-remote && node bin/pi-67.mjs --dry-run self-update",
+    "prepublishOnly": "node scripts/check.mjs && node bin/pi-67.mjs --agent-dir ../.. --repo-root ../.. publish-check --quiet --strict --no-remote"
   },
   "keywords": [
     "pi",

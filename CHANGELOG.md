@@ -10,6 +10,7 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 - `packages/pi67-cli/` as the publishable `@bigking67/pi-67` npm manager package, exposing `pi-67` / `pi67` for install, update, doctor, smoke, status, report, xtalpi, themes, skills, external, and version workflows.
 - `pi-67 self-update` plus npm latest-version hints in `pi-67 update --check`, so stale global managers are visible and users can run a single explicit manager update without changing Pi's upstream `pi` command.
+- `pi-67 publish-check` as a maintainer readiness gate for version consistency, Trusted Publishing workflow drift, npm registry state, local npm auth visibility, and `npm pack --dry-run`.
 - `shared-skills/commerce-growth-os/` as the vendored Pi distribution copy of `https://github.com/bigKING67/commerce-growth-os`, so Pi/Codex can share the commerce growth skill through `~/.agents/skills`.
 - `rules/commerce-growth.md` plus Pi rules-loader routing for commerce growth, marketplace operation, assortment, pricing, channel control, ROI/profit, and platform-currentness tasks.
 - `scripts/pi67-sync-commerce-growth-os.sh` as a dry-run-first maintainer helper for refreshing the vendored `shared-skills/commerce-growth-os` copy from the standalone upstream checkout.

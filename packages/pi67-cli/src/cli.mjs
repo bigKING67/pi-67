@@ -13,6 +13,7 @@ import { themesCommand } from "./commands/themes.mjs";
 import { skillsCommand } from "./commands/skills.mjs";
 import { externalCommand } from "./commands/external.mjs";
 import { selfUpdateCommand } from "./commands/self-update.mjs";
+import { publishCheckCommand } from "./commands/publish-check.mjs";
 
 const COMMANDS = {
   install: installCommand,
@@ -27,6 +28,7 @@ const COMMANDS = {
   skills: skillsCommand,
   external: externalCommand,
   "self-update": selfUpdateCommand,
+  "publish-check": publishCheckCommand,
 };
 
 export async function main(argv) {
@@ -78,6 +80,7 @@ Commands:
   skills               inventory/sync/migrate shared skills
   external             list/install/update/doctor external repos
   self-update          Explicitly update the npm manager package
+  publish-check        Verify npm publish readiness and trusted publishing
 
 Examples:
   pi-67 install
@@ -85,6 +88,7 @@ Examples:
   pi-67 update --check
   pi-67 update --repair
   pi-67 self-update
+  pi-67 publish-check
   pi-67 xtalpi smoke --quick
   pi-67 themes current
 `);

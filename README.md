@@ -779,6 +779,13 @@ pi-67 update --repair
 pi-67 self-update
 ```
 
+维护者发布 npm 包前的一键检查：
+
+```bash
+pi-67 publish-check
+pi-67 publish-check --json
+```
+
 永远使用 npm 最新管理器的一次性命令：
 
 ```bash

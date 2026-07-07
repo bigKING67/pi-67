@@ -377,6 +377,7 @@ if ($NodeAvailable) {
     "packages/pi67-cli/src/commands/doctor.mjs",
     "packages/pi67-cli/src/commands/external.mjs",
     "packages/pi67-cli/src/commands/install.mjs",
+    "packages/pi67-cli/src/commands/publish-check.mjs",
     "packages/pi67-cli/src/commands/report.mjs",
     "packages/pi67-cli/src/commands/self-update.mjs",
     "packages/pi67-cli/src/commands/skills.mjs",
@@ -430,6 +431,7 @@ if ($NodeAvailable) {
     Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--help") | Out-Null
     Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--agent-dir", $RepoRoot, "--repo-root", $RepoRoot, "version", "--json") | Out-Null
     Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--agent-dir", $RepoRoot, "--repo-root", $RepoRoot, "update", "--check", "--json", "--no-remote") | Out-Null
+    Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--agent-dir", $RepoRoot, "--repo-root", $RepoRoot, "publish-check", "--json", "--no-remote") | Out-Null
     Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--agent-dir", $RepoRoot, "--repo-root", $RepoRoot, "themes", "current", "--json") | Out-Null
     Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--dry-run", "self-update") | Out-Null
   }
