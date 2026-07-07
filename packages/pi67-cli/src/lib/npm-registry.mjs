@@ -1,23 +1,22 @@
 import { captureCommand } from "./shell-runner.mjs";
 
-export function npmLatestVersion(packageName, options = {}) {
+const DEFAULT_REGISTRY_BASE_URL = "https://registry.npmjs.org";
+
+export async function npmLatestVersion(packageName, options = {}) {
   if (options.noRemote) {
     return { skipped: true, ok: false, latestVersion: "", outdated: false, message: "remote checks skipped" };
   }
-  const result = captureCommand("npm", ["view", packageName, "version", "--json"], {
-    timeoutMs: options.timeoutMs || 8000,
-  });
+  const result = await npmRegistryLatestPayload(packageName, options);
   if (!result.ok) {
-    const rawMessage = result.stderr || result.error || "npm registry lookup failed";
     return {
       skipped: false,
       ok: false,
       latestVersion: "",
       outdated: false,
-      message: rawMessage.includes("E404") ? "not published on npm registry yet" : compactMessage(rawMessage),
+      message: result.message,
     };
   }
-  const latestVersion = parseNpmVersion(result.stdout);
+  const latestVersion = parseNpmLatestPayload(result.payload);
   return {
     skipped: false,
     ok: Boolean(latestVersion),
@@ -25,6 +24,55 @@ export function npmLatestVersion(packageName, options = {}) {
     outdated: latestVersion ? compareSemver(options.currentVersion || "", latestVersion) < 0 : false,
     message: latestVersion ? "" : "npm registry returned no version",
   };
+}
+
+export function npmRegistryPackageUrl(packageName, options = {}) {
+  const baseUrl = String(options.registryBaseUrl || DEFAULT_REGISTRY_BASE_URL).replace(/\/+$/, "");
+  const encodedPackage = encodeURIComponent(String(packageName || "")).replace(/^%40/, "@");
+  return `${baseUrl}/${encodedPackage}/latest`;
+}
+
+async function npmRegistryLatestPayload(packageName, options = {}) {
+  const timeoutMs = options.timeoutMs || 8000;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
+  if (typeof fetchImpl !== "function") {
+    clearTimeout(timeout);
+    return {
+      ok: false,
+      message: "npm registry lookup failed: fetch unavailable in this Node runtime",
+    };
+  }
+  try {
+    const response = await fetchImpl(npmRegistryPackageUrl(packageName, options), {
+      signal: controller.signal,
+      headers: {
+        accept: "application/json",
+        "user-agent": "pi-67-manager",
+      },
+    });
+    if (!response.ok) {
+      return {
+        ok: false,
+        message: response.status === 404
+          ? "not published on npm registry yet"
+          : `npm registry lookup failed: HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`,
+      };
+    }
+    try {
+      return { ok: true, payload: await response.json() };
+    } catch {
+      return { ok: false, message: "npm registry returned invalid JSON" };
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      message: registryErrorMessage(error),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export function npmPackageScopeStatus(packageName, options = {}) {
@@ -228,15 +276,14 @@ function packageScope(packageName) {
   return match ? match[1] : "";
 }
 
-function parseNpmVersion(value) {
-  const trimmed = String(value || "").trim();
-  if (!trimmed) return "";
-  try {
-    const parsed = JSON.parse(trimmed);
-    return typeof parsed === "string" ? parsed : "";
-  } catch {
-    return trimmed.replace(/^"|"$/g, "");
-  }
+function parseNpmLatestPayload(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "";
+  return typeof payload.version === "string" ? payload.version.trim() : "";
+}
+
+function registryErrorMessage(error) {
+  if (error?.name === "AbortError") return "npm registry lookup timed out";
+  return `npm registry lookup failed: ${compactMessage(error?.message || error || "unknown error")}`;
 }
 
 function parseJsonObject(value) {

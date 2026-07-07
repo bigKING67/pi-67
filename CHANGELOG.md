@@ -6,6 +6,26 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-07-08
+
+### Fixed
+
+- `pi-67 update --check` now reads the latest `@bigking67/pi-67` manager
+  version directly from the npm registry HTTP API instead of spawning local
+  `npm` / `npm.cmd`, eliminating the Windows PowerShell `spawnSync npm.cmd
+  EINVAL` failure class for `Manager latest`.
+- Windows npm execution now has a final `cmd.exe /d /s /c npm.cmd ...`
+  fallback for explicit npm operations such as `pi-67 self-update` or
+  maintainer publish checks, covering environments where direct `npm.cmd`
+  spawning fails even though PowerShell `npm install -g ...` works.
+
+### Added
+
+- `pi-67 backups list --include-legacy` and `pi-67 backups inspect --legacy
+  <pre-update-id>` now expose the older PowerShell `~/.pi/agent-backups/pre-update-*`
+  conflict snapshots as read-only diagnostics, so users can distinguish them
+  from first-class runtime backups under `~/.pi/pi67/backups/`.
+
 ## [0.10.1] - 2026-07-07
 
 ### Fixed

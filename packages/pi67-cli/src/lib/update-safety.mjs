@@ -116,11 +116,30 @@ export function listRuntimeBackups(ctx) {
     .sort((left, right) => String(right.createdAt || right.id).localeCompare(String(left.createdAt || left.id)));
 }
 
+export function listLegacyConflictBackups(ctx) {
+  const root = legacyConflictBackupsDir(ctx);
+  if (!fs.existsSync(root)) return [];
+  return fs.readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith("pre-update-"))
+    .map((entry) => legacyConflictBackupSummary(path.join(root, entry.name)))
+    .filter(Boolean)
+    .sort((left, right) => String(right.createdAt || right.id).localeCompare(String(left.createdAt || left.id)));
+}
+
 export function inspectRuntimeBackup(ctx, input) {
   const backupDir = resolveBackupDir(ctx, input);
   const summary = backupSummary(backupDir);
   if (!summary) {
     throw new CliError(`backup manifest not found or unreadable: ${backupDir}`);
+  }
+  return summary;
+}
+
+export function inspectLegacyConflictBackup(ctx, input) {
+  const backupDir = resolveLegacyConflictBackupDir(ctx, input);
+  const summary = legacyConflictBackupSummary(backupDir, { includeFiles: true });
+  if (!summary) {
+    throw new CliError(`legacy conflict backup not found or unreadable: ${backupDir}`);
   }
   return summary;
 }
@@ -267,6 +286,46 @@ function backupSummary(backupDir) {
   }
 }
 
+function legacyConflictBackupsDir(ctx) {
+  return path.join(path.dirname(ctx.stateDir), "agent-backups");
+}
+
+function legacyConflictBackupSummary(backupDir, options = {}) {
+  try {
+    if (!fs.existsSync(backupDir) || !fs.statSync(backupDir).isDirectory()) return null;
+    const entries = fs.readdirSync(backupDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) => {
+        const file = path.join(backupDir, entry.name);
+        const stat = fs.statSync(file);
+        return {
+          name: entry.name,
+          path: file,
+          bytes: stat.size,
+          mtime: stat.mtime.toISOString(),
+        };
+      });
+    const stat = fs.statSync(backupDir);
+    const totalBytes = entries.reduce((sum, item) => sum + item.bytes, 0);
+    const localDiff = entries.find((item) => item.name === "local.diff");
+    return {
+      id: path.basename(backupDir),
+      path: backupDir,
+      schema: "pi67.legacy-conflict-backup.v1",
+      createdAt: stat.mtime.toISOString(),
+      operation: "known-migration-conflict",
+      reason: "PowerShell updater preserved known migration conflict files before restoring them from HEAD",
+      fileCount: entries.length,
+      totalBytes,
+      hasLocalDiff: Boolean(localDiff),
+      localDiffPath: localDiff?.path || "",
+      files: options.includeFiles ? entries : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function resolveBackupDir(ctx, input) {
   if (!input) throw new CliError("backup id/path is required", 2);
   const expanded = expandHome(String(input));
@@ -274,6 +333,15 @@ function resolveBackupDir(ctx, input) {
     return path.resolve(expanded);
   }
   return path.join(ctx.stateDir, "backups", expanded);
+}
+
+function resolveLegacyConflictBackupDir(ctx, input) {
+  if (!input) throw new CliError("legacy backup id/path is required", 2);
+  const expanded = expandHome(String(input));
+  if (path.isAbsolute(expanded) || expanded.includes("/") || expanded.includes("\\")) {
+    return path.resolve(expanded);
+  }
+  return path.join(legacyConflictBackupsDir(ctx), expanded);
 }
 
 function inferBackupOperation(id) {

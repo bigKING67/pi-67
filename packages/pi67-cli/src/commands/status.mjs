@@ -6,7 +6,7 @@ export async function statusCommand(ctx, argv) {
   const { options } = parseCommandOptions(argv, {
     bools: ["json", "no-remote"],
   });
-  const plan = buildUpdatePlan(ctx, { noRemote: ctx.noRemote || options.noRemote });
+  const plan = await buildUpdatePlan(ctx, { noRemote: ctx.noRemote || options.noRemote });
   if (ctx.json || options.json) {
     printJson(plan);
     return;

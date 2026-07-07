@@ -37,7 +37,7 @@ function list(ctx, argv) {
   }
 }
 
-function doctor(ctx, argv) {
+async function doctor(ctx, argv) {
   const { options } = parseCommandOptions(argv, {
     bools: ["json", "strict-shared-skills", "no-remote"],
   });
@@ -46,7 +46,7 @@ function doctor(ctx, argv) {
     manifest,
     requiredIds: REQUIRED_EXTENSION_REGISTRY_IDS,
   });
-  const updatePlan = buildUpdatePlan(ctx, {
+  const updatePlan = await buildUpdatePlan(ctx, {
     noRemote: ctx.noRemote || options.noRemote,
     strictSharedSkills: options.strictSharedSkills,
   });
@@ -120,11 +120,11 @@ function inspect(ctx, argv) {
   for (const smoke of entry.smoke) info(smoke);
 }
 
-function plan(ctx, argv) {
+async function plan(ctx, argv) {
   const { options } = parseCommandOptions(argv, {
     bools: ["json", "strict-shared-skills", "no-remote"],
   });
-  const updatePlan = buildUpdatePlan(ctx, {
+  const updatePlan = await buildUpdatePlan(ctx, {
     noRemote: ctx.noRemote || options.noRemote,
     strictSharedSkills: options.strictSharedSkills,
   });

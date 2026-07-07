@@ -175,6 +175,7 @@ node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" updat
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" publish-check --json --no-remote
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" themes current --json
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" backups list --json
+node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" backups list --include-legacy --json
 node packages/pi67-cli/bin/pi-67.mjs --dry-run self-update
 npm pack --dry-run ./packages/pi67-cli
 ```
@@ -197,6 +198,10 @@ docs can prove that update behavior is governed by the same manifest contract.
 supported recovery path for repo-external update/repair/theme-set runtime
 snapshots; restore only writes preserved runtime files and creates a
 pre-restore backup first.
+Legacy PowerShell `~/.pi/agent-backups/pre-update-*` known-conflict snapshots
+are exposed as read-only diagnostics with `pi-67 backups list --include-legacy`
+and `pi-67 backups inspect <pre-update-id> --legacy`; they are not restored by
+the runtime backup restore path.
 
 After the local release gates pass, use the public manager command to inspect
 the end-to-end npm publish path:
@@ -335,7 +340,7 @@ CLI equivalent:
 
 ```bash
 gh workflow run npm-publish.yml \
-  -f version=0.10.0 \
+  -f version=<VERSION> \
   -f tag=latest \
   -f dry_run=false \
   -f auth_mode=token-bootstrap \
@@ -346,7 +351,7 @@ Dry-run first from GitHub Actions:
 
 ```text
 Actions -> npm publish pi-67 manager -> Run workflow
-version: 0.10.0
+version: <VERSION>
 tag: latest
 dry_run: true
 auth_mode: trusted
@@ -356,7 +361,7 @@ Publish after CI and dry-run pass:
 
 ```text
 Actions -> npm publish pi-67 manager -> Run workflow
-version: 0.10.0
+version: <VERSION>
 tag: latest
 dry_run: false
 auth_mode: trusted

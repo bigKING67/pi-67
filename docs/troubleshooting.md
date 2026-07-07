@@ -654,7 +654,9 @@ unrelated tracked edits still block. Inspect or recover those snapshots with:
 
 ```bash
 pi-67 backups list
+pi-67 backups list --include-legacy
 pi-67 backups inspect <backup-id-or-path>
+pi-67 backups inspect <pre-update-id> --legacy
 pi-67 backups restore --from <backup-id-or-path> --dry-run
 pi-67 backups restore --from <backup-id-or-path> --yes
 ```
@@ -671,6 +673,14 @@ If `pi-67 update --check` says the npm manager is outdated, update it explicitly
 ```bash
 pi-67 self-update
 ```
+
+Since `0.10.2`, the `Manager latest` field is queried directly from the npm
+registry HTTP API. It no longer spawns local `npm` / `npm.cmd`, so Windows
+PowerShell errors such as `spawnSync npm ENOENT` or `spawnSync npm.cmd EINVAL`
+should not appear in that field. If it still says `unknown`, treat it as a
+network/registry reachability issue rather than a local npm shim issue.
+Explicit npm operations such as `pi-67 self-update` also retry through
+`cmd.exe /d /s /c npm.cmd ...` on Windows when direct npm shim spawning fails.
 
 If the installed manager is too old to trust, use the latest package for one run:
 
@@ -704,6 +714,15 @@ Backups are written under:
 
 ```text
 %USERPROFILE%\.pi\agent-backups\pre-update-*
+```
+
+These legacy conflict backups are read-only diagnostics, not the current
+runtime restore path. The current restore path is `%USERPROFILE%\.pi\pi67\backups`.
+Use this to see both kinds without deleting anything:
+
+```powershell
+pi-67 backups list --include-legacy
+pi-67 backups inspect pre-update-20260707-235901 --legacy
 ```
 
 Other tracked local edits still stop the update before pulling. The Bash updater

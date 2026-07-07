@@ -39,7 +39,10 @@ pi-67 update --repair
 ```
 
 `pi-67 update --check` reports whether the npm manager is outdated. Updating the
-manager itself is explicit:
+manager itself is explicit. The latest-version check reads the npm registry
+HTTP API directly and does not depend on spawning local `npm` / `npm.cmd`.
+Explicit npm operations such as `self-update` still use npm, with Windows
+fallback through `cmd.exe /d /s /c npm.cmd ...`:
 
 ```bash
 pi-67 self-update
@@ -80,13 +83,20 @@ Runtime backups are first-class CLI state:
 
 ```bash
 pi-67 backups list
+pi-67 backups list --include-legacy
 pi-67 backups inspect <backup-id-or-path>
+pi-67 backups inspect <pre-update-id> --legacy
 pi-67 backups restore --from <backup-id-or-path> --dry-run
 pi-67 backups restore --from <backup-id-or-path> --yes
 ```
 
 The restore command only restores preserved runtime files and writes a
 pre-restore backup before overwriting current local config.
+
+Legacy PowerShell `~/.pi/agent-backups/pre-update-*` directories are read-only
+known-conflict snapshots from older migration paths. They are listed only with
+`--include-legacy` and are intentionally separate from restorable runtime
+backups under `~/.pi/pi67/backups/`.
 
 Theme changes are explicit only:
 

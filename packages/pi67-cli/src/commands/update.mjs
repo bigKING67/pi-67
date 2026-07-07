@@ -27,7 +27,7 @@ export async function updateCommand(ctx, argv) {
   const dryRun = ctx.dryRun || options.dryRun;
   const json = ctx.json || options.json;
   if (options.check) {
-    const plan = buildUpdatePlan(ctx, {
+    const plan = await buildUpdatePlan(ctx, {
       noRemote: ctx.noRemote || options.noRemote,
       strictSharedSkills: options.strictSharedSkills,
     });
@@ -39,7 +39,7 @@ export async function updateCommand(ctx, argv) {
     return;
   }
 
-  const plan = buildUpdatePlan(ctx, {
+  const plan = await buildUpdatePlan(ctx, {
     noRemote: ctx.noRemote || options.noRemote,
     strictSharedSkills: options.strictSharedSkills,
   });

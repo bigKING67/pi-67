@@ -73,10 +73,16 @@ runtime files:
 
 ```bash
 pi-67 backups list
+pi-67 backups list --include-legacy
 pi-67 backups inspect <backup-id-or-path>
+pi-67 backups inspect <pre-update-id> --legacy
 pi-67 backups restore --from <backup-id-or-path> --dry-run
 pi-67 backups restore --from <backup-id-or-path> --yes
 ```
+
+`~/.pi/agent-backups/pre-update-*` is the legacy PowerShell known-conflict
+snapshot location. It is read-only diagnostic state; runtime restore uses
+`~/.pi/pi67/backups/`.
 
 Theme changes are explicit:
 

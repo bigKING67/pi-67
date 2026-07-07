@@ -3,13 +3,15 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { npmPublishTargetStatus } from "../src/lib/npm-registry.mjs";
+import { npmLatestVersion, npmPublishTargetStatus, npmRegistryPackageUrl } from "../src/lib/npm-registry.mjs";
 import { commandCandidatesForPlatform } from "../src/lib/shell-runner.mjs";
 import { readExtensionRegistry, validateExtensionRegistry } from "../src/lib/extension-registry.mjs";
 import { buildPlanDecisions, classifyGitShort } from "../src/lib/update-plan.mjs";
 import {
   beginUpdateLifecycle,
+  inspectLegacyConflictBackup,
   inspectRuntimeBackup,
+  listLegacyConflictBackups,
   listRuntimeBackups,
   restoreRuntimeBackup,
 } from "../src/lib/update-safety.mjs";
@@ -26,6 +28,7 @@ for (const file of files.filter((item) => item.endsWith(".mjs"))) {
 for (const file of files.filter((item) => item.endsWith(".json"))) {
   JSON.parse(fs.readFileSync(file, "utf8"));
 }
+await runNpmRegistrySelfTests();
 runPublishTargetSelfTests();
 runShellRunnerSelfTests();
 runExtensionRegistrySelfTests();
@@ -94,10 +97,53 @@ function runPublishTargetSelfTests() {
   );
 }
 
+async function runNpmRegistrySelfTests() {
+  assert(
+    npmRegistryPackageUrl("@bigking67/pi-67") === "https://registry.npmjs.org/@bigking67%2Fpi-67/latest",
+    "scoped npm package registry URL must use the direct registry endpoint",
+  );
+  const current = await npmLatestVersion("@example/pkg", {
+    currentVersion: "0.9.0",
+    fetchImpl: async () => jsonResponse(200, { version: "1.2.3" }),
+  });
+  assert(current.ok && current.latestVersion === "1.2.3" && current.outdated, "direct registry latest lookup must parse version payloads");
+
+  const missing = await npmLatestVersion("@example/missing", {
+    fetchImpl: async () => jsonResponse(404, { error: "not found" }),
+  });
+  assert(missing.message === "not published on npm registry yet", "direct registry 404 must classify unpublished packages");
+
+  const malformed = await npmLatestVersion("@example/bad", {
+    fetchImpl: async () => jsonResponse(200, { name: "@example/bad" }),
+  });
+  assert(!malformed.ok && malformed.message === "npm registry returned no version", "direct registry malformed payloads must fail closed");
+
+  const invalidJson = await npmLatestVersion("@example/invalid-json", {
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      async json() {
+        throw new SyntaxError("Unexpected token");
+      },
+    }),
+  });
+  assert(invalidJson.message === "npm registry returned invalid JSON", "direct registry invalid JSON must be classified");
+
+  const timeout = await npmLatestVersion("@example/slow", {
+    fetchImpl: async () => {
+      const error = new Error("The operation was aborted");
+      error.name = "AbortError";
+      throw error;
+    },
+  });
+  assert(timeout.message === "npm registry lookup timed out", "direct registry aborts must classify as timeouts");
+}
+
 function runShellRunnerSelfTests() {
   assert(
-    JSON.stringify(commandCandidatesForPlatform("npm", "win32")) === JSON.stringify(["npm", "npm.cmd"]),
-    "Windows npm execution must fall back to npm.cmd",
+    JSON.stringify(commandCandidatesForPlatform("npm", "win32")) === JSON.stringify(["npm", "npm.cmd", "cmd.exe"]),
+    "Windows npm execution must fall back through npm.cmd and cmd.exe",
   );
   assert(
     JSON.stringify(commandCandidatesForPlatform("git", "win32")) === JSON.stringify(["git"]),
@@ -348,6 +394,18 @@ function runUpdateSafetySelfTests() {
     fs.readFileSync(path.join(agentDir, "settings.json"), "utf8").includes("\"dark\""),
     "runtime backup restore must recover the backed up file content",
   );
+  const legacyRoot = path.join(path.dirname(stateDir), "agent-backups", "pre-update-20260707-235901");
+  fs.mkdirSync(legacyRoot, { recursive: true });
+  fs.writeFileSync(path.join(legacyRoot, "local.diff"), "diff --git a/settings.json b/settings.json\n");
+  fs.writeFileSync(path.join(legacyRoot, "settings.json"), "{\"theme\":\"legacy\"}\n");
+  assert(
+    listLegacyConflictBackups(ctx).some((item) => item.id === "pre-update-20260707-235901" && item.hasLocalDiff),
+    "legacy PowerShell conflict backups must be listable",
+  );
+  assert(
+    inspectLegacyConflictBackup(ctx, "pre-update-20260707-235901").files.some((item) => item.name === "local.diff"),
+    "legacy PowerShell conflict backups must be inspectable",
+  );
   fs.rmSync(tmpRoot, { recursive: true, force: true });
 }
 
@@ -411,6 +469,17 @@ function deepMerge(base, overrides) {
     }
   }
   return next;
+}
+
+function jsonResponse(status, payload) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: status === 404 ? "Not Found" : "OK",
+    async json() {
+      return payload;
+    },
+  };
 }
 
 function assert(condition, message) {

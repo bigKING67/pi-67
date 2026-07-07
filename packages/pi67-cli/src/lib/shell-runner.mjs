@@ -41,21 +41,34 @@ export function captureCommand(command, args = [], options = {}) {
 
 export function commandCandidatesForPlatform(command, platform = process.platform) {
   if (platform === "win32" && command === "npm") {
-    return ["npm", "npm.cmd"];
+    return ["npm", "npm.cmd", "cmd.exe"];
   }
   return [command];
 }
 
 function spawnWithFallback(command, args, options) {
   let lastResult;
-  for (const candidate of commandCandidatesForPlatform(command)) {
-    const result = spawnSync(candidate, args, options);
+  for (const candidate of commandInvocationsForPlatform(command, args)) {
+    const result = spawnSync(candidate.command, candidate.args, options);
     lastResult = result;
-    if (!isCommandNotFound(result)) return { command: candidate, result };
+    if (!isRetryableSpawnFailure(command, result)) return { command: candidate.command, result };
   }
   return { command, result: lastResult };
 }
 
-function isCommandNotFound(result) {
-  return result?.error?.code === "ENOENT";
+function commandInvocationsForPlatform(command, args, platform = process.platform) {
+  if (platform === "win32" && command === "npm") {
+    return [
+      { command: "npm", args },
+      { command: "npm.cmd", args },
+      { command: process.env.ComSpec || "cmd.exe", args: ["/d", "/s", "/c", "npm.cmd", ...args] },
+    ];
+  }
+  return [{ command, args }];
+}
+
+function isRetryableSpawnFailure(command, result, platform = process.platform) {
+  if (result?.error?.code === "ENOENT") return true;
+  if (platform === "win32" && command === "npm" && result?.error?.code === "EINVAL") return true;
+  return false;
 }

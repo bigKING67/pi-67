@@ -1,6 +1,9 @@
+import path from "node:path";
 import { parseCommandOptions } from "../lib/args.mjs";
 import {
+  inspectLegacyConflictBackup,
   inspectRuntimeBackup,
+  listLegacyConflictBackups,
   listRuntimeBackups,
   restoreRuntimeBackup,
 } from "../lib/update-safety.mjs";
@@ -20,14 +23,16 @@ export async function backupsCommand(ctx, argv) {
 
 function listCommand(ctx, argv) {
   const { options } = parseCommandOptions(argv, {
-    bools: ["json"],
+    bools: ["json", "include-legacy"],
   });
   const backups = listRuntimeBackups(ctx);
+  const legacyConflictBackups = listLegacyConflictBackups(ctx);
   if (ctx.json || options.json) {
     printJson({
       schema: "pi67.backups-list.v1",
       createdAt: new Date().toISOString(),
       backups,
+      legacyConflictBackups: options.includeLegacy ? legacyConflictBackups : undefined,
     });
     return;
   }
@@ -35,21 +40,32 @@ function listCommand(ctx, argv) {
   keyValue("Backups dir", `${ctx.stateDir}/backups`);
   if (backups.length === 0) {
     warn("no runtime backups found");
-    return;
+  } else {
+    for (const item of backups) {
+      info(`${item.id}: ${item.operation}; files=${item.fileCount}; created=${item.createdAt || "unknown"}`);
+    }
   }
-  for (const item of backups) {
-    info(`${item.id}: ${item.operation}; files=${item.fileCount}; created=${item.createdAt || "unknown"}`);
+  if (legacyConflictBackups.length > 0) {
+    section("Legacy conflict backups");
+    keyValue("Backups dir", path.join(path.dirname(ctx.stateDir), "agent-backups"));
+    if (!options.includeLegacy) {
+      warn(`${legacyConflictBackups.length} legacy pre-update conflict backups found; rerun with --include-legacy to list them.`);
+    } else {
+      for (const item of legacyConflictBackups) {
+        info(`${item.id}: ${item.operation}; files=${item.fileCount}; bytes=${item.totalBytes}; created=${item.createdAt || "unknown"}`);
+      }
+    }
   }
 }
 
 function inspectCommand(ctx, argv) {
   const { options, positionals } = parseCommandOptions(argv, {
-    bools: ["json"],
+    bools: ["json", "legacy"],
   });
-  const backup = inspectRuntimeBackup(ctx, positionals[0]);
+  const backup = options.legacy ? inspectLegacyConflictBackup(ctx, positionals[0]) : inspectRuntimeBackup(ctx, positionals[0]);
   if (ctx.json || options.json) {
     printJson({
-      schema: "pi67.backup-inspect.v1",
+      schema: options.legacy ? "pi67.legacy-conflict-backup-inspect.v1" : "pi67.backup-inspect.v1",
       createdAt: new Date().toISOString(),
       backup,
     });
@@ -60,8 +76,13 @@ function inspectCommand(ctx, argv) {
   keyValue("Path", backup.path);
   keyValue("Created", backup.createdAt || "unknown");
   keyValue("Operation", backup.operation);
+  if (backup.reason) keyValue("Reason", backup.reason);
   keyValue("Files", `${backup.fileCount}${backup.preservedCount === undefined ? "" : ` present / ${backup.preservedCount} preserved slots`}`);
   for (const file of backup.files) {
+    if (file.name) {
+      info(`${file.name}${file.bytes === undefined ? "" : ` bytes=${file.bytes}`}`);
+      continue;
+    }
     if (file.exists === false) {
       info(`${file.path} missing-at-backup-time`);
     } else {
@@ -111,13 +132,15 @@ function printBackupsHelp() {
   process.stdout.write(`pi-67 backups - inspect and restore preserved runtime backups
 
 Usage:
-  pi-67 backups list [--json]
-  pi-67 backups inspect <backup-id-or-path> [--json]
+  pi-67 backups list [--include-legacy] [--json]
+  pi-67 backups inspect <backup-id-or-path> [--legacy] [--json]
   pi-67 backups restore --from <backup-id-or-path> [--dry-run] [--yes] [--json]
 
 Examples:
   pi-67 backups list
+  pi-67 backups list --include-legacy
   pi-67 backups inspect 20260707T120000Z-update
+  pi-67 backups inspect pre-update-20260707-235901 --legacy
   pi-67 backups restore --from 20260707T120000Z-update --dry-run
   pi-67 backups restore --from 20260707T120000Z-update --yes
 `);

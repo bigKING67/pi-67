@@ -4,7 +4,7 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
-当前发行版版本：`0.10.0`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.10.2`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 这是什么
 
@@ -193,10 +193,17 @@ pi-67 smoke --quick
 
 ```bash
 pi-67 backups list
+pi-67 backups list --include-legacy
 pi-67 backups inspect <backup-id-or-path>
+pi-67 backups inspect <pre-update-id> --legacy
 pi-67 backups restore --from <backup-id-or-path> --dry-run
 pi-67 backups restore --from <backup-id-or-path> --yes
 ```
+
+`~/.pi/agent-backups/pre-update-*` 是早期/兼容 PowerShell 更新器在处理
+known migration conflict 文件时写的安全快照；它不是错误，也不是当前运行态恢复
+主路径。当前主路径是 `~/.pi/pi67/backups/`。需要解释旧目录时只读查看：
+`pi-67 backups list --include-legacy`。
 
 主题只在显式执行下面命令时改变，且显式切主题前也会先写运行态备份：
 
@@ -214,7 +221,10 @@ pi-67 update --strict-shared-skills
 脚本入口仍然保留，作为 CI、bootstrap 和高级排障使用；普通用户优先记
 `pi-67 update`、`pi-67 doctor`、`pi-67 smoke --quick`。
 
-如果本机安装的 npm 管理器本身落后，`pi-67 update --check` 会提示更新。
+如果本机安装的 npm 管理器本身落后，`pi-67 update --check` 会提示更新；
+这个 latest 检查直接访问 npm registry HTTP API，不再依赖本机
+`npm` / `npm.cmd` shim。显式 npm 操作（例如 `pi-67 self-update`）在
+Windows 上还会追加 `cmd.exe /d /s /c npm.cmd ...` 兜底。
 显式更新管理器用：
 
 ```bash

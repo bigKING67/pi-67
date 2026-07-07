@@ -18,7 +18,7 @@ export async function publishCheckCommand(ctx, argv) {
   const noRemote = ctx.noRemote || options.noRemote;
   const noPack = options.noPack;
   const strict = options.strict;
-  const report = buildPublishCheck(ctx, {
+  const report = await buildPublishCheck(ctx, {
     noRemote,
     noPack,
     allowFirstPublish: options.allowFirstPublish,
@@ -35,14 +35,14 @@ export async function publishCheckCommand(ctx, argv) {
   }
 }
 
-function buildPublishCheck(ctx, options) {
+async function buildPublishCheck(ctx, options) {
   const pkg = readCliPackageJson();
   const rootPackage = readJsonIfExists(path.join(ctx.repoRoot, "package.json")) || {};
   const versionFile = readTextIfExists(path.join(ctx.repoRoot, "VERSION")).trim();
   const workflowFile = path.join(ctx.repoRoot, ".github", "workflows", "npm-publish.yml");
   const workflow = workflowCheck(workflowFile);
   const git = fs.existsSync(ctx.repoRoot) ? gitStatus(ctx.repoRoot) : { isRepo: false };
-  const registry = npmLatestVersion(pkg.name, {
+  const registry = await npmLatestVersion(pkg.name, {
     currentVersion: pkg.version,
     noRemote: options.noRemote,
     timeoutMs: 10000,

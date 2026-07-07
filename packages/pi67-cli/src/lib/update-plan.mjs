@@ -10,7 +10,7 @@ import { npmLatestVersion } from "./npm-registry.mjs";
 import { buildDistroManifest } from "./distro-manifest.mjs";
 import { PRESERVED_RUNTIME_FILES } from "./update-safety.mjs";
 
-export function buildUpdatePlan(ctx, options = {}) {
+export async function buildUpdatePlan(ctx, options = {}) {
   const versionFile = path.join(ctx.repoRoot, "VERSION");
   const settings = readJsonFileIfExists(path.join(ctx.agentDir, "settings.json")) || {};
   const theme = currentTheme(ctx);
@@ -35,7 +35,7 @@ export function buildUpdatePlan(ctx, options = {}) {
     fs.existsSync(path.join(ctx.repoRoot, "scripts", name)),
   ]));
   const pkg = readCliPackageJson();
-  const managerRegistry = npmLatestVersion(pkg.name, {
+  const managerRegistry = await npmLatestVersion(pkg.name, {
     currentVersion: pkg.version,
     noRemote: options.noRemote,
   });

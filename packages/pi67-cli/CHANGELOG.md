@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.10.2]
+
+- Reads `Manager latest` through the npm registry HTTP API instead of spawning
+  local `npm` / `npm.cmd`, fixing Windows environments where command shims fail
+  with `spawnSync npm.cmd EINVAL`.
+- Adds a final Windows `cmd.exe /d /s /c npm.cmd ...` fallback for explicit npm
+  operations such as `pi-67 self-update`.
+- Adds read-only visibility for legacy PowerShell
+  `~/.pi/agent-backups/pre-update-*` conflict snapshots through
+  `pi-67 backups list --include-legacy` and
+  `pi-67 backups inspect --legacy <pre-update-id>`.
+
 ## [0.10.1]
 
 - Falls back from `npm` to `npm.cmd` on Windows when checking npm registry state
