@@ -214,10 +214,26 @@ function registryLabel(registry) {
 }
 
 function compactMessage(value) {
-  return String(value || "")
+  return redactLocalPaths(String(value || ""))
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
     .join(" ")
     .slice(0, 240);
+}
+
+function redactLocalPaths(value) {
+  const homeCandidates = [
+    process.env.HOME,
+    process.env.USERPROFILE,
+    process.env.HOMEDRIVE && process.env.HOMEPATH
+      ? `${process.env.HOMEDRIVE}${process.env.HOMEPATH}`
+      : "",
+  ].filter(Boolean);
+  let output = value;
+  for (const home of homeCandidates) {
+    const escaped = home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    output = output.replace(new RegExp(escaped, "g"), "<home>");
+  }
+  return output;
 }
