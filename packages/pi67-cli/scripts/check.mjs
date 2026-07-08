@@ -37,6 +37,7 @@ for (const file of files.filter((item) => item.endsWith(".json"))) {
 await runNpmRegistrySelfTests();
 runArgsSelfTests();
 runCliHelpContractSelfTests();
+runVersionRecommendationSelfTests();
 runPublishTargetSelfTests();
 runShellRunnerSelfTests();
 runExtensionRegistrySelfTests();
@@ -118,6 +119,68 @@ function runCliHelpContractSelfTests() {
   assert(
     !fs.existsSync(backupRoot) || fs.readdirSync(backupRoot).length === 0,
     "help commands must not create runtime backups",
+  );
+  fs.rmSync(tmpRoot, { recursive: true, force: true });
+}
+
+function runVersionRecommendationSelfTests() {
+  if (spawnSync("git", ["--version"], { encoding: "utf8" }).status !== 0) return;
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-version-recommendation-"));
+  const home = path.join(tmpRoot, "home");
+  const repo = path.join(tmpRoot, "agent");
+  fs.mkdirSync(home, { recursive: true });
+  fs.mkdirSync(repo, { recursive: true });
+  fs.writeFileSync(path.join(repo, "VERSION"), "0.10.0\n");
+  fs.writeFileSync(path.join(repo, "settings.json"), "{\n  \"lastChangelogVersion\": \"0.80.3\",\n  \"theme\": \"gruvbox-dark\"\n}\n");
+  for (const args of [
+    ["-C", repo, "init", "-q"],
+    ["-C", repo, "config", "user.email", "pi67-check@example.invalid"],
+    ["-C", repo, "config", "user.name", "pi67-check"],
+    ["-C", repo, "add", "VERSION", "settings.json"],
+    ["-C", repo, "commit", "-q", "-m", "init"],
+  ]) {
+    const result = spawnSync("git", args, { encoding: "utf8" });
+    assert(result.status === 0, `git setup failed for version recommendation self-test: git ${args.join(" ")}\n${result.stderr}`);
+  }
+  fs.writeFileSync(path.join(repo, "settings.json"), "{\n  \"lastChangelogVersion\": \"0.80.4\",\n  \"theme\": \"gruvbox-dark\"\n}\n");
+  const env = { ...process.env, HOME: home, USERPROFILE: home };
+  const result = spawnSync(process.execPath, [
+    path.join(root, "bin", "pi-67.mjs"),
+    "--agent-dir",
+    repo,
+    "--repo-root",
+    repo,
+    "version",
+  ], {
+    cwd: root,
+    env,
+    encoding: "utf8",
+  });
+  assert(result.status === 0, `version recommendation command failed\n${result.stderr || result.stdout}`);
+  assert(
+    result.stdout.includes("npm install updated only the manager package") &&
+      result.stdout.includes("update --repair") &&
+      result.stdout.includes("settings.json has Pi runtime changelog marker state"),
+    `version output must explain manager/distro mismatch and runtime marker repair\n${result.stdout}`,
+  );
+  const json = spawnSync(process.execPath, [
+    path.join(root, "bin", "pi-67.mjs"),
+    "--agent-dir",
+    repo,
+    "--repo-root",
+    repo,
+    "version",
+    "--json",
+  ], {
+    cwd: root,
+    env,
+    encoding: "utf8",
+  });
+  assert(json.status === 0, `version --json recommendation command failed\n${json.stderr || json.stdout}`);
+  const parsed = JSON.parse(json.stdout);
+  assert(
+    parsed.recommendations?.some((item) => item.message.includes("update --repair")),
+    "version --json must include actionable recommendations",
   );
   fs.rmSync(tmpRoot, { recursive: true, force: true });
 }

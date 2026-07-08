@@ -6,6 +6,16 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.8] - 2026-07-08
+
+### Changed
+
+- `pi-67 version` now prints a clear next-step recommendation when the global
+  npm manager is newer than the local `~/.pi/agent` distro checkout, or when
+  `settings.json` is dirty from the migrated Pi runtime changelog marker.
+  This makes the supported flow explicit: `npm install -g` updates only the
+  manager, then `pi-67 update --repair` updates and normalizes the local distro.
+
 ## [0.10.7] - 2026-07-08
 
 ### Changed

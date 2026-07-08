@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.10.8]
+
+- Adds actionable `pi-67 version` recommendations when the npm manager has
+  been updated but the local distro checkout is still old or `settings.json`
+  still has runtime-marker dirty state.
+
 ## [0.10.7]
 
 - Migrates `settings.json.lastChangelogVersion` into ignored manager state at
