@@ -1,1 +1,1 @@
-settings.json filter=pi67-settings-runtime-state
+settings.json text eol=lf filter=pi67-settings-runtime-state

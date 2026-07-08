@@ -284,6 +284,12 @@ fi
 node "$REPO_ROOT/scripts/pi67-json-utils.cjs" --self-test >/tmp/pi67-smoke-json-utils.log
 pass "JSON compatibility utility self-test completed"
 
+if grep -qx 'settings\.json text eol=lf filter=pi67-settings-runtime-state' "$REPO_ROOT/.gitattributes"; then
+  pass "settings.json git attributes pin LF and runtime clean filter"
+else
+  fail "settings.json git attributes must pin LF and runtime clean filter"
+fi
+
 section "Shared skill defaults"
 node - "$REPO_ROOT" <<'NODE'
 const fs = require("fs");

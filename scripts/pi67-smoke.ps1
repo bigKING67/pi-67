@@ -378,6 +378,13 @@ Run-Check "JSON compatibility reader handles Windows encodings" {
   }
 }
 
+Run-Check "settings.json git attributes pin LF and runtime clean filter" {
+  $attributes = Get-Content -LiteralPath (RepoPath ".gitattributes") -Raw
+  if ($attributes -notmatch '(?m)^settings\.json text eol=lf filter=pi67-settings-runtime-state$') {
+    throw "settings.json must declare text eol=lf and pi67-settings-runtime-state filter"
+  }
+}
+
 Section "Node helpers"
 if ($NodeAvailable) {
   $NodeCheckFiles = @(

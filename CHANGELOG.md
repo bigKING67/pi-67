@@ -6,6 +6,15 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.12] - 2026-07-08
+
+### Fixed
+
+- `settings.json` is now explicitly tracked as `text eol=lf` alongside the
+  runtime clean filter. This removes the Windows Git `LF will be replaced by
+  CRLF` false-dirty warning after updates when there is no real settings
+  content diff.
+
 ## [0.10.11] - 2026-07-08
 
 ### Fixed

@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.10.12]
+
+- Pins `settings.json` to LF line endings in `.gitattributes` while preserving
+  the runtime clean filter, preventing Windows CRLF false-dirty status after
+  update cleanup.
+
 ## [0.10.11]
 
 - Runs final settings runtime-marker normalization from the Bash and PowerShell
