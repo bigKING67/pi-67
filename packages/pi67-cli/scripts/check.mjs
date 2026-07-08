@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { npmLatestVersion, npmPublishTargetStatus, npmRegistryPackageUrl } from "../src/lib/npm-registry.mjs";
 import { commandCandidatesForPlatform } from "../src/lib/shell-runner.mjs";
+import { parseCommandOptions, splitGlobalArgs } from "../src/lib/args.mjs";
 import { readExtensionRegistry, validateExtensionRegistry } from "../src/lib/extension-registry.mjs";
 import { buildPlanDecisions, classifyGitShort } from "../src/lib/update-plan.mjs";
 import {
@@ -29,6 +30,8 @@ for (const file of files.filter((item) => item.endsWith(".json"))) {
   JSON.parse(fs.readFileSync(file, "utf8"));
 }
 await runNpmRegistrySelfTests();
+runArgsSelfTests();
+runCliHelpContractSelfTests();
 runPublishTargetSelfTests();
 runShellRunnerSelfTests();
 runExtensionRegistrySelfTests();
@@ -42,6 +45,67 @@ function walk(dir, files) {
     if (entry.isDirectory()) walk(full, files);
     else files.push(full);
   }
+}
+
+function runArgsSelfTests() {
+  const afterCommandHelp = splitGlobalArgs(["skills", "--help"]);
+  assert(
+    !afterCommandHelp.globals.help && afterCommandHelp.rest.join(" ") === "skills --help",
+    "command-level --help must not be consumed as global help after a command is seen",
+  );
+  const globalHelp = splitGlobalArgs(["--help"]);
+  assert(globalHelp.globals.help && globalHelp.rest.length === 0, "global --help must still be parsed globally");
+  assert(
+    parseCommandOptions(["--help"], { bools: [] }).options.help,
+    "command option parser must accept --help for every command",
+  );
+}
+
+function runCliHelpContractSelfTests() {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-help-contract-"));
+  const home = path.join(tmpRoot, "home");
+  const agentDir = path.join(tmpRoot, "agent");
+  const skillsDir = path.join(tmpRoot, "skills");
+  fs.mkdirSync(home, { recursive: true });
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.mkdirSync(skillsDir, { recursive: true });
+  const env = { ...process.env, HOME: home, USERPROFILE: home };
+  const globalArgs = ["--agent-dir", agentDir, "--repo-root", root, "--skills-dir", skillsDir];
+  const commands = [
+    ["--help"],
+    ["install", "--help"],
+    ["update", "--help"],
+    ["doctor", "--help"],
+    ["smoke", "--help"],
+    ["status", "--help"],
+    ["report", "--help"],
+    ["version", "--help"],
+    ["xtalpi", "--help"],
+    ["themes", "--help"],
+    ["skills", "--help"],
+    ["extensions", "--help"],
+    ["external", "--help"],
+    ["self-update", "--help"],
+    ["publish-check", "--help"],
+    ["manifest", "--help"],
+    ["backups", "--help"],
+  ];
+  const backupRoot = path.join(home, ".pi", "pi67", "backups");
+  for (const command of commands) {
+    const result = spawnSync(process.execPath, [path.join(root, "bin", "pi-67.mjs"), ...globalArgs, ...command], {
+      cwd: root,
+      env,
+      encoding: "utf8",
+    });
+    assert(result.status === 0, `help command failed: pi-67 ${command.join(" ")}\n${result.stderr || result.stdout}`);
+    assert(!result.stderr.trim(), `help command wrote stderr: pi-67 ${command.join(" ")}\n${result.stderr}`);
+    assert(result.stdout.includes("Usage:"), `help command must print Usage: pi-67 ${command.join(" ")}`);
+  }
+  assert(
+    !fs.existsSync(backupRoot) || fs.readdirSync(backupRoot).length === 0,
+    "help commands must not create runtime backups",
+  );
+  fs.rmSync(tmpRoot, { recursive: true, force: true });
 }
 
 function runPublishTargetSelfTests() {
@@ -383,6 +447,26 @@ function runUpdateSafetySelfTests() {
   assert(
     listRuntimeBackups(ctx).length === backupCountBeforeDedupe,
     "deduplicated update lifecycle snapshots must not create new backup directories",
+  );
+  const backupCountBeforeDelegated = listRuntimeBackups(ctx).length;
+  const delegatedLifecycle = beginUpdateLifecycle({
+    agentDir,
+    repoRoot: agentDir,
+    stateDir,
+  }, {
+    operation: "test-delegated",
+    backupRuntime: false,
+  });
+  assert(fs.existsSync(delegatedLifecycle.lockPath), "delegated update lifecycle must still acquire a lock");
+  assert(
+    delegatedLifecycle.backupSkipped && !delegatedLifecycle.backupDir && delegatedLifecycle.backedUp.length === 0,
+    "delegated update lifecycle must skip manager-owned runtime backups",
+  );
+  delegatedLifecycle.release();
+  assert(!fs.existsSync(delegatedLifecycle.lockPath), "delegated update lifecycle must release lock");
+  assert(
+    listRuntimeBackups(ctx).length === backupCountBeforeDelegated,
+    "delegated update lifecycle must not create runtime backup directories",
   );
   assert(
     inspectRuntimeBackup(ctx, lifecycle.backupDir).fileCount >= 2,

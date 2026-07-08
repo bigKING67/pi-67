@@ -647,15 +647,14 @@ doctor, and report path.
 `pi-67 update` preserves `settings.json` and the selected theme value; it may
 update the installed theme package, but it will not change the selected theme.
 Before a real update/repair, the npm manager writes
-`~/.pi/pi67/locks/update.lock` and snapshots preserved runtime config under
-`~/.pi/pi67/backups/<timestamp>-update/`. In-place checkouts with dirty
-user-runtime config are backed up and restored after `git pull --ff-only`;
-unrelated tracked edits still block. Inspect or recover those snapshots with:
-If preserved runtime files are unchanged from the latest same-operation backup,
-the manager reuses the existing snapshot instead of creating another timestamped
-backup directory.
-Direct `scripts/pi67-update.ps1` runs use the same dedupe rule for dirty
-runtime-config preservation backups.
+`~/.pi/pi67/locks/update.lock` and blocks unsafe non-runtime dirty worktrees.
+Runtime config backup/restore is delegated to the Bash or PowerShell updater
+only when an in-place checkout needs to temporarily clear dirty preserved
+runtime files for `git pull --ff-only`; those snapshots live under
+`~/.pi/pi67/backups/pre-update-runtime-*`. Unrelated tracked edits still block.
+If preserved runtime files are unchanged from an existing equivalent backup,
+the updater reuses the snapshot instead of creating another timestamped backup
+directory. Inspect or recover runtime snapshots with:
 
 ```bash
 pi-67 backups list

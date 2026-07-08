@@ -20,6 +20,7 @@ export async function extensionsCommand(ctx, argv) {
 
 function list(ctx, argv) {
   const { options } = parseCommandOptions(argv, { bools: ["json"] });
+  if (options.help) return printExtensionsHelp();
   const manifest = buildDistroManifest(ctx);
   const data = {
     schema: "pi67.extensions-list.v1",
@@ -41,6 +42,7 @@ async function doctor(ctx, argv) {
   const { options } = parseCommandOptions(argv, {
     bools: ["json", "strict-shared-skills", "no-remote"],
   });
+  if (options.help) return printExtensionsHelp();
   const manifest = buildDistroManifest(ctx);
   const validation = validateExtensionRegistry(manifest.extensionRegistry, {
     manifest,
@@ -94,6 +96,7 @@ async function doctor(ctx, argv) {
 
 function inspect(ctx, argv) {
   const { options, positionals } = parseCommandOptions(argv, { bools: ["json"] });
+  if (options.help) return printExtensionsHelp();
   const id = positionals[0];
   if (!id) throw new CliError("extensions inspect requires an extension id", 2);
   const manifest = buildDistroManifest(ctx);
@@ -124,6 +127,7 @@ async function plan(ctx, argv) {
   const { options } = parseCommandOptions(argv, {
     bools: ["json", "strict-shared-skills", "no-remote"],
   });
+  if (options.help) return printExtensionsHelp();
   const updatePlan = await buildUpdatePlan(ctx, {
     noRemote: ctx.noRemote || options.noRemote,
     strictSharedSkills: options.strictSharedSkills,
@@ -144,7 +148,8 @@ async function plan(ctx, argv) {
 }
 
 function updateHint(_ctx, argv) {
-  const { positionals } = parseCommandOptions(argv, { bools: ["dry-run"] });
+  const { options, positionals } = parseCommandOptions(argv, { bools: ["dry-run"] });
+  if (options.help) return printExtensionsHelp();
   const id = positionals[0] || "<id>";
   throw new CliError(
     [

@@ -7,6 +7,10 @@ export async function manifestCommand(ctx, argv) {
   const { options } = parseCommandOptions(argv, {
     bools: ["json", "validate"],
   });
+  if (options.help) {
+    printManifestHelp();
+    return;
+  }
   const manifest = buildDistroManifest(ctx);
   const validation = validateExtensionRegistry(manifest.extensionRegistry, { manifest });
   if (ctx.json || options.json) {
@@ -71,4 +75,21 @@ function printValidation(validation) {
     process.exitCode = 1;
   }
   for (const warning of validation.warnings) warn(warning);
+}
+
+function printManifestHelp() {
+  process.stdout.write(`pi-67 manifest - show managed ownership policy
+
+Usage:
+  pi-67 manifest [--json]
+  pi-67 manifest --validate [--json]
+
+Options:
+  --validate  Validate the extension registry against the distro manifest.
+  --json      Emit machine-readable manifest or validation JSON.
+
+Examples:
+  pi-67 manifest
+  pi-67 manifest --validate
+`);
 }

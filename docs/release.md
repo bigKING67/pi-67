@@ -153,17 +153,20 @@ It does not replace or shadow the upstream `pi` binary. `pi update` and
 pi-67 distribution update command.
 
 The manager update path is preserve-first. A real `pi-67 update` / `pi-67
-update --repair` acquires `~/.pi/pi67/locks/update.lock` and snapshots
-`settings.json`, `models.json`, `auth.json`, `mcp.json`, `image-gen.json`, and
-legacy `settings.json.theme` if present under
-`~/.pi/pi67/backups/<timestamp>-update/` before dispatching the Bash or
-PowerShell updater. The selected theme lives in the `settings.json` `theme`
-field and must not be changed by update. In-place checkouts with only dirty
-user runtime config are backed up, temporarily cleaned for `git pull --ff-only`,
-and restored after the pull; unrelated tracked edits still block.
-Runtime snapshots are deduplicated by preserved-file existence, size, and
-sha256 within the same operation, so repeated no-change updates do not create
-new timestamped backup directories.
+update --repair` builds the update plan, blocks unsafe non-runtime dirty
+worktrees, and acquires `~/.pi/pi67/locks/update.lock` before dispatching the
+Bash or PowerShell updater. Runtime config backup/restore is owned by the
+platform updater script and only runs when an in-place checkout needs to
+temporarily clear dirty preserved runtime files for `git pull --ff-only`.
+Those script-level snapshots live under
+`~/.pi/pi67/backups/pre-update-runtime-*`. The selected theme lives in the
+`settings.json` `theme` field and must not be changed by update. In-place
+checkouts with only dirty user runtime config are backed up, temporarily
+cleaned for `git pull --ff-only`, and restored after the pull; unrelated
+tracked edits still block. Runtime snapshots are deduplicated by preserved-file
+content, so repeated no-change updates do not create new timestamped backup
+directories. `--help`, blocked update plans, and the manager orchestration layer
+must not create runtime backup directories.
 
 Before publishing the npm package:
 
@@ -179,6 +182,8 @@ node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" publi
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" themes current --json
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" backups list --json
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" backups list --include-legacy --json
+node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" backups prune --keep-last 10 --dry-run --json
+node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" xtalpi smoke --self-test
 node packages/pi67-cli/bin/pi-67.mjs --dry-run self-update
 npm pack --dry-run ./packages/pi67-cli
 ```
@@ -196,11 +201,13 @@ policy blockers before a real update.
 It must also expose `policy.preservedRuntimeFiles`, `policy.themePolicy`,
 `policy.sharedSkillsPolicy`, and `policy.externalDirtyPolicy` so scripts and
 docs can prove that update behavior is governed by the same manifest contract.
-`pi-67 backups list`, `pi-67 backups inspect <backup-id-or-path>`, and
-`pi-67 backups restore --from <backup-id-or-path> --dry-run|--yes` are the
-supported recovery path for repo-external update/repair/theme-set runtime
-snapshots; restore only writes preserved runtime files and creates a
-pre-restore backup first.
+`pi-67 backups list`, `pi-67 backups inspect <backup-id-or-path>`,
+`pi-67 backups restore --from <backup-id-or-path> --dry-run|--yes`,
+`pi-67 backups prune --keep-last N --dry-run|--yes`, and
+`pi-67 backups archive --keep-last N --older-than 30d --dry-run|--yes` are the
+supported recovery and retention paths for repo-external runtime snapshots;
+restore only writes preserved runtime files and creates a pre-restore backup
+first.
 Legacy PowerShell `~/.pi/agent-backups/pre-update-*` known-conflict snapshots
 are exposed as read-only diagnostics with `pi-67 backups list --include-legacy`
 and `pi-67 backups inspect <pre-update-id> --legacy`; they are not restored by

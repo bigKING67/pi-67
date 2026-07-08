@@ -18,16 +18,21 @@ const LOCK_STALE_AFTER_MS = 4 * 60 * 60 * 1000;
 export function beginUpdateLifecycle(ctx, options = {}) {
   const operation = options.operation || "update";
   const dryRun = Boolean(options.dryRun);
+  const backupRuntime = options.backupRuntime !== false;
   const lockPath = path.join(ctx.stateDir, "locks", "update.lock");
   const backupDir = path.join(ctx.stateDir, "backups", `${timestamp()}-${operation}`);
 
   if (dryRun) {
     info(`DRY-RUN would acquire update lock: ${lockPath}`);
-    info(`DRY-RUN would snapshot preserved runtime files into: ${backupDir}`);
+    if (backupRuntime) {
+      info(`DRY-RUN would snapshot preserved runtime files into: ${backupDir}`);
+    }
     return {
       lockPath,
       backupDir,
       backedUp: [],
+      backupSkipped: !backupRuntime,
+      backupReason: backupRuntime ? "" : "runtime backup is delegated to the updater script when needed",
       release() {},
     };
   }
@@ -35,6 +40,21 @@ export function beginUpdateLifecycle(ctx, options = {}) {
   acquireLock(lockPath, { operation });
   let released = false;
   try {
+    if (!backupRuntime) {
+      return {
+        lockPath,
+        backupDir: "",
+        backedUp: [],
+        backupSkipped: true,
+        backupReason: "runtime backup is delegated to the updater script when needed",
+        reusedBackupDir: "",
+        release() {
+          if (released) return;
+          released = true;
+          releaseLock(lockPath);
+        },
+      };
+    }
     const backup = createRuntimeBackup(ctx, backupDir, {
       operation,
       plan: options.plan,

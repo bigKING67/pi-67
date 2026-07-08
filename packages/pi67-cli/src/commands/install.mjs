@@ -13,6 +13,10 @@ export async function installCommand(ctx, argv) {
     strings: ["repo", "branch"],
     bools: ["dry-run", "yes", "repair"],
   });
+  if (options.help) {
+    printInstallHelp();
+    return;
+  }
   const dryRun = ctx.dryRun || options.dryRun;
   const repo = options.repo || DEFAULT_REPO_URL;
 
@@ -45,4 +49,22 @@ export async function installCommand(ctx, argv) {
   }
   if (!dryRun) writeState(ctx, "install");
   info("Install finished. Run `pi-67 doctor` next.");
+}
+
+function printInstallHelp() {
+  process.stdout.write(`pi-67 install - clone/install pi-67 safely
+
+Usage:
+  pi-67 install [--repo URL] [--branch NAME] [--dry-run] [--repair]
+
+Options:
+  --repo URL      Git repository URL. Defaults to the pi-67 upstream repo.
+  --branch NAME   Clone a specific branch.
+  --dry-run       Print planned writes without changing files.
+  --repair        Force owned asset repair during the installer update phase.
+
+Examples:
+  pi-67 install
+  pi-67 install --dry-run
+`);
 }

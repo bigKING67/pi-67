@@ -6,6 +6,51 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.4] - 2026-07-08
+
+### Fixed
+
+- Command-level `--help` is now side-effect free across the npm manager CLI:
+  `pi-67 update --help` and other command help paths print usage without
+  entering update/repair logic, acquiring update backups, or writing runtime
+  state.
+- Real `pi-67 update` now checks the update plan before starting the update
+  lifecycle, so blocked non-runtime dirty worktrees fail closed without first
+  creating a runtime backup.
+- `pi-67 xtalpi drift` now defaults to full-suite artifacts, preventing
+  targeted one-off smoke runs from creating expected case-set or runtime
+  fingerprint drift noise.
+- Bash and PowerShell runtime preservation dedupe now recognize both
+  `manifest.json` and manager-style `backup-manifest.json` snapshots under
+  `~/.pi/pi67/backups/`, reducing duplicate backup directories across older
+  and newer backup formats.
+
+### Added
+
+- `pi-67 backups prune` and `pi-67 backups archive` for dry-run-first runtime
+  backup retention, with `--keep-last` applied per backup kind and legacy
+  snapshots included only when explicitly requested.
+- `pi-67 skills plan` and `pi-67 skills diff <name>` for read-only shared-skill
+  drift review before choosing whether to preserve, sync, or manually merge
+  global skills.
+- `pi-67 xtalpi trend`, `pi-67 xtalpi drift`, and `pi-67 xtalpi stress
+  --until-done` as user-facing wrappers around the local xtalpi smoke artifact
+  quality gates.
+- CLI contract self-tests covering command-level help parsing and the guarantee
+  that help commands do not create runtime backups.
+- Windows CI now exercises Node 22 and Node 24 and runs npm manager CLI contract
+  smoke commands in addition to the PowerShell repository smoke.
+
+### Changed
+
+- Runtime config backup ownership is now documented as script-level updater
+  behavior: the npm manager owns planning, locking, blocked-plan classification,
+  and orchestration, while Bash/PowerShell updaters create
+  `pre-update-runtime-*` snapshots only when dirty preserved runtime files must
+  be temporarily cleared for `git pull --ff-only`.
+- Unknown shared-skill names now fail with concise CLI errors instead of stack
+  traces.
+
 ## [0.10.3] - 2026-07-08
 
 ### Changed

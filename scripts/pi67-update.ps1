@@ -793,14 +793,33 @@ function Get-SafeBackupFileName {
   return $Path -replace "[\\/]", "__"
 }
 
-function Test-StringArraySame {
-  param([string[]]$Left, [string[]]$Right)
-  $leftSorted = @($Left | Sort-Object)
-  $rightSorted = @($Right | Sort-Object)
-  if ($leftSorted.Count -ne $rightSorted.Count) {
-    return $false
+function Test-StringArrayContainsAll {
+  param([string[]]$Container, [string[]]$Required)
+
+  $seen = @{}
+  foreach ($item in @($Container)) {
+    if ($item) {
+      $seen[[string]$item] = $true
+    }
   }
-  return (($leftSorted -join "`n") -eq ($rightSorted -join "`n"))
+  foreach ($item in @($Required)) {
+    if (-not $seen.ContainsKey([string]$item)) {
+      return $false
+    }
+  }
+  return $true
+}
+
+function Get-BackupManifestPath {
+  param([string]$BackupDir)
+
+  foreach ($name in @("manifest.json", "backup-manifest.json")) {
+    $candidate = Join-Path $BackupDir $name
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+      return $candidate
+    }
+  }
+  return ""
 }
 
 function Test-BackupFilesMatchCurrentRuntime {
@@ -832,8 +851,8 @@ function Find-EquivalentUserRuntimeBackup {
 
   $dirs = @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
   foreach ($dir in $dirs) {
-    $manifestPath = Join-Path $dir.FullName "manifest.json"
-    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+    $manifestPath = Get-BackupManifestPath $dir.FullName
+    if (-not $manifestPath) {
       continue
     }
     try {
@@ -841,8 +860,13 @@ function Find-EquivalentUserRuntimeBackup {
     } catch {
       continue
     }
-    $paths = @($manifest.paths | ForEach-Object { [string]$_ })
-    if (-not (Test-StringArraySame $paths $DirtyPaths)) {
+    $paths = @()
+    if ($manifest.PSObject.Properties.Name -contains "paths") {
+      $paths = @($manifest.paths | ForEach-Object { [string]$_ })
+    } elseif ($manifest.PSObject.Properties.Name -contains "files") {
+      $paths = @($manifest.files | ForEach-Object { [string]$_.path })
+    }
+    if (-not (Test-StringArrayContainsAll $paths $DirtyPaths)) {
       continue
     }
     if (Test-BackupFilesMatchCurrentRuntime $dir.FullName $DirtyPaths) {

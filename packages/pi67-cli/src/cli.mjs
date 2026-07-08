@@ -81,15 +81,15 @@ Commands:
   status               Read-only status summary
   report               Generate pi67-report.json
   version              Print manager and distro versions
-  xtalpi               xtalpi health/smoke/capability helpers
+  xtalpi               xtalpi health/smoke/capability/trend/drift/stress helpers
   themes               current/list/doctor/set without update-time overwrite
-  skills               inventory/sync/migrate shared skills
+  skills               inventory/plan/diff/sync/migrate shared skills
   extensions           list/doctor/inspect/plan extension ownership policy
   external             list/install/update/doctor external repos
   self-update          Explicitly update the npm manager package
   publish-check        Verify npm publish readiness and trusted publishing
   manifest             Show managed package/config/theme ownership policy
-  backups              list/inspect/restore preserved runtime backups
+  backups              list/inspect/restore/prune/archive runtime backups
 
 Examples:
   pi-67 install
@@ -101,8 +101,11 @@ Examples:
   pi-67 manifest
   pi-67 manifest --validate
   pi-67 backups list
+  pi-67 backups prune --keep-last 10 --dry-run
   pi-67 extensions doctor
+  pi-67 skills plan
   pi-67 xtalpi smoke --quick
+  pi-67 xtalpi trend
   pi-67 themes current
 `);
 }

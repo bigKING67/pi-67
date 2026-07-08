@@ -73,13 +73,16 @@ check or repair before trusting the globally installed manager.
 - user-added global skills
 - dirty external repos such as browser67 or design-craft
 
-Before a real `update` or `repair`, the npm manager acquires
-`~/.pi/pi67/locks/update.lock` and snapshots preserved runtime files under
-`~/.pi/pi67/backups/<timestamp>-update/`. This makes the public `npx -y
-@bigking67/pi-67@latest update --repair` path safe even for in-place checkouts
-where `settings.json` is tracked but user-owned.
-If the preserved runtime files are unchanged from the latest same-operation
-backup, the manager reuses that snapshot instead of writing another timestamped
+Before a real `update` or `repair`, the npm manager builds the update plan,
+blocks unsafe non-runtime dirty worktrees, and acquires
+`~/.pi/pi67/locks/update.lock`. Runtime config backup/restore is delegated to
+the Bash or PowerShell updater script only when an in-place checkout needs to
+temporarily clear dirty preserved runtime files for `git pull --ff-only`. Those
+script-level snapshots live under `~/.pi/pi67/backups/pre-update-runtime-*`.
+This keeps `--help`, blocked update plans, and the public `npx -y
+@bigking67/pi-67@latest update --repair` orchestration path free of duplicate
+manager-owned runtime backups. If an identical runtime snapshot already exists,
+the script-level updater reuses it instead of writing another timestamped
 directory.
 
 Runtime backups are first-class CLI state:
@@ -91,6 +94,8 @@ pi-67 backups inspect <backup-id-or-path>
 pi-67 backups inspect <pre-update-id> --legacy
 pi-67 backups restore --from <backup-id-or-path> --dry-run
 pi-67 backups restore --from <backup-id-or-path> --yes
+pi-67 backups prune --keep-last 10 --dry-run
+pi-67 backups archive --keep-last 10 --older-than 30d --dry-run
 ```
 
 The restore command only restores preserved runtime files and writes a

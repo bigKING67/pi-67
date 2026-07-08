@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { gitStatus, remoteHead } from "./git.mjs";
+import { gitStatus, gitText, remoteHead } from "./git.mjs";
 import { currentTheme, hasTheme, listThemes } from "./theme-policy.mjs";
 import { readJsonFileIfExists } from "./config-json.mjs";
 import { listExternal } from "./external-repos.mjs";
@@ -39,6 +39,8 @@ export async function buildUpdatePlan(ctx, options = {}) {
     currentVersion: pkg.version,
     noRemote: options.noRemote,
   });
+  const dirtyClass = classifyGitShort(git?.short || "");
+  const benignRuntime = classifyBenignRuntimeDiff(ctx, dirtyClass.preservedRuntime);
 
   const recommendations = [];
   if (managerRegistry.outdated) {
@@ -49,8 +51,13 @@ export async function buildUpdatePlan(ctx, options = {}) {
     recommendations.push("Run: pi-67 install");
   } else if (!git?.isRepo) {
     recommendations.push("Agent dir exists but is not a git checkout; inspect before installing.");
-  } else if (git.dirty) {
+  } else if (git.dirty && dirtyClass.unsafeTracked.length > 0) {
     recommendations.push("Resolve or commit local changes before pi-67 update.");
+  } else if (git.dirty && benignRuntime.benign) {
+    recommendations.push("No manual action required for benign settings runtime markers; pi-67 can preserve them during update.");
+    recommendations.push("Optional: normalize local settings runtime marker if you want a clean git status.");
+  } else if (git.dirty) {
+    recommendations.push("No manual action required for user runtime config; pi-67 backs up/restores it during update.");
   } else {
     recommendations.push("Run: pi-67 update");
   }
@@ -66,6 +73,7 @@ export async function buildUpdatePlan(ctx, options = {}) {
   const decisions = buildPlanDecisions({
     ctx,
     git,
+    benignRuntime,
     managerRegistry,
     manifest,
     skills,
@@ -129,6 +137,7 @@ export function buildPlanDecisions(context) {
     ...new Set([...(context.manifest.runtimeFiles?.preserve || []), ...PRESERVED_RUNTIME_FILES]),
   ];
   const dirty = classifyGitShort(context.git?.short || "");
+  const benignRuntime = context.benignRuntime || { benign: false, reasons: [] };
 
   if (context.managerRegistry.outdated) {
     actions.push({
@@ -162,12 +171,20 @@ export function buildPlanDecisions(context) {
       id: "user-runtime-config",
       kind: "runtime-config",
       operation: "backup-and-restore-during-update",
-      writes: ["~/.pi/pi67/backups/<timestamp>-update"],
+      writes: ["~/.pi/pi67/backups/pre-update-runtime-*"],
       preserves: dirty.preservedRuntime,
       risk: "low",
-      reason: "only user-owned runtime config files are dirty; update snapshots and restores them instead of overwriting",
+      reason: benignRuntime.benign
+        ? `benign runtime marker only: ${benignRuntime.reasons.join("; ")}`
+        : "only user-owned runtime config files are dirty; update snapshots and restores them instead of overwriting",
+      benign: benignRuntime.benign,
+      benignReasons: benignRuntime.reasons,
     });
-    warnings.push(`dirty user runtime config will be preserved across update: ${dirty.preservedRuntime.join(", ")}`);
+    warnings.push(
+      benignRuntime.benign
+        ? `benign user runtime marker will be preserved across update: ${dirty.preservedRuntime.join(", ")}`
+        : `dirty user runtime config will be preserved across update: ${dirty.preservedRuntime.join(", ")}`,
+    );
   }
   if (context.git?.dirty && dirty.untracked.length > 0) {
     warnings.push(`untracked files are present and will be preserved unless Git reports a path collision: ${dirty.untracked.join(", ")}`);
@@ -296,6 +313,36 @@ export function classifyGitShort(short) {
   result.unsafeTracked = [...new Set(result.unsafeTracked)].sort();
   result.untracked = [...new Set(result.untracked)].sort();
   return result;
+}
+
+export function classifyBenignRuntimeDiff(ctx, preservedRuntimePaths = []) {
+  const paths = [...new Set(preservedRuntimePaths)].sort();
+  if (paths.length !== 1 || paths[0] !== "settings.json") {
+    return { benign: false, reasons: [] };
+  }
+  const diff = gitText(ctx.repoRoot, ["diff", "--", "settings.json"]);
+  if (!diff) return { benign: false, reasons: [] };
+  const changed = diff.split(/\r?\n/).filter((line) =>
+    (line.startsWith("+") || line.startsWith("-")) &&
+    !line.startsWith("+++") &&
+    !line.startsWith("---"));
+  const meaningful = changed.filter((line) => {
+    const body = line.slice(1).trim();
+    return body !== "" && body !== "}";
+  });
+  const reasons = [];
+  const markerOnly = meaningful.length > 0 &&
+    meaningful.every((line) => /^[-+]\s*"lastChangelogVersion"\s*:/.test(line));
+  if (markerOnly) {
+    reasons.push("settings.json lastChangelogVersion runtime marker changed");
+  }
+  if (changed.some((line) => ["-", "+", "-}", "+}"].includes(line.trim()))) {
+    reasons.push("settings.json trailing newline state changed");
+  }
+  return {
+    benign: markerOnly || (meaningful.length === 0 && reasons.length > 0),
+    reasons,
+  };
 }
 
 function parseStatusPath(line) {

@@ -235,13 +235,75 @@ is_preserved_runtime_file() {
   return 1
 }
 
+safe_backup_file_name() {
+  local rel="$1"
+  printf '%s\n' "${rel//\//__}"
+}
+
+runtime_backup_matches_current() {
+  local backup_dir="$1"
+  shift
+  local rel source backup_file safe_name
+
+  [ -d "$backup_dir/files" ] || return 1
+  for rel in "$@"; do
+    source="$REPO_ROOT/$rel"
+    safe_name="$(safe_backup_file_name "$rel")"
+    backup_file="$backup_dir/files/$safe_name"
+    if [ -f "$source" ]; then
+      [ -f "$backup_file" ] || return 1
+      cmp -s "$source" "$backup_file" || return 1
+    else
+      [ ! -e "$backup_file" ] || return 1
+    fi
+  done
+  return 0
+}
+
+runtime_backup_has_manifest() {
+  local backup_dir="$1"
+  [ -f "$backup_dir/manifest.json" ] || [ -f "$backup_dir/backup-manifest.json" ]
+}
+
+find_equivalent_runtime_backup() {
+  local backup_root="$HOME/.pi/pi67/backups"
+  local candidate
+  [ -d "$backup_root" ] || return 1
+  while IFS= read -r candidate; do
+    [ -n "$candidate" ] || continue
+    runtime_backup_has_manifest "$candidate" || continue
+    if runtime_backup_matches_current "$candidate" "$@"; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done < <(find "$backup_root" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null | LC_ALL=C sort -r)
+  return 1
+}
+
 backup_and_clear_preserved_runtime_edits() {
   local -a dirty_paths=("$@")
   if [ "${#dirty_paths[@]}" -eq 0 ]; then
     return 0
   fi
 
-  local stamp backup_dir rel source safe_name
+  local stamp backup_dir rel source safe_name existing_backup
+  if existing_backup="$(find_equivalent_runtime_backup "${dirty_paths[@]}")"; then
+    PRESERVED_RUNTIME_BACKUP_DIR="$existing_backup"
+    PRESERVED_RUNTIME_BACKUP_PATHS=("${dirty_paths[@]}")
+
+    warn "tracked edits are limited to user-owned runtime config files"
+    warn "reusing existing identical runtime backup: $existing_backup"
+
+    if [ "$DRY_RUN" = true ]; then
+      say "  ${CYAN}DRY-RUN${NC} reuse preserved runtime backup $existing_backup"
+      say "  ${CYAN}DRY-RUN${NC} git -C $REPO_ROOT restore --worktree --staged -- ${dirty_paths[*]}"
+      return 0
+    fi
+
+    git -C "$REPO_ROOT" restore --worktree --staged -- "${dirty_paths[@]}"
+    return 0
+  fi
+
   stamp="$(date -u +%Y%m%dT%H%M%SZ)"
   backup_dir="$HOME/.pi/pi67/backups/pre-update-runtime-$stamp"
   PRESERVED_RUNTIME_BACKUP_DIR="$backup_dir"
@@ -260,7 +322,7 @@ backup_and_clear_preserved_runtime_edits() {
   git -C "$REPO_ROOT" diff -- "${dirty_paths[@]}" > "$backup_dir/local.diff" || true
   for rel in "${dirty_paths[@]}"; do
     source="$REPO_ROOT/$rel"
-    safe_name="${rel//\//__}"
+    safe_name="$(safe_backup_file_name "$rel")"
     if [ -f "$source" ]; then
       cp "$source" "$backup_dir/files/$safe_name"
       chmod 600 "$backup_dir/files/$safe_name" 2>/dev/null || true
@@ -288,7 +350,7 @@ restore_preserved_runtime_edits() {
     return 0
   fi
   for rel in "${PRESERVED_RUNTIME_BACKUP_PATHS[@]}"; do
-    safe_name="${rel//\//__}"
+    safe_name="$(safe_backup_file_name "$rel")"
     source="$PRESERVED_RUNTIME_BACKUP_DIR/files/$safe_name"
     target="$REPO_ROOT/$rel"
     if [ -f "$source" ]; then

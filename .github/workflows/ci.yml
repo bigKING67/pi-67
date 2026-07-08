@@ -8,6 +8,10 @@ on:
 jobs:
   smoke:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["22", "24"]
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -15,7 +19,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: "22"
+          node-version: ${{ matrix.node-version }}
 
       - name: Install Pi extension dependencies
         run: |
@@ -28,6 +32,10 @@ jobs:
 
   windows-powershell-smoke:
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["22", "24"]
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -35,7 +43,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: "22"
+          node-version: ${{ matrix.node-version }}
 
       - name: Install Pi extension dependencies
         shell: pwsh
@@ -43,6 +51,19 @@ jobs:
           New-Item -ItemType Directory -Force -Path npm | Out-Null
           Copy-Item package.json npm\package.json -Force
           npm --prefix npm install --ignore-scripts
+
+      - name: Run pi-67 CLI contract smoke
+        shell: pwsh
+        run: |
+          $Repo = (Get-Location).Path
+          node packages/pi67-cli/bin/pi-67.mjs --help
+          node packages/pi67-cli/bin/pi-67.mjs update --help
+          node packages/pi67-cli/bin/pi-67.mjs skills --help
+          node packages/pi67-cli/bin/pi-67.mjs xtalpi --help
+          node packages/pi67-cli/bin/pi-67.mjs backups --help
+          node packages/pi67-cli/bin/pi-67.mjs --agent-dir $Repo --repo-root $Repo update --check --json --no-remote
+          node packages/pi67-cli/bin/pi-67.mjs --agent-dir $Repo --repo-root $Repo backups prune --keep-last 10 --dry-run --json
+          node packages/pi67-cli/bin/pi-67.mjs --agent-dir $Repo --repo-root $Repo xtalpi smoke --self-test
 
       - name: Run pi-67 PowerShell smoke
         shell: pwsh

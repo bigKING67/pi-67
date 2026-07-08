@@ -6,14 +6,20 @@ const BOOL_GLOBALS = new Set(["json", "dry-run", "yes", "help", "no-remote"]);
 export function splitGlobalArgs(argv) {
   const globals = {};
   const rest = [];
+  let commandSeen = false;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
+    if (commandSeen) {
+      rest.push(arg);
+      continue;
+    }
     if (arg === "-h") {
       globals.help = true;
       continue;
     }
     if (!arg.startsWith("--")) {
       rest.push(arg);
+      commandSeen = true;
       continue;
     }
 
@@ -48,7 +54,7 @@ export function parseCommandOptions(argv, spec = {}) {
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg === "-h") {
+    if (arg === "-h" || arg === "--help") {
       options.help = true;
       continue;
     }

@@ -1,6 +1,6 @@
 import { parseCommandOptions } from "../lib/args.mjs";
 import { buildUpdatePlan } from "../lib/update-plan.mjs";
-import { printJson, section, keyValue, pass, warn, info } from "../lib/output.mjs";
+import { CliError, printJson, section, keyValue, pass, warn, info } from "../lib/output.mjs";
 import { runDistroScript } from "../lib/distro-scripts.mjs";
 import { isWindows } from "../lib/platform.mjs";
 import { runCommand } from "../lib/shell-runner.mjs";
@@ -24,6 +24,10 @@ export async function updateCommand(ctx, argv) {
       "strict-shared-skills",
     ],
   });
+  if (options.help) {
+    printUpdateHelp();
+    return;
+  }
   const dryRun = ctx.dryRun || options.dryRun;
   const json = ctx.json || options.json;
   if (options.check) {
@@ -43,10 +47,12 @@ export async function updateCommand(ctx, argv) {
     noRemote: ctx.noRemote || options.noRemote,
     strictSharedSkills: options.strictSharedSkills,
   });
+  assertPlanCanProceed(plan, { allowDirty: options.allowDirty });
   const lifecycle = beginUpdateLifecycle(ctx, {
     operation: options.repair ? "repair" : "update",
     dryRun,
     plan,
+    backupRuntime: false,
   });
   if (!dryRun && lifecycle.backedUp.length > 0) {
     info(`Preserved runtime backup: ${lifecycle.backupDir}`);
@@ -84,6 +90,12 @@ function buildBashUpdateArgs(ctx, options, dryRun) {
   if (options.allowDirty) args.push("--allow-dirty");
   if (options.strictSharedSkills) args.push("--strict-shared-skills");
   return args;
+}
+
+function assertPlanCanProceed(plan, options = {}) {
+  if (options.allowDirty || !plan.blocked?.length) return;
+  for (const item of plan.blocked) warn(`${item.id}: ${item.reason}`);
+  throw new CliError("pi-67 update is blocked; run `pi-67 update --check` for the full plan or rerun with --allow-dirty if you accept the risk", 2);
 }
 
 function buildWindowsUpdateArgs(ctx, options, dryRun) {
@@ -137,4 +149,38 @@ function printPlan(plan) {
   section("Recommendations");
   for (const item of plan.recommendations) info(item);
   if (!plan.git?.dirty) pass("update check completed without local dirty blocker");
+}
+
+function printUpdateHelp() {
+  process.stdout.write(`pi-67 update - update pi-67 safely
+
+Usage:
+  pi-67 update [--repair] [--dry-run] [--no-remote] [--no-npm]
+  pi-67 update --check [--json] [--no-remote]
+
+Options:
+  --check                 Print the read-only update plan and exit.
+  --repair                Re-run owned asset/config repair during update.
+  --dry-run               Print planned script actions without changing files.
+  --no-remote             Skip remote git/npm registry checks where supported.
+  --no-npm                Skip npm package sync in the distro updater.
+  --allow-dirty           Let the script-level updater handle non-runtime dirty files.
+  --strict-shared-skills  Treat differing shared skills as blocking.
+  --include-pi            Also run upstream \`pi update --all\` when paired with --yes.
+  --include-external      Report explicit external repo update commands.
+  --all                   Alias for --include-pi --include-external.
+  --yes                   Confirm explicit opt-in actions.
+  --json                  Emit JSON for --check.
+
+Safety:
+  Runtime config backup/restore is owned by the platform updater script when
+  preserved runtime files are dirty. The npm manager owns the update lock and
+  never creates a runtime backup for --help or a blocked update plan.
+
+Examples:
+  pi-67 update --check
+  pi-67 update --check --json --no-remote
+  pi-67 update
+  pi-67 update --repair
+`);
 }

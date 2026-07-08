@@ -4,10 +4,16 @@ import { currentTheme } from "../lib/theme-policy.mjs";
 import { keyValue, printJson } from "../lib/output.mjs";
 import { platformName } from "../lib/platform.mjs";
 import { readCliPackageJson, readTextIfExists } from "../lib/paths.mjs";
+import { parseCommandOptions } from "../lib/args.mjs";
 import path from "node:path";
 
 export async function versionCommand(ctx, argv) {
-  const json = ctx.json || argv.includes("--json");
+  const { options } = parseCommandOptions(argv, { bools: ["json"] });
+  if (options.help) {
+    printVersionHelp();
+    return;
+  }
+  const json = ctx.json || options.json;
   const pkg = readCliPackageJson();
   const git = gitStatus(ctx.repoRoot);
   const pi = captureCommand("pi", ["--version"]);
@@ -48,4 +54,19 @@ export async function versionCommand(ctx, argv) {
   keyValue("platform", data.runtime.platform);
   keyValue("agentDir", data.paths.agentDir);
   keyValue("theme", data.theme || "unset");
+}
+
+function printVersionHelp() {
+  process.stdout.write(`pi-67 version - print manager and distro versions
+
+Usage:
+  pi-67 version [--json]
+
+Options:
+  --json  Emit machine-readable version metadata.
+
+Examples:
+  pi-67 version
+  pi-67 version --json
+`);
 }

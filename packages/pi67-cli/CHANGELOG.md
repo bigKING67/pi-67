@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.10.4]
+
+- Makes all command-level `--help` paths side-effect free, including
+  `pi-67 update --help`, with self-tests proving help output does not create
+  runtime backup directories.
+- Blocks unsafe dirty update plans before the update lifecycle starts, so a
+  blocked `pi-67 update` does not first write a runtime backup.
+- Adds `pi-67 backups prune` and `pi-67 backups archive` for dry-run-first
+  backup retention, with per-kind `--keep-last` semantics.
+- Adds `pi-67 skills plan` and `pi-67 skills diff <name>` for explicit
+  shared-skill drift review without overwriting existing global skills.
+- Adds `pi-67 xtalpi trend`, `pi-67 xtalpi drift`, and `pi-67 xtalpi stress
+  --until-done`; drift defaults to full-suite artifacts to avoid targeted smoke
+  noise.
+- Aligns runtime backup ownership around script-level
+  `pre-update-runtime-*` snapshots while the npm manager owns update planning,
+  locking, and orchestration.
+- Reuses equivalent runtime backups across both `manifest.json` and
+  `backup-manifest.json` formats.
+- Expands Windows CI coverage to Node 22 and Node 24 plus npm manager CLI
+  contract smoke commands.
+
 ## [0.10.3]
 
 - Deduplicates real update/repair runtime backups when preserved config files

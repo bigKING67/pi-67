@@ -13,6 +13,10 @@ export async function publishCheckCommand(ctx, argv) {
   const { options } = parseCommandOptions(argv, {
     bools: ["json", "no-remote", "no-pack", "quiet", "strict", "allow-first-publish"],
   });
+  if (options.help) {
+    printPublishCheckHelp();
+    return;
+  }
   const json = ctx.json || options.json;
   const quiet = options.quiet;
   const noRemote = ctx.noRemote || options.noRemote;
@@ -244,6 +248,26 @@ function workflowCheck(file) {
     forbidden,
     message: ok ? "trusted publishing workflow ready" : `workflow drift: missing=${missing.join(",") || "-"} forbidden=${forbidden.join(",") || "-"}`,
   };
+}
+
+function printPublishCheckHelp() {
+  process.stdout.write(`pi-67 publish-check - verify npm publish readiness
+
+Usage:
+  pi-67 publish-check [--strict] [--json] [--no-remote] [--no-pack]
+
+Options:
+  --strict               Exit non-zero when blockers are present.
+  --json                 Emit machine-readable publish readiness JSON.
+  --no-remote            Skip npm registry/scope/auth remote probes.
+  --no-pack              Skip npm pack dry-run.
+  --quiet                Suppress human output; status is in the exit code.
+  --allow-first-publish  Explicitly allow first-publish local gate probing.
+
+Examples:
+  pi-67 publish-check
+  pi-67 publish-check --strict --no-pack
+`);
 }
 
 function npmAuthCheck(options) {

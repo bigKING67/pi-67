@@ -7,6 +7,10 @@ import { CliError, keyValue, printJson, section, pass, fail, info } from "../lib
 
 export async function themesCommand(ctx, argv) {
   const [sub = "current", ...rest] = argv;
+  if (sub === "-h" || sub === "--help" || sub === "help") {
+    printThemesHelp();
+    return;
+  }
   if (sub === "current") return current(ctx, rest);
   if (sub === "list") return list(ctx, rest);
   if (sub === "doctor") return doctor(ctx, rest);
@@ -16,6 +20,7 @@ export async function themesCommand(ctx, argv) {
 
 function current(ctx, argv) {
   const { options } = parseCommandOptions(argv, { bools: ["json"] });
+  if (options.help) return printThemesHelp();
   const value = currentTheme(ctx);
   const data = {
     schema: "pi67.theme-current.v1",
@@ -29,6 +34,7 @@ function current(ctx, argv) {
 
 function list(ctx, argv) {
   const { options } = parseCommandOptions(argv, { bools: ["json"] });
+  if (options.help) return printThemesHelp();
   const themes = listThemes(ctx);
   if (ctx.json || options.json) return printJson({ schema: "pi67.theme-list.v1", themes });
   section("Available themes");
@@ -37,6 +43,7 @@ function list(ctx, argv) {
 
 function doctor(ctx, argv) {
   const { options } = parseCommandOptions(argv, { bools: ["json"] });
+  if (options.help) return printThemesHelp();
   const theme = currentTheme(ctx);
   const installed = theme ? hasTheme(ctx, theme) : false;
   const data = { schema: "pi67.theme-doctor.v1", theme, installed };
@@ -48,6 +55,7 @@ function doctor(ctx, argv) {
 
 function setTheme(ctx, argv) {
   const { options, positionals } = parseCommandOptions(argv, { bools: ["force", "dry-run"] });
+  if (options.help) return printThemesHelp();
   const name = positionals[0];
   if (!name) throw new CliError("themes set requires a theme name", 2);
   if (!options.force && !hasTheme(ctx, name)) {
@@ -70,4 +78,25 @@ function setTheme(ctx, argv) {
   writeJsonAtomic(settingsFile, settings);
   pass(`theme set: ${previous || "unset"} -> ${name}`);
   info(`Preserved runtime backup: ${backupDir}`);
+}
+
+function printThemesHelp() {
+  process.stdout.write(`pi-67 themes - inspect and explicitly set themes
+
+Usage:
+  pi-67 themes current [--json]
+  pi-67 themes list [--json]
+  pi-67 themes doctor [--json]
+  pi-67 themes set <name> [--force] [--dry-run]
+
+Safety:
+  Updates install theme assets but never change the selected theme. Only
+  \`pi-67 themes set <name>\` changes settings.json, and it writes a runtime
+  backup first unless --dry-run is used.
+
+Examples:
+  pi-67 themes current
+  pi-67 themes list
+  pi-67 themes set gruvbox-dark --dry-run
+`);
 }

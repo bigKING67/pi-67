@@ -180,16 +180,23 @@ pi-67 smoke --quick
 `pi-67 update` 默认不覆盖用户本地选择：现有 `settings.json`、`models.json`、
 `auth.json`、`mcp.json`、`image-gen.json`、用户添加的 packages、全局 skills 和
 `settings.json` 里的 `theme` 选择都会保留；legacy `settings.json.theme` 若存在也
-按运行态文件备份/恢复。真实更新前 npm manager 会在 repo 外
-生成运行态快照和 update lock：
+按运行态文件备份/恢复。真实更新前 npm manager 会在 repo 外创建 update
+lock、生成 update plan，并拦截非运行态 dirty worktree：
 
 ```text
-~/.pi/pi67/backups/<timestamp>-update/
 ~/.pi/pi67/locks/update.lock
 ```
 
-如果 preserved runtime 文件和最近一次同类型备份完全一致，`pi-67 update`
-会复用已有快照，不再每次生成新的时间戳目录。
+运行态快照由 Bash / PowerShell updater 在确实需要临时清理 dirty
+`settings.json` 等 preserved runtime 文件以执行 `git pull --ff-only` 时创建：
+
+```text
+~/.pi/pi67/backups/pre-update-runtime-*
+```
+
+`--help`、被 dirty plan 拦截的 update，以及 npm manager 编排层都不会额外写
+runtime backup。若 preserved runtime 文件和已有快照完全一致，updater 会复用
+已有快照，不再每次生成新的时间戳目录。
 
 备份可直接用管理器查看和恢复；真实恢复前会再写一份 pre-restore 备份，避免
 把当前运行态覆盖到无法回退：
@@ -201,6 +208,8 @@ pi-67 backups inspect <backup-id-or-path>
 pi-67 backups inspect <pre-update-id> --legacy
 pi-67 backups restore --from <backup-id-or-path> --dry-run
 pi-67 backups restore --from <backup-id-or-path> --yes
+pi-67 backups prune --keep-last 10 --dry-run
+pi-67 backups archive --keep-last 10 --older-than 30d --dry-run
 ```
 
 `~/.pi/agent-backups/pre-update-*` 是早期/兼容 PowerShell 更新器在处理

@@ -60,18 +60,25 @@ Update boundary:
 `pi-67 update` preserves local choices by default. It does not overwrite
 existing `settings.json`, `models.json`, `auth.json`, `mcp.json`,
 `image-gen.json`, user-added packages, user-added global skills, or the selected
-theme value. A real update/repair first writes a repo-external lock and backup:
+theme value. A real update/repair first writes a repo-external lock and blocks
+unsafe non-runtime dirty worktrees:
 
 ```text
 ~/.pi/pi67/locks/update.lock
-~/.pi/pi67/backups/<timestamp>-update/
 ```
 
-Use the public backup commands to inspect or recover those snapshots. A real
-restore writes another pre-restore backup first and only restores preserved
-runtime files:
-Unchanged preserved runtime files reuse the latest equivalent backup instead
-of creating a duplicate timestamped directory.
+Runtime config backup/restore is owned by the Bash or PowerShell updater and
+only runs when an in-place checkout needs to temporarily clear dirty preserved
+runtime files for `git pull --ff-only`:
+
+```text
+~/.pi/pi67/backups/pre-update-runtime-*
+```
+
+Use the public backup commands to inspect, recover, prune, or archive those
+snapshots. A real restore writes another pre-restore backup first and only
+restores preserved runtime files. Unchanged preserved runtime files reuse the
+latest equivalent backup instead of creating a duplicate timestamped directory.
 
 ```bash
 pi-67 backups list
