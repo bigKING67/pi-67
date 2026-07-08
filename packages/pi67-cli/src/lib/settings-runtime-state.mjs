@@ -67,6 +67,7 @@ export function migrateSettingsRuntimeState(ctx, options = {}) {
     markerValue: "",
     stateWritten: false,
     settingsNormalized: false,
+    settingsNormalizeReasons: [],
     gitFilterInstalled: false,
     skipped: [],
     errors: [],
@@ -75,10 +76,12 @@ export function migrateSettingsRuntimeState(ctx, options = {}) {
   if (!fs.existsSync(settingsPath)) {
     result.skipped.push("settings.json missing");
   } else {
+    let rawSettingsText = "";
     let settingsText = "";
     let settings = null;
     try {
-      settingsText = fs.readFileSync(settingsPath, "utf8").replace(/^\uFEFF/, "");
+      rawSettingsText = fs.readFileSync(settingsPath, "utf8");
+      settingsText = rawSettingsText.replace(/^\uFEFF/, "");
       settings = JSON.parse(settingsText);
     } catch (error) {
       result.errors.push(`settings.json is not valid JSON: ${error.message}`);
@@ -95,14 +98,28 @@ export function migrateSettingsRuntimeState(ctx, options = {}) {
       }
       if (normalizeSettingsJson) {
         const normalizedText = stableSettingsJson(stripSettingsRuntimeMarker(settings));
-        if (normalizedText !== settingsText) {
+        if (normalizedText !== rawSettingsText) {
           if (!dryRun) {
             fs.writeFileSync(settingsPath, normalizedText, "utf8");
           }
           result.settingsNormalized = true;
+          result.settingsNormalizeReasons.push("runtime-marker");
+          if (normalizeSettingsTextLineEndings(rawSettingsText) !== rawSettingsText) {
+            result.settingsNormalizeReasons.push("line-endings");
+          }
         }
       }
     } else {
+      if (normalizeSettingsJson && settings) {
+        const normalizedText = normalizeSettingsTextLineEndings(rawSettingsText);
+        if (normalizedText !== rawSettingsText) {
+          if (!dryRun) {
+            fs.writeFileSync(settingsPath, normalizedText, "utf8");
+          }
+          result.settingsNormalized = true;
+          result.settingsNormalizeReasons.push("line-endings");
+        }
+      }
       result.skipped.push("settings.json runtime marker absent");
     }
   }
@@ -115,6 +132,12 @@ export function migrateSettingsRuntimeState(ctx, options = {}) {
   }
 
   return result;
+}
+
+export function normalizeSettingsTextLineEndings(text) {
+  return String(text || "")
+    .replace(/^\uFEFF/, "")
+    .replace(/\r\n?/g, "\n");
 }
 
 export function installSettingsRuntimeGitFilter(ctx, options = {}) {

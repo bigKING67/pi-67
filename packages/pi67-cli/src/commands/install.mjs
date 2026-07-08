@@ -58,7 +58,7 @@ export async function installCommand(ctx, argv) {
       info("Migrated settings.json lastChangelogVersion to ignored state: ~/.pi/pi67/state.json");
     }
     if (runtimeState.settingsNormalized) {
-      info("Normalized settings.json by removing runtime-only lastChangelogVersion.");
+      info("Normalized settings.json runtime marker/line endings.");
     }
     if (runtimeState.gitFilterInstalled) {
       info("Installed local git clean filter for future settings.json runtime markers.");

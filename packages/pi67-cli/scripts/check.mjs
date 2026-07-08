@@ -9,6 +9,7 @@ import { parseCommandOptions, splitGlobalArgs } from "../src/lib/args.mjs";
 import { readExtensionRegistry, validateExtensionRegistry } from "../src/lib/extension-registry.mjs";
 import { buildPlanDecisions, classifyGitShort } from "../src/lib/update-plan.mjs";
 import {
+  migrateSettingsRuntimeState,
   mergeSettingsRuntimeMarkerIntoState,
   settingsRuntimeMarkerFromObject,
   stripSettingsRuntimeMarkerText,
@@ -406,6 +407,27 @@ function runSettingsRuntimeStateSelfTests() {
       state.runtimeMarkers.lastChangelogVersion.storage === "state.json",
     "settings runtime marker must migrate into state runtimeMarkers",
   );
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-settings-runtime-state-"));
+  const agentDir = path.join(tmpRoot, "agent");
+  const stateDir = path.join(tmpRoot, "state");
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "settings.json"), "{\r\n  \"theme\": \"gruvbox-dark\"\r\n}\r\n", "utf8");
+  const lineEndingResult = migrateSettingsRuntimeState(
+    { agentDir, repoRoot: agentDir, stateDir },
+    { normalizeSettingsJson: true },
+  );
+  const normalizedSettings = fs.readFileSync(path.join(agentDir, "settings.json"), "utf8");
+  assert(lineEndingResult.markerFound === false, "line-ending normalization must not require runtime marker");
+  assert(lineEndingResult.settingsNormalized === true, "CRLF settings.json must be normalized under --normalize");
+  assert(
+    lineEndingResult.settingsNormalizeReasons.includes("line-endings"),
+    "settings normalization must classify CRLF as line-endings",
+  );
+  assert(
+    normalizedSettings === "{\n  \"theme\": \"gruvbox-dark\"\n}\n",
+    "settings line-ending normalization must preserve JSON content and indentation",
+  );
+  fs.rmSync(tmpRoot, { recursive: true, force: true });
 }
 
 function runUpdatePreflightMigrationSelfTests() {

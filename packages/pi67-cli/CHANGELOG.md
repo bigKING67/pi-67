@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.13]
+
+- Normalizes `settings.json` BOM/CRLF line endings during `update --repair`
+  even when the runtime `lastChangelogVersion` marker is already absent,
+  clearing Windows Git EOL false-dirty states without changing provider,
+  model, theme, or other JSON content.
+
 ## [0.10.12]
 
 - Pins `settings.json` to LF line endings in `.gitattributes` while preserving

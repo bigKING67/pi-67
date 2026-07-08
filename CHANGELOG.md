@@ -6,6 +6,15 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.13] - 2026-07-08
+
+### Fixed
+
+- `pi-67 update --repair` now normalizes `settings.json` BOM/CRLF line endings
+  even when `lastChangelogVersion` is already absent. This clears Windows
+  Git false-dirty states where `git diff -- settings.json` only reports the
+  `LF will be replaced by CRLF` warning and has no real content diff.
+
 ## [0.10.12] - 2026-07-08
 
 ### Fixed

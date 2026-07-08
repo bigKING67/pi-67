@@ -51,7 +51,7 @@ function printHuman(result) {
     console.log("PASS settings.json runtime marker is already absent");
   }
   if (result.settingsNormalized) {
-    console.log("PASS normalized settings.json by removing runtime-only lastChangelogVersion");
+    console.log("PASS normalized settings.json runtime marker/line endings");
   }
   if (result.gitFilterInstalled) {
     console.log("PASS installed local git clean filter for settings.json runtime marker");

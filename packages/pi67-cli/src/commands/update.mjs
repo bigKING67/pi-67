@@ -100,7 +100,7 @@ function reportSettingsRuntimeStateMigration(ctx, options = {}) {
     info(`${phase}${dryRun ? "would migrate" : "Migrated"} settings.json lastChangelogVersion to ignored state: ~/.pi/pi67/state.json`);
   }
   if (result.settingsNormalized) {
-    info(`${phase}${dryRun ? "would normalize" : "Normalized"} settings.json by removing runtime-only lastChangelogVersion.`);
+    info(`${phase}${dryRun ? "would normalize" : "Normalized"} settings.json runtime marker/line endings.`);
   }
   if (result.gitFilterInstalled) {
     info(`${phase}${dryRun ? "would install" : "Installed"} local git clean filter for future settings.json runtime markers.`);
