@@ -11,6 +11,7 @@ import { buildPlanDecisions, classifyGitShort } from "../src/lib/update-plan.mjs
 import {
   migrateSettingsRuntimeState,
   mergeSettingsRuntimeMarkerIntoState,
+  refreshSettingsGitIndex,
   settingsRuntimeMarkerFromObject,
   stripSettingsRuntimeMarkerText,
 } from "../src/lib/settings-runtime-state.mjs";
@@ -428,6 +429,33 @@ function runSettingsRuntimeStateSelfTests() {
     "settings line-ending normalization must preserve JSON content and indentation",
   );
   fs.rmSync(tmpRoot, { recursive: true, force: true });
+
+  if (spawnSync("git", ["--version"], { encoding: "utf8" }).status === 0) {
+    const gitRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-settings-index-refresh-"));
+    const gitStateDir = path.join(gitRoot, "state");
+    fs.writeFileSync(path.join(gitRoot, ".gitattributes"), "settings.json text eol=lf\n");
+    fs.writeFileSync(path.join(gitRoot, "settings.json"), "{\n  \"theme\": \"gruvbox-dark\"\n}\n");
+    for (const args of [
+      ["-C", gitRoot, "init", "-q"],
+      ["-C", gitRoot, "config", "user.email", "pi67-check@example.invalid"],
+      ["-C", gitRoot, "config", "user.name", "pi67-check"],
+      ["-C", gitRoot, "add", ".gitattributes", "settings.json"],
+      ["-C", gitRoot, "commit", "-q", "-m", "init"],
+    ]) {
+      const result = spawnSync("git", args, { encoding: "utf8" });
+      assert(result.status === 0, `git setup failed for settings index refresh self-test: git ${args.join(" ")}\n${result.stderr}`);
+    }
+    fs.writeFileSync(path.join(gitRoot, "settings.json"), "{\r\n  \"theme\": \"gruvbox-dark\"\r\n}\r\n");
+    const statusBefore = spawnSync("git", ["-C", gitRoot, "status", "--short", "--", "settings.json"], { encoding: "utf8" });
+    const diffBefore = spawnSync("git", ["-C", gitRoot, "diff", "--quiet", "--", "settings.json"], { encoding: "utf8" });
+    assert(statusBefore.stdout.includes("settings.json"), "settings index refresh self-test must start with false-dirty status");
+    assert(diffBefore.status === 0, "settings index refresh self-test must have no real content diff");
+    const refreshResult = refreshSettingsGitIndex({ agentDir: gitRoot, repoRoot: gitRoot, stateDir: gitStateDir });
+    const statusAfter = spawnSync("git", ["-C", gitRoot, "status", "--short", "--", "settings.json"], { encoding: "utf8" });
+    assert(refreshResult.refreshed === true, "settings index refresh must classify cleared false-dirty status");
+    assert(!statusAfter.stdout.trim(), `settings index refresh must clear false-dirty status\n${statusAfter.stdout}`);
+    fs.rmSync(gitRoot, { recursive: true, force: true });
+  }
 }
 
 function runUpdatePreflightMigrationSelfTests() {

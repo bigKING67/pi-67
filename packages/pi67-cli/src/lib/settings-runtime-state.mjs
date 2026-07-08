@@ -68,6 +68,8 @@ export function migrateSettingsRuntimeState(ctx, options = {}) {
     stateWritten: false,
     settingsNormalized: false,
     settingsNormalizeReasons: [],
+    gitIndexRefreshed: false,
+    gitIndexRefreshSkipped: "",
     gitFilterInstalled: false,
     skipped: [],
     errors: [],
@@ -131,6 +133,13 @@ export function migrateSettingsRuntimeState(ctx, options = {}) {
     if (filterResult.error) result.errors.push(filterResult.error);
   }
 
+  if (normalizeSettingsJson) {
+    const refreshResult = refreshSettingsGitIndex(ctx, { dryRun });
+    result.gitIndexRefreshed = refreshResult.refreshed;
+    result.gitIndexRefreshSkipped = refreshResult.skipped;
+    if (refreshResult.error) result.errors.push(refreshResult.error);
+  }
+
   return result;
 }
 
@@ -138,6 +147,63 @@ export function normalizeSettingsTextLineEndings(text) {
   return String(text || "")
     .replace(/^\uFEFF/, "")
     .replace(/\r\n?/g, "\n");
+}
+
+export function refreshSettingsGitIndex(ctx, options = {}) {
+  const result = {
+    refreshed: false,
+    skipped: "",
+    error: "",
+  };
+  if (options.dryRun) {
+    result.refreshed = true;
+    return result;
+  }
+  if (!isGitRepo(ctx.repoRoot)) {
+    result.skipped = "repo root is not a git checkout";
+    return result;
+  }
+
+  const settingsPath = path.join(ctx.agentDir, "settings.json");
+  if (!fs.existsSync(settingsPath)) {
+    result.skipped = "settings.json missing";
+    return result;
+  }
+
+  const relativePath = path.relative(ctx.repoRoot, settingsPath);
+  if (!relativePath || relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    result.skipped = "settings.json is outside repo root";
+    return result;
+  }
+  const gitPath = relativePath.split(path.sep).join("/");
+
+  const statusBefore = captureCommand("git", ["-C", ctx.repoRoot, "status", "--short", "--", gitPath]);
+  if (!statusBefore.ok) {
+    result.skipped = "could not inspect settings.json git status before index refresh";
+    return result;
+  }
+  if (!statusBefore.stdout.trim()) {
+    result.skipped = "settings.json git index already fresh";
+    return result;
+  }
+
+  const diffBefore = captureCommand("git", ["-C", ctx.repoRoot, "diff", "--quiet", "--", gitPath]);
+  if (diffBefore.status !== 0) {
+    result.skipped = "settings.json has real content diff; index refresh left it visible";
+    return result;
+  }
+
+  const refresh = captureCommand("git", ["-C", ctx.repoRoot, "update-index", "--refresh", "--", gitPath]);
+
+  const statusAfter = captureCommand("git", ["-C", ctx.repoRoot, "status", "--short", "--", gitPath]);
+  if (statusAfter.ok && !statusAfter.stdout.trim()) {
+    result.refreshed = true;
+  } else if (!refresh.ok) {
+    result.error = refresh.stderr || refresh.error || "failed to refresh settings.json git index";
+  } else {
+    result.skipped = "settings.json still appears dirty after git index refresh";
+  }
+  return result;
 }
 
 export function installSettingsRuntimeGitFilter(ctx, options = {}) {

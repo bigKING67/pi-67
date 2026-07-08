@@ -53,6 +53,9 @@ function printHuman(result) {
   if (result.settingsNormalized) {
     console.log("PASS normalized settings.json runtime marker/line endings");
   }
+  if (result.gitIndexRefreshed) {
+    console.log("PASS refreshed settings.json Git index stat cache");
+  }
   if (result.gitFilterInstalled) {
     console.log("PASS installed local git clean filter for settings.json runtime marker");
   }

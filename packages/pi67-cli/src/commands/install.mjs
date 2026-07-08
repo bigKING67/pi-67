@@ -60,6 +60,9 @@ export async function installCommand(ctx, argv) {
     if (runtimeState.settingsNormalized) {
       info("Normalized settings.json runtime marker/line endings.");
     }
+    if (runtimeState.gitIndexRefreshed) {
+      info("Refreshed settings.json Git index stat cache.");
+    }
     if (runtimeState.gitFilterInstalled) {
       info("Installed local git clean filter for future settings.json runtime markers.");
     }

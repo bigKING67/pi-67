@@ -6,6 +6,15 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.14] - 2026-07-08
+
+### Fixed
+
+- `pi-67 update --repair` now refreshes the Git index stat cache for
+  `settings.json` when Git reports `M settings.json` but `git diff` has no
+  real content changes. This clears the Windows false-dirty state that can
+  remain after line-ending/runtime-state cleanup.
+
 ## [0.10.13] - 2026-07-08
 
 ### Fixed

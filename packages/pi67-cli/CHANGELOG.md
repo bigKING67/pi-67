@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.14]
+
+- Refreshes the Git index stat cache for `settings.json` during
+  `update --repair` when Git reports `M settings.json` but `git diff` has no
+  real content changes, clearing the remaining Windows false-dirty state after
+  line-ending/runtime-state cleanup.
+
 ## [0.10.13]
 
 - Normalizes `settings.json` BOM/CRLF line endings during `update --repair`
