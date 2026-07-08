@@ -263,6 +263,7 @@ $RequiredFiles = @(
   "scripts/pi67-json-utils.ps1",
   "scripts/pi67-json-utils.cjs",
   "scripts/pi67-release-check.sh",
+  "scripts/pi67-xtalpi-pi-tools.ps1",
   "scripts/pi67-xtalpi-pi-tools-smoke.ps1",
   "scripts/pi67-xtalpi-smoke-status-core.cjs",
   "scripts/pi67-xtalpi-smoke-plan.mjs",

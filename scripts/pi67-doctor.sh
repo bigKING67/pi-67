@@ -20,6 +20,7 @@ OUTPUT_FORMAT="text"
 QUIET=false
 DEEP_MCP=false
 MCP_TIMEOUT_MS=2500
+SKILL_LIST_TIMEOUT_SECONDS="${PI67_DOCTOR_SKILL_LIST_TIMEOUT_SECONDS:-30}"
 STRICT_SHARED_SKILLS=false
 
 CHECKS_FILE="$(mktemp "${TMPDIR:-/tmp}/pi67-doctor-checks.XXXXXX")"
@@ -50,6 +51,8 @@ Options:
                            pi-67 bundled baseline as FAIL instead of WARN.
       --deep-mcp           Start configured MCP servers briefly and probe initialize + tools/list.
       --mcp-timeout-ms MS  Timeout per MCP deep probe. Defaults to 2500.
+      --skill-list-timeout-seconds SEC
+                           Timeout for `pi skill list`. Defaults to 30.
       --quiet              Print only the text summary and final result.
       --json               Print machine-readable JSON only.
   -h, --help               Show this help.
@@ -86,6 +89,10 @@ while [ "$#" -gt 0 ]; do
       MCP_TIMEOUT_MS="${2:?--mcp-timeout-ms requires a number}"
       shift 2
       ;;
+    --skill-list-timeout-seconds)
+      SKILL_LIST_TIMEOUT_SECONDS="${2:?--skill-list-timeout-seconds requires a number}"
+      shift 2
+      ;;
     --quiet)
       QUIET=true
       shift
@@ -108,6 +115,11 @@ done
 
 if ! [[ "$MCP_TIMEOUT_MS" =~ ^[0-9]+$ ]] || [ "$MCP_TIMEOUT_MS" -lt 250 ]; then
   echo "--mcp-timeout-ms must be an integer >= 250" >&2
+  exit 2
+fi
+
+if ! [[ "$SKILL_LIST_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || [ "$SKILL_LIST_TIMEOUT_SECONDS" -lt 1 ]; then
+  echo "--skill-list-timeout-seconds must be an integer >= 1" >&2
   exit 2
 fi
 
@@ -176,7 +188,8 @@ emit_json() {
   printf '  "diagnostics": {\n'
   printf '    "deepMcp": %s,\n' "$DEEP_MCP"
   printf '    "mcpTimeoutMs": %s,\n' "$MCP_TIMEOUT_MS"
-  printf '    "skillList": %s\n' "$RUN_SKILL_LIST"
+  printf '    "skillList": %s,\n' "$RUN_SKILL_LIST"
+  printf '    "skillListTimeoutSeconds": %s\n' "$SKILL_LIST_TIMEOUT_SECONDS"
   printf '  },\n'
   printf '  "installMode": "%s",\n' "$(json_escape "$INSTALL_MODE")"
   printf '  "repository": "%s",\n' "$(json_escape "$REPO_ROOT")"
@@ -427,6 +440,46 @@ NODE
     esac
   done
   rm -f "$tmp"
+}
+
+run_pi_skill_list_with_timeout() {
+  local output_file="$1"
+  local timeout_seconds="$2"
+  node - "$output_file" "$timeout_seconds" <<'NODE'
+const fs = require("fs");
+const { spawn } = require("child_process");
+
+const [outputFile, timeoutSecondsRaw] = process.argv.slice(2);
+const timeoutMs = Math.max(1, Number(timeoutSecondsRaw) || 30) * 1000;
+let stdout = "";
+let stderr = "";
+let timedOut = false;
+
+const child = spawn("pi", ["skill", "list"], {
+  stdio: ["ignore", "pipe", "pipe"],
+});
+
+const timer = setTimeout(() => {
+  timedOut = true;
+  child.kill("SIGTERM");
+  setTimeout(() => child.kill("SIGKILL"), 1500).unref?.();
+}, timeoutMs);
+
+child.stdout.on("data", (chunk) => { stdout += chunk.toString("utf8"); });
+child.stderr.on("data", (chunk) => { stderr += chunk.toString("utf8"); });
+child.on("error", (error) => {
+  clearTimeout(timer);
+  fs.writeFileSync(outputFile, `${stdout}${stderr}${error.message}\n`);
+  process.exit(127);
+});
+child.on("close", (code, signal) => {
+  clearTimeout(timer);
+  fs.writeFileSync(outputFile, `${stdout}${stderr}`);
+  if (timedOut) process.exit(124);
+  if (signal) process.exit(1);
+  process.exit(code ?? 1);
+});
+NODE
 }
 
 check_provider_model() {
@@ -1195,12 +1248,16 @@ section "Pi runtime"
 if [ "$RUN_SKILL_LIST" = true ]; then
   if command_exists pi; then
     pi_skill_list_output="$(mktemp "${TMPDIR:-/tmp}/pi67-skill-list.XXXXXX")"
-    if pi skill list >"$pi_skill_list_output" 2>&1; then
+    pi_skill_status=0
+    run_pi_skill_list_with_timeout "$pi_skill_list_output" "$SKILL_LIST_TIMEOUT_SECONDS" || pi_skill_status=$?
+    if [ "$pi_skill_status" -eq 0 ]; then
       if grep -Eiq 'duplicate|conflict|skipped|auto[[:space:]]*\(user\)|auto\(user\)' "$pi_skill_list_output"; then
         warn "pi skill list reported duplicate/conflict warnings"
       else
         pass "pi skill list completed without duplicate warnings"
       fi
+    elif [ "$pi_skill_status" -eq 124 ]; then
+      warn "pi skill list exceeded ${SKILL_LIST_TIMEOUT_SECONDS}s; skipped duplicate warning check"
     else
       warn "pi skill list failed; run manually for details"
     fi

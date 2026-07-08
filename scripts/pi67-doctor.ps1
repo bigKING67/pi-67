@@ -10,11 +10,20 @@ param(
   [switch]$Json,
   [switch]$Quiet,
   [switch]$SkillList,
+  [int]$SkillListTimeoutSeconds = 30,
   [switch]$StrictSharedSkills,
   [switch]$Help
 )
 
 $ErrorActionPreference = "Stop"
+
+try {
+  $utf8NoBom = New-Object System.Text.UTF8Encoding -ArgumentList @($false)
+  [Console]::OutputEncoding = $utf8NoBom
+  $OutputEncoding = $utf8NoBom
+} catch {
+  # Encoding setup is best-effort for Windows console readability.
+}
 
 function Show-Usage {
   @"
@@ -30,6 +39,8 @@ Options:
   -Json                Print machine-readable JSON only.
   -Quiet               Print only summary in text mode.
   -SkillList           Also run `pi skill list` when pi is available.
+  -SkillListTimeoutSeconds
+                       Timeout for `pi skill list`. Defaults to 30.
   -StrictSharedSkills  Treat missing shared skill copies as FAIL.
   -Help                Show this help.
 
@@ -152,6 +163,62 @@ function Invoke-External {
     exitCode = $exitCode
     output = $lines
     text = ($lines -join "`n")
+  }
+}
+
+function Invoke-ExternalWithTimeout {
+  param(
+    [Parameter(Mandatory = $true)][string]$FilePath,
+    [string[]]$Arguments = @(),
+    [string]$WorkingDirectory = $RepoRoot,
+    [int]$TimeoutSeconds = 30
+  )
+
+  $resolved = Get-Command $FilePath -ErrorAction SilentlyContinue
+  $exe = if ($resolved) { $resolved.Source } else { $FilePath }
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $exe
+  $psi.WorkingDirectory = $WorkingDirectory
+  $psi.UseShellExecute = $false
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  foreach ($arg in $Arguments) {
+    [void]$psi.ArgumentList.Add($arg)
+  }
+
+  $process = New-Object System.Diagnostics.Process
+  $process.StartInfo = $psi
+  $timedOut = $false
+  try {
+    [void]$process.Start()
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
+    if (-not $process.WaitForExit([Math]::Max(1, $TimeoutSeconds) * 1000)) {
+      $timedOut = $true
+      try { $process.Kill($true) } catch { try { $process.Kill() } catch {} }
+      try { $process.WaitForExit(1500) | Out-Null } catch {}
+    }
+    try { $stdoutTask.Wait(1500) | Out-Null } catch {}
+    try { $stderrTask.Wait(1500) | Out-Null } catch {}
+    $stdout = if ($stdoutTask.IsCompleted) { $stdoutTask.Result } else { "" }
+    $stderr = if ($stderrTask.IsCompleted) { $stderrTask.Result } else { "" }
+    $text = (($stdout, $stderr) -join "")
+    $lines = @($text -split "`r?`n" | Where-Object { $_ -ne "" })
+    return [ordered]@{
+      exitCode = if ($timedOut) { 124 } else { [int]$process.ExitCode }
+      timedOut = $timedOut
+      output = $lines
+      text = ($lines -join "`n")
+    }
+  } catch {
+    return [ordered]@{
+      exitCode = 127
+      timedOut = $false
+      output = @($_.Exception.Message)
+      text = $_.Exception.Message
+    }
+  } finally {
+    try { $process.Dispose() } catch {}
   }
 }
 
@@ -553,7 +620,7 @@ if ((Test-Path -LiteralPath $runtimeConfig -PathType Leaf) -and (Test-Path -Lite
 if ($SkillList) {
   Section "Pi skill list"
   if (Test-CommandExists "pi") {
-    $skillResult = Invoke-External "pi" @("skill", "list") $AgentDir
+    $skillResult = Invoke-ExternalWithTimeout "pi" @("skill", "list") $AgentDir $SkillListTimeoutSeconds
     if ($skillResult.exitCode -eq 0) {
       $text = $skillResult.text
       if ($text -match "(duplicate|conflict|skipped|auto \(user\))") {
@@ -561,6 +628,8 @@ if ($SkillList) {
       } else {
         Pass "pi skill list completed without obvious duplicate/conflict warnings"
       }
+    } elseif ($skillResult.timedOut) {
+      Warn ("pi skill list exceeded {0}s; skipped duplicate warning check" -f $SkillListTimeoutSeconds)
     } else {
       Warn "pi skill list failed"
     }
@@ -590,6 +659,7 @@ if ($Json) {
       deepMcp = $false
       mcpTimeoutMs = 0
       skillList = [bool]$SkillList
+      skillListTimeoutSeconds = [int]$SkillListTimeoutSeconds
       strictSharedSkills = [bool]$StrictSharedSkills
     }
     installMode = $InstallMode

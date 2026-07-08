@@ -11,6 +11,16 @@
   dirty runtime marker is harmless and the remote already matches local HEAD.
 - Updates docs to separate current `~/.pi/pi67/backups/` runtime backups from
   legacy read-only `~/.pi/agent-backups/` conflict snapshots.
+- Tightens release/smoke gates by checking README version drift, rejecting
+  simulated placeholder final answers, and requiring package metadata smoke
+  cases to include the real package version.
+- Adds `pi-67 xtalpi run` and a Windows PowerShell xtalpi launcher. The stable
+  launcher defaults `PI_OBSERVATIONAL_MEMORY_PASSIVE=true` to keep post-final
+  observational-memory background writes from holding the main task lifecycle
+  open.
+- Bounds `pi skill list` in doctor with POSIX
+  `--skill-list-timeout-seconds` and PowerShell `-SkillListTimeoutSeconds`.
+- Removes legacy `xtalpi-compat` runtime path examples from bootstrap docs.
 
 ## [0.10.4]
 

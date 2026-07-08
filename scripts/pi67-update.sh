@@ -1062,10 +1062,15 @@ update_repo() {
     fail "git fetch failed"
   fi
   target_ref="FETCH_HEAD"
-  if ! git -C "$REPO_ROOT" merge-base --is-ancestor HEAD "$target_ref"; then
+  if git -C "$REPO_ROOT" merge-base --is-ancestor HEAD "$target_ref"; then
+    incoming_changed_paths_text="$(git -C "$REPO_ROOT" diff --name-only HEAD "$target_ref" --)"
+  elif git -C "$REPO_ROOT" merge-base --is-ancestor "$target_ref" HEAD; then
+    incoming_changed_paths_text=""
+    target_ref=""
+    warn "local checkout is ahead of $REMOTE/$BRANCH; no incoming fast-forward changes to merge"
+  else
     fail "remote update is not a fast-forward; inspect $REMOTE/$BRANCH before updating"
   fi
-  incoming_changed_paths_text="$(git -C "$REPO_ROOT" diff --name-only HEAD "$target_ref" --)"
 
   if [ "${#dirty_tracked_paths[@]}" -gt 0 ] && [ "$ALLOW_DIRTY" != true ]; then
     if [ "${#unsafe_dirty_paths[@]}" -gt 0 ]; then
@@ -1083,9 +1088,11 @@ update_repo() {
     warn "repo has only untracked local files; update will proceed unless Git reports a path collision"
   fi
 
-  if ! git -C "$REPO_ROOT" merge --ff-only "$target_ref"; then
-    restore_preserved_runtime_edits
-    fail "git fast-forward merge failed"
+  if [ -n "$target_ref" ]; then
+    if ! git -C "$REPO_ROOT" merge --ff-only "$target_ref"; then
+      restore_preserved_runtime_edits
+      fail "git fast-forward merge failed"
+    fi
   fi
   restore_preserved_runtime_edits
   after="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"

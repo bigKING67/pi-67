@@ -97,7 +97,8 @@ Messages are intended for display and troubleshooting. Do not parse specific wor
 {
   "deepMcp": false,
   "mcpTimeoutMs": 2500,
-  "skillList": true
+  "skillList": true,
+  "skillListTimeoutSeconds": 30
 }
 ```
 
@@ -106,6 +107,7 @@ Messages are intended for display and troubleshooting. Do not parse specific wor
 | `deepMcp` | boolean | Whether doctor started stdio MCP servers and called JSON-RPC `initialize` + `tools/list`. |
 | `mcpTimeoutMs` | number | Per-server timeout used by deep MCP probing. |
 | `skillList` | boolean | Whether doctor ran `pi skill list`. |
+| `skillListTimeoutSeconds` | number | Watchdog timeout for `pi skill list`; timeout becomes a `WARN` so doctor does not hang indefinitely. |
 
 Normal doctor mode only checks MCP commands and paths. `--deep-mcp` is opt-in because it starts local MCP server processes.
 
@@ -114,6 +116,18 @@ servers. It emits the same `schemaId`/`schemaVersion` contract, sets
 `diagnostics.deepMcp` to `false`, and focuses on local files, config JSON,
 xtalpi provider settings, npm sync state, Node engine readiness, shared-skill
 copies, and the `/chat/completions` endpoint contract.
+
+If `pi skill list` is slow on a machine, keep doctor bounded:
+
+```bash
+pi-67 doctor --skill-list-timeout-seconds 10
+```
+
+Windows PowerShell parity:
+
+```powershell
+.\scripts\pi67-doctor.ps1 -SkillList -SkillListTimeoutSeconds 10
+```
 
 By default, doctor reports pi-67 bundled shared skills that differ from
 installed global skills as `WARN`, not `FAIL`, because the global

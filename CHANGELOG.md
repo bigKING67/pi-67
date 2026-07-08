@@ -22,12 +22,25 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - `pi-67 update --check` now reports benign/current dirty runtime config as
   `preserve-in-place-no-backup` when the remote already matches local HEAD,
   instead of presenting every dirty runtime marker as a planned backup.
+- Release/smoke gates now check the README version badge against `VERSION`,
+  reject obvious simulated placeholder final answers in xtalpi smoke, and
+  require package metadata smoke cases to report the actual package version.
+- Added `pi-67 xtalpi run` plus a Windows PowerShell launcher for the stable
+  xtalpi-pi-tools runtime path. The launchers default
+  `PI_OBSERVATIONAL_MEMORY_PASSIVE=true` so post-final observational-memory
+  writes cannot hold the main task lifecycle open.
+- Doctor now bounds `pi skill list` with `--skill-list-timeout-seconds` /
+  `-SkillListTimeoutSeconds` and reports a warning instead of hanging when the
+  Pi skill registry is slow.
 
 ### Fixed
 
 - Documentation now consistently distinguishes current first-class runtime
   backups under `~/.pi/pi67/backups/` from legacy read-only
   `~/.pi/agent-backups/` conflict snapshots.
+- Bootstrap snippets no longer recommend preserving the removed
+  `extensions/xtalpi-compat/index.ts` runtime path; they focus on current local
+  runtime config files instead.
 
 ## [0.10.4] - 2026-07-08
 

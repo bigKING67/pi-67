@@ -16,6 +16,7 @@ export async function xtalpiCommand(ctx, argv) {
   if (sub === "trend") return trend(ctx, rest);
   if (sub === "drift") return drift(ctx, rest);
   if (sub === "stress") return stress(ctx, rest);
+  if (sub === "run") return run(ctx, rest);
   throw new CliError(`unknown xtalpi command: ${sub}`, 2);
 }
 
@@ -110,6 +111,47 @@ function stress(ctx, argv) {
   return smoke(ctx, ["--profile", options.profile || "full-suite", ...(options.dryRun ? ["--dry-run"] : [])]);
 }
 
+function run(ctx, argv) {
+  const passthroughIndex = argv.indexOf("--");
+  const optionArgv = passthroughIndex === -1 ? argv : argv.slice(0, passthroughIndex);
+  const passthrough = passthroughIndex === -1 ? [] : argv.slice(passthroughIndex + 1);
+  const { options, positionals } = parseCommandOptions(optionArgv, {
+    strings: ["model", "provider"],
+    bools: ["dry-run", "no-passive-observational-memory"],
+  });
+  if (options.help) return printXtalpiHelp();
+  const provider = options.provider || "xtalpi-pi-tools";
+  const model = options.model || "deepseek-v4-pro";
+  const piArgs = [...positionals, ...passthrough];
+  const env = {};
+  if (options.noPassiveObservationalMemory) {
+    env.PI_OBSERVATIONAL_MEMORY_PASSIVE = "false";
+  }
+  if (isWindows()) {
+    const pwsh = findPowerShell();
+    if (!pwsh) throw new CliError("PowerShell executable not found");
+    const args = [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      scriptPath(ctx, "pi67-xtalpi-pi-tools.ps1"),
+      "-Provider",
+      provider,
+      "-Model",
+      model,
+      ...piArgs,
+    ];
+    runCommand(pwsh, args, { cwd: ctx.repoRoot, dryRun: ctx.dryRun || options.dryRun, env });
+    return;
+  }
+  runCommand("bash", [scriptPath(ctx, "pi67-xtalpi-pi-tools.sh"), ...piArgs], {
+    cwd: ctx.repoRoot,
+    dryRun: ctx.dryRun || options.dryRun,
+    env: { PROVIDER: provider, MODEL: model, ...env },
+  });
+}
+
 function profileFromOptions(options) {
   if (options.profile) return options.profile;
   if (options.extensionLowRisk) return "extension-low-risk";
@@ -129,11 +171,16 @@ Usage:
   pi-67 xtalpi trend [--limit N] [--profile NAME] [--json] [--out-dir DIR]
   pi-67 xtalpi drift [--limit N] [--run-kind LIST] [--json] [--out-dir DIR]
   pi-67 xtalpi stress --until-done
+  pi-67 xtalpi run [--provider ID] [--model NAME] [--no-passive-observational-memory] [-- <pi args>]
 
 Notes:
   xtalpi-pi-tools treats xtalpi as plain chat-completions transport. Pi local
   code owns tool protocol parsing, validation, repair, retry classification,
   tool execution, and smoke gates.
+  xtalpi run uses the stable launcher and defaults
+  PI_OBSERVATIONAL_MEMORY_PASSIVE=true so post-final background memory writes
+  cannot hold the main task lifecycle open. Pass --no-passive-observational-memory
+  only when you explicitly want pi-observational-memory to record after final.
   xtalpi drift defaults to --run-kind full-suite so targeted one-off smoke
   artifacts do not create expected case-set drift noise.
 
@@ -144,5 +191,6 @@ Examples:
   pi-67 xtalpi trend --json
   pi-67 xtalpi drift --json
   pi-67 xtalpi stress --until-done
+  pi-67 xtalpi run
 `);
 }

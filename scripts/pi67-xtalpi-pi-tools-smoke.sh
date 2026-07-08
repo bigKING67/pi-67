@@ -18,6 +18,7 @@ SMOKE_PREFLIGHT="${XTALPI_PI_TOOLS_SMOKE_PREFLIGHT:-1}"
 SMOKE_PREFLIGHT_TIMEOUT_MS="${XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_TIMEOUT_MS:-30000}"
 SMOKE_PREFLIGHT_ATTEMPTS="${XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_ATTEMPTS:-2}"
 SMOKE_PREFLIGHT_RETRY_DELAY_MS="${XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_RETRY_DELAY_MS:-1000}"
+SMOKE_OBSERVATIONAL_MEMORY_PASSIVE="${XTALPI_PI_TOOLS_SMOKE_OBSERVATIONAL_MEMORY_PASSIVE:-1}"
 STAMP="${XTALPI_PI_TOOLS_SMOKE_STAMP:-$(date +%Y%m%d-%H%M%S)-$$}"
 SUMMARY_FILE="${XTALPI_PI_TOOLS_SMOKE_SUMMARY_FILE:-$OUT_DIR/${STAMP}-summary.json}"
 DEBUG_SUMMARY_JSON_FILE="$OUT_DIR/${STAMP}-debug-summary.json"
@@ -84,6 +85,8 @@ Environment:
   XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_TIMEOUT_MS   Provider health preflight timeout. Default: 30000.
   XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_ATTEMPTS     Provider health preflight attempts. Default: 2.
   XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_RETRY_DELAY_MS Delay between preflight retryable attempts. Default: 1000.
+  XTALPI_PI_TOOLS_SMOKE_OBSERVATIONAL_MEMORY_PASSIVE
+                                                Set PI_OBSERVATIONAL_MEMORY_PASSIVE=true for smoke child processes. Default: 1.
   XTALPI_PI_TOOLS_SMOKE_DEBUG_SUMMARY_BIN      Debug-summary executable override. Default: script dir helper.
   XTALPI_PI_TOOLS_SMOKE_CASES                  Comma-separated case filter, same values as --case.
   XTALPI_PI_TOOLS_SMOKE_PROFILE                Case profile: quick, full-suite, extension-low-risk, or extension-expanded.
@@ -410,6 +413,7 @@ const final = agent?.messages?.filter((message) => message.role === "assistant")
 const finalText = Array.isArray(final?.content)
   ? final.content.filter((block) => block.type === "text").map((block) => block.text).join("\n")
   : "";
+const expectedPackageVersion = String(process.env.PI67_EXPECTED_PACKAGE_VERSION || "").trim();
 const requiredFinalTextByCase = {
   "web-read": ["Example Domain", "pi-extensions"],
   "plan-mode-contract": ["<proposed_plan>", "</proposed_plan>"],
@@ -423,8 +427,29 @@ const requiredFinalTextByCase = {
   "subagent-list": ["EXTENSION_SMOKE_SUBAGENT_LIST_OK"],
   "recall-not-found": ["EXTENSION_SMOKE_RECALL_NOT_FOUND_OK"],
 };
-const requiredFinalText = requiredFinalTextByCase[caseName] || [];
+const packageVersionRequiredCases = new Set([
+  "read",
+  "bash-read",
+  "web-read",
+  "tool-selection-clipping",
+  "tool-selection-continuation",
+  "until-done-continuation",
+]);
+const requiredFinalText = [...(requiredFinalTextByCase[caseName] || [])];
+if (expectedPackageVersion && packageVersionRequiredCases.has(caseName)) {
+  requiredFinalText.push(expectedPackageVersion);
+}
 const missingFinalText = requiredFinalText.filter((text) => !finalText.includes(text));
+const forbiddenFinalTextPatterns = [
+  { label: "UNKNOWN_SIMULATED", pattern: /\bUNKNOWN_SIMULATED\b/i },
+  { label: "SIMULATED", pattern: /\bSIMULATED\b/i },
+  { label: "PLACEHOLDER", pattern: /\bPLACEHOLDER\b/i },
+  { label: "MOCK", pattern: /\bMOCK\b/i },
+  { label: "UNKNOWN_*", pattern: /\bUNKNOWN_[A-Z0-9_]+\b/i },
+];
+const forbiddenFinalText = forbiddenFinalTextPatterns
+  .filter((item) => item.pattern.test(finalText))
+  .map((item) => item.label);
 const emptyAssistantEnds = events.filter(
   (event) =>
     event.type === "message_end" &&
@@ -445,6 +470,7 @@ const finalAnswerQualityOk =
   finalText.trim().length > 0 &&
   !finalAnswerRawToolMarkup &&
   !finalAnswerToolCallLikeJson &&
+  forbiddenFinalText.length === 0 &&
   missingFinalText.length === 0;
 const hasUsableFinalAnswer = !!agent && errors.length === 0 && finalAnswerQualityOk;
 function parseToolList(raw) {
@@ -517,8 +543,14 @@ const postAgentEndLingerSeconds =
   elapsedSeconds !== undefined && agentEndElapsedSeconds !== undefined
     ? Math.max(0, elapsedSeconds - agentEndElapsedSeconds)
     : undefined;
+const maxPostAgentEndLingerSeconds = Number(process.env.XTALPI_PI_TOOLS_SMOKE_MAX_POST_AGENT_END_LINGER_SECONDS || 60);
+const postAgentEndLingerOk =
+  postAgentEndLingerSeconds === undefined ||
+  !Number.isFinite(maxPostAgentEndLingerSeconds) ||
+  maxPostAgentEndLingerSeconds <= 0 ||
+  postAgentEndLingerSeconds <= maxPostAgentEndLingerSeconds;
 const timedOutByWatchdog = lifecycle.timedOutByWatchdog === true;
-const processLifecycleOk = processExitedCleanly;
+const processLifecycleOk = processExitedCleanly && postAgentEndLingerOk;
 const protocolFlowOk = hasUsableFinalAnswer && toolExpectation.ok;
 const packageReadPathOk = packageReadPathFailures.length === 0;
 const semanticFlowOk = protocolFlowOk && debugTelemetryOk && toolSelectionRequirementResult.ok && packageReadPathOk;
@@ -539,6 +571,8 @@ console.log(JSON.stringify({
   elapsedSeconds,
   agentEndElapsedSeconds,
   postAgentEndLingerSeconds,
+  maxPostAgentEndLingerSeconds,
+  postAgentEndLingerOk,
   hasAgentEnd: !!agent,
   debugTelemetryOk,
   debugEventCount: debugEvents.length,
@@ -556,6 +590,7 @@ console.log(JSON.stringify({
   finalAnswerToolCallLikeCode: finalAnswerToolCallLikeFinding.ok === false ? finalAnswerToolCallLikeFinding.code : undefined,
   finalAnswerToolCallLikeName: finalAnswerToolCallLikeFinding.ok === false ? finalAnswerToolCallLikeFinding.matchedToolName : undefined,
   finalAnswerEnvelopeOnly,
+  forbiddenFinalText,
   requiredFinalText,
   missingFinalText,
   emptyAssistantEnds,
@@ -586,14 +621,21 @@ NODE
 run_self_test() {
   local tmp_dir
   local output
+  local expected_version
   tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/pi67-xtalpi-smoke-self-test.XXXXXX")"
   trap "rm -rf '$tmp_dir'" EXIT
+  expected_version="$(
+    node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); process.stdout.write(String(p.version || ''));" "$REPO_ROOT/package.json"
+  )"
+  PI67_EXPECTED_PACKAGE_VERSION="${PI67_EXPECTED_PACKAGE_VERSION:-$expected_version}"
+  export PI67_EXPECTED_PACKAGE_VERSION
 
   node - "$tmp_dir" <<'NODE'
 const fs = require("fs");
 const path = require("path");
 
 const dir = process.argv[2];
+const expectedVersion = process.env.PI67_EXPECTED_PACKAGE_VERSION || "0.0.0-self-test";
 
 function writeJsonl(file, events) {
   fs.writeFileSync(path.join(dir, file), events.map((event) => JSON.stringify(event)).join("\n") + "\n");
@@ -681,7 +723,7 @@ writeFixture("plan-mode-contract", {
 writeFixture("tool-selection-clipping", {
   tools: ["read"],
   toolArgsByName: { read: { path: "package.json" } },
-  finalText: "normal final answer",
+  finalText: `pi-extensions ${expectedVersion}`,
   caseName: "tool-selection-clipping",
   debugEvents: [
     {
@@ -707,7 +749,7 @@ writeFixture("tool-selection-clipping", {
 });
 writeFixture("tool-selection-clipping-missing", {
   tools: ["read"],
-  finalText: "normal final answer",
+  finalText: `pi-extensions ${expectedVersion}`,
   caseName: "tool-selection-clipping",
   debugEvents: [
     {
@@ -731,7 +773,7 @@ writeFixture("tool-selection-clipping-missing", {
 writeFixture("tool-selection-continuation", {
   tools: ["read"],
   toolArgsByName: { read: { path: "package.json" } },
-  finalText: "normal final answer",
+  finalText: `pi-extensions ${expectedVersion}`,
   caseName: "tool-selection-continuation",
   debugEvents: [
     {
@@ -786,7 +828,7 @@ writeFixture("tool-selection-continuation", {
 writeFixture("until-done-continuation", {
   tools: ["read"],
   toolArgsByName: { read: { path: "package.json" } },
-  finalText: "UNTIL_DONE_SMOKE_OK pi-extensions",
+  finalText: `UNTIL_DONE_SMOKE_OK pi-extensions ${expectedVersion}`,
   caseName: "until-done-continuation",
   debugEvents: [
     {
@@ -840,7 +882,7 @@ writeFixture("until-done-continuation", {
 });
 writeFixture("tool-selection-continuation-missing", {
   tools: ["read"],
-  finalText: "normal final answer",
+  finalText: `pi-extensions ${expectedVersion}`,
   caseName: "tool-selection-continuation",
   debugEvents: [
     {
@@ -888,6 +930,11 @@ writeFixture("provider-error", {
       retryable: true,
     },
   ],
+});
+writeFixture("forbidden-final-marker", {
+  tools: ["read"],
+  finalText: `pi-extensions ${expectedVersion} UNKNOWN_SIMULATED`,
+  caseName: "read",
 });
 NODE
 
@@ -971,6 +1018,11 @@ NODE
   fi
   if output="$(summarize_jsonl "$tmp_dir/tool-result-injection-missing-canary.jsonl" "$tmp_dir/tool-result-injection-missing-canary.stderr" 0 "all:read;only:read" "$tmp_dir/tool-result-injection-missing-canary.debug.jsonl" "$tmp_dir/tool-result-injection-missing-canary.lifecycle.json" 2>&1)"; then
     echo "expected tool-result-injection-missing-canary fixture to fail"
+    echo "$output"
+    return 1
+  fi
+  if output="$(summarize_jsonl "$tmp_dir/forbidden-final-marker.jsonl" "$tmp_dir/forbidden-final-marker.stderr" 0 "read" "$tmp_dir/forbidden-final-marker.debug.jsonl" "$tmp_dir/forbidden-final-marker.lifecycle.json" 2>&1)"; then
+    echo "expected forbidden-final-marker fixture to fail"
     echo "$output"
     return 1
   fi
@@ -1117,6 +1169,7 @@ if (process.env.FAKE_PI_LOG) {
       MCP_STORAGE_DIR: process.env.MCP_STORAGE_DIR || "",
       SEQ_THINK_MAX_BYTES: process.env.SEQ_THINK_MAX_BYTES || "",
       SEQ_THINK_MAX_LINES: process.env.SEQ_THINK_MAX_LINES || "",
+      PI_OBSERVATIONAL_MEMORY_PASSIVE: process.env.PI_OBSERVATIONAL_MEMORY_PASSIVE || "",
     },
     prompt: optionValue("-p"),
   }) + "\\n");
@@ -1172,7 +1225,7 @@ const finalText = selected.includes("fffind")
             : selected.includes("recall")
               ? "EXTENSION_SMOKE_RECALL_NOT_FOUND_OK"
         : selected.length
-          ? "fake final answer using " + selected.join(",")
+          ? "pi-extensions " + (process.env.PI67_EXPECTED_PACKAGE_VERSION || "0.0.0-self-test")
           : "fake no-tool final answer";
 
 console.log(JSON.stringify({
@@ -1229,6 +1282,7 @@ assert(invocations.every((item) => item.cwd === expectedCwd), "smoke child proce
 assert(invocations.every((item) => !item.prompt.includes("$HOME/.pi/agent")), "smoke prompt still contains literal HOME agent path");
 assert(invocations.every((item) => !item.prompt.includes("/Users/")), "smoke prompt still contains a macOS user path");
 assert(invocations.every((item) => !item.prompt.includes("node_modules/@ff-labs/pi-fff")), "smoke prompt still depends on installed npm package physical path");
+assert(invocations.every((item) => item.env.PI_OBSERVATIONAL_MEMORY_PASSIVE === "true"), "smoke should set observational memory passive by default");
 assert(invocations.some((item) => item.noTools === true && item.selected.length === 0), "no-tool case did not use --no-tools");
 assert(invocations.some((item) => item.tools.join(",") === "read" && item.selected.join(",") === "read"), "read case did not use PI_BIN with --tools read");
 assert(!invocations.some((item) => item.tools.includes("bash")), "unselected bash case should not run");
@@ -1398,7 +1452,7 @@ done
 
 if [ "$RUN_SELF_TEST" -eq 1 ]; then
   run_self_test
-  exit 0
+  exit $?
 fi
 
 if [ -n "${XTALPI_PI_TOOLS_SMOKE_CASES:-}" ]; then
@@ -1432,6 +1486,10 @@ if [ ! -f "$PI_AGENT_DIR/package.json" ]; then
   echo "xtalpi-pi-tools smoke: package.json not found under PI_AGENT_DIR: $PI_AGENT_DIR" >&2
   exit 2
 fi
+PI67_EXPECTED_PACKAGE_VERSION="$(
+  node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); process.stdout.write(String(p.version || ''));" "$PI_AGENT_DIR/package.json"
+)"
+export PI67_EXPECTED_PACKAGE_VERSION
 
 mkdir -p "$OUT_DIR"
 ADVERSARIAL_TOOL_RESULT_FILE="$OUT_DIR/${STAMP}-tool-result-injection.txt"
@@ -1518,6 +1576,11 @@ run_pi_process() {
     "XTALPI_PI_TOOLS_DEBUG=1"
     "XTALPI_PI_TOOLS_DEBUG_PATH=$debug"
   )
+  case "$(printf '%s' "$SMOKE_OBSERVATIONAL_MEMORY_PASSIVE" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on)
+      case_env+=("PI_OBSERVATIONAL_MEMORY_PASSIVE=true")
+      ;;
+  esac
 
   if [ -n "${XTALPI_PI_TOOLS_CASE_MAX_TOOLS:-}" ]; then
     case_env+=("XTALPI_PI_TOOLS_MAX_TOOLS=$XTALPI_PI_TOOLS_CASE_MAX_TOOLS")

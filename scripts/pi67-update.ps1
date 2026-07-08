@@ -1199,12 +1199,23 @@ function Update-Repo {
   }
 
   Invoke-Git @("fetch", "--prune", $Remote, $targetBranch) -Echo | Out-Null
+  $mergeTarget = "FETCH_HEAD"
   try {
     Invoke-Git @("merge-base", "--is-ancestor", "HEAD", "FETCH_HEAD") | Out-Null
   } catch {
-    Write-Fail ("remote update is not a fast-forward; inspect {0}/{1} before updating" -f $Remote, $targetBranch)
+    try {
+      Invoke-Git @("merge-base", "--is-ancestor", "FETCH_HEAD", "HEAD") | Out-Null
+      Write-Warn ("local checkout is ahead of {0}/{1}; no incoming fast-forward changes to merge" -f $Remote, $targetBranch)
+      $mergeTarget = ""
+    } catch {
+      Write-Fail ("remote update is not a fast-forward; inspect {0}/{1} before updating" -f $Remote, $targetBranch)
+    }
   }
-  $incomingChangedPaths = @(Invoke-Git @("diff", "--name-only", "HEAD", "FETCH_HEAD", "--") | Where-Object { $_ })
+  $incomingChangedPaths = if ($mergeTarget) {
+    @(Invoke-Git @("diff", "--name-only", "HEAD", $mergeTarget, "--") | Where-Object { $_ })
+  } else {
+    @()
+  }
 
   if ($trackedStatus.Count -gt 0 -and -not $AllowDirty) {
     if (Test-StringArrayOverlaps -Left $dirtyPaths -Right $incomingChangedPaths) {
@@ -1221,7 +1232,9 @@ function Update-Repo {
   }
 
   try {
-    Invoke-Git @("merge", "--ff-only", "FETCH_HEAD") -Echo | Out-Null
+    if ($mergeTarget) {
+      Invoke-Git @("merge", "--ff-only", $mergeTarget) -Echo | Out-Null
+    }
   } catch {
     Restore-UserRuntimeTrackedEdits $runtimeBackup
     throw

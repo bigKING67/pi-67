@@ -5,7 +5,7 @@ import { isWindows } from "../lib/platform.mjs";
 export async function doctorCommand(ctx, argv) {
   const { options } = parseCommandOptions(argv, {
     bools: ["json", "quiet", "dry-run", "deep-mcp", "strict-shared-skills"],
-    strings: ["mcp-timeout-ms"],
+    strings: ["mcp-timeout-ms", "skill-list-timeout-seconds"],
   });
   if (options.help) {
     printDoctorHelp();
@@ -19,6 +19,9 @@ export async function doctorCommand(ctx, argv) {
   if (options.strictSharedSkills) args.push(isWindows() ? "-StrictSharedSkills" : "--strict-shared-skills");
   if (!isWindows() && options.deepMcp) args.push("--deep-mcp");
   if (!isWindows() && options.mcpTimeoutMs) args.push("--mcp-timeout-ms", options.mcpTimeoutMs);
+  if (options.skillListTimeoutSeconds) {
+    args.push(isWindows() ? "-SkillListTimeoutSeconds" : "--skill-list-timeout-seconds", options.skillListTimeoutSeconds);
+  }
   runDistroScript(ctx, { sh: "pi67-doctor.sh", ps1: "pi67-doctor.ps1" }, args, {
     dryRun: ctx.dryRun || options.dryRun,
   });
@@ -35,6 +38,8 @@ Options:
   --quiet                 Reduce human output where supported.
   --deep-mcp              Run deeper MCP probes on POSIX platforms.
   --mcp-timeout-ms N      Timeout for deep MCP probes on POSIX platforms.
+  --skill-list-timeout-seconds N
+                          Timeout for pi skill list on POSIX platforms.
   --strict-shared-skills  Treat differing shared skills as blocking.
   --dry-run               Print the script invocation without running it.
 

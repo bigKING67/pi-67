@@ -357,6 +357,28 @@ pi
 显式稳定启动：
 
 ```bash
+pi-67 xtalpi run
+```
+
+Windows PowerShell：
+
+```powershell
+pi-67 xtalpi run
+```
+
+`pi-67 xtalpi run` 是推荐的小白入口：它统一使用 `xtalpi-pi-tools +
+deepseek-v4-pro + thinking off`，并默认注入 `PI_OBSERVATIONAL_MEMORY_PASSIVE=true`。
+这样 `pi-observational-memory` 不会在 assistant final 之后继续发起后台
+`record_observations` provider 请求，避免上游 timeout/empty response 把主任务
+生命周期拖住。需要显式恢复自动记录时再使用：
+
+```bash
+pi-67 xtalpi run --no-passive-observational-memory
+```
+
+底层 Bash launcher：
+
+```bash
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools.sh
 ```
 
@@ -364,6 +386,12 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools.sh
 
 ```bash
 pi --provider xtalpi-pi-tools --model deepseek-v4-pro --thinking off
+```
+
+底层 Windows PowerShell launcher：
+
+```powershell
+.\scripts\pi67-xtalpi-pi-tools.ps1
 ```
 
 ## 本地配置 key
@@ -707,6 +735,13 @@ markup 错误页。若剥离后没有任何真实内容，仍 fail-closed。
 冒烟脚本还会为每个 case 开启 `XTALPI_PI_TOOLS_DEBUG=1`，校验 debug JSONL schema，并汇总 `recovery.*` 事件，便于判断是否发生了本地修复重试。
 
 live smoke 会先运行 provider-health preflight，然后为子进程显式设置 `XTALPI_PI_TOOLS_TIMEOUT_MS` 和 `XTALPI_PI_TOOLS_MAX_OUTPUT_TOKENS`，默认来自 `XTALPI_PI_TOOLS_SMOKE_REQUEST_TIMEOUT_MS=180000` 与 `XTALPI_PI_TOOLS_SMOKE_MAX_OUTPUT_TOKENS=1024`。这只影响 smoke 子进程，不改变日常 `xtalpi-pi-tools` 运行时默认；作用是把晶泰 provider stall 和过度生成收敛成可观察的 smoke 边界，而不是被 Pi 全局 HTTP idle timeout、日常输出上限或 case watchdog 混在一起。
+
+live smoke 还会默认设置 `PI_OBSERVATIONAL_MEMORY_PASSIVE=true`
+（可用 `XTALPI_PI_TOOLS_SMOKE_OBSERVATIONAL_MEMORY_PASSIVE=0` 关闭），隔离
+assistant final 之后的 `pi-observational-memory` 后台 `record_observations`
+请求。这个隔离只影响 smoke 子进程；日常推荐入口 `pi-67 xtalpi run`
+也默认使用同样的 passive 策略，以避免 post-final background worker 污染任务
+lifecycle。直接运行裸 `pi` 时不会自动注入该环境变量。
 
 live smoke 还会在正式 provider preflight 和 case 执行前确认 `PI_BIN` 与 debug-summary helper 都存在且可执行。`PI_BIN` 可用 `PI_BIN=/path/to/pi` 覆盖；debug-summary helper 默认使用同目录 `pi67-xtalpi-pi-tools-debug-summary.sh`，特殊测试环境可用 `XTALPI_PI_TOOLS_SMOKE_DEBUG_SUMMARY_BIN=/path/to/pi67-xtalpi-pi-tools-debug-summary.sh` 覆盖。任一 helper 缺失都会 exit `2`，避免没有 debug-summary gate 或 summary artifact 的 smoke 被误判为通过。
 

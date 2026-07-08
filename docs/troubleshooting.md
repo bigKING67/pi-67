@@ -837,7 +837,7 @@ Set-Location $env:USERPROFILE\.pi\agent
 $Stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $BackupDir = Join-Path $env:USERPROFILE ".pi\pi67\backups\pre-update-bootstrap-$Stamp"
 New-Item -ItemType Directory -Force $BackupDir | Out-Null
-$KnownPaths = @("settings.json", "extensions/xtalpi-compat/index.ts")
+$KnownPaths = @("settings.json", "models.json", "auth.json", "mcp.json", "image-gen.json")
 $RestorePaths = @()
 foreach ($Path in $KnownPaths) {
   git ls-files --error-unmatch $Path *> $null

@@ -4,7 +4,7 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
-当前发行版版本：`0.10.3`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.10.5`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 这是什么
 
@@ -595,6 +595,7 @@ pi-67/
 │   ├── pi67-update.ps1
 │   ├── pi67-uninstall.sh
 │   ├── pi67-xtalpi-pi-tools.sh
+│   ├── pi67-xtalpi-pi-tools.ps1
 │   ├── pi67-test-xtalpi-pi-tools.sh
 │   ├── pi67-xtalpi-pi-tools-smoke.sh
 │   ├── pi67-xtalpi-pi-tools-smoke.ps1
@@ -683,7 +684,35 @@ Git Bash 当成默认前置条件。下面 Bash 命令均假设已经在 agent r
 显式启动：
 
 ```bash
+pi-67 xtalpi run
+```
+
+Windows PowerShell：
+
+```powershell
+pi-67 xtalpi run
+```
+
+`pi-67 xtalpi run` 会使用 `xtalpi-pi-tools + deepseek-v4-pro + thinking off`，
+并默认设置 `PI_OBSERVATIONAL_MEMORY_PASSIVE=true`，避免
+`pi-observational-memory` 在 assistant final 之后继续发起后台
+`record_observations` 请求、把主任务生命周期拖住。只有你明确需要自动记录
+observational memory 时，才使用：
+
+```bash
+pi-67 xtalpi run --no-passive-observational-memory
+```
+
+底层 Bash launcher：
+
+```bash
 bash ./scripts/pi67-xtalpi-pi-tools.sh
+```
+
+底层 PowerShell launcher：
+
+```powershell
+.\scripts\pi67-xtalpi-pi-tools.ps1
 ```
 
 静态测试：
@@ -1002,7 +1031,7 @@ Set-Location $env:USERPROFILE\.pi\agent
 $Stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $BackupDir = Join-Path $env:USERPROFILE ".pi\pi67\backups\pre-update-bootstrap-$Stamp"
 New-Item -ItemType Directory -Force $BackupDir | Out-Null
-$KnownPaths = @("settings.json", "extensions/xtalpi-compat/index.ts")
+$KnownPaths = @("settings.json", "models.json", "auth.json", "mcp.json", "image-gen.json")
 $RestorePaths = @()
 foreach ($Path in $KnownPaths) {
   git ls-files --error-unmatch $Path *> $null

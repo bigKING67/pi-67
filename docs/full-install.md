@@ -509,7 +509,30 @@ bash ~/.pi/agent/scripts/pi67-configure.sh --provider codex --model gpt-5.4 --pr
 For xtalpi tasks, pi-67 now uses `xtalpi-pi-tools`: Pi owns the tool protocol locally and sends only plain chat messages to the company proxy. Use the stable launcher for important tasks:
 
 ```bash
+pi-67 xtalpi run
+```
+
+Windows PowerShell:
+
+```powershell
+pi-67 xtalpi run
+```
+
+This launcher defaults `PI_OBSERVATIONAL_MEMORY_PASSIVE=true`, so background
+`pi-observational-memory` writes cannot keep the main task lifecycle open after
+the assistant final answer. Use `pi-67 xtalpi run --no-passive-observational-memory`
+only when you explicitly want automatic post-final observational-memory writes.
+
+Lower-level Bash launcher:
+
+```bash
 bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools.sh
+```
+
+Lower-level Windows PowerShell launcher:
+
+```powershell
+.\scripts\pi67-xtalpi-pi-tools.ps1
 ```
 
 Windows PowerShell users can run the low-risk targeted live smoke without Bash:
@@ -703,7 +726,7 @@ Set-Location $env:USERPROFILE\.pi\agent
 $Stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $BackupDir = Join-Path $env:USERPROFILE ".pi\pi67\backups\pre-update-bootstrap-$Stamp"
 New-Item -ItemType Directory -Force $BackupDir | Out-Null
-$KnownPaths = @("settings.json", "extensions/xtalpi-compat/index.ts")
+$KnownPaths = @("settings.json", "models.json", "auth.json", "mcp.json", "image-gen.json")
 $RestorePaths = @()
 foreach ($Path in $KnownPaths) {
   git ls-files --error-unmatch $Path *> $null

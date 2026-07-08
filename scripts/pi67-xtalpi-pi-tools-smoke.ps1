@@ -65,6 +65,11 @@ Options:
   -AgentDir PATH          Agent/repo root. Default: PI_AGENT_DIR env or repo root.
   -OutDir PATH            Artifact dir. Default: OUT_DIR env or temp dir.
   -CaseRetries N          Retry final-answer-only transient case failures. Default: 1.
+
+Environment:
+  XTALPI_PI_TOOLS_SMOKE_OBSERVATIONAL_MEMORY_PASSIVE
+                         Set PI_OBSERVATIONAL_MEMORY_PASSIVE=true for smoke child
+                         processes unless explicitly set to 0/false/no/off.
 "@
 }
 
@@ -221,6 +226,48 @@ function Int-OrDefaultAllowZero {
     }
   }
   return $Default
+}
+
+function Get-PackageVersion {
+  param([string]$PackageJsonPath)
+  try {
+    $data = Get-Content -LiteralPath $PackageJsonPath -Raw | ConvertFrom-Json
+    return [string]$data.version
+  } catch {
+    return ""
+  }
+}
+
+function Get-ForbiddenFinalTextMarkers {
+  param([string]$Text)
+  $markers = New-Object System.Collections.Generic.List[string]
+  $checks = @(
+    @{ label = "UNKNOWN_SIMULATED"; pattern = '\bUNKNOWN_SIMULATED\b' },
+    @{ label = "SIMULATED"; pattern = '\bSIMULATED\b' },
+    @{ label = "PLACEHOLDER"; pattern = '\bPLACEHOLDER\b' },
+    @{ label = "MOCK"; pattern = '\bMOCK\b' },
+    @{ label = "UNKNOWN_*"; pattern = '\bUNKNOWN_[A-Z0-9_]+\b' }
+  )
+  foreach ($check in $checks) {
+    if ([regex]::IsMatch($Text, [string]$check.pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)) {
+      $markers.Add([string]$check.label)
+    }
+  }
+  return @($markers)
+}
+
+function Test-PackageVersionRequiredCase {
+  param([string]$CaseName)
+  return @(
+    "read-package",
+    "until-done-continuation"
+  ) -contains $CaseName
+}
+
+function Test-SmokeObservationalMemoryPassive {
+  $raw = $env:XTALPI_PI_TOOLS_SMOKE_OBSERVATIONAL_MEMORY_PASSIVE
+  if ([string]::IsNullOrWhiteSpace($raw)) { return $true }
+  return @("1", "true", "yes", "on") -contains $raw.Trim().ToLowerInvariant()
 }
 
 function Resolve-PiBin {
@@ -469,7 +516,13 @@ function Summarize-CaseArtifact {
   $missingTools = @($expectedTools | Where-Object { $actualToolNames -notcontains $_ })
   $argExpectation = Test-CaseToolArgs ([string]$Definition.argCheck) $toolStarts
   $finalText = Get-FinalAssistantText $events
-  $missingFinalText = @($Definition.requiredFinalText | Where-Object { -not $finalText.Contains($_) })
+  $requiredFinalText = New-Object System.Collections.Generic.List[string]
+  foreach ($marker in @($Definition.requiredFinalText)) { $requiredFinalText.Add([string]$marker) }
+  if ((Test-PackageVersionRequiredCase $CaseName) -and -not [string]::IsNullOrWhiteSpace($Script:ExpectedPackageVersion)) {
+    $requiredFinalText.Add($Script:ExpectedPackageVersion)
+  }
+  $missingFinalText = @($requiredFinalText | Where-Object { -not $finalText.Contains($_) })
+  $forbiddenFinalText = @(Get-ForbiddenFinalTextMarkers $finalText)
   $errors = @($events | Where-Object { $_.type -eq "error" -or $_.message.stopReason -eq "error" -or $_.message.errorMessage })
   $debugTelemetryOk = $debugEvents.Count -gt 0
   if ($debugTelemetryOk) {
@@ -482,7 +535,7 @@ function Summarize-CaseArtifact {
   $protocolBoundaryNames = @($actualToolNames + $expectedTools | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
   $toolCallLikeFinding = Get-ProtocolBoundaryFinding $finalText $protocolBoundaryNames
   $toolCallLikeJson = $toolCallLikeFinding.ok -eq $false
-  $finalAnswerOk = $finalText.Trim().Length -gt 0 -and -not $rawMarkup -and -not $toolCallLikeJson -and $missingFinalText.Count -eq 0
+  $finalAnswerOk = $finalText.Trim().Length -gt 0 -and -not $rawMarkup -and -not $toolCallLikeJson -and $forbiddenFinalText.Count -eq 0 -and $missingFinalText.Count -eq 0
   $toolExpectationOk = $missingTools.Count -eq 0 -and $unexpectedTools.Count -eq 0
   $failureReasons = New-Object System.Collections.Generic.List[string]
   if ($ExitStatus -ne 0) { $failureReasons.Add(("exit_status_{0}" -f $ExitStatus)) }
@@ -496,6 +549,7 @@ function Summarize-CaseArtifact {
   }
   if ($rawMarkup) { $failureReasons.Add("final_answer_contains_raw_tool_markup") }
   if ($toolCallLikeJson) { $failureReasons.Add("final_answer_contains_tool_call_like_json") }
+  foreach ($marker in $forbiddenFinalText) { $failureReasons.Add(("final_answer_contains_forbidden_marker:{0}" -f $marker)) }
   if ($finalText.Trim().Length -eq 0) {
     $failureReasons.Add("missing_final_assistant_text")
   } else {
@@ -521,8 +575,9 @@ function Summarize-CaseArtifact {
     argExpectationFailures = @($argExpectation.failures)
     debugTelemetryOk = $debugTelemetryOk
     debugEventCount = $debugEvents.Count
-    requiredFinalText = @($Definition.requiredFinalText)
+    requiredFinalText = @($requiredFinalText)
     missingFinalText = $missingFinalText
+    forbiddenFinalText = $forbiddenFinalText
     finalAnswerQualityOk = $finalAnswerOk
     finalAnswerRawToolMarkup = $rawMarkup
     finalAnswerToolCallLikeJson = $toolCallLikeJson
@@ -656,6 +711,9 @@ function Invoke-PiCase {
     XTALPI_PI_TOOLS_DEBUG = "1"
     XTALPI_PI_TOOLS_DEBUG_PATH = $debugFile
   }
+  if (Test-SmokeObservationalMemoryPassive) {
+    $envMap["PI_OBSERVATIONAL_MEMORY_PASSIVE"] = "true"
+  }
   switch ([string]$Definition.envKind) {
     "fff" {
       $envMap["PI_FFF_MODE"] = "tools-only"
@@ -744,6 +802,9 @@ function Invoke-PiContinuationCase {
     XTALPI_PI_TOOLS_DEBUG = "1"
     XTALPI_PI_TOOLS_DEBUG_PATH = $debugFile
   }
+  if (Test-SmokeObservationalMemoryPassive) {
+    $envMap["PI_OBSERVATIONAL_MEMORY_PASSIVE"] = "true"
+  }
   if ($Definition.maxTools) {
     $envMap["XTALPI_PI_TOOLS_CASE_MAX_TOOLS"] = [string]$Definition.maxTools
   }
@@ -794,6 +855,10 @@ function Invoke-PiContinuationCase {
 }
 
 function Run-SelfTest {
+  $Script:ExpectedPackageVersion = Get-PackageVersion (Join-Path $RepoRoot "package.json")
+  if ([string]::IsNullOrWhiteSpace($Script:ExpectedPackageVersion)) {
+    $Script:ExpectedPackageVersion = "0.0.0-self-test"
+  }
   $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("pi67-xtalpi-pwsh-self-test-{0}" -f ([Guid]::NewGuid().ToString("N")))
   New-Item -ItemType Directory -Force -Path $tmp | Out-Null
   try {
@@ -810,8 +875,8 @@ function Run-SelfTest {
     if ($summary.ok -ne $true) { throw "expected good fixture to pass" }
 
     $fixtures = @(
-      @{ name = "read-package"; tool = "read"; args = @{ path = "package.json" }; final = "EXTENSION_SMOKE_READ_PACKAGE_OK pi-extensions" },
-      @{ name = "until-done-continuation"; tool = "read"; args = @{ path = "package.json" }; final = "UNTIL_DONE_SMOKE_OK pi-extensions" },
+      @{ name = "read-package"; tool = "read"; args = @{ path = "package.json" }; final = ("EXTENSION_SMOKE_READ_PACKAGE_OK pi-extensions {0}" -f $Script:ExpectedPackageVersion) },
+      @{ name = "until-done-continuation"; tool = "read"; args = @{ path = "package.json" }; final = ("UNTIL_DONE_SMOKE_OK pi-extensions {0}" -f $Script:ExpectedPackageVersion) },
       @{ name = "fffind-package"; tool = "fffind"; args = @{ pattern = "package.json"; limit = 5 }; final = "EXTENSION_SMOKE_FFFIND_OK package.json" },
       @{ name = "ffgrep-package"; tool = "ffgrep"; args = @{ pattern = "pi-extensions"; path = "package.json"; limit = 5 }; final = "EXTENSION_SMOKE_FFGREP_OK pi-extensions" },
       @{ name = "batch-web-fetch-example"; tool = "batch_web_fetch"; args = @{ requests = @(@{ url = "https://example.com/"; maxChars = 1000; timeoutMs = 20000 }) }; final = "EXTENSION_SMOKE_BATCH_FETCH_OK Example Domain" },
@@ -877,6 +942,17 @@ function Run-SelfTest {
     $markup = Summarize-CaseArtifact "mcp-status" $CaseDefinitions["mcp-status"] $markupOut $err $debug 0 1 $false
     if ($markup.ok -eq $true) { throw "expected raw markup fixture to fail" }
 
+    $forbiddenOut = Join-Path $tmp "forbidden-marker.jsonl"
+    @(
+      @{ type = "tool_execution_start"; toolName = "read"; args = @{ path = "package.json" } },
+      @{ type = "agent_end"; messages = @(@{ role = "assistant"; content = @(@{ type = "text"; text = ("EXTENSION_SMOKE_READ_PACKAGE_OK pi-extensions {0} UNKNOWN_SIMULATED" -f $Script:ExpectedPackageVersion) }) }) }
+    ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 8 } | Set-Content -LiteralPath $forbiddenOut -Encoding UTF8
+    $forbidden = Summarize-CaseArtifact "read-package" $CaseDefinitions["read-package"] $forbiddenOut $err $debug 0 1 $false
+    if ($forbidden.ok -eq $true) { throw "expected forbidden final marker fixture to fail" }
+    if (@($forbidden.failureReasons) -notcontains "final_answer_contains_forbidden_marker:UNKNOWN_SIMULATED") {
+      throw "forbidden marker fixture should report UNKNOWN_SIMULATED"
+    }
+
     $pseudoJsonOut = Join-Path $tmp "pseudo-json-tool-array.jsonl"
     @(
       @{ type = "agent_end"; messages = @(@{ role = "assistant"; content = @(@{ type = "text"; text = '阶段：ANALYSIS | T-003 [{"id":"pi_tool_until_done_task_update_mra0pzuf_done","name":"until_done_task_update","arguments":{"id":"T-003","patch":{"status":"in_progress"}}}] EXTENSION_SMOKE_MCP_STATUS_OK MCP' }) }) }
@@ -910,7 +986,7 @@ function Run-SelfTest {
     $badArgsOut = Join-Path $tmp "bad-args.jsonl"
     @(
       @{ type = "tool_execution_start"; toolName = "read"; args = @{ path = "$HOME/.pi/agent/package.json" } },
-      @{ type = "agent_end"; messages = @(@{ role = "assistant"; content = @(@{ type = "text"; text = "EXTENSION_SMOKE_READ_PACKAGE_OK pi-extensions" }) }) }
+      @{ type = "agent_end"; messages = @(@{ role = "assistant"; content = @(@{ type = "text"; text = ("EXTENSION_SMOKE_READ_PACKAGE_OK pi-extensions {0}" -f $Script:ExpectedPackageVersion) }) }) }
     ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 8 } | Set-Content -LiteralPath $badArgsOut -Encoding UTF8
     $badArgs = Summarize-CaseArtifact "read-package" $CaseDefinitions["read-package"] $badArgsOut $err $debug 0 1 $false
     if ($badArgs.ok -eq $true) { throw "expected bad read.path fixture to fail" }
@@ -993,6 +1069,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $ResolvedAgentDir "package.json") -P
   [Console]::Error.WriteLine("package.json not found under AgentDir: $ResolvedAgentDir")
   exit 2
 }
+$Script:ExpectedPackageVersion = Get-PackageVersion (Join-Path $ResolvedAgentDir "package.json")
 if (-not (Test-Path -LiteralPath $ArtifactCorePath -PathType Leaf)) {
   [Console]::Error.WriteLine("missing artifact core helper: $ArtifactCorePath")
   exit 2
