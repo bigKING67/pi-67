@@ -120,6 +120,7 @@ cleanup() {
     /tmp/pi67-smoke-update-dry.log \
     /tmp/pi67-smoke-update.log \
     /tmp/pi67-smoke-update-runtime-no-backup.log \
+    /tmp/pi67-smoke-update-runtime-final.log \
     /tmp/pi67-smoke-update-conflict.log \
     /tmp/pi67-smoke-update-strict-conflict.log \
     /tmp/pi67-smoke-uninstall-dry.log \
@@ -1268,6 +1269,85 @@ if ! git -C "$UPDATE_REPO" diff --quiet -- settings.json; then
   fail "settings runtime migration did not normalize settings.json"
 fi
 pass "up-to-date dirty runtime update migrated settings runtime marker without backup"
+
+cat > "$UPDATE_REPO/scripts/pi67-report.sh" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+agent_dir=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --agent-dir)
+      agent_dir="${2:?--agent-dir requires a path}"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+
+if [ -z "$agent_dir" ]; then
+  echo "missing --agent-dir" >&2
+  exit 2
+fi
+
+node - "$agent_dir/settings.json" "$agent_dir/pi67-report.json" <<'NODE'
+const fs = require("fs");
+const [, , settingsPath, reportPath] = process.argv;
+const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+settings.lastChangelogVersion = "pi67-smoke-final-marker";
+fs.writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+fs.writeFileSync(
+  reportPath,
+  `${JSON.stringify(
+    {
+      schemaVersion: 2,
+      generatedAt: new Date(0).toISOString(),
+      pi67Version: "smoke",
+      repository: { shortCommit: "smoke", dirty: true }
+    },
+    null,
+    2
+  )}\n`
+);
+NODE
+SH
+chmod +x "$UPDATE_REPO/scripts/pi67-report.sh"
+git -C "$UPDATE_REPO" add scripts/pi67-report.sh
+if ! git -C "$UPDATE_REPO" diff --cached --quiet; then
+  git -C "$UPDATE_REPO" commit -q -m "smoke final-marker report fixture"
+fi
+
+HOME="$UPDATE_HOME" "$REPO_ROOT/scripts/pi67-update.sh" \
+  --repo-root "$UPDATE_REPO" \
+  --agent-dir "$UPDATE_REPO" \
+  --skills-dir "$TMP_ROOT/shared-skills" \
+  --no-npm \
+  --no-configure \
+  --no-doctor >/tmp/pi67-smoke-update-runtime-final.log 2>&1
+if ! grep -q 'settings runtime state (final)' /tmp/pi67-smoke-update-runtime-final.log; then
+  cat /tmp/pi67-smoke-update-runtime-final.log >&2
+  fail "update helper did not run final settings runtime migration"
+fi
+node -e '
+const fs = require("fs");
+const settingsPath = process.argv[1];
+const statePath = process.argv[2];
+const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+if (Object.prototype.hasOwnProperty.call(settings, "lastChangelogVersion")) {
+  throw new Error("settings.json still contains final runtime marker");
+}
+const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+if (state.runtimeMarkers?.lastChangelogVersion?.value !== "pi67-smoke-final-marker") {
+  throw new Error("state.json did not preserve final runtime marker");
+}
+' "$UPDATE_REPO/settings.json" "$UPDATE_HOME/.pi/pi67/state.json"
+if ! git -C "$UPDATE_REPO" diff --quiet -- settings.json; then
+  git -C "$UPDATE_REPO" diff -- settings.json >&2
+  fail "final settings runtime migration did not normalize settings.json"
+fi
+pass "update final step normalizes settings runtime marker written after preflight"
 
 UPDATE_CONFLICT_SKILLS="$TMP_ROOT/update-conflict-shared-skills"
 mkdir -p "$UPDATE_CONFLICT_SKILLS/$FIRST_SHARED_SKILL_NAME"

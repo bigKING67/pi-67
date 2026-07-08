@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.10.11]
+
+- Runs final settings runtime-marker normalization from the Bash and PowerShell
+  updater scripts, covering older global managers that invoke a newer local
+  distro updater and any update-time report/smoke side effects.
+
 ## [0.10.10]
 
 - Extends the update preflight runtime-marker regression to include the

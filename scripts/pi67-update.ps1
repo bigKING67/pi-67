@@ -573,7 +573,13 @@ function Invoke-LocalConfigMigration {
 }
 
 function Invoke-SettingsRuntimeStateMigration {
-  Write-Section "settings runtime state"
+  param([string]$Phase = "")
+
+  if ($Phase) {
+    Write-Section ("settings runtime state ({0})" -f $Phase)
+  } else {
+    Write-Section "settings runtime state"
+  }
   $tool = Join-Path (Join-Path (Join-Path $RepoRoot "packages") "pi67-cli") "src/tools/settings-runtime-state-filter.mjs"
   $stateDir = Join-Path (Join-Path $HomePath ".pi") "pi67"
   if (-not (Test-Path -LiteralPath $tool -PathType Leaf)) {
@@ -1312,12 +1318,13 @@ try {
     Repair-LocalConfigJsonEncoding
     Invoke-LocalConfigMigration
   }
-  Invoke-SettingsRuntimeStateMigration
+  Invoke-SettingsRuntimeStateMigration "preflight"
   Sync-SharedSkills
   Sync-Npm
   Invoke-UntilDoneRuntimeQueuePatch
   Invoke-Smoke
   Invoke-Report
+  Invoke-SettingsRuntimeStateMigration "final"
 
   Write-Host ""
   Write-Host "pi-67 PowerShell update finished" -ForegroundColor Green

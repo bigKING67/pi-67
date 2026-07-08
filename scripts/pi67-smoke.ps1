@@ -464,6 +464,110 @@ if ($NodeAvailable) {
     Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--dry-run", "self-update") | Out-Null
   }
 
+  Run-Check "PowerShell updater final settings runtime marker cleanup passed" {
+    if (-not $GitAvailable) {
+      throw "git not found"
+    }
+    $psExe = ""
+    if (Test-CommandExists "pwsh") {
+      $psExe = "pwsh"
+    } elseif (Test-CommandExists "powershell") {
+      $psExe = "powershell"
+    } else {
+      throw "no child PowerShell executable found"
+    }
+
+    $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("pi67-smoke-pwsh-update-" + [Guid]::NewGuid().ToString("N"))
+    $tmpRepo = Join-Path $tmpRoot "repo"
+    $tmpHome = Join-Path $tmpRoot "home"
+    $tmpSkills = Join-Path $tmpRoot "skills"
+    $oldUserProfile = $env:USERPROFILE
+    $oldHome = $env:HOME
+    try {
+      New-Item -ItemType Directory -Force -Path $tmpRoot, $tmpHome, $tmpSkills | Out-Null
+      Invoke-External "git" @("clone", $RepoRoot, $tmpRepo) | Out-Null
+      Invoke-External "git" @("-C", $tmpRepo, "config", "user.email", "pi67-smoke@example.invalid") | Out-Null
+      Invoke-External "git" @("-C", $tmpRepo, "config", "user.name", "pi67-smoke") | Out-Null
+
+      $fixture = @'
+param(
+  [string]$RepoRoot,
+  [string]$AgentDir,
+  [string]$SkillsDir,
+  [string]$Operation,
+  [switch]$NoDoctor
+)
+
+$settingsPath = Join-Path $AgentDir "settings.json"
+$reportPath = Join-Path $AgentDir "pi67-report.json"
+$utf8NoBom = New-Object System.Text.UTF8Encoding $false
+$settings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
+$settings | Add-Member -NotePropertyName "lastChangelogVersion" -NotePropertyValue "pi67-smoke-final-marker" -Force
+[System.IO.File]::WriteAllText($settingsPath, (($settings | ConvertTo-Json -Depth 50) + "`n"), $utf8NoBom)
+$report = [ordered]@{
+  schemaVersion = 2
+  generatedAt = "1970-01-01T00:00:00.000Z"
+  pi67Version = "smoke"
+  repository = [ordered]@{
+    shortCommit = "smoke"
+    dirty = $true
+  }
+}
+[System.IO.File]::WriteAllText($reportPath, (($report | ConvertTo-Json -Depth 10) + "`n"), $utf8NoBom)
+'@
+      $fixturePath = Join-Path (Join-Path $tmpRepo "scripts") "pi67-report.ps1"
+      $utf8 = New-Object System.Text.UTF8Encoding $false
+      [System.IO.File]::WriteAllText($fixturePath, $fixture, $utf8)
+      Invoke-External "git" @("-C", $tmpRepo, "add", "scripts/pi67-report.ps1") | Out-Null
+      & git -C $tmpRepo diff --cached --quiet
+      $diffExit = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+      if ($diffExit -ne 0) {
+        Invoke-External "git" @("-C", $tmpRepo, "commit", "-q", "-m", "smoke final-marker report fixture") | Out-Null
+      }
+
+      $env:USERPROFILE = $tmpHome
+      $env:HOME = $tmpHome
+      $output = Invoke-External $psExe @(
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        (RepoPath "scripts/pi67-update.ps1"),
+        "-RepoRoot",
+        $tmpRepo,
+        "-AgentDir",
+        $tmpRepo,
+        "-SkillsDir",
+        $tmpSkills,
+        "-NoNpm",
+        "-NoConfigure",
+        "-NoSmoke",
+        "-NoDoctor"
+      )
+      $joined = $output -join "`n"
+      if (-not $joined.Contains("settings runtime state (final)")) {
+        throw "final settings runtime migration did not run"
+      }
+
+      $settingsAfter = Read-JsonFile (Join-Path $tmpRepo "settings.json")
+      if ($settingsAfter.PSObject.Properties["lastChangelogVersion"]) {
+        throw "settings.json still contains final runtime marker"
+      }
+      $statePath = Join-Path (Join-Path (Join-Path $tmpHome ".pi") "pi67") "state.json"
+      $state = Read-JsonFile $statePath
+      if ($state.runtimeMarkers.lastChangelogVersion.value -ne "pi67-smoke-final-marker") {
+        throw "state.json did not preserve final runtime marker"
+      }
+      Invoke-External "git" @("-C", $tmpRepo, "diff", "--quiet", "--", "settings.json") | Out-Null
+    } finally {
+      $env:USERPROFILE = $oldUserProfile
+      $env:HOME = $oldHome
+      if (Test-Path -LiteralPath $tmpRoot) {
+        Remove-Item -LiteralPath $tmpRoot -Recurse -Force
+      }
+    }
+  }
+
   Run-Check "xtalpi extension smoke plan validation passed" {
     $raw = Invoke-External "node" @((RepoPath "scripts/pi67-xtalpi-smoke-plan.mjs"), "--repo-root", $RepoRoot, "--agent-dir", $RepoRoot, "--json")
     $plan = ($raw -join "`n") | ConvertFrom-Json

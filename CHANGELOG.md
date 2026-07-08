@@ -6,6 +6,15 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.11] - 2026-07-08
+
+### Fixed
+
+- Bash and PowerShell distro updaters now run settings runtime-marker
+  normalization again as the final update step, after smoke/report side
+  effects. This keeps `settings.json.lastChangelogVersion` out of Git status
+  even when an older global manager invokes a newer local updater script.
+
 ## [0.10.10] - 2026-07-08
 
 ### Fixed

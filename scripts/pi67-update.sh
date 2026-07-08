@@ -877,11 +877,16 @@ run_configure() {
 }
 
 migrate_settings_runtime_state() {
+  local phase="${1:-}"
   local tool="$REPO_ROOT/packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs"
   local state_dir="${HOME:-$REPO_ROOT}/.pi/pi67"
 
   say ""
-  say "${CYAN}--- settings runtime state ---${NC}"
+  if [ -n "$phase" ]; then
+    say "${CYAN}--- settings runtime state ($phase) ---${NC}"
+  else
+    say "${CYAN}--- settings runtime state ---${NC}"
+  fi
   if [ ! -f "$tool" ]; then
     warn "settings runtime state tool missing: $tool"
     return
@@ -1005,7 +1010,7 @@ check_update_plan() {
   else
     say "  skip local config migration (--no-configure)"
   fi
-  say "  migrate settings.json lastChangelogVersion into ~/.pi/pi67/state.json and install local git clean filter"
+  say "  migrate settings.json lastChangelogVersion into ~/.pi/pi67/state.json before local update side effects"
   say "  sync shared skills into $SHARED_SKILLS_DIR"
   if [ "$RUN_NPM" = true ]; then
     say "  sync npm dependencies when package.json differs"
@@ -1024,6 +1029,7 @@ check_update_plan() {
   else
     say "  skip report (--no-report)"
   fi
+  say "  run final settings runtime marker normalization after smoke/report"
 
   say ""
   pass "check-only completed without writing files"
@@ -1165,13 +1171,14 @@ fi
 update_repo
 sync_local_config_templates
 run_configure
-migrate_settings_runtime_state
+migrate_settings_runtime_state "preflight"
 sync_shared_skills
 retire_legacy_agent_skills
 sync_npm
 patch_until_done_runtime_queue
 run_doctor
 write_report
+migrate_settings_runtime_state "final"
 
 say ""
 say "${GREEN}pi-67 update finished${NC}"
