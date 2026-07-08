@@ -4,7 +4,7 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
-当前发行版版本：`0.10.5`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.10.6`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 这是什么
 
@@ -388,6 +388,13 @@ bash ~/.pi/agent/scripts/pi67-doctor.sh --quiet # 只看 summary/result
 bash ~/.pi/agent/scripts/pi67-doctor.sh --json  # 机器可读 readiness JSON
 ```
 
+如果只想快速 doctor 而不等待 `pi skill list`，用：
+
+```bash
+pi-67 doctor --no-skill-list
+pi-67 doctor --skill-list-timeout-seconds 60
+```
+
 只想快速看当前安装是否需要更新、报告是否过期、doctor 上次结果如何：
 
 ```bash
@@ -757,6 +764,21 @@ node ./scripts/pi67-xtalpi-provider-health.mjs
 provider health 会输出结构化 JSON，并对瞬时 timeout/network/upstream/protocol 抖动做有界重试；`http_429` 只记录为 rate-limit，不做立即重试。
 这些错误代码、分类、retryable 语义和 provider-health immediate retry 策略由 `extensions/xtalpi-pi-tools/provider-error-contract.json` 统一定义；contract 内置 `requiredCodes`、`allowedCategories`、`requiredHttpStatus` 和 `classificationSamples` manifest，运行时 provider、preflight 和 validator 共同读取，避免脚本和扩展长期漂移；修改该 contract 后运行 `node ~/.pi/agent/scripts/pi67-validate-xtalpi-provider-error-contract.mjs --self-test` 和 `node ~/.pi/agent/scripts/pi67-validate-xtalpi-provider-error-contract.mjs`。
 
+日常 runtime provider 也会对可重试的 provider/transport 失败做本地有界重试：
+
+```text
+XTALPI_PI_TOOLS_REQUEST_ATTEMPTS=3
+XTALPI_PI_TOOLS_RETRY_DELAY_MS=1000
+XTALPI_PI_TOOLS_RETRY_MAX_DELAY_MS=8000
+XTALPI_PI_TOOLS_RETRY_JITTER_MS=250
+```
+
+可重试范围包括 request timeout、network error、HTTP 408/5xx、非 JSON或 malformed response。
+HTTP 429 会被分类为 rate-limit 且 `retryable=true`，但不会立即重试，避免在限流窗口里继续消耗请求。
+连续失败会 fail closed，并在 debug/provider-health artifact 里写出 `attempt`、`attempt_count`、
+`retry_count`、`retry_delay_ms` 和 `retry_suppressed_reason`。这能处理晶泰偶发抖动，但不等于
+承诺上游连续 timeout 时永远不中断；连续失败时应看结构化错误分类，而不是把它当 Pi 工具协议回归。
+
 provider capability 深度探测：
 
 ```bash
@@ -819,6 +841,11 @@ provider 默认不再把历史 assistant tool call 序列化为 `previous_pi_too
 会话或异常模型输出里仍出现 `previous_pi_tool_call`，provider 会先移除完整历史块，
 再把剩余文本交给 final guard。类似“收到，重新发起搜索。”这种没有实际工具调用的
 续跑话术会进入有界 repair，而不是直接结束任务或把内部 Pi 协议标记展示给用户。
+
+targeted smoke 还会对“工具已经正确执行，但最终答案只缺少必填 marker / 版本号”的
+final-answer-only failure 做一次本地 final compliance repair：runner 用 `--no-tools`
+重新请求最终答案，只补齐 required final text，不重新执行工具、不重复副作用。工具缺失、
+参数错误、runtime error、raw tool markup 泄漏或 timeout 不会走这个 repair，而是继续失败。
 
 冒烟 telemetry 汇总：
 

@@ -59,6 +59,14 @@ function runArgsSelfTests() {
     parseCommandOptions(["--help"], { bools: [] }).options.help,
     "command option parser must accept --help for every command",
   );
+  assert(
+    parseCommandOptions(["--no-skill-list"], { bools: ["no-skill-list"] }).options.noSkillList,
+    "command option parser must accept doctor --no-skill-list",
+  );
+  assert(
+    parseCommandOptions(["--json"], { bools: ["json"] }).options.json,
+    "command option parser must accept command-level --json",
+  );
 }
 
 function runCliHelpContractSelfTests() {

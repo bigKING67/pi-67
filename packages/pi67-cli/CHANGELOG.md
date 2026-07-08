@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.10.6]
+
+- Adds runtime request retry to the canonical `xtalpi-pi-tools` provider path,
+  including attempt/retry/suppression telemetry in debug JSONL output.
+- Adds final-answer compliance repair to Bash and PowerShell xtalpi smoke:
+  validated tool runs that only miss required final text get one `--no-tools`
+  repair pass instead of rerunning tools.
+- Accepts `pi-67 doctor --no-skill-list` and raises doctor skill-list timeout
+  defaults to 60 seconds.
+- Supports command-level `pi-67 report --json`, emitting either a dry-run JSON
+  object or the generated report JSON.
+- Runs full `scripts/pi67-smoke.sh --ci` in the npm publish workflow before
+  pack/publish.
+
 ## [0.10.5]
 
 - Uses `git fetch` plus `git merge --ff-only FETCH_HEAD` in Bash and

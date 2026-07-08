@@ -10,7 +10,7 @@ param(
   [switch]$Json,
   [switch]$Quiet,
   [switch]$SkillList,
-  [int]$SkillListTimeoutSeconds = 30,
+  [int]$SkillListTimeoutSeconds = 60,
   [switch]$StrictSharedSkills,
   [switch]$Help
 )
@@ -40,7 +40,7 @@ Options:
   -Quiet               Print only summary in text mode.
   -SkillList           Also run `pi skill list` when pi is available.
   -SkillListTimeoutSeconds
-                       Timeout for `pi skill list`. Defaults to 30.
+                       Timeout for `pi skill list`. Defaults to 60.
   -StrictSharedSkills  Treat missing shared skill copies as FAIL.
   -Help                Show this help.
 

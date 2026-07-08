@@ -601,7 +601,114 @@ function Should-RetryCase {
   if (@($Summary.errors).Count -gt 0) { return $false }
   if (@($Summary.missingTools).Count -gt 0 -or @($Summary.unexpectedTools).Count -gt 0) { return $false }
   if (@($Summary.failureReasons) -contains "missing_final_assistant_text") { return $true }
+  if (@($Summary.failureReasons | Where-Object { $_ -like "missing_final_text:*" }).Count -gt 0) { return $true }
   return $false
+}
+
+function Test-FinalComplianceRepairEligible {
+  param([object]$Summary)
+  if ($Summary.ok -eq $true) { return $false }
+  if ($Summary.exitStatus -ne 0 -or $Summary.timedOutByWatchdog -eq $true) { return $false }
+  if ($Summary.debugTelemetryOk -ne $true) { return $false }
+  if ($Summary.argExpectationOk -ne $true) { return $false }
+  if (@($Summary.errors).Count -gt 0) { return $false }
+  if (@($Summary.missingTools).Count -gt 0 -or @($Summary.unexpectedTools).Count -gt 0) { return $false }
+  if (@($Summary.forbiddenFinalText).Count -gt 0) { return $false }
+  if (@($Summary.missingFinalText).Count -eq 0) { return $false }
+  if ([string]::IsNullOrWhiteSpace([string]$Summary.finalText)) { return $false }
+  if ($Summary.finalAnswerRawToolMarkup -eq $true) { return $false }
+  if ($Summary.finalAnswerToolCallLikeJson -eq $true) { return $false }
+  return $true
+}
+
+function New-FinalComplianceRepairPrompt {
+  param([object]$Summary)
+  $missing = @($Summary.missingFinalText | ForEach-Object { "- {0}" -f $_ }) -join "`n"
+  $required = @($Summary.requiredFinalText | ForEach-Object { "- {0}" -f $_ }) -join "`n"
+  $finalText = [string]$Summary.finalText
+  if ($finalText.Length -gt 1200) { $finalText = $finalText.Substring(0, 1200) }
+  return @"
+[xtalpi-pi-tools-final-compliance-repair]
+上一轮工具已经完成，且工具选择和参数已经通过本地 smoke 校验。不要再调用任何工具。
+
+上一轮最终答案缺少这些必填文本：
+$missing
+
+完整必填文本集合：
+$required
+
+上一轮最终答案摘录：
+$finalText
+
+请只输出一个最终答案，必须包含所有完整必填文本。不要输出工具调用、JSON action、Pi 协议标记、markdown 代码块或解释本修复流程。
+"@
+}
+
+function Invoke-FinalComplianceRepair {
+  param(
+    [string]$CaseName,
+    [object]$Definition,
+    [object]$Summary,
+    [string]$ArtifactCaseName,
+    [string]$Stamp,
+    [string]$ResolvedPiBin,
+    [string]$ResolvedAgentDir,
+    [string]$ResolvedOutDir,
+    [int]$ResolvedCaseTimeoutSeconds,
+    [object[]]$BasePiArgs,
+    [hashtable]$EnvMap,
+    [string]$OutFile,
+    [string]$ErrFile,
+    [string]$DebugFile,
+    [int]$ExitStatus,
+    [int]$ElapsedSeconds,
+    [bool]$TimedOut,
+    [int]$Attempt
+  )
+
+  if (-not (Test-FinalComplianceRepairEligible $Summary)) { return $Summary }
+
+  if (-not $Json) {
+    Write-Host ("===== {0} final-compliance-repair =====" -f $CaseName) -ForegroundColor Yellow
+  }
+  $repairOutFile = Join-Path $ResolvedOutDir ("{0}-{1}.final-repair.jsonl" -f $Stamp, $ArtifactCaseName)
+  $repairErrFile = Join-Path $ResolvedOutDir ("{0}-{1}.final-repair.stderr" -f $Stamp, $ArtifactCaseName)
+  $repairExitFile = Join-Path $ResolvedOutDir ("{0}-{1}.final-repair.exit" -f $Stamp, $ArtifactCaseName)
+  $repairPrompt = New-FinalComplianceRepairPrompt $Summary
+  $repairArgs = @($BasePiArgs + @("--no-tools"))
+
+  $repairResult = Invoke-PiProcessWithWatchdog `
+    -PiBin $ResolvedPiBin `
+    -PiArgs $repairArgs `
+    -Prompt $repairPrompt `
+    -WorkingDir $ResolvedAgentDir `
+    -StdoutPath $repairOutFile `
+    -StderrPath $repairErrFile `
+    -ExitPath $repairExitFile `
+    -EnvValues $EnvMap `
+    -TimeoutSeconds $ResolvedCaseTimeoutSeconds
+
+  if ([int]$repairResult.exitStatus -ne 0 -or [bool]$repairResult.timedOut) {
+    return $Summary
+  }
+
+  $combinedOut = Join-Path $ResolvedOutDir ("{0}-{1}.combined.jsonl" -f $Stamp, $ArtifactCaseName)
+  $combinedErr = Join-Path $ResolvedOutDir ("{0}-{1}.combined.stderr" -f $Stamp, $ArtifactCaseName)
+  Join-ExistingTextFiles $combinedOut @($OutFile, $repairOutFile)
+  Join-ExistingTextFiles $combinedErr @($ErrFile, $repairErrFile)
+  Move-Item -LiteralPath $combinedOut -Destination $OutFile -Force
+  Move-Item -LiteralPath $combinedErr -Destination $ErrFile -Force
+
+  return Summarize-CaseArtifact `
+    -CaseName $CaseName `
+    -Definition $Definition `
+    -OutFile $OutFile `
+    -ErrFile $ErrFile `
+    -DebugFile $DebugFile `
+    -ExitStatus $ExitStatus `
+    -ElapsedSeconds ([int]([Math]::Max($ElapsedSeconds, [int]$repairResult.elapsedSeconds))) `
+    -TimedOut $TimedOut `
+    -Attempt $Attempt
 }
 
 function Invoke-PiProcessWithWatchdog {
@@ -692,7 +799,7 @@ function Invoke-PiCase {
   $debugFile = Join-Path $ResolvedOutDir ("{0}-{1}.debug.jsonl" -f $Stamp, $artifactCaseName)
   $exitFile = Join-Path $ResolvedOutDir ("{0}-{1}.exit" -f $Stamp, $artifactCaseName)
 
-  $args = @(
+  $baseArgs = @(
     "--provider", $ResolvedProvider,
     "--model", $ResolvedModel,
     "--thinking", "off",
@@ -701,9 +808,9 @@ function Invoke-PiCase {
     "--no-prompt-templates",
     "--no-themes",
     "--mode", "json",
-    "--no-session",
-    "--tools", [string]$Definition.tool
+    "--no-session"
   )
+  $args = @($baseArgs + @("--tools", [string]$Definition.tool))
 
   $envMap = @{
     XTALPI_PI_TOOLS_TIMEOUT_MS = [string]$ResolvedRequestTimeoutMs
@@ -740,9 +847,29 @@ function Invoke-PiCase {
     -EnvValues $envMap `
     -TimeoutSeconds $ResolvedCaseTimeoutSeconds
 
-  return Summarize-CaseArtifact `
+  $summary = Summarize-CaseArtifact `
     -CaseName $CaseName `
     -Definition $Definition `
+    -OutFile $outFile `
+    -ErrFile $errFile `
+    -DebugFile $debugFile `
+    -ExitStatus ([int]$result.exitStatus) `
+    -ElapsedSeconds ([int]$result.elapsedSeconds) `
+    -TimedOut ([bool]$result.timedOut) `
+    -Attempt $Attempt
+
+  return Invoke-FinalComplianceRepair `
+    -CaseName $CaseName `
+    -Definition $Definition `
+    -Summary $summary `
+    -ArtifactCaseName $artifactCaseName `
+    -Stamp $Stamp `
+    -ResolvedPiBin $ResolvedPiBin `
+    -ResolvedAgentDir $ResolvedAgentDir `
+    -ResolvedOutDir $ResolvedOutDir `
+    -ResolvedCaseTimeoutSeconds $ResolvedCaseTimeoutSeconds `
+    -BasePiArgs $baseArgs `
+    -EnvMap $envMap `
     -OutFile $outFile `
     -ErrFile $errFile `
     -DebugFile $debugFile `
@@ -842,9 +969,29 @@ function Invoke-PiContinuationCase {
   $timedOut = [bool]$setupResult.timedOut -or [bool]$continuationResult.timedOut
   $elapsedSeconds = [int][Math]::Ceiling(((Get-Date) - $startedAt).TotalSeconds)
 
-  return Summarize-CaseArtifact `
+  $summary = Summarize-CaseArtifact `
     -CaseName $CaseName `
     -Definition $Definition `
+    -OutFile $outFile `
+    -ErrFile $errFile `
+    -DebugFile $debugFile `
+    -ExitStatus $exitStatus `
+    -ElapsedSeconds $elapsedSeconds `
+    -TimedOut $timedOut `
+    -Attempt $Attempt
+
+  return Invoke-FinalComplianceRepair `
+    -CaseName $CaseName `
+    -Definition $Definition `
+    -Summary $summary `
+    -ArtifactCaseName $artifactCaseName `
+    -Stamp $Stamp `
+    -ResolvedPiBin $ResolvedPiBin `
+    -ResolvedAgentDir $ResolvedAgentDir `
+    -ResolvedOutDir $ResolvedOutDir `
+    -ResolvedCaseTimeoutSeconds $ResolvedCaseTimeoutSeconds `
+    -BasePiArgs $baseArgs `
+    -EnvMap $envMap `
     -OutFile $outFile `
     -ErrFile $errFile `
     -DebugFile $debugFile `
@@ -932,6 +1079,23 @@ function Run-SelfTest {
     if (-not (Should-RetryCase $emptyFinal)) { throw "empty final fixture should be retried" }
     if (@($emptyFinal.failureReasons) -notcontains "missing_final_assistant_text") {
       throw "empty final fixture should report missing_final_assistant_text"
+    }
+
+    $missingMarkerOut = Join-Path $tmp "missing-marker.jsonl"
+    @(
+      @{ type = "tool_execution_start"; toolName = "read"; args = @{ path = "package.json" } },
+      @{ type = "agent_end"; messages = @(@{ role = "assistant"; content = @(@{ type = "text"; text = "UNTIL_DONE_SMOKE_OK pi-extensions" }) }) }
+    ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 8 } | Set-Content -LiteralPath $missingMarkerOut -Encoding UTF8
+    $missingMarker = Summarize-CaseArtifact "until-done-continuation" $CaseDefinitions["until-done-continuation"] $missingMarkerOut $err $debug 0 1 $false
+    if ($missingMarker.ok -eq $true) { throw "expected missing final marker fixture to fail" }
+    if (-not (Should-RetryCase $missingMarker)) { throw "missing final marker fixture should be retried" }
+    if (-not (Test-FinalComplianceRepairEligible $missingMarker)) { throw "missing final marker fixture should be eligible for final compliance repair" }
+    if (@($missingMarker.failureReasons | Where-Object { $_ -like "missing_final_text:*" }).Count -eq 0) {
+      throw "missing final marker fixture should report missing_final_text"
+    }
+    $repairPrompt = New-FinalComplianceRepairPrompt $missingMarker
+    if (-not $repairPrompt.Contains("[xtalpi-pi-tools-final-compliance-repair]") -or -not $repairPrompt.Contains($Script:ExpectedPackageVersion)) {
+      throw "final compliance repair prompt should include marker and missing package version"
     }
 
     $markupOut = Join-Path $tmp "markup.jsonl"

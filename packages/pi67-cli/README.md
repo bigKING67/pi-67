@@ -52,6 +52,14 @@ For automation, `pi-67 update --check --json` includes explicit `actions`,
 `blocked`, and `warnings` arrays. Each action lists planned writes and preserved
 paths, so update previews stay auditable instead of relying on prose output.
 
+Long or slow doctor runs can skip Pi's live skill listing while still checking
+local metadata, config, provider/model, shared skill files, and endpoint
+contracts:
+
+```bash
+pi-67 doctor --no-skill-list
+```
+
 If the local manager may be stale, run the latest npm package for one repair:
 
 ```bash
@@ -143,6 +151,7 @@ pi-67 doctor
 pi-67 smoke --quick
 pi-67 status
 pi-67 report
+pi-67 report --json
 pi-67 version
 pi-67 xtalpi health
 pi-67 xtalpi smoke --quick

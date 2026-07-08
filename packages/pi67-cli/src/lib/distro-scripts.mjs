@@ -17,11 +17,15 @@ export function runDistroScript(ctx, names, args = [], options = {}) {
       cwd: ctx.repoRoot,
       dryRun: options.dryRun,
       env: options.env,
+      stdio: options.stdio,
+      timeoutMs: options.timeoutMs,
     });
   }
   return runCommand("bash", [file, ...args], {
     cwd: ctx.repoRoot,
     dryRun: options.dryRun,
     env: options.env,
+    stdio: options.stdio,
+    timeoutMs: options.timeoutMs,
   });
 }

@@ -310,7 +310,10 @@ NODE
 pass "shared skill defaults avoid active Pi package duplication"
 
 section "Release metadata"
-"$REPO_ROOT/scripts/pi67-release-check.sh" >/tmp/pi67-smoke-release-check.log
+if ! "$REPO_ROOT/scripts/pi67-release-check.sh" >/tmp/pi67-smoke-release-check.log 2>&1; then
+  cat /tmp/pi67-smoke-release-check.log >&2
+  fail "release metadata check failed"
+fi
 pass "release metadata check completed"
 
 "$REPO_ROOT/scripts/pi67-release.sh" \

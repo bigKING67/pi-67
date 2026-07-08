@@ -4,7 +4,7 @@ import { isWindows } from "../lib/platform.mjs";
 
 export async function doctorCommand(ctx, argv) {
   const { options } = parseCommandOptions(argv, {
-    bools: ["json", "quiet", "dry-run", "deep-mcp", "strict-shared-skills"],
+    bools: ["json", "quiet", "dry-run", "deep-mcp", "no-skill-list", "strict-shared-skills"],
     strings: ["mcp-timeout-ms", "skill-list-timeout-seconds"],
   });
   if (options.help) {
@@ -19,6 +19,7 @@ export async function doctorCommand(ctx, argv) {
   if (options.strictSharedSkills) args.push(isWindows() ? "-StrictSharedSkills" : "--strict-shared-skills");
   if (!isWindows() && options.deepMcp) args.push("--deep-mcp");
   if (!isWindows() && options.mcpTimeoutMs) args.push("--mcp-timeout-ms", options.mcpTimeoutMs);
+  if (!isWindows() && options.noSkillList) args.push("--no-skill-list");
   if (options.skillListTimeoutSeconds) {
     args.push(isWindows() ? "-SkillListTimeoutSeconds" : "--skill-list-timeout-seconds", options.skillListTimeoutSeconds);
   }
@@ -38,8 +39,9 @@ Options:
   --quiet                 Reduce human output where supported.
   --deep-mcp              Run deeper MCP probes on POSIX platforms.
   --mcp-timeout-ms N      Timeout for deep MCP probes on POSIX platforms.
+  --no-skill-list         Skip pi skill list on POSIX platforms; accepted as a no-op on Windows.
   --skill-list-timeout-seconds N
-                          Timeout for pi skill list on POSIX platforms.
+                          Timeout for pi skill list where enabled.
   --strict-shared-skills  Treat differing shared skills as blocking.
   --dry-run               Print the script invocation without running it.
 

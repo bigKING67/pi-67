@@ -120,6 +120,7 @@ copies, and the `/chat/completions` endpoint contract.
 If `pi skill list` is slow on a machine, keep doctor bounded:
 
 ```bash
+pi-67 doctor --no-skill-list
 pi-67 doctor --skill-list-timeout-seconds 10
 ```
 

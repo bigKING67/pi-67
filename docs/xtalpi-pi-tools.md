@@ -725,6 +725,12 @@ tool-result-injection 还会在 summary gate 中要求最终回答包含 `PI_TOO
 
 最终回答也会被检查：如果 assistant final text 残留裸 `<pi_tool_call_history>` / `<pi_tool_call>` / `<pi_tool_result>` raw markup（包括 `<pi_tool_call name="...">` 这类变体、缺少 `>` 的残缺标签片段）或 `[previous_pi_tool_call]` 历史记录，provider 会先触发 repair；如果最终 artifact 仍残留这些 raw/internal markup，冒烟会失败，避免把未执行的伪工具调用或历史记录复读误判为正常结论。
 
+如果工具执行、selected-tool telemetry、参数校验和 process lifecycle 都已经通过，但最终答案
+只缺少 smoke 要求的 marker / 版本号等 `requiredFinalText`，Bash 和 PowerShell targeted
+smoke 会执行一次 final compliance repair。该 repair 使用同一 Pi 进程入口但附加
+`--no-tools`，要求模型只输出最终答案并补齐缺失文本；它不会重新调用工具，也不会把工具缺失、
+参数错误、timeout、raw protocol 泄漏或 runtime error 伪装成成功。
+
 有一类常见 provider drift 是“普通文本 + 已执行工具历史”混在一起，例如
 `收到，重新发起搜索。` 后面跟着 `[previous_pi_tool_call]...[/previous_pi_tool_call]`
 或 `<previous_pi_tool_call>...</previous_pi_tool_call>`。这不是可展示的最终回答，
@@ -752,6 +758,24 @@ $HOME/tmp/xtalpi-pi-tools-smoke/<stamp>-provider-health.json
 ```
 
 preflight 只会对瞬时可重试失败做立即重试，例如 `request_timeout`、`network_error`、`http_408`、`http_5xx`、`non_json_response` 或 `malformed_response`；`http_429` 会标记为 retryable，但不会立即重试，避免在限流窗口里继续消耗请求。
+
+日常 `xtalpi-pi-tools` runtime provider 也有同一类本地 request retry。默认：
+
+```text
+XTALPI_PI_TOOLS_REQUEST_ATTEMPTS=3
+XTALPI_PI_TOOLS_RETRY_DELAY_MS=1000
+XTALPI_PI_TOOLS_RETRY_MAX_DELAY_MS=8000
+XTALPI_PI_TOOLS_RETRY_JITTER_MS=250
+```
+
+`XTALPI_PI_TOOLS_REQUEST_ATTEMPTS` 最小为 1，最大限制为 8。每次 request debug event
+会记录 `attempt`、`attempt_count` 和 `retry_count`；发生重试时记录
+`request.retry` 与 `retry_delay_ms`；停止重试时记录 `request.retry_suppressed`
+与 `retry_suppressed_reason`。`http_429` 的 suppress reason 是
+`rate_limit_immediate_retry_disabled`，其它不可立即重试或已耗尽 attempts 的情况会分别
+写出 `provider_immediate_retry_disabled` / `non_retryable_error` /
+`attempts_exhausted` / `caller_aborted`。这些 telemetry 用来区分晶泰上游抖动、
+限流、网络问题和本地协议回归。
 
 provider 错误代码、分类、`retryable` 语义和 provider-health immediate retry 策略的真源是 `extensions/xtalpi-pi-tools/provider-error-contract.json`。这份 contract 同时包含 `requiredCodes`、`allowedCategories`、`requiredHttpStatus` 和 `classificationSamples` 自描述 manifest；运行时 `xtalpi-pi-tools` provider、`scripts/pi67-xtalpi-provider-health.mjs` 和 validator 都读取同一份 manifest，避免 `http_429`、timeout/network、protocol failure 等分类在 TS runtime、preflight 脚本和 release gate 之间漂移。修改这份 contract 后先在 agent repo 根目录运行 `node ./scripts/pi67-validate-xtalpi-provider-error-contract.mjs --self-test` 和 `node ./scripts/pi67-validate-xtalpi-provider-error-contract.mjs`；它会验证 error code 集合、category、retryability/immediate-retry 语义、HTTP exact/range 映射和 range 顺序，并用已知坏 contract 样例证明 validator 本身会失败。
 

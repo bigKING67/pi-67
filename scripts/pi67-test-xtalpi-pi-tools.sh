@@ -1897,6 +1897,11 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
       maxToolResultChars: 20000,
       maxOutputTokens: 1024,
       requestTimeoutMs: 180000,
+      attempt: 2,
+      attemptCount: 3,
+      retryCount: 1,
+      retryDelayMs: 1000,
+      retrySuppressedReason: "attempts_exhausted",
       maxEmptyRetries: 2,
       maxRepairRetries: 2,
       maxTotalRecoveries: 4,
@@ -1918,6 +1923,11 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
     assert.equal(debugEvent.max_tool_result_chars, 20000);
     assert.equal(debugEvent.max_output_tokens, 1024);
     assert.equal(debugEvent.request_timeout_ms, 180000);
+    assert.equal(debugEvent.attempt, 2);
+    assert.equal(debugEvent.attempt_count, 3);
+    assert.equal(debugEvent.retry_count, 1);
+    assert.equal(debugEvent.retry_delay_ms, 1000);
+    assert.equal(debugEvent.retry_suppressed_reason, "attempts_exhausted");
     assert.equal(debugEvent.max_empty_retries, 2);
     assert.equal(debugEvent.max_repair_retries, 2);
     assert.equal(debugEvent.max_total_recoveries, 4);
@@ -2946,9 +2956,11 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
   const previousBodyTimeoutDebugFlag = process.env.XTALPI_PI_TOOLS_DEBUG;
   const previousBodyTimeoutDebugPath = process.env.XTALPI_PI_TOOLS_DEBUG_PATH;
   const previousBodyTimeoutMs = process.env.XTALPI_PI_TOOLS_TIMEOUT_MS;
+  const previousBodyTimeoutAttempts = process.env.XTALPI_PI_TOOLS_REQUEST_ATTEMPTS;
   process.env.XTALPI_PI_TOOLS_DEBUG = "1";
   process.env.XTALPI_PI_TOOLS_DEBUG_PATH = bodyTimeoutDebugFile;
   process.env.XTALPI_PI_TOOLS_TIMEOUT_MS = "1000";
+  process.env.XTALPI_PI_TOOLS_REQUEST_ATTEMPTS = "1";
   try {
     let bodyTimeoutFetchCount = 0;
     global.fetch = async () => {
@@ -3007,6 +3019,11 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
     } else {
       process.env.XTALPI_PI_TOOLS_TIMEOUT_MS = previousBodyTimeoutMs;
     }
+    if (previousBodyTimeoutAttempts === undefined) {
+      delete process.env.XTALPI_PI_TOOLS_REQUEST_ATTEMPTS;
+    } else {
+      process.env.XTALPI_PI_TOOLS_REQUEST_ATTEMPTS = previousBodyTimeoutAttempts;
+    }
     fs.rmSync(bodyTimeoutDebugDir, { recursive: true, force: true });
   }
 
@@ -3018,13 +3035,22 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
   const providerErrorDebugFile = path.join(providerErrorDebugDir, "debug.jsonl");
   const previousProviderErrorDebugFlag = process.env.XTALPI_PI_TOOLS_DEBUG;
   const previousProviderErrorDebugPath = process.env.XTALPI_PI_TOOLS_DEBUG_PATH;
+  const previousProviderErrorAttempts = process.env.XTALPI_PI_TOOLS_REQUEST_ATTEMPTS;
+  const previousProviderErrorDelay = process.env.XTALPI_PI_TOOLS_RETRY_DELAY_MS;
+  const previousProviderErrorJitter = process.env.XTALPI_PI_TOOLS_RETRY_JITTER_MS;
   process.env.XTALPI_PI_TOOLS_DEBUG = "1";
   process.env.XTALPI_PI_TOOLS_DEBUG_PATH = providerErrorDebugFile;
-  global.fetch = async () =>
-    new Response("rate limited for Bearer short", {
+  process.env.XTALPI_PI_TOOLS_REQUEST_ATTEMPTS = "3";
+  process.env.XTALPI_PI_TOOLS_RETRY_DELAY_MS = "0";
+  process.env.XTALPI_PI_TOOLS_RETRY_JITTER_MS = "0";
+  let http429FetchCount = 0;
+  global.fetch = async () => {
+    http429FetchCount += 1;
+    return new Response("rate limited for Bearer short", {
       status: 429,
       headers: { "content-type": "text/plain" },
     });
+  };
   try {
     const http429Stream = registeredProvider.streamSimple(
       {
@@ -3042,6 +3068,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
       {},
     );
     const http429Final = await http429Stream.result();
+    assert.equal(http429FetchCount, 1);
     assert.equal(http429Final.stopReason, "error");
     assert.match(http429Final.errorMessage, /HTTP 429/);
     assert.ok(!http429Final.errorMessage.includes("Bearer short"));
@@ -3054,6 +3081,10 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
     assert.equal(errorEvent.error_category, "rate_limit");
     assert.equal(errorEvent.retryable, true);
     assert.equal(errorEvent.http_status, 429);
+    const retrySuppressedEvent = debugEvents.find((event) => event.event === "request.retry_suppressed");
+    assert.ok(retrySuppressedEvent);
+    assert.equal(retrySuppressedEvent.error_code, "http_429");
+    assert.equal(retrySuppressedEvent.retry_suppressed_reason, "rate_limit_immediate_retry_disabled");
     assert.ok(!JSON.stringify(errorEvent).includes("Bearer short"));
     assert.ok(JSON.stringify(errorEvent).includes("Bearer [REDACTED]"));
   } finally {
@@ -3068,7 +3099,114 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
     } else {
       process.env.XTALPI_PI_TOOLS_DEBUG_PATH = previousProviderErrorDebugPath;
     }
+    if (previousProviderErrorAttempts === undefined) {
+      delete process.env.XTALPI_PI_TOOLS_REQUEST_ATTEMPTS;
+    } else {
+      process.env.XTALPI_PI_TOOLS_REQUEST_ATTEMPTS = previousProviderErrorAttempts;
+    }
+    if (previousProviderErrorDelay === undefined) {
+      delete process.env.XTALPI_PI_TOOLS_RETRY_DELAY_MS;
+    } else {
+      process.env.XTALPI_PI_TOOLS_RETRY_DELAY_MS = previousProviderErrorDelay;
+    }
+    if (previousProviderErrorJitter === undefined) {
+      delete process.env.XTALPI_PI_TOOLS_RETRY_JITTER_MS;
+    } else {
+      process.env.XTALPI_PI_TOOLS_RETRY_JITTER_MS = previousProviderErrorJitter;
+    }
     fs.rmSync(providerErrorDebugDir, { recursive: true, force: true });
+  }
+
+  const runtimeRetryDebugDir = fs.mkdtempSync(path.join(process.env.TMPDIR || "/tmp", "xtalpi-pi-tools-runtime-retry-test."));
+  const runtimeRetryDebugFile = path.join(runtimeRetryDebugDir, "debug.jsonl");
+  const previousRuntimeRetryDebugFlag = process.env.XTALPI_PI_TOOLS_DEBUG;
+  const previousRuntimeRetryDebugPath = process.env.XTALPI_PI_TOOLS_DEBUG_PATH;
+  const previousRuntimeRetryAttempts = process.env.XTALPI_PI_TOOLS_REQUEST_ATTEMPTS;
+  const previousRuntimeRetryDelay = process.env.XTALPI_PI_TOOLS_RETRY_DELAY_MS;
+  const previousRuntimeRetryJitter = process.env.XTALPI_PI_TOOLS_RETRY_JITTER_MS;
+  process.env.XTALPI_PI_TOOLS_DEBUG = "1";
+  process.env.XTALPI_PI_TOOLS_DEBUG_PATH = runtimeRetryDebugFile;
+  process.env.XTALPI_PI_TOOLS_REQUEST_ATTEMPTS = "2";
+  process.env.XTALPI_PI_TOOLS_RETRY_DELAY_MS = "0";
+  process.env.XTALPI_PI_TOOLS_RETRY_JITTER_MS = "0";
+  try {
+    let runtimeRetryFetchCount = 0;
+    global.fetch = async () => {
+      runtimeRetryFetchCount += 1;
+      if (runtimeRetryFetchCount === 1) {
+        return new Response("temporary upstream failure", {
+          status: 503,
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      return new Response(JSON.stringify(chatResponse('{"kind":"final","text":"runtime retry ok"}')), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    const runtimeRetryStream = registeredProvider.streamSimple(
+      {
+        id: "deepseek-v4-pro",
+        maxTokens: 32768,
+        api: "xtalpi-pi-tools",
+        provider: "xtalpi-pi-tools",
+        baseUrl: "https://example.invalid/v1",
+      },
+      {
+        systemPrompt: "system base",
+        tools: [],
+        messages: [{ role: "user", content: "hello" }],
+      },
+      {},
+    );
+    const runtimeRetryFinal = await runtimeRetryStream.result();
+    assert.equal(runtimeRetryFetchCount, 2);
+    assert.equal(runtimeRetryFinal.stopReason, "stop");
+    assert.equal(
+      runtimeRetryFinal.content.filter((block) => block.type === "text").map((block) => block.text).join("\n"),
+      "runtime retry ok",
+    );
+
+    const retryDebugEvents = fs.readFileSync(runtimeRetryDebugFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    const retryEvent = retryDebugEvents.find((event) => event.event === "request.retry");
+    assert.ok(retryEvent);
+    assert.equal(retryEvent.error_code, "http_5xx");
+    assert.equal(retryEvent.retryable, true);
+    assert.equal(retryEvent.retry_delay_ms, 0);
+    const responseEvent = retryDebugEvents.find((event) => event.event === "response");
+    assert.ok(responseEvent);
+    assert.equal(responseEvent.attempt, 2);
+    assert.equal(responseEvent.attempt_count, 2);
+    assert.equal(responseEvent.retry_count, 1);
+  } finally {
+    global.fetch = originalFetch;
+    if (previousRuntimeRetryDebugFlag === undefined) {
+      delete process.env.XTALPI_PI_TOOLS_DEBUG;
+    } else {
+      process.env.XTALPI_PI_TOOLS_DEBUG = previousRuntimeRetryDebugFlag;
+    }
+    if (previousRuntimeRetryDebugPath === undefined) {
+      delete process.env.XTALPI_PI_TOOLS_DEBUG_PATH;
+    } else {
+      process.env.XTALPI_PI_TOOLS_DEBUG_PATH = previousRuntimeRetryDebugPath;
+    }
+    if (previousRuntimeRetryAttempts === undefined) {
+      delete process.env.XTALPI_PI_TOOLS_REQUEST_ATTEMPTS;
+    } else {
+      process.env.XTALPI_PI_TOOLS_REQUEST_ATTEMPTS = previousRuntimeRetryAttempts;
+    }
+    if (previousRuntimeRetryDelay === undefined) {
+      delete process.env.XTALPI_PI_TOOLS_RETRY_DELAY_MS;
+    } else {
+      process.env.XTALPI_PI_TOOLS_RETRY_DELAY_MS = previousRuntimeRetryDelay;
+    }
+    if (previousRuntimeRetryJitter === undefined) {
+      delete process.env.XTALPI_PI_TOOLS_RETRY_JITTER_MS;
+    } else {
+      process.env.XTALPI_PI_TOOLS_RETRY_JITTER_MS = previousRuntimeRetryJitter;
+    }
+    fs.rmSync(runtimeRetryDebugDir, { recursive: true, force: true });
   }
 
   process.env.XTALPI_PI_TOOLS_MAX_TOOLS = "8";

@@ -6,6 +6,35 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.6] - 2026-07-08
+
+### Changed
+
+- `xtalpi-pi-tools` now retries retryable runtime chat-completion transport
+  failures by default, with bounded backoff and debug telemetry for request
+  attempts, retry delays, and retry suppression reasons. This moves the
+  provider-health retry behavior into the normal live provider path.
+- Bash and PowerShell targeted xtalpi smoke now treat final-answer compliance as
+  a local repairable condition: when tool choice, arguments, debug telemetry,
+  and execution are already valid but the final answer misses required smoke
+  text, the runner performs one no-tool final-answer repair instead of rerunning
+  tools or reporting a protocol failure.
+- Doctor skill-list probes now default to a 60 second timeout, and the npm
+  manager accepts `pi-67 doctor --no-skill-list` for the POSIX doctor path.
+- `pi-67 report --json` now works as a command-level JSON option. Dry runs emit
+  a machine-readable dry-run object; real runs emit the generated report JSON to
+  stdout after writing the report file.
+- The npm publish workflow now installs extension dependencies and runs the
+  full `scripts/pi67-smoke.sh --ci` gate before packing or publishing.
+
+### Fixed
+
+- Bash xtalpi smoke self-tests now simulate real tool-selection telemetry, so
+  continuation/final-repair regressions fail the local gate instead of being
+  hidden by simplified fake-Pi fixtures.
+- PowerShell targeted smoke retries `missing_final_text:*` final-answer-only
+  failures and self-tests the final compliance repair eligibility path.
+
 ## [0.10.5] - 2026-07-08
 
 ### Changed

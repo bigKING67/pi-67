@@ -9,6 +9,8 @@ import {
   buildHttpError,
   buildProviderError,
   classifyTransportError,
+  providerHealthImmediateRetry,
+  toErrorTelemetry,
 } from "./errors.ts";
 import {
   PROVIDER_ID,
@@ -30,6 +32,7 @@ import {
   resolveRequestTimeoutMs,
   type ProviderRuntimeConfig,
 } from "./runtime-config.ts";
+import { envInt } from "./retry.ts";
 import { safeBlockText } from "./text-safety.ts";
 
 export type XtalpiChatResponse = {
@@ -44,6 +47,18 @@ type FetchTextResult = {
   body: string;
 };
 
+type RequestRetryConfig = {
+  attempts: number;
+  retryDelayMs: number;
+  retryMaxDelayMs: number;
+  retryJitterMs: number;
+};
+
+const DEFAULT_REQUEST_ATTEMPTS = 3;
+const DEFAULT_REQUEST_RETRY_DELAY_MS = 1000;
+const DEFAULT_REQUEST_RETRY_MAX_DELAY_MS = 8000;
+const DEFAULT_REQUEST_RETRY_JITTER_MS = 250;
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -57,6 +72,60 @@ function throwIfCallerAborted(signal: AbortSignal | undefined): void {
   throw buildProviderError("request_aborted", "xtalpi-pi-tools request aborted by caller", {
     cause: abortReason(signal),
   });
+}
+
+function resolveRequestRetryConfig(): RequestRetryConfig {
+  return {
+    attempts: Math.min(envInt("XTALPI_PI_TOOLS_REQUEST_ATTEMPTS", DEFAULT_REQUEST_ATTEMPTS, 1), 8),
+    retryDelayMs: envInt("XTALPI_PI_TOOLS_RETRY_DELAY_MS", DEFAULT_REQUEST_RETRY_DELAY_MS, 0),
+    retryMaxDelayMs: envInt("XTALPI_PI_TOOLS_RETRY_MAX_DELAY_MS", DEFAULT_REQUEST_RETRY_MAX_DELAY_MS, 0),
+    retryJitterMs: envInt("XTALPI_PI_TOOLS_RETRY_JITTER_MS", DEFAULT_REQUEST_RETRY_JITTER_MS, 0),
+  };
+}
+
+function requestRetryDelayMs(config: RequestRetryConfig, failedAttempt: number): number {
+  const exponentialDelay = config.retryDelayMs * 2 ** Math.max(0, failedAttempt - 1);
+  const boundedDelay = config.retryMaxDelayMs > 0 ? Math.min(exponentialDelay, config.retryMaxDelayMs) : exponentialDelay;
+  const jitter = config.retryJitterMs > 0 ? Math.floor(Math.random() * (config.retryJitterMs + 1)) : 0;
+  return boundedDelay + jitter;
+}
+
+function retrySuppressedReason(error: XtalpiProviderError, attempt: number, attempts: number, signal?: AbortSignal): string | undefined {
+  if (signal?.aborted) return "caller_aborted";
+  if (attempt >= attempts) return "attempts_exhausted";
+  if (!error.retryable) return "non_retryable_error";
+  if (!providerHealthImmediateRetry(error.code)) {
+    return error.code === "http_429" ? "rate_limit_immediate_retry_disabled" : "provider_immediate_retry_disabled";
+  }
+  return undefined;
+}
+
+async function sleepWithAbort(delayMs: number, signal?: AbortSignal): Promise<void> {
+  throwIfCallerAborted(signal);
+  if (delayMs <= 0) return;
+
+  let removeAbortListener: (() => void) | undefined;
+  const delayPromise = new Promise<void>((resolve) => {
+    const timeout = setTimeout(resolve, delayMs);
+    removeAbortListener = () => clearTimeout(timeout);
+  });
+  const abortPromise = new Promise<never>((_resolve, reject) => {
+    const abortHandler = () => reject(buildProviderError("request_aborted", "xtalpi-pi-tools request aborted by caller", {
+      cause: abortReason(signal),
+    }));
+    signal?.addEventListener("abort", abortHandler, { once: true });
+    const previousRemove = removeAbortListener;
+    removeAbortListener = () => {
+      previousRemove?.();
+      signal?.removeEventListener("abort", abortHandler);
+    };
+  });
+
+  try {
+    await Promise.race([delayPromise, abortPromise]);
+  } finally {
+    removeAbortListener?.();
+  }
 }
 
 async function readResponseTextWithAbort(response: Response, signal: AbortSignal): Promise<string> {
@@ -161,54 +230,95 @@ export async function callXtalpiChat(input: {
 
   const payload = buildChatCompletionPayload(model, messages, options);
   const timeoutMs = resolveRequestTimeoutMs(options);
-  debugLog("request", {
-    provider: PROVIDER_ID,
-    model: model.id,
-    messageCount: payload.messages.length,
-    maxTokens: payload.max_tokens,
-    nativeToolsPresent: false,
-    actionProtocol: JSON_ACTION_PROTOCOL,
-    responseFormat: jsonActionResponseFormat()?.type ?? null,
-    timeoutMs,
-  });
+  const retryConfig = resolveRequestRetryConfig();
+  const endpoint = endpointFor(model, runtimeConfig);
+  const init: RequestInit = {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json",
+      authorization: `Bearer ${apiKey}`,
+      ...(model.headers || {}),
+      ...(options?.headers || {}),
+    },
+    body: JSON.stringify(payload),
+  };
 
-  let response: Response;
-  let body: string;
-  try {
-    ({ response, body } = await fetchTextWithTimeout(
-      endpointFor(model, runtimeConfig),
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          accept: "application/json",
-          authorization: `Bearer ${apiKey}`,
-          ...(model.headers || {}),
-          ...(options?.headers || {}),
-        },
-        body: JSON.stringify(payload),
-      },
+  for (let attempt = 1; attempt <= retryConfig.attempts; attempt += 1) {
+    throwIfCallerAborted(options?.signal);
+    debugLog("request", {
+      provider: PROVIDER_ID,
+      model: model.id,
+      messageCount: payload.messages.length,
+      maxTokens: payload.max_tokens,
+      nativeToolsPresent: false,
+      actionProtocol: JSON_ACTION_PROTOCOL,
+      responseFormat: jsonActionResponseFormat()?.type ?? null,
       timeoutMs,
-      options?.signal,
-    ));
-  } catch (error) {
-    if (error instanceof XtalpiProviderError) throw error;
-    throw classifyTransportError(error, timeoutMs, options?.signal?.aborted === true);
+      attempt,
+      attemptCount: retryConfig.attempts,
+      retryCount: attempt - 1,
+    });
+
+    try {
+      const { response, body } = await fetchTextWithTimeout(
+        endpoint,
+        init,
+        timeoutMs,
+        options?.signal,
+      );
+
+      if (!response.ok) {
+        throw buildHttpError(response.status, body);
+      }
+
+      const parsed = parseXtalpiChatResponse(body);
+      debugLog("response", {
+        provider: PROVIDER_ID,
+        model: model.id,
+        responseModel: parsed.responseModel,
+        finishReason: parsed.finishReason,
+        contentChars: parsed.content.length,
+        usage: parsed.usage,
+        attempt,
+        attemptCount: retryConfig.attempts,
+        retryCount: attempt - 1,
+      });
+
+      return parsed;
+    } catch (error) {
+      const providerError =
+        error instanceof XtalpiProviderError
+          ? error
+          : classifyTransportError(error, timeoutMs, options?.signal?.aborted === true);
+      const suppressedReason = retrySuppressedReason(providerError, attempt, retryConfig.attempts, options?.signal);
+      const telemetry = {
+        provider: PROVIDER_ID,
+        model: model.id,
+        attempt,
+        attemptCount: retryConfig.attempts,
+        retryCount: Math.max(0, attempt - 1),
+        ...toErrorTelemetry(providerError),
+      };
+
+      if (!suppressedReason) {
+        const retryDelayMs = requestRetryDelayMs(retryConfig, attempt);
+        debugLog("request.retry", {
+          ...telemetry,
+          retryCount: attempt,
+          retryDelayMs,
+        });
+        await sleepWithAbort(retryDelayMs, options?.signal);
+        continue;
+      }
+
+      debugLog("request.retry_suppressed", {
+        ...telemetry,
+        retrySuppressedReason: suppressedReason,
+      });
+      throw providerError;
+    }
   }
 
-  if (!response.ok) {
-    throw buildHttpError(response.status, body);
-  }
-
-  const parsed = parseXtalpiChatResponse(body);
-  debugLog("response", {
-    provider: PROVIDER_ID,
-    model: model.id,
-    responseModel: parsed.responseModel,
-    finishReason: parsed.finishReason,
-    contentChars: parsed.content.length,
-    usage: parsed.usage,
-  });
-
-  return parsed;
+  throw buildProviderError("unknown_error", "xtalpi-pi-tools request retry loop ended without a result");
 }

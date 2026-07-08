@@ -145,6 +145,23 @@ If you do not use xtalpi, change both fields to a provider/model that exists in 
 
 `xtalpi-pi-tools` is designed to avoid the old OpenAI-compatible tool continuation issue. It does not send native `tools`, `tool_choice`, `parallel_tool_calls`, `role=tool`, `thinking`, or `reasoning_effort` to xtalpi.
 
+Runtime requests are retried locally for transient provider/transport failures.
+Defaults are:
+
+```bash
+XTALPI_PI_TOOLS_REQUEST_ATTEMPTS=3
+XTALPI_PI_TOOLS_RETRY_DELAY_MS=1000
+XTALPI_PI_TOOLS_RETRY_MAX_DELAY_MS=8000
+XTALPI_PI_TOOLS_RETRY_JITTER_MS=250
+```
+
+Timeouts, network errors, HTTP 408/5xx, non-JSON responses, and malformed
+responses are retried within that budget. HTTP 429 is classified as rate-limit
+and `retryable=true`, but immediate retry is suppressed to avoid burning more
+requests during a rate-limit window. If all attempts fail, inspect debug
+telemetry for `attempt_count`, `retry_count`, `retry_suppressed_reason`, and
+the structured `errorCode` / `errorCategory`.
+
 The local provider also owns the final-answer protocol boundary. If xtalpi returns
 tool-call-like content as ordinary assistant text, Pi must not accept it as a
 successful final answer. The guard covers JSON action objects, bare
@@ -161,6 +178,13 @@ language text contains unescaped quotes, for example
 for user-visible text and prevents Plan mode from stopping on an invalid-JSON
 repair error. The same loose recovery is intentionally not applied to malformed
 `tool_call` envelopes; those still fail closed before any tool can execute.
+
+Targeted smoke also has a final-compliance repair path for a narrower case:
+tools already executed correctly, arguments and telemetry passed local checks,
+but the final answer is missing required marker text. The runner performs one
+`--no-tools` final-answer repair so it does not repeat side-effecting tools.
+Tool absence, bad arguments, runtime errors, raw protocol leaks, and timeouts do
+not use this repair path; they remain failures.
 
 First run the local protocol test:
 

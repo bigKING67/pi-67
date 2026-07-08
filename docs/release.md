@@ -186,9 +186,16 @@ node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" backu
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" backups list --include-legacy --json
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" backups prune --keep-last 10 --dry-run --json
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" xtalpi smoke --self-test
+node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" doctor --no-skill-list --dry-run
+node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" report --json --dry-run
 node packages/pi67-cli/bin/pi-67.mjs --dry-run self-update
 npm pack --dry-run ./packages/pi67-cli
 ```
+
+The GitHub `npm-publish.yml` workflow repeats the release metadata check and
+runs the full `bash scripts/pi67-smoke.sh --ci` gate before `npm publish`. This
+keeps Trusted Publishing from publishing a package whose local release/smoke
+contract is already known to be failing.
 
 For release/parity checks where different existing global shared skills should
 block instead of being preserved, run:

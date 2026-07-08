@@ -67,6 +67,13 @@ jobs:
           }
           NODE
 
+      - name: Install Pi extension dependencies
+        shell: bash
+        run: |
+          mkdir -p npm
+          cp package.json npm/package.json
+          npm --prefix npm install --ignore-scripts
+
       - name: Validate requested version
         shell: bash
         env:
@@ -117,6 +124,9 @@ jobs:
 
       - name: Run release metadata check
         run: bash scripts/pi67-release-check.sh
+
+      - name: Run full pi-67 smoke gate
+        run: bash scripts/pi67-smoke.sh --ci
 
       - name: Pack npm manager
         run: npm pack --dry-run ./packages/pi67-cli

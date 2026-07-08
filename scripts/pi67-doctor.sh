@@ -20,7 +20,7 @@ OUTPUT_FORMAT="text"
 QUIET=false
 DEEP_MCP=false
 MCP_TIMEOUT_MS=2500
-SKILL_LIST_TIMEOUT_SECONDS="${PI67_DOCTOR_SKILL_LIST_TIMEOUT_SECONDS:-30}"
+SKILL_LIST_TIMEOUT_SECONDS="${PI67_DOCTOR_SKILL_LIST_TIMEOUT_SECONDS:-60}"
 STRICT_SHARED_SKILLS=false
 
 CHECKS_FILE="$(mktemp "${TMPDIR:-/tmp}/pi67-doctor-checks.XXXXXX")"
@@ -52,7 +52,7 @@ Options:
       --deep-mcp           Start configured MCP servers briefly and probe initialize + tools/list.
       --mcp-timeout-ms MS  Timeout per MCP deep probe. Defaults to 2500.
       --skill-list-timeout-seconds SEC
-                           Timeout for `pi skill list`. Defaults to 30.
+                           Timeout for `pi skill list`. Defaults to 60.
       --quiet              Print only the text summary and final result.
       --json               Print machine-readable JSON only.
   -h, --help               Show this help.
