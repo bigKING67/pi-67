@@ -75,6 +75,7 @@ export async function buildUpdatePlan(ctx, options = {}) {
     git,
     benignRuntime,
     managerRegistry,
+    remote,
     manifest,
     skills,
     external,
@@ -167,23 +168,35 @@ export function buildPlanDecisions(context) {
       recovery: "commit/stash intentional changes or rerun the script-level updater with an explicit dirty override",
     });
   } else if (context.git.dirty && dirty.preservedRuntime.length > 0) {
+    const remoteStatus = classifyIncomingRemoteStatus(context.git, context.remote);
+    const preserveInPlace = remoteStatus.upToDate;
     actions.push({
       id: "user-runtime-config",
       kind: "runtime-config",
-      operation: "backup-and-restore-during-update",
-      writes: ["~/.pi/pi67/backups/pre-update-runtime-*"],
+      operation: preserveInPlace
+        ? "preserve-in-place-no-backup"
+        : "conditional-backup-if-incoming-update-touches-runtime-config",
+      writes: preserveInPlace
+        ? []
+        : ["~/.pi/pi67/backups/pre-update-runtime-* only if incoming update touches preserved runtime files"],
       preserves: dirty.preservedRuntime,
       risk: "low",
-      reason: benignRuntime.benign
-        ? `benign runtime marker only: ${benignRuntime.reasons.join("; ")}`
-        : "only user-owned runtime config files are dirty; update snapshots and restores them instead of overwriting",
+      reason: runtimeConfigActionReason({ benignRuntime, preserveInPlace, remoteStatus }),
       benign: benignRuntime.benign,
       benignReasons: benignRuntime.reasons,
+      createsNewBackup: !preserveInPlace,
+      backupCondition: preserveInPlace
+        ? "none: remote already matches the local checkout"
+        : "only when fetched incoming changes overlap preserved runtime files",
     });
     warnings.push(
-      benignRuntime.benign
-        ? `benign user runtime marker will be preserved across update: ${dirty.preservedRuntime.join(", ")}`
-        : `dirty user runtime config will be preserved across update: ${dirty.preservedRuntime.join(", ")}`,
+      preserveInPlace
+        ? `dirty user runtime config will stay in place; current remote is already at the local commit: ${dirty.preservedRuntime.join(", ")}`
+        : (
+          benignRuntime.benign
+            ? `benign user runtime marker will be preserved; backup is conditional on incoming path overlap: ${dirty.preservedRuntime.join(", ")}`
+            : `dirty user runtime config will be preserved; backup is conditional on incoming path overlap: ${dirty.preservedRuntime.join(", ")}`
+        ),
     );
   }
   if (context.git?.dirty && dirty.untracked.length > 0) {
@@ -287,6 +300,30 @@ export function buildPlanDecisions(context) {
   }
 
   return { actions, blocked, warnings };
+}
+
+function classifyIncomingRemoteStatus(git, remote) {
+  if (remote?.skipped) return { upToDate: false, known: false, reason: "remote check skipped" };
+  if (!remote?.commit || !git?.commit) return { upToDate: false, known: false, reason: remote?.message || "remote commit unknown" };
+  const local = String(git.commit);
+  const remoteCommit = String(remote.commit);
+  return {
+    upToDate: remoteCommit.startsWith(local),
+    known: true,
+    reason: remoteCommit.startsWith(local)
+      ? "remote already matches local commit"
+      : "remote differs from local commit; updater will inspect changed paths after fetch",
+  };
+}
+
+function runtimeConfigActionReason({ benignRuntime, preserveInPlace, remoteStatus }) {
+  const prefix = benignRuntime.benign
+    ? `benign runtime marker only: ${benignRuntime.reasons.join("; ")}`
+    : "only user-owned runtime config files are dirty";
+  if (preserveInPlace) {
+    return `${prefix}; ${remoteStatus.reason}; no runtime backup is needed`;
+  }
+  return `${prefix}; updater fetches first and creates a runtime backup only if incoming changes touch these preserved files`;
 }
 
 export function classifyGitShort(short) {

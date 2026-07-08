@@ -77,13 +77,17 @@ Before a real `update` or `repair`, the npm manager builds the update plan,
 blocks unsafe non-runtime dirty worktrees, and acquires
 `~/.pi/pi67/locks/update.lock`. Runtime config backup/restore is delegated to
 the Bash or PowerShell updater script only when an in-place checkout needs to
-temporarily clear dirty preserved runtime files for `git pull --ff-only`. Those
-script-level snapshots live under `~/.pi/pi67/backups/pre-update-runtime-*`.
-This keeps `--help`, blocked update plans, and the public `npx -y
+temporarily clear dirty preserved runtime files. The updater fetches first,
+compares incoming `HEAD..FETCH_HEAD` changed paths, and creates a runtime
+snapshot only when the incoming update touches those dirty preserved files.
+Those script-level snapshots live under
+`~/.pi/pi67/backups/pre-update-runtime-*`.
+This keeps `--help`, blocked update plans, already-up-to-date updates,
+non-overlapping incoming updates, and the public `npx -y
 @bigking67/pi-67@latest update --repair` orchestration path free of duplicate
-manager-owned runtime backups. If an identical runtime snapshot already exists,
-the script-level updater reuses it instead of writing another timestamped
-directory.
+manager-owned runtime backups. If a backup is actually needed and an identical
+runtime snapshot already exists, the script-level updater reuses it instead of
+writing another timestamped directory.
 
 Runtime backups are first-class CLI state:
 

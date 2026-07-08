@@ -650,11 +650,14 @@ Before a real update/repair, the npm manager writes
 `~/.pi/pi67/locks/update.lock` and blocks unsafe non-runtime dirty worktrees.
 Runtime config backup/restore is delegated to the Bash or PowerShell updater
 only when an in-place checkout needs to temporarily clear dirty preserved
-runtime files for `git pull --ff-only`; those snapshots live under
-`~/.pi/pi67/backups/pre-update-runtime-*`. Unrelated tracked edits still block.
-If preserved runtime files are unchanged from an existing equivalent backup,
-the updater reuses the snapshot instead of creating another timestamped backup
-directory. Inspect or recover runtime snapshots with:
+runtime files. The updater fetches first, compares incoming changed paths, and
+creates `~/.pi/pi67/backups/pre-update-runtime-*` only when the incoming update
+touches those dirty runtime files. Already-up-to-date updates and
+non-overlapping incoming updates leave dirty runtime config in place without
+creating a backup. Unrelated tracked edits still block. If preserved runtime
+files are unchanged from an existing equivalent backup, the updater reuses the
+snapshot instead of creating another timestamped backup directory. Inspect or
+recover runtime snapshots with:
 
 ```bash
 pi-67 backups list
@@ -832,7 +835,7 @@ For a Windows machine that has not received the PowerShell updater yet:
 ```powershell
 Set-Location $env:USERPROFILE\.pi\agent
 $Stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$BackupDir = Join-Path $env:USERPROFILE ".pi\agent-backups\pre-update-$Stamp"
+$BackupDir = Join-Path $env:USERPROFILE ".pi\pi67\backups\pre-update-bootstrap-$Stamp"
 New-Item -ItemType Directory -Force $BackupDir | Out-Null
 $KnownPaths = @("settings.json", "extensions/xtalpi-compat/index.ts")
 $RestorePaths = @()

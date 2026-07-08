@@ -54,7 +54,7 @@ Options:
                       global skill and continues.
   -NoAutoResolveKnownConflicts
                        Do not auto-backup/restore dirty user runtime config
-                       files before git update.
+                       files when incoming changed paths overlap them.
   -Help               Show this help.
 
 Normal Windows update:
@@ -810,6 +810,44 @@ function Test-StringArrayContainsAll {
   return $true
 }
 
+function Test-StringArrayOverlaps {
+  param([string[]]$Left, [string[]]$Right)
+
+  $seen = @{}
+  foreach ($item in @($Right)) {
+    if ($item) {
+      $seen[[string]$item] = $true
+    }
+  }
+  foreach ($item in @($Left)) {
+    if ($seen.ContainsKey([string]$item)) {
+      return $true
+    }
+  }
+  return $false
+}
+
+function Get-DirtyPathsFromTrackedStatus {
+  param([string[]]$TrackedStatus)
+
+  $dirtyPaths = @()
+  foreach ($line in @($TrackedStatus)) {
+    $path = Get-StatusPath $line
+    if ($path) {
+      $dirtyPaths += $path
+    }
+  }
+  return @($dirtyPaths)
+}
+
+function Write-RuntimeDirtyNoBackupNeeded {
+  param([string[]]$DirtyPaths)
+
+  Write-Warn "tracked edits are limited to user-owned runtime config files"
+  Write-Warn "incoming git update does not touch them; leaving them in place without creating a runtime backup"
+  Write-Host ("  preserved: {0}" -f ($DirtyPaths -join " "))
+}
+
 function Get-BackupManifestPath {
   param([string]$BackupDir)
 
@@ -879,13 +917,7 @@ function Find-EquivalentUserRuntimeBackup {
 function Backup-And-ClearUserRuntimeTrackedEdits {
   param([string[]]$TrackedStatus)
 
-  $dirtyPaths = @()
-  foreach ($line in $TrackedStatus) {
-    $path = Get-StatusPath $line
-    if ($path) {
-      $dirtyPaths += $path
-    }
-  }
+  $dirtyPaths = @(Get-DirtyPathsFromTrackedStatus -TrackedStatus $TrackedStatus)
 
   if ($dirtyPaths.Count -eq 0) {
     return $null
@@ -1140,33 +1172,56 @@ function Update-Repo {
   $targetBranch = Get-CurrentBranch
   $trackedStatus = Get-GitStatusLines
   $runtimeBackup = $null
+  $dirtyPaths = @(Get-DirtyPathsFromTrackedStatus -TrackedStatus $trackedStatus)
+  $unknownDirtyPaths = @($dirtyPaths | Where-Object { $UserPreservedTrackedUpdatePaths -notcontains $_ })
 
-  if ($trackedStatus.Count -gt 0 -and -not $AllowDirty -and -not $NoAutoResolveKnownConflicts) {
-    $runtimeBackup = Backup-And-ClearUserRuntimeTrackedEdits $trackedStatus
-    if (-not $runtimeBackup) {
-      foreach ($line in $trackedStatus) {
-        Write-Host $line
-      }
-      Write-Fail "repo has non-runtime tracked local changes; commit/stash them or rerun with -AllowDirty"
-    }
-  } elseif ($trackedStatus.Count -gt 0 -and $AllowDirty) {
-    Write-Warn "repo has tracked local changes; proceeding because -AllowDirty was provided"
-  } elseif ($trackedStatus.Count -gt 0) {
+  if ($trackedStatus.Count -gt 0 -and -not $AllowDirty -and ($NoAutoResolveKnownConflicts -or $unknownDirtyPaths.Count -gt 0)) {
     foreach ($line in $trackedStatus) {
       Write-Host $line
     }
-    Write-Fail "repo has tracked local changes and auto-preserve is disabled; commit/stash them or rerun with -AllowDirty"
+    if ($NoAutoResolveKnownConflicts) {
+      Write-Fail "repo has tracked local changes and auto-preserve is disabled; commit/stash them or rerun with -AllowDirty"
+    }
+    Write-Fail "repo has non-runtime tracked local changes; commit/stash them or rerun with -AllowDirty"
+  } elseif ($trackedStatus.Count -gt 0 -and $AllowDirty) {
+    Write-Warn "repo has tracked local changes; proceeding because -AllowDirty was provided"
   }
 
   $before = (Invoke-Git @("rev-parse", "--short", "HEAD") | Select-Object -First 1)
   if ($DryRun) {
-    Write-Host ("  DRY-RUN git -C {0} pull --ff-only {1} {2}" -f $RepoRoot, $Remote, $targetBranch) -ForegroundColor Cyan
+    if ($trackedStatus.Count -gt 0 -and -not $AllowDirty) {
+      Write-Host "  DRY-RUN inspect incoming changed paths before deciding whether runtime backup is needed" -ForegroundColor Cyan
+    }
+    Write-Host ("  DRY-RUN git -C {0} fetch --prune {1} {2}" -f $RepoRoot, $Remote, $targetBranch) -ForegroundColor Cyan
+    Write-Host ("  DRY-RUN git -C {0} merge --ff-only FETCH_HEAD" -f $RepoRoot) -ForegroundColor Cyan
     Write-Pass ("current revision: {0}" -f $before)
     return
   }
 
+  Invoke-Git @("fetch", "--prune", $Remote, $targetBranch) -Echo | Out-Null
   try {
-    Invoke-Git @("pull", "--ff-only", $Remote, $targetBranch) -Echo | Out-Null
+    Invoke-Git @("merge-base", "--is-ancestor", "HEAD", "FETCH_HEAD") | Out-Null
+  } catch {
+    Write-Fail ("remote update is not a fast-forward; inspect {0}/{1} before updating" -f $Remote, $targetBranch)
+  }
+  $incomingChangedPaths = @(Invoke-Git @("diff", "--name-only", "HEAD", "FETCH_HEAD", "--") | Where-Object { $_ })
+
+  if ($trackedStatus.Count -gt 0 -and -not $AllowDirty) {
+    if (Test-StringArrayOverlaps -Left $dirtyPaths -Right $incomingChangedPaths) {
+      $runtimeBackup = Backup-And-ClearUserRuntimeTrackedEdits $trackedStatus
+      if (-not $runtimeBackup) {
+        foreach ($line in $trackedStatus) {
+          Write-Host $line
+        }
+        Write-Fail "repo has non-runtime tracked local changes; commit/stash them or rerun with -AllowDirty"
+      }
+    } else {
+      Write-RuntimeDirtyNoBackupNeeded $dirtyPaths
+    }
+  }
+
+  try {
+    Invoke-Git @("merge", "--ff-only", "FETCH_HEAD") -Echo | Out-Null
   } catch {
     Restore-UserRuntimeTrackedEdits $runtimeBackup
     throw

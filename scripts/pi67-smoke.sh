@@ -119,6 +119,7 @@ cleanup() {
     /tmp/pi67-smoke-update-check.log \
     /tmp/pi67-smoke-update-dry.log \
     /tmp/pi67-smoke-update.log \
+    /tmp/pi67-smoke-update-runtime-no-backup.log \
     /tmp/pi67-smoke-update-conflict.log \
     /tmp/pi67-smoke-update-strict-conflict.log \
     /tmp/pi67-smoke-uninstall-dry.log \
@@ -137,6 +138,15 @@ trap cleanup EXIT
 
 command_exists() {
   command -v "$1" >/dev/null 2>&1
+}
+
+count_backup_dirs() {
+  local root="$1"
+  if [ ! -d "$root" ]; then
+    printf '0\n'
+    return
+  fi
+  find "$root" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d '[:space:]'
 }
 
 json_valid() {
@@ -1192,6 +1202,36 @@ if ! grep -q 'already up to date\|update finished' /tmp/pi67-smoke-update.log; t
   fail "update helper did not complete cleanly"
 fi
 pass "update helper completed on temp checkout"
+
+UPDATE_HOME="$TMP_ROOT/update-home"
+mkdir -p "$UPDATE_HOME"
+UPDATE_BACKUP_ROOT="$UPDATE_HOME/.pi/pi67/backups"
+backup_count_before="$(count_backup_dirs "$UPDATE_BACKUP_ROOT")"
+node -e '
+const fs = require("fs");
+const file = process.argv[1];
+const data = JSON.parse(fs.readFileSync(file, "utf8"));
+data.lastChangelogVersion = "pi67-smoke-runtime-marker";
+fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
+' "$UPDATE_REPO/settings.json"
+HOME="$UPDATE_HOME" "$REPO_ROOT/scripts/pi67-update.sh" \
+  --repo-root "$UPDATE_REPO" \
+  --agent-dir "$AGENT_DIR" \
+  --skills-dir "$TMP_ROOT/shared-skills" \
+  --no-npm \
+  --no-configure \
+  --no-doctor \
+  --no-report >/tmp/pi67-smoke-update-runtime-no-backup.log 2>&1
+backup_count_after="$(count_backup_dirs "$UPDATE_BACKUP_ROOT")"
+if [ "$backup_count_after" != "$backup_count_before" ]; then
+  cat /tmp/pi67-smoke-update-runtime-no-backup.log >&2
+  fail "up-to-date dirty runtime update created a backup"
+fi
+if ! grep -q 'leaving them in place without creating a runtime backup' /tmp/pi67-smoke-update-runtime-no-backup.log; then
+  cat /tmp/pi67-smoke-update-runtime-no-backup.log >&2
+  fail "up-to-date dirty runtime update did not report preserve-in-place behavior"
+fi
+pass "up-to-date dirty runtime update did not create a backup"
 
 UPDATE_CONFLICT_SKILLS="$TMP_ROOT/update-conflict-shared-skills"
 mkdir -p "$UPDATE_CONFLICT_SKILLS/$FIRST_SHARED_SKILL_NAME"

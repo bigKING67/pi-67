@@ -80,9 +80,10 @@ Options:
       --no-configure    Skip local config migration/normalization after update.
       --no-doctor       Skip doctor after update.
       --no-report       Skip ~/.pi/agent/pi67-report.json generation.
-      --allow-dirty     Allow git pull with a dirty worktree. Default is to stop.
-                        Dirty user runtime config files are backed up and
-                        restored automatically; other tracked edits still stop.
+      --allow-dirty     Allow git update with a dirty worktree. Default is to stop.
+                        Dirty user runtime config files are backed up/restored
+                        only when incoming changed paths overlap them; other
+                        tracked edits still stop.
   -h, --help            Show this help.
 
 First update on an old install that does not have this script yet:
@@ -263,6 +264,24 @@ runtime_backup_matches_current() {
 runtime_backup_has_manifest() {
   local backup_dir="$1"
   [ -f "$backup_dir/manifest.json" ] || [ -f "$backup_dir/backup-manifest.json" ]
+}
+
+paths_overlap_incoming() {
+  local item
+  [ -n "$incoming_changed_paths_text" ] || return 1
+  for item in "$@"; do
+    if printf '%s\n' "$incoming_changed_paths_text" | grep -F -x -- "$item" >/dev/null; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+print_runtime_dirty_no_backup_needed() {
+  local -a dirty_paths=("$@")
+  warn "tracked edits are limited to user-owned runtime config files"
+  warn "incoming git update does not touch them; leaving them in place without creating a runtime backup"
+  say "  preserved: ${dirty_paths[*]}"
 }
 
 find_equivalent_runtime_backup() {
@@ -993,7 +1012,7 @@ update_repo() {
     fail "not a git checkout: $REPO_ROOT"
   fi
 
-  local current_branch dirty before after old_version new_version
+  local current_branch dirty before after old_version new_version target_ref incoming_changed_paths_text
   local -a dirty_tracked_paths=()
   local -a unsafe_dirty_paths=()
   local line rel
@@ -1018,30 +1037,55 @@ update_repo() {
     fi
   done < <(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=no)
 
+  before="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
+  old_version="$(tr -d '[:space:]' < "$REPO_ROOT/VERSION" 2>/dev/null || true)"
+
+  if [ "$DRY_RUN" = true ]; then
+    if [ "${#dirty_tracked_paths[@]}" -gt 0 ] && [ "$ALLOW_DIRTY" != true ]; then
+      if [ "${#unsafe_dirty_paths[@]}" -gt 0 ]; then
+        printf '%s\n' "$dirty" >&2
+        fail "repo has non-runtime local changes; commit/stash them or rerun with --allow-dirty"
+      fi
+      say "  ${CYAN}DRY-RUN${NC} inspect incoming changed paths before deciding whether runtime backup is needed"
+    elif [ -n "$dirty" ] && [ "$ALLOW_DIRTY" = true ]; then
+      warn "repo has local changes; proceeding because --allow-dirty was provided"
+    elif [ -n "$dirty" ]; then
+      warn "repo has only untracked local files; update will proceed unless Git reports a path collision"
+    fi
+    say "  ${CYAN}DRY-RUN${NC} git -C $REPO_ROOT fetch --prune $REMOTE $BRANCH"
+    say "  ${CYAN}DRY-RUN${NC} git -C $REPO_ROOT merge --ff-only FETCH_HEAD"
+    pass "current revision: $before"
+    return
+  fi
+
+  if ! git -C "$REPO_ROOT" fetch --prune "$REMOTE" "$BRANCH"; then
+    fail "git fetch failed"
+  fi
+  target_ref="FETCH_HEAD"
+  if ! git -C "$REPO_ROOT" merge-base --is-ancestor HEAD "$target_ref"; then
+    fail "remote update is not a fast-forward; inspect $REMOTE/$BRANCH before updating"
+  fi
+  incoming_changed_paths_text="$(git -C "$REPO_ROOT" diff --name-only HEAD "$target_ref" --)"
+
   if [ "${#dirty_tracked_paths[@]}" -gt 0 ] && [ "$ALLOW_DIRTY" != true ]; then
     if [ "${#unsafe_dirty_paths[@]}" -gt 0 ]; then
       printf '%s\n' "$dirty" >&2
       fail "repo has non-runtime local changes; commit/stash them or rerun with --allow-dirty"
     fi
-    backup_and_clear_preserved_runtime_edits "${dirty_tracked_paths[@]}"
+    if paths_overlap_incoming "${dirty_tracked_paths[@]}"; then
+      backup_and_clear_preserved_runtime_edits "${dirty_tracked_paths[@]}"
+    else
+      print_runtime_dirty_no_backup_needed "${dirty_tracked_paths[@]}"
+    fi
   elif [ -n "$dirty" ] && [ "$ALLOW_DIRTY" = true ]; then
     warn "repo has local changes; proceeding because --allow-dirty was provided"
   elif [ -n "$dirty" ]; then
     warn "repo has only untracked local files; update will proceed unless Git reports a path collision"
   fi
 
-  before="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
-  old_version="$(tr -d '[:space:]' < "$REPO_ROOT/VERSION" 2>/dev/null || true)"
-
-  if [ "$DRY_RUN" = true ]; then
-    say "  ${CYAN}DRY-RUN${NC} git -C $REPO_ROOT pull --ff-only $REMOTE $BRANCH"
-    pass "current revision: $before"
-    return
-  fi
-
-  if ! git -C "$REPO_ROOT" pull --ff-only "$REMOTE" "$BRANCH"; then
+  if ! git -C "$REPO_ROOT" merge --ff-only "$target_ref"; then
     restore_preserved_runtime_edits
-    fail "git pull failed"
+    fail "git fast-forward merge failed"
   fi
   restore_preserved_runtime_edits
   after="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"

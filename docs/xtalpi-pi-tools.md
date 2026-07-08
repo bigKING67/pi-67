@@ -507,9 +507,12 @@ Windows 日常更新使用 PowerShell-native updater：
 .\scripts\pi67-update.ps1
 ```
 
-它会保留本地 key/config，并在 `xtalpi-compat` -> `xtalpi-pi-tools` 迁移期间把
-`settings.json` 和 `extensions/xtalpi-compat/index.ts` 这类已知冲突先备份到
-`$env:USERPROFILE\.pi\agent-backups\pre-update-*`，再继续 fast-forward 更新。
+它会保留本地 key/config。当前 updater 会先 `git fetch`，比较 incoming changed
+paths；只有远端更新会触碰 dirty 的 `settings.json`、`models.json` 等 preserved
+runtime 文件时，才会在 `$env:USERPROFILE\.pi\pi67\backups\pre-update-runtime-*`
+创建快照、临时清理、fast-forward、再恢复。早期
+`$env:USERPROFILE\.pi\agent-backups\pre-update-*` 只作为 legacy conflict backup
+只读保留，正常更新不再写入该目录。
 如果 Windows/PowerShell 把 `models.json` 等本地 JSON 保存成 UTF-16、UTF-8 BOM
 或带前导 NUL 字节，updater 会在写入 `*.bak-*-encoding` 备份后规范化为
 UTF-8 without BOM；这一步只重新序列化已能解析的 JSON，不打印真实 API key。

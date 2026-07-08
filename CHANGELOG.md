@@ -6,6 +6,29 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.5] - 2026-07-08
+
+### Changed
+
+- Bash and PowerShell updaters now use `git fetch` followed by
+  `git merge --ff-only FETCH_HEAD` so they can inspect incoming changed paths
+  before deciding whether dirty preserved runtime files need temporary
+  cleanup.
+- Dirty user runtime config now stays in place without creating a backup when
+  the remote is already current or the incoming update does not touch those
+  runtime files. Runtime backups are created only when incoming changed paths
+  overlap dirty preserved runtime config, and equivalent snapshots are still
+  reused.
+- `pi-67 update --check` now reports benign/current dirty runtime config as
+  `preserve-in-place-no-backup` when the remote already matches local HEAD,
+  instead of presenting every dirty runtime marker as a planned backup.
+
+### Fixed
+
+- Documentation now consistently distinguishes current first-class runtime
+  backups under `~/.pi/pi67/backups/` from legacy read-only
+  `~/.pi/agent-backups/` conflict snapshots.
+
 ## [0.10.4] - 2026-07-08
 
 ### Fixed

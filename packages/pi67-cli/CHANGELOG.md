@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.10.5]
+
+- Uses `git fetch` plus `git merge --ff-only FETCH_HEAD` in Bash and
+  PowerShell updaters, allowing the updater to inspect incoming changed paths
+  before deciding whether dirty preserved runtime files need temporary cleanup.
+- Keeps dirty runtime config in place without creating a backup when the remote
+  is already current or incoming changed paths do not touch those files.
+- Reports `preserve-in-place-no-backup` from `pi-67 update --check` when a
+  dirty runtime marker is harmless and the remote already matches local HEAD.
+- Updates docs to separate current `~/.pi/pi67/backups/` runtime backups from
+  legacy read-only `~/.pi/agent-backups/` conflict snapshots.
+
 ## [0.10.4]
 
 - Makes all command-level `--help` paths side-effect free, including

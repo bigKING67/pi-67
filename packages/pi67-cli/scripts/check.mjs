@@ -347,6 +347,18 @@ function runUpdatePlanSelfTests() {
     "dirty runtime config alone must not block the distro update plan",
   );
 
+  const dirtyRuntimeRemoteCurrent = decisionsFixture({
+    git: { dirty: true, short: " M settings.json", commit: "abcdef123456" },
+    remote: { ok: true, commit: "abcdef1234567890" },
+  });
+  const currentRemoteAction = buildPlanDecisions(dirtyRuntimeRemoteCurrent).actions.find((item) => item.id === "user-runtime-config");
+  assert(
+    currentRemoteAction?.operation === "preserve-in-place-no-backup" &&
+      currentRemoteAction.createsNewBackup === false &&
+      currentRemoteAction.writes.length === 0,
+    "dirty runtime config must not plan a new backup when the remote already matches local HEAD",
+  );
+
   const dirtyReadme = decisionsFixture({
     git: { dirty: true, short: " M README.md" },
   });

@@ -135,7 +135,9 @@ function printPlan(plan) {
   if (plan.actions?.length > 0) {
     section("Planned safe actions");
     for (const action of plan.actions) {
-      info(`${action.id}: ${action.operation}; writes=${action.writes.join(", ")}; preserves=${action.preserves.join(", ")}`);
+      const writes = action.writes?.length ? action.writes.join(", ") : "none";
+      const suffix = action.backupCondition ? `; backup=${action.backupCondition}` : "";
+      info(`${action.id}: ${action.operation}; writes=${writes}; preserves=${action.preserves.join(", ")}${suffix}`);
     }
   }
   if (plan.blocked?.length > 0) {
@@ -174,8 +176,9 @@ Options:
 
 Safety:
   Runtime config backup/restore is owned by the platform updater script when
-  preserved runtime files are dirty. The npm manager owns the update lock and
-  never creates a runtime backup for --help or a blocked update plan.
+  dirty preserved runtime files overlap incoming changed paths. The npm manager
+  owns the update lock and never creates a runtime backup for --help, a blocked
+  update plan, or an already-up-to-date update.
 
 Examples:
   pi-67 update --check

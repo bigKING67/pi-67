@@ -69,7 +69,9 @@ unsafe non-runtime dirty worktrees:
 
 Runtime config backup/restore is owned by the Bash or PowerShell updater and
 only runs when an in-place checkout needs to temporarily clear dirty preserved
-runtime files for `git pull --ff-only`:
+runtime files. The updater fetches first, compares incoming changed paths, and
+creates a runtime snapshot only if the incoming update touches those dirty
+preserved files:
 
 ```text
 ~/.pi/pi67/backups/pre-update-runtime-*
@@ -77,8 +79,10 @@ runtime files for `git pull --ff-only`:
 
 Use the public backup commands to inspect, recover, prune, or archive those
 snapshots. A real restore writes another pre-restore backup first and only
-restores preserved runtime files. Unchanged preserved runtime files reuse the
-latest equivalent backup instead of creating a duplicate timestamped directory.
+restores preserved runtime files. Already-up-to-date updates and
+non-overlapping incoming updates do not create a backup; unchanged preserved
+runtime files reuse the latest equivalent backup instead of creating a
+duplicate timestamped directory when a backup is actually needed.
 
 ```bash
 pi-67 backups list
@@ -157,8 +161,10 @@ NUL bytes to UTF-8 without BOM after writing `*.bak-*-encoding` backups, syncs
 npm dependencies, applies the local `pi-until-done` runtime queue/progress
 compatibility patch when needed, runs the PowerShell smoke, and writes
 `pi67-report.json`. For in-place checkouts, dirty user runtime config such as
-`settings.json` is backed up, temporarily cleared for `git pull --ff-only`, and
-restored after the pull; unrelated tracked edits still block.
+`settings.json` is backed up only when incoming changed paths overlap it; then
+it is temporarily cleared for fast-forward and restored after the merge.
+Already-up-to-date or non-overlapping updates keep it in place without writing
+a backup. Unrelated tracked edits still block.
 
 For a fresh in-place Windows laptop checkout, this is the minimal bootstrap
 equivalent of the Bash installer:
@@ -695,7 +701,7 @@ Windows PowerShell, one-time bootstrap:
 ```powershell
 Set-Location $env:USERPROFILE\.pi\agent
 $Stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$BackupDir = Join-Path $env:USERPROFILE ".pi\agent-backups\pre-update-$Stamp"
+$BackupDir = Join-Path $env:USERPROFILE ".pi\pi67\backups\pre-update-bootstrap-$Stamp"
 New-Item -ItemType Directory -Force $BackupDir | Out-Null
 $KnownPaths = @("settings.json", "extensions/xtalpi-compat/index.ts")
 $RestorePaths = @()

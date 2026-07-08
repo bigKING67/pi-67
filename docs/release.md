@@ -157,16 +157,18 @@ update --repair` builds the update plan, blocks unsafe non-runtime dirty
 worktrees, and acquires `~/.pi/pi67/locks/update.lock` before dispatching the
 Bash or PowerShell updater. Runtime config backup/restore is owned by the
 platform updater script and only runs when an in-place checkout needs to
-temporarily clear dirty preserved runtime files for `git pull --ff-only`.
+temporarily clear dirty preserved runtime files. The updater fetches first,
+compares incoming `HEAD..FETCH_HEAD` changed paths, and backs up dirty runtime
+files only when the incoming update touches those paths.
 Those script-level snapshots live under
 `~/.pi/pi67/backups/pre-update-runtime-*`. The selected theme lives in the
 `settings.json` `theme` field and must not be changed by update. In-place
-checkouts with only dirty user runtime config are backed up, temporarily
-cleaned for `git pull --ff-only`, and restored after the pull; unrelated
+checkouts with only dirty user runtime config are preserved in place when the
+incoming update is already current or changes non-overlapping paths; unrelated
 tracked edits still block. Runtime snapshots are deduplicated by preserved-file
 content, so repeated no-change updates do not create new timestamped backup
-directories. `--help`, blocked update plans, and the manager orchestration layer
-must not create runtime backup directories.
+directories. `--help`, blocked update plans, already-up-to-date updates, and
+the manager orchestration layer must not create runtime backup directories.
 
 Before publishing the npm package:
 
