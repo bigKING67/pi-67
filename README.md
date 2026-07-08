@@ -4,7 +4,7 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
-当前发行版版本：`0.10.6`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.10.7`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 这是什么
 
@@ -263,7 +263,8 @@ npx -y @bigking67/pi-67@latest update --repair
 ~/.pi/pi67/state.json
 ```
 
-它只记录版本、commit、theme、provider/model 和本地路径，不保存 API key。
+它只记录版本、commit、theme、provider/model、本地路径，以及
+`settings.json.lastChangelogVersion` 这类 Pi runtime UI marker；不保存 API key。
 
 ### 推荐：原地 checkout 到 `~/.pi/agent`
 
@@ -402,9 +403,13 @@ bash ~/.pi/agent/scripts/pi67-status.sh
 bash ~/.pi/agent/scripts/pi67-status.sh --json
 ```
 
-`pi67-status.sh` 会把仅由 `settings.json` 的 `lastChangelogVersion` /
-trailing-newline 引起的 dirty 状态标成 `local runtime state only`，不把它当作
-普通本地改动阻断更新；其它 dirty 文件仍会正常报警。它还会从本地 xtalpi smoke
+`pi-67 update` / `pi-67 update --repair` 会把 `settings.json` 的
+`lastChangelogVersion` runtime marker 迁到 ignored 的
+`~/.pi/pi67/state.json`，并从 `settings.json` 里物理移除它；同时安装本仓库
+local Git clean filter，防止这个 runtime marker 被带入后续 diff/commit。
+其它 dirty 文件仍会正常报警。
+`pi67-status.sh` 也会把历史遗留的 marker-only dirty 标成
+`local runtime state only`，不把它当作普通本地改动阻断更新。它还会从本地 xtalpi smoke
 artifact 里汇总 provider-health retry/failure trend，帮助区分上游 timeout /
 网络 / key 问题和 Pi 本地工具协议回归。
 
@@ -972,6 +977,10 @@ updater 会比较 incoming changed paths；只有远端更新会碰到这些 dir
 文件时，才备份到 `$env:USERPROFILE\.pi\pi67\backups\pre-update-runtime-*`，
 临时清干净、fast-forward、再恢复。远端已最新或 incoming 不碰这些文件时，不会
 新建备份；其他 tracked 本地改动仍会停止，避免误覆盖。
+更新流程还会把 `settings.json.lastChangelogVersion` 迁到
+`$env:USERPROFILE\.pi\pi67\state.json`，并从 `settings.json` 里物理移除这个
+runtime-only 字段；provider/model/theme/packages 不会被改。仓库 local Git clean
+filter 还会防止这个 marker 被带入后续 diff/commit。
 更新流程还会在 npm sync 后检查并修补已安装的 `pi-until-done@0.2.2`，给旧版
 `pi.sendUserMessage(...)` 调用补上 Pi runtime queue 需要的
 `streamingBehavior: "followup"`，避免 `/until-done` 在 agent 正忙时中断。

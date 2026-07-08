@@ -107,7 +107,9 @@ pi-67 themes set gruvbox-dark
 
 The manager writes lightweight state outside the checkout at
 `~/.pi/pi67/state.json`. It records versions, paths, theme, provider/model, and
-commit information, but never API keys.
+commit information. It also stores runtime-only UI markers such as
+`settings.json.lastChangelogVersion` after migrating them out of tracked config.
+It never stores API keys.
 
 `pi-67 update --check` also checks whether the npm manager package is outdated
 unless `--no-remote` is used. Manager self-updates are explicit:
@@ -267,7 +269,7 @@ Install shared skills into a custom global skill root:
 `--dev-link-skills` is available for local skill development. Normal user
 installation copies skills and does not create skill symlinks.
 
-Shared skill conflicts are non-destructive by default. If
+Preserved user-modified shared skills are non-destructive by default. If
 `~/.agents/skills/<name>` already exists and differs from the pi-67 bundled
 baseline, the installer keeps the existing global skill, prints a warning, and
 continues. This is intentional: a target machine may already have a newer or
@@ -287,7 +289,7 @@ pi-67 bundled-skill parity:
    - `linked`: repository root is outside the agent dir.
 4. In `in-place`, verifies tracked assets in the current checkout. In `linked`, backs up overwritten files/directories and symlinks Pi runtime assets into `~/.pi/agent`.
 5. Copies missing `shared-skills/` into `~/.agents/skills`.
-6. Keeps existing different global skills by default and warns; `--strict-shared-skills` restores blocking conflict behavior.
+6. Preserves existing user-modified global skills by default and warns; `--strict-shared-skills` turns those preserved differences into blocking parity checks.
 7. Retires legacy `~/.pi/agent/skills` in linked installs by moving it into the installer backup directory.
 8. Copies `.example` config files only when local config files do not already exist.
 9. Installs npm packages into `~/.pi/agent/npm`.
@@ -563,7 +565,7 @@ Static protocol test:
 bash ~/.pi/agent/scripts/pi67-test-xtalpi-pi-tools.sh
 ```
 
-In linked mode, `settings.json` is symlinked by default so updates from pi-67 continue to apply. If you request a provider/model change that differs from the repository default, the configure helper detaches `settings.json` into a local file before writing, so personal defaults do not dirty the repo. In in-place mode, `settings.json` is tracked by the current checkout; keep personal secrets and machine paths in the ignored local config files instead.
+In linked mode, `settings.json` is symlinked by default so updates from pi-67 continue to apply. If you request a provider/model change that differs from the repository default, the configure helper detaches `settings.json` into a local file before writing, so personal defaults do not dirty the repo. In in-place mode, `settings.json` is tracked by the current checkout; keep personal secrets and machine paths in the ignored local config files instead. The Pi changelog marker `lastChangelogVersion` is runtime-only: update/repair migrates it into `~/.pi/pi67/state.json`, removes it from `settings.json`, and installs a local Git clean filter so the marker cannot be accidentally carried into normal diffs or commits.
 
 ## Readiness levels
 

@@ -478,7 +478,7 @@ PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
 node -e '
 const fs = require("fs");
 const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-const check = data.checks.find((item) => item.message.includes("shared skill contents differ from pi-67 source"));
+const check = data.checks.find((item) => item.message.includes("preserved user-modified global skills differ from pi-67 source"));
 if (!check) throw new Error("doctor did not report shared skill mismatch");
 if (check.level !== "WARN") throw new Error(`doctor mismatch should warn by default, got ${check.level}`);
 ' /tmp/pi67-smoke-doctor-shared-conflict-json.log
@@ -496,7 +496,7 @@ fi
 node -e '
 const fs = require("fs");
 const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-const check = data.checks.find((item) => item.message.includes("shared skill contents differ from pi-67 source"));
+const check = data.checks.find((item) => item.message.includes("preserved user-modified global skills differ from pi-67 source"));
 if (!check) throw new Error("doctor strict did not report shared skill mismatch");
 if (check.level !== "FAIL") throw new Error(`doctor strict mismatch should fail, got ${check.level}`);
 ' /tmp/pi67-smoke-doctor-shared-strict-json.log
@@ -1210,6 +1210,22 @@ UPDATE_HOME="$TMP_ROOT/update-home"
 mkdir -p "$UPDATE_HOME"
 UPDATE_BACKUP_ROOT="$UPDATE_HOME/.pi/pi67/backups"
 backup_count_before="$(count_backup_dirs "$UPDATE_BACKUP_ROOT")"
+for runtime_state_file in \
+  .gitattributes \
+  settings.json \
+  packages/pi67-cli/src/lib/settings-runtime-clean.mjs \
+  packages/pi67-cli/src/lib/settings-runtime-state.mjs \
+  packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs
+do
+  mkdir -p "$UPDATE_REPO/$(dirname "$runtime_state_file")"
+  cp "$REPO_ROOT/$runtime_state_file" "$UPDATE_REPO/$runtime_state_file"
+done
+git -C "$UPDATE_REPO" config user.email pi67-smoke@example.invalid
+git -C "$UPDATE_REPO" config user.name pi67-smoke
+git -C "$UPDATE_REPO" add .gitattributes settings.json packages/pi67-cli/src/lib/settings-runtime-clean.mjs packages/pi67-cli/src/lib/settings-runtime-state.mjs packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs
+if ! git -C "$UPDATE_REPO" diff --cached --quiet; then
+  git -C "$UPDATE_REPO" commit -q -m "smoke runtime-state baseline"
+fi
 node -e '
 const fs = require("fs");
 const file = process.argv[1];
@@ -1219,7 +1235,7 @@ fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
 ' "$UPDATE_REPO/settings.json"
 HOME="$UPDATE_HOME" "$REPO_ROOT/scripts/pi67-update.sh" \
   --repo-root "$UPDATE_REPO" \
-  --agent-dir "$AGENT_DIR" \
+  --agent-dir "$UPDATE_REPO" \
   --skills-dir "$TMP_ROOT/shared-skills" \
   --no-npm \
   --no-configure \
@@ -1234,7 +1250,24 @@ if ! grep -q 'leaving them in place without creating a runtime backup' /tmp/pi67
   cat /tmp/pi67-smoke-update-runtime-no-backup.log >&2
   fail "up-to-date dirty runtime update did not report preserve-in-place behavior"
 fi
-pass "up-to-date dirty runtime update did not create a backup"
+node -e '
+const fs = require("fs");
+const settingsPath = process.argv[1];
+const statePath = process.argv[2];
+const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+if (Object.prototype.hasOwnProperty.call(settings, "lastChangelogVersion")) {
+  throw new Error("settings.json still contains runtime marker");
+}
+const state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+if (state.runtimeMarkers?.lastChangelogVersion?.value !== "pi67-smoke-runtime-marker") {
+  throw new Error("state.json did not preserve runtime marker");
+}
+' "$UPDATE_REPO/settings.json" "$UPDATE_HOME/.pi/pi67/state.json"
+if ! git -C "$UPDATE_REPO" diff --quiet -- settings.json; then
+  git -C "$UPDATE_REPO" diff -- settings.json >&2
+  fail "settings runtime migration did not normalize settings.json"
+fi
+pass "up-to-date dirty runtime update migrated settings runtime marker without backup"
 
 UPDATE_CONFLICT_SKILLS="$TMP_ROOT/update-conflict-shared-skills"
 mkdir -p "$UPDATE_CONFLICT_SKILLS/$FIRST_SHARED_SKILL_NAME"

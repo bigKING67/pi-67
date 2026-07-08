@@ -7,6 +7,7 @@ import { runDistroScript } from "../lib/distro-scripts.mjs";
 import { isWindows } from "../lib/platform.mjs";
 import { CliError, info, warn } from "../lib/output.mjs";
 import { writeState } from "../lib/state-store.mjs";
+import { migrateSettingsRuntimeState } from "../lib/settings-runtime-state.mjs";
 
 export async function installCommand(ctx, argv) {
   const { options } = parseCommandOptions(argv, {
@@ -47,7 +48,25 @@ export async function installCommand(ctx, argv) {
     if (dryRun) args.push("--dry-run");
     runCommand("bash", [path.join(ctx.repoRoot, "install.sh"), ...args], { cwd: ctx.repoRoot, dryRun: false });
   }
-  if (!dryRun) writeState(ctx, "install");
+  if (!dryRun) {
+    writeState(ctx, "install");
+    const runtimeState = migrateSettingsRuntimeState(ctx, {
+      normalizeSettingsJson: true,
+      installGitFilter: true,
+    });
+    if (runtimeState.markerFound && runtimeState.stateWritten) {
+      info("Migrated settings.json lastChangelogVersion to ignored state: ~/.pi/pi67/state.json");
+    }
+    if (runtimeState.settingsNormalized) {
+      info("Normalized settings.json by removing runtime-only lastChangelogVersion.");
+    }
+    if (runtimeState.gitFilterInstalled) {
+      info("Installed local git clean filter for future settings.json runtime markers.");
+    }
+    for (const error of runtimeState.errors) {
+      warn(`settings runtime marker migration skipped: ${error}`);
+    }
+  }
   info("Install finished. Run `pi-67 doctor` next.");
 }
 

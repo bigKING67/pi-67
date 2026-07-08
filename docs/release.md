@@ -197,8 +197,8 @@ runs the full `bash scripts/pi67-smoke.sh --ci` gate before `npm publish`. This
 keeps Trusted Publishing from publishing a package whose local release/smoke
 contract is already known to be failing.
 
-For release/parity checks where different existing global shared skills should
-block instead of being preserved, run:
+For release/parity checks where preserved user-modified global shared skills
+should block instead of being kept, run:
 
 ```bash
 pi-67 update --check --strict-shared-skills

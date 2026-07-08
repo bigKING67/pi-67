@@ -526,7 +526,7 @@ function deriveResult(repository, remote, report, xtalpiSmoke) {
 
   if (repository.dirty) {
     if (repository.localState?.benignRuntimeOnly) {
-      recommendations.push("Optional: normalize local settings runtime marker if you want a clean git status.");
+      recommendations.push("Run pi-67 update --repair to migrate settings runtime marker into ignored state.");
     } else {
       warnings.push(`worktree has ${repository.dirtyCount} local change(s)`);
       recommendations.push("Commit or stash local pi-67 checkout changes before updating.");
@@ -578,7 +578,7 @@ function deriveResult(repository, remote, report, xtalpiSmoke) {
         : [];
       if (
         doctorWarnings.length > 0 &&
-        doctorWarnings.every((message) => message.includes("shared skill contents differ from pi-67 source"))
+        doctorWarnings.every((message) => message.includes("preserved user-modified global skills differ from pi-67 source"))
       ) {
         recommendations.push("Inspect shared skill drift: bash ~/.pi/agent/scripts/pi67-shared-skills-inventory.sh --json");
       } else {

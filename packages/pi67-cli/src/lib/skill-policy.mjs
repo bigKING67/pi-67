@@ -16,6 +16,7 @@ export function inventorySkills(ctx) {
     const conflict = targetExists && !identical;
     return { name, source, target, sourceHash, targetExists, targetHash, identical, conflict };
   });
+  const conflicts = entries.filter((entry) => entry.conflict).length;
   return {
     schema: "pi67.skills-inventory.v1",
     sourceRoot,
@@ -24,7 +25,8 @@ export function inventorySkills(ctx) {
       source: entries.length,
       missing: entries.filter((entry) => !entry.targetExists).length,
       identical: entries.filter((entry) => entry.identical).length,
-      conflicts: entries.filter((entry) => entry.conflict).length,
+      conflicts,
+      preservedUserModified: conflicts,
     },
     entries,
   };
@@ -79,7 +81,7 @@ export function planSkills(ctx, { names = [] } = {}) {
     conflict: entry.conflict,
     action: entry.conflict ? "preserve-conflict" : "copy-missing",
     reason: entry.conflict
-      ? "target differs; default update preserves the existing global skill"
+      ? "target differs; default update preserves this user-modified global skill"
       : "target is missing and can be copied safely",
   }));
   return {
@@ -112,7 +114,7 @@ export function syncSkills(ctx, { dryRun = false, names = [], yes = false } = {}
           action: "warn",
           reason: targeted
             ? "target differs; rerun with --yes to replace this explicitly named skill after backup"
-            : "target differs; bulk conflict overwrite is intentionally blocked",
+            : "target differs; bulk overwrite of preserved user-modified skills is intentionally blocked",
         });
         continue;
       }

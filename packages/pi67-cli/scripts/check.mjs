@@ -9,6 +9,11 @@ import { parseCommandOptions, splitGlobalArgs } from "../src/lib/args.mjs";
 import { readExtensionRegistry, validateExtensionRegistry } from "../src/lib/extension-registry.mjs";
 import { buildPlanDecisions, classifyGitShort } from "../src/lib/update-plan.mjs";
 import {
+  mergeSettingsRuntimeMarkerIntoState,
+  settingsRuntimeMarkerFromObject,
+  stripSettingsRuntimeMarkerText,
+} from "../src/lib/settings-runtime-state.mjs";
+import {
   beginUpdateLifecycle,
   inspectLegacyConflictBackup,
   inspectRuntimeBackup,
@@ -35,6 +40,7 @@ runCliHelpContractSelfTests();
 runPublishTargetSelfTests();
 runShellRunnerSelfTests();
 runExtensionRegistrySelfTests();
+runSettingsRuntimeStateSelfTests();
 runUpdatePlanSelfTests();
 runUpdateSafetySelfTests();
 
@@ -322,6 +328,22 @@ function runExtensionRegistrySelfTests() {
   );
 }
 
+function runSettingsRuntimeStateSelfTests() {
+  const input = "{\n  \"lastChangelogVersion\": \"0.80.3\",\n  \"theme\": \"gruvbox-dark\"\n}\n";
+  const stripped = JSON.parse(stripSettingsRuntimeMarkerText(input));
+  assert(
+    stripped.lastChangelogVersion === undefined && stripped.theme === "gruvbox-dark",
+    "settings runtime clean filter must remove only lastChangelogVersion",
+  );
+  const marker = settingsRuntimeMarkerFromObject({ lastChangelogVersion: "0.80.3" });
+  const state = mergeSettingsRuntimeMarkerIntoState({ schema: "pi67.state.v1" }, marker, "2026-07-08T00:00:00.000Z");
+  assert(
+    state.runtimeMarkers?.lastChangelogVersion?.value === "0.80.3" &&
+      state.runtimeMarkers.lastChangelogVersion.storage === "state.json",
+    "settings runtime marker must migrate into state runtimeMarkers",
+  );
+}
+
 function runUpdatePlanSelfTests() {
   assert(
     classifyGitShort(" M settings.json\n?? tmp.txt").preservedRuntime.includes("settings.json"),
@@ -396,8 +418,8 @@ function runUpdatePlanSelfTests() {
     skills: { summary: { missing: 0, conflicts: 2 } },
   });
   assert(
-    buildPlanDecisions(sharedSkillConflict).warnings.some((item) => item.includes("preserves existing different skills")),
-    "shared skill conflicts must warn and preserve by default",
+    buildPlanDecisions(sharedSkillConflict).warnings.some((item) => item.includes("preserved user-modified global skills")),
+    "preserved user-modified shared skills must warn and preserve by default",
   );
   const strictSharedSkillConflict = decisionsFixture({
     strictSharedSkills: true,

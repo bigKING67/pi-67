@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.10.7]
+
+- Migrates `settings.json.lastChangelogVersion` into ignored manager state at
+  `~/.pi/pi67/state.json`, normalizes the runtime-only marker out of
+  `settings.json`, and installs a local Git clean filter so future marker
+  writes cannot be carried into normal diffs or commits.
+- Renames shared-skill drift in human-facing output from "conflicts" to
+  "preserved user-modified" while keeping the JSON `conflicts` compatibility
+  field.
+
 ## [0.10.6]
 
 - Adds runtime request retry to the canonical `xtalpi-pi-tools` provider path,

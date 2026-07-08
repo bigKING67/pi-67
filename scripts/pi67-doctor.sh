@@ -667,11 +667,11 @@ const mismatched = sourceSkills
   });
 if (mismatched.length > 0) {
   const inventoryHint = `run scripts/pi67-shared-skills-inventory.sh --json for details`;
-  const message = `shared skill contents differ from pi-67 source; ${inventoryHint}; keeping existing global skills: ${mismatched.join(", ")}`;
+  const message = `preserved user-modified global skills differ from pi-67 source; ${inventoryHint}; keeping existing global skills: ${mismatched.join(", ")}`;
   emit(
     strictSharedSkills ? "FAIL" : "WARN",
     strictSharedSkills
-      ? `shared skill contents differ from pi-67 source; ${inventoryHint}: ${mismatched.join(", ")}`
+      ? `preserved user-modified global skills differ from pi-67 source; ${inventoryHint}: ${mismatched.join(", ")}`
       : message
   );
 } else if (sourceSkills.length > 0 && missing.length === 0) {

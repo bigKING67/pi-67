@@ -9,6 +9,7 @@ import { readCliPackageJson, readTextIfExists } from "./paths.mjs";
 import { npmLatestVersion } from "./npm-registry.mjs";
 import { buildDistroManifest } from "./distro-manifest.mjs";
 import { PRESERVED_RUNTIME_FILES } from "./update-safety.mjs";
+import { settingsRuntimeMarkerFromObject } from "./settings-runtime-state.mjs";
 
 export async function buildUpdatePlan(ctx, options = {}) {
   const versionFile = path.join(ctx.repoRoot, "VERSION");
@@ -39,6 +40,7 @@ export async function buildUpdatePlan(ctx, options = {}) {
     currentVersion: pkg.version,
     noRemote: options.noRemote,
   });
+  const settingsRuntimeMarker = settingsRuntimeMarkerFromObject(settings);
   const dirtyClass = classifyGitShort(git?.short || "");
   const benignRuntime = classifyBenignRuntimeDiff(ctx, dirtyClass.preservedRuntime);
 
@@ -54,15 +56,14 @@ export async function buildUpdatePlan(ctx, options = {}) {
   } else if (git.dirty && dirtyClass.unsafeTracked.length > 0) {
     recommendations.push("Resolve or commit local changes before pi-67 update.");
   } else if (git.dirty && benignRuntime.benign) {
-    recommendations.push("No manual action required for benign settings runtime markers; pi-67 can preserve them during update.");
-    recommendations.push("Optional: normalize local settings runtime marker if you want a clean git status.");
+    recommendations.push("No manual action required for benign settings runtime markers; pi-67 migrates lastChangelogVersion to ignored state during update/repair.");
   } else if (git.dirty) {
     recommendations.push("No manual action required for user runtime config; pi-67 backs up/restores it during update.");
   } else {
     recommendations.push("Run: pi-67 update");
   }
   if (skills.summary.conflicts > 0) {
-    recommendations.push("Run: pi-67 skills inventory and resolve differing global skills manually.");
+    recommendations.push("Run: pi-67 skills inventory to inspect preserved user-modified global skills.");
   }
   if (theme && !hasTheme(ctx, theme)) {
     recommendations.push(`Current theme is missing: ${theme}. Run: pi-67 themes list`);
@@ -74,6 +75,7 @@ export async function buildUpdatePlan(ctx, options = {}) {
     ctx,
     git,
     benignRuntime,
+    settingsRuntimeMarker,
     managerRegistry,
     remote,
     manifest,
@@ -122,6 +124,11 @@ export async function buildUpdatePlan(ctx, options = {}) {
     scripts: scriptStatus,
     manifest: manifest.summary,
     skills: skills.summary,
+    runtimeState: {
+      settingsLastChangelogVersion: settingsRuntimeMarker?.value || "",
+      storage: "~/.pi/pi67/state.json",
+      policy: "settings.json lastChangelogVersion is runtime-only and is normalized into ignored state on update/repair",
+    },
     external,
     actions: decisions.actions,
     blocked: decisions.blocked,
@@ -139,6 +146,7 @@ export function buildPlanDecisions(context) {
   ];
   const dirty = classifyGitShort(context.git?.short || "");
   const benignRuntime = context.benignRuntime || { benign: false, reasons: [] };
+  const settingsRuntimeMarker = context.settingsRuntimeMarker || null;
 
   if (context.managerRegistry.outdated) {
     actions.push({
@@ -150,6 +158,19 @@ export function buildPlanDecisions(context) {
       risk: "low",
       reason: "npm registry has a newer pi-67 manager version",
       explicitCommand: "pi-67 self-update",
+    });
+  }
+
+  if (settingsRuntimeMarker?.value || benignRuntime.benign) {
+    actions.push({
+      id: "settings-runtime-state",
+      kind: "runtime-state",
+      operation: "migrate-lastChangelogVersion-to-ignored-state",
+      writes: ["~/.pi/pi67/state.json", "settings.json only when removing runtime-only lastChangelogVersion"],
+      preserves: ["settings.json.theme", "settings.json.defaultProvider", "settings.json.defaultModel", "settings.json.packages"],
+      risk: "low",
+      reason: "lastChangelogVersion is Pi runtime UI state, not pi-67 source configuration",
+      benign: true,
     });
   }
 
@@ -257,16 +278,16 @@ export function buildPlanDecisions(context) {
     });
   }
   if (context.skills.summary.conflicts > 0) {
-    const conflictMessage = `${context.skills.summary.conflicts} shared skills differ from the bundled baseline`;
+    const conflictMessage = `${context.skills.summary.conflicts} preserved user-modified global skills differ from the bundled baseline`;
     if (context.strictSharedSkills) {
       blocked.push({
         id: "shared-skills",
         kind: "skill-pack",
-        reason: `${conflictMessage}; strict mode blocks instead of overwriting`,
+        reason: `${conflictMessage}; strict mode blocks instead of overwriting user-modified skills`,
         recovery: "inspect with pi-67 skills inventory, then sync or resolve manually",
       });
     } else {
-      warnings.push(`${conflictMessage}; default update preserves existing different skills`);
+      warnings.push(`${conflictMessage}; default update preserves them`);
     }
   }
 

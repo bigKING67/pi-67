@@ -625,14 +625,14 @@ To verify what will happen without writing:
 
 Use this before installing on a machine with important existing Pi configuration.
 
-## Installer reports a shared skill conflict
+## Installer reports preserved user-modified shared skills
 
 When `~/.agents/skills/<name>` already exists but differs from the pi-67
 bundled copy, current installers keep the existing global skill by default:
 
 ```text
-WARN shared skill conflict: lark-approval
-WARN shared skill differs from pi-67 baseline; keeping existing global skill: lark-approval
+WARN preserved user-modified shared skill differs from pi-67 baseline: lark-approval
+WARN preserved user-modified shared skill; keeping existing global skill: lark-approval
 ```
 
 This is usually the right behavior. `~/.agents/skills` is the active global

@@ -6,10 +6,11 @@ installer copies those skills into `~/.agents/skills`.
 
 The global registry is authoritative for already-installed skills. If a target
 machine already has `~/.agents/skills/<name>` and its content differs from the
-pi-67 bundled baseline, installers and updaters keep the existing global skill
-by default and warn. A hash mismatch only proves that the directories differ;
-it does not prove the pi-67 copy is newer. Use `--strict-shared-skills` only
-for release/parity checks where differing global skills should block.
+pi-67 bundled baseline, installers and updaters preserve the existing global
+skill as user-modified by default and warn. A hash mismatch only proves that
+the directories differ; it does not prove the pi-67 copy is newer. Use
+`--strict-shared-skills` only for release/parity checks where preserved
+user-modified global skills should block.
 
 `~/.pi/agent/skills` is legacy. If it exists with active skills, treat it as a
 duplicate source and remove or back it up after confirming the same skills exist
@@ -277,9 +278,9 @@ bash scripts/pi67-check-external-skills.sh \
 ```
 
 This command is read-only. It wraps `pi67-sync-external-skills.sh --dry-run
---json`, summarizes missing/identical/conflicting skills, and exits zero for
-warnings by default. Add `--strict` in local release preparation when conflicts
-or invalid repo paths should fail the check:
+--json`, summarizes missing/identical/preserved user-modified skills, and exits
+zero for warnings by default. Add `--strict` in local release preparation when
+preserved differences or invalid repo paths should fail the check:
 
 ```bash
 bash scripts/pi67-check-external-skills.sh --repo /path/to/design-craft --strict

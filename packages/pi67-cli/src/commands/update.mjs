@@ -6,6 +6,7 @@ import { isWindows } from "../lib/platform.mjs";
 import { runCommand } from "../lib/shell-runner.mjs";
 import { writeState } from "../lib/state-store.mjs";
 import { beginUpdateLifecycle } from "../lib/update-safety.mjs";
+import { migrateSettingsRuntimeState } from "../lib/settings-runtime-state.mjs";
 
 export async function updateCommand(ctx, argv) {
   const { options } = parseCommandOptions(argv, {
@@ -65,7 +66,10 @@ export async function updateCommand(ctx, argv) {
     : buildBashUpdateArgs(ctx, options, dryRun);
   try {
     runDistroScript(ctx, { sh: "pi67-update.sh", ps1: "pi67-update.ps1" }, args, { dryRun: false });
-    if (!dryRun) writeState(ctx, options.repair ? "repair" : "update");
+    if (!dryRun) {
+      writeState(ctx, options.repair ? "repair" : "update");
+      reportSettingsRuntimeStateMigration(ctx);
+    }
   } finally {
     lifecycle.release();
   }
@@ -79,6 +83,25 @@ export async function updateCommand(ctx, argv) {
   }
   if (options.includeExternal || options.all) {
     warn("External repo updates are explicit; run `pi-67 external update browser67` or `pi-67 external update design-craft`.");
+  }
+}
+
+function reportSettingsRuntimeStateMigration(ctx) {
+  const result = migrateSettingsRuntimeState(ctx, {
+    normalizeSettingsJson: true,
+    installGitFilter: true,
+  });
+  if (result.markerFound && result.stateWritten) {
+    info("Migrated settings.json lastChangelogVersion to ignored state: ~/.pi/pi67/state.json");
+  }
+  if (result.settingsNormalized) {
+    info("Normalized settings.json by removing runtime-only lastChangelogVersion.");
+  }
+  if (result.gitFilterInstalled) {
+    info("Installed local git clean filter for future settings.json runtime markers.");
+  }
+  for (const error of result.errors) {
+    warn(`settings runtime marker migration skipped: ${error}`);
   }
 }
 
@@ -128,7 +151,7 @@ function printPlan(plan) {
   keyValue("Model", plan.settings.defaultModel || "unset");
   keyValue("Theme", plan.settings.theme || "unset");
   keyValue("Theme installed", plan.settings.themeInstalled ? "yes" : "no");
-  keyValue("Shared skills", `${plan.skills.identical} ok, ${plan.skills.missing} missing, ${plan.skills.conflicts} conflicts`);
+  keyValue("Shared skills", `${plan.skills.identical} ok, ${plan.skills.missing} missing, ${preservedUserModified(plan.skills)} preserved user-modified`);
   for (const repo of plan.external) {
     keyValue(`External ${repo.name}`, repo.exists ? `${repo.git?.dirty ? "dirty" : "clean"} ${repo.git?.commit || ""}` : "missing");
   }
@@ -153,6 +176,10 @@ function printPlan(plan) {
   if (!plan.git?.dirty) pass("update check completed without local dirty blocker");
 }
 
+function preservedUserModified(skills) {
+  return skills?.preservedUserModified ?? skills?.conflicts ?? 0;
+}
+
 function printUpdateHelp() {
   process.stdout.write(`pi-67 update - update pi-67 safely
 
@@ -167,7 +194,7 @@ Options:
   --no-remote             Skip remote git/npm registry checks where supported.
   --no-npm                Skip npm package sync in the distro updater.
   --allow-dirty           Let the script-level updater handle non-runtime dirty files.
-  --strict-shared-skills  Treat differing shared skills as blocking.
+  --strict-shared-skills  Treat preserved user-modified shared skills as blocking.
   --include-pi            Also run upstream \`pi update --all\` when paired with --yes.
   --include-external      Report explicit external repo update commands.
   --all                   Alias for --include-pi --include-external.

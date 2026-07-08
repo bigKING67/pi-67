@@ -47,9 +47,9 @@ Options:
                         Link skills into --skills-dir for local development.
                         Default is copy/install, not symlink.
       --strict-shared-skills
-                        Stop when an existing global shared skill differs from
-                        the pi-67 bundled baseline. Default keeps the existing
-                        global skill and continues.
+                        Stop when a preserved user-modified global shared
+                        skill differs from the pi-67 bundled baseline. Default
+                        keeps the existing global skill and continues.
       --backup-dir DIR Write overwritten files into DIR.
       --no-npm         Skip npm package installation.
       --no-doctor      Skip scripts/pi67-doctor.sh after installation.
@@ -338,9 +338,9 @@ install_one_shared_skill() {
       return
     fi
     if [ "$STRICT_SHARED_SKILLS" = true ]; then
-      say "  ${RED}FAIL${NC} shared skill conflict: $name" >&2
+      say "  ${RED}FAIL${NC} preserved user-modified shared skill differs from pi-67 baseline: $name" >&2
     else
-      say "  ${YELLOW}WARN${NC} shared skill conflict: $name" >&2
+      say "  ${YELLOW}WARN${NC} preserved user-modified shared skill differs from pi-67 baseline: $name" >&2
     fi
     say "       existing: $dest" >&2
     say "       source  : $src" >&2
@@ -350,7 +350,7 @@ install_one_shared_skill() {
       say "       strict mode enabled; resolve manually or choose a different --skills-dir" >&2
       exit 1
     fi
-    warn "shared skill differs from pi-67 baseline; keeping existing global skill: $name"
+    warn "preserved user-modified shared skill; keeping existing global skill: $name"
     warn "source skipped: $src"
     return
   fi
@@ -414,6 +414,34 @@ retire_legacy_agent_skills() {
 
   backup_existing "$legacy" "skills"
   warn "retired legacy active skill root into backup; $SHARED_SKILLS_DIR is canonical"
+}
+
+migrate_settings_runtime_state() {
+  local tool="$REPO_ROOT/packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs"
+  local state_dir="${HOME:-$REPO_ROOT}/.pi/pi67"
+
+  say ""
+  say "${CYAN}--- settings runtime state ---${NC}"
+  if [ ! -f "$tool" ]; then
+    warn "settings runtime state tool missing: $tool"
+    return
+  fi
+  if ! command -v node >/dev/null 2>&1; then
+    warn "node not found; skipped settings runtime state migration"
+    return
+  fi
+  if [ "$DRY_RUN" = true ]; then
+    say "  ${CYAN}DRY-RUN${NC} node $tool --migrate --agent-dir $PI_AGENT_DIR --repo-root $REPO_ROOT --state-dir $state_dir --normalize --install-git-filter"
+    return
+  fi
+
+  node "$tool" \
+    --migrate \
+    --agent-dir "$PI_AGENT_DIR" \
+    --repo-root "$REPO_ROOT" \
+    --state-dir "$state_dir" \
+    --normalize \
+    --install-git-filter
 }
 
 install_npm_packages() {
@@ -588,6 +616,7 @@ fi
 
 install_shared_skills
 retire_legacy_agent_skills
+migrate_settings_runtime_state
 
 say ""
 say "${CYAN}--- local config templates ---${NC}"

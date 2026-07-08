@@ -49,9 +49,9 @@ Options:
   -NoReport           Skip pi67-report.json generation.
   -NoDoctor           Do not embed PowerShell doctor output in the report.
   -AllowDirty         Let git attempt the update with local tracked edits.
-  -StrictSharedSkills Stop when an existing global shared skill differs from
-                      the pi-67 bundled baseline. Default keeps the existing
-                      global skill and continues.
+  -StrictSharedSkills Stop when a preserved user-modified global shared skill
+                      differs from the pi-67 bundled baseline. Default keeps
+                      the existing global skill and continues.
   -NoAutoResolveKnownConflicts
                        Do not auto-backup/restore dirty user runtime config
                        files when incoming changed paths overlap them.
@@ -572,6 +572,37 @@ function Invoke-LocalConfigMigration {
   }
 }
 
+function Invoke-SettingsRuntimeStateMigration {
+  Write-Section "settings runtime state"
+  $tool = Join-Path (Join-Path (Join-Path $RepoRoot "packages") "pi67-cli") "src/tools/settings-runtime-state-filter.mjs"
+  $stateDir = Join-Path (Join-Path $HomePath ".pi") "pi67"
+  if (-not (Test-Path -LiteralPath $tool -PathType Leaf)) {
+    Write-Warn ("settings runtime state tool missing: {0}" -f $tool)
+    return
+  }
+  if (-not (Test-CommandExists "node")) {
+    Write-Warn "node not found; skipped settings runtime state migration"
+    return
+  }
+  $args = @(
+    $tool,
+    "--migrate",
+    "--agent-dir",
+    $AgentDir,
+    "--repo-root",
+    $RepoRoot,
+    "--state-dir",
+    $stateDir,
+    "--normalize",
+    "--install-git-filter"
+  )
+  if ($DryRun) {
+    Write-Host ("  DRY-RUN node {0}" -f ($args -join " ")) -ForegroundColor Cyan
+    return
+  }
+  Invoke-PlannedExternal "node" $args | Out-Null
+}
+
 function Sync-SharedSkills {
   Write-Section "shared skills"
   $sourceRoot = Join-Path $RepoRoot "shared-skills"
@@ -608,9 +639,9 @@ function Sync-SharedSkills {
         continue
       }
       if ($StrictSharedSkills) {
-        Write-Fail ("shared skill conflict: {0} (existing={1} dirHash={2} source={3} dirHash={4}). Strict mode enabled; resolve manually or choose a different -SkillsDir." -f $skill.Name, $target, $targetHash, $skill.FullName, $sourceHash)
+        Write-Fail ("preserved user-modified shared skill differs from pi-67 baseline: {0} (existing={1} dirHash={2} source={3} dirHash={4}). Strict mode enabled; resolve manually or choose a different -SkillsDir." -f $skill.Name, $target, $targetHash, $skill.FullName, $sourceHash)
       }
-      Write-Warn ("shared skill differs from pi-67 baseline; keeping existing global skill: {0}" -f $skill.Name)
+      Write-Warn ("preserved user-modified shared skill; keeping existing global skill: {0}" -f $skill.Name)
       Write-Warn ("existing={0} dirHash={1}" -f $target, $targetHash)
       Write-Warn ("source skipped={0} dirHash={1}" -f $skill.FullName, $sourceHash)
       continue
@@ -1137,6 +1168,7 @@ function Show-CheckOnly {
   } else {
     Write-Pass "local config templates, JSON encoding normalization, and xtalpi migration would be checked"
   }
+  Write-Pass "settings.json lastChangelogVersion would be migrated into ignored state and normalized"
 
   if ($NoNpm) {
     Write-Warn "npm sync would be skipped"
@@ -1280,6 +1312,7 @@ try {
     Repair-LocalConfigJsonEncoding
     Invoke-LocalConfigMigration
   }
+  Invoke-SettingsRuntimeStateMigration
   Sync-SharedSkills
   Sync-Npm
   Invoke-UntilDoneRuntimeQueuePatch

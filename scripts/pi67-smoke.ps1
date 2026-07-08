@@ -245,6 +245,7 @@ Run-Check "CHANGELOG has current version entry" {
 
 Section "Required files"
 $RequiredFiles = @(
+  ".gitattributes",
   "AGENTS.md",
   "settings.json",
   "models.example.json",
@@ -288,6 +289,9 @@ $RequiredFiles = @(
   "packages/pi67-cli/src/lib/extension-registry.mjs",
   "packages/pi67-cli/src/lib/update-safety.mjs",
   "packages/pi67-cli/src/lib/npm-registry.mjs",
+  "packages/pi67-cli/src/lib/settings-runtime-clean.mjs",
+  "packages/pi67-cli/src/lib/settings-runtime-state.mjs",
+  "packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs",
   "packages/pi67-cli/schemas/pi67-distro-manifest.schema.json",
   "packages/pi67-cli/schemas/pi67-extension-registry.schema.json",
   "packages/pi67-cli/schemas/pi67-state.schema.json",
@@ -643,6 +647,9 @@ if ($GitAvailable) {
     "packages/pi67-cli/src/cli.mjs",
     "packages/pi67-cli/src/commands/self-update.mjs",
     "packages/pi67-cli/src/lib/npm-registry.mjs",
+    "packages/pi67-cli/src/lib/settings-runtime-clean.mjs",
+    "packages/pi67-cli/src/lib/settings-runtime-state.mjs",
+    "packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs",
     "packages/pi67-cli/schemas/pi67-state.schema.json",
     "packages/pi67-cli/schemas/pi67-update-plan.schema.json",
     "scripts/pi67-xtalpi-pi-tools-smoke.ps1",
@@ -651,6 +658,7 @@ if ($GitAvailable) {
     "scripts/pi67-shared-skills-inventory.sh",
     "extensions/xtalpi-pi-tools/json-file.ts",
     "extensions/xtalpi-pi-tools/json-action-protocol.ts",
+    ".gitattributes",
     ".github/workflows/ci.yml"
   )
   Run-Check "Windows smoke release files are tracked or staged" {

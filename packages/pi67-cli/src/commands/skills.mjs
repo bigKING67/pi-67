@@ -26,9 +26,9 @@ function inventory(ctx, argv) {
   keyValue("Target", data.skillsDir);
   keyValue("Identical", data.summary.identical);
   keyValue("Missing", data.summary.missing);
-  keyValue("Conflicts", data.summary.conflicts);
+  keyValue("Preserved user-modified", preservedUserModified(data.summary));
   for (const entry of data.entries.filter((item) => !item.identical)) {
-    const status = entry.conflict ? "conflict" : "missing";
+    const status = entry.conflict ? "preserved user-modified" : "missing";
     info(`${status}: ${entry.name}`);
   }
 }
@@ -43,7 +43,7 @@ function plan(ctx, argv) {
   keyValue("Target", data.skillsDir);
   keyValue("Selected", data.selected.length === 0 ? "all changed skills" : data.selected.join(", "));
   keyValue("Missing", data.actions.filter((item) => item.action === "copy-missing").length);
-  keyValue("Conflicts", data.actions.filter((item) => item.action === "preserve-conflict").length);
+  keyValue("Preserved user-modified", data.actions.filter((item) => item.action === "preserve-conflict").length);
   for (const action of data.actions) {
     const command = action.conflict
       ? `inspect: pi-67 skills diff ${action.name}; explicit sync: pi-67 skills sync ${action.name} --dry-run`
@@ -100,7 +100,11 @@ function migrate(ctx, argv) {
   section("pi-67 skills migrate preview");
   warn("migrate is intentionally dry-run in the npm manager; use `pi-67 skills sync` to copy missing skills.");
   keyValue("Missing", data.summary.missing);
-  keyValue("Conflicts", data.summary.conflicts);
+  keyValue("Preserved user-modified", preservedUserModified(data.summary));
+}
+
+function preservedUserModified(summary) {
+  return summary?.preservedUserModified ?? summary?.conflicts ?? 0;
 }
 
 function printSkillsHelp() {
@@ -115,8 +119,9 @@ Usage:
 
 Safety:
   Missing skills are copied by default. Existing different global skills are
-  preserved unless you name the skill explicitly and pass --yes. Bulk conflict
-  overwrite is intentionally blocked.
+  preserved as user-modified unless you name the skill explicitly and pass
+  --yes. Bulk overwrite of preserved user-modified skills is intentionally
+  blocked.
 
 Examples:
   pi-67 skills inventory

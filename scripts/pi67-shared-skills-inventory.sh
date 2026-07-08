@@ -148,7 +148,7 @@ for (const name of sourceSkills) {
   });
   if (record.sourceSha256 !== record.installedSha256) {
     record.status = "global_differs";
-    record.reason = "global shared skill differs from pi-67 source; pi-67 keeps global skill by default";
+    record.reason = "global shared skill differs from pi-67 source; pi-67 preserves it as user-modified by default";
   }
   skills.push(record);
 }
@@ -198,14 +198,14 @@ if (outputJson) {
   console.log(`Result    : ${result}`);
   console.log(
     `Summary   : source=${summary.source} installed=${summary.installed} ` +
-      `matching=${summary.matching} differing=${summary.differing} missing=${summary.missing} extra=${summary.extra}`,
+      `matching=${summary.matching} preserved_user_modified=${summary.differing} missing=${summary.missing} extra=${summary.extra}`,
   );
   const differing = skills.filter((skill) => skill.status === "global_differs").map((skill) => skill.name);
   const missing = skills.filter((skill) => skill.status === "missing_installed").map((skill) => skill.name);
   const extra = skills.filter((skill) => skill.status === "extra_global").map((skill) => skill.name);
   if (differing.length > 0) {
-    console.log(`Differing : ${differing.join(", ")}`);
-    console.log("Decision  : keeping existing global skills by default");
+    console.log(`Preserved user-modified : ${differing.join(", ")}`);
+    console.log("Decision  : preserving existing global skills by default");
   }
   if (missing.length > 0) console.log(`Missing   : ${missing.join(", ")}`);
   if (extra.length > 0) console.log(`Extra     : ${extra.join(", ")}`);

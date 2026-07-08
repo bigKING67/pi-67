@@ -6,6 +6,26 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.7] - 2026-07-08
+
+### Changed
+
+- `settings.json` no longer carries the Pi runtime-only
+  `lastChangelogVersion` marker in the tracked baseline. Install/update now
+  migrates that marker into ignored manager state at `~/.pi/pi67/state.json`,
+  normalizes the runtime field out of `settings.json`, and installs a local Git
+  clean filter so future Pi changelog marker writes cannot be carried into
+  normal diffs or commits.
+- Shared-skill drift wording now describes existing different global skills as
+  "preserved user-modified" skills instead of user-facing "conflicts", while
+  keeping the existing non-destructive policy and JSON compatibility fields.
+
+### Fixed
+
+- `pi-67 update --check`, `pi-67 status`, `pi-67 skills inventory`, doctor, and
+  updater logs now use preserved-user-modified wording so beginners do not
+  mistake safe user-owned global skills for broken pi-67 state.
+
 ## [0.10.6] - 2026-07-08
 
 ### Changed

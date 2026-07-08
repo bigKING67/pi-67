@@ -21,7 +21,11 @@ export async function statusCommand(ctx, argv) {
   keyValue("Provider", plan.settings.defaultProvider || "unset");
   keyValue("Model", plan.settings.defaultModel || "unset");
   keyValue("Theme", plan.settings.theme || "unset");
-  keyValue("Shared skills", `${plan.skills.identical} ok, ${plan.skills.missing} missing, ${plan.skills.conflicts} conflicts`);
+  keyValue("Shared skills", `${plan.skills.identical} ok, ${plan.skills.missing} missing, ${preservedUserModified(plan.skills)} preserved user-modified`);
+}
+
+function preservedUserModified(skills) {
+  return skills?.preservedUserModified ?? skills?.conflicts ?? 0;
 }
 
 function printStatusHelp() {

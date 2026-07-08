@@ -131,10 +131,10 @@ Windows PowerShell parity:
 ```
 
 By default, doctor reports pi-67 bundled shared skills that differ from
-installed global skills as `WARN`, not `FAIL`, because the global
-`~/.agents/skills/<name>` copy may be newer or intentionally maintained outside
-pi-67. Use `--strict-shared-skills` when release/parity checks should treat
-those differences as blocking failures.
+installed global skills as preserved user-modified `WARN`, not `FAIL`, because
+the global `~/.agents/skills/<name>` copy may be newer or intentionally
+maintained outside pi-67. Use `--strict-shared-skills` when release/parity
+checks should treat those differences as blocking failures.
 For an explainable per-skill inventory with hashes, run
 `bash scripts/pi67-shared-skills-inventory.sh --json`; the helper is read-only
 and keeps existing global skills by default.

@@ -25,6 +25,32 @@
     },
     "lastTheme": {
       "type": "string"
+    },
+    "runtimeMarkers": {
+      "type": "object",
+      "description": "Runtime-only UI markers migrated out of tracked runtime config files.",
+      "properties": {
+        "lastChangelogVersion": {
+          "type": "object",
+          "required": ["value", "storage"],
+          "properties": {
+            "value": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string"
+            },
+            "storage": {
+              "type": "string"
+            },
+            "updatedAt": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
     }
   },
   "additionalProperties": true

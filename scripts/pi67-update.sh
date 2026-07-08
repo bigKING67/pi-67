@@ -68,9 +68,9 @@ Options:
       --skills-dir DIR  Sync shared skills into DIR instead of ~/.agents/skills.
       --dev-link-skills Link skills into --skills-dir for local development.
       --strict-shared-skills
-                        Stop when an existing global shared skill differs from
-                        the pi-67 bundled baseline. Default keeps the existing
-                        global skill and continues.
+                        Stop when a preserved user-modified global shared
+                        skill differs from the pi-67 bundled baseline. Default
+                        keeps the existing global skill and continues.
       --remote NAME     Git remote to pull from. Defaults to origin.
       --branch NAME     Git branch to pull. Defaults to current branch.
       --dry-run         Print planned actions without changing files.
@@ -459,9 +459,9 @@ sync_one_shared_skill() {
       return
     fi
     if [ "$STRICT_SHARED_SKILLS" = true ]; then
-      fail "shared skill conflict: $name (existing=$dest dirHash=$dest_hash source=$src dirHash=$src_hash). Strict mode enabled; resolve manually or choose a different --skills-dir."
+      fail "preserved user-modified shared skill differs from pi-67 baseline: $name (existing=$dest dirHash=$dest_hash source=$src dirHash=$src_hash). Strict mode enabled; resolve manually or choose a different --skills-dir."
     fi
-    warn "shared skill differs from pi-67 baseline; keeping existing global skill: $name"
+    warn "preserved user-modified shared skill; keeping existing global skill: $name"
     warn "existing=$dest dirHash=$dest_hash"
     warn "source skipped=$src dirHash=$src_hash"
     return
@@ -876,6 +876,34 @@ run_configure() {
   bash "$configure" --repo-root "$REPO_ROOT" --agent-dir "$PI_AGENT_DIR" --no-prompt --no-doctor
 }
 
+migrate_settings_runtime_state() {
+  local tool="$REPO_ROOT/packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs"
+  local state_dir="${HOME:-$REPO_ROOT}/.pi/pi67"
+
+  say ""
+  say "${CYAN}--- settings runtime state ---${NC}"
+  if [ ! -f "$tool" ]; then
+    warn "settings runtime state tool missing: $tool"
+    return
+  fi
+  if ! command_exists node; then
+    warn "node not found; skipped settings runtime state migration"
+    return
+  fi
+  if [ "$DRY_RUN" = true ]; then
+    say "  ${CYAN}DRY-RUN${NC} node $tool --migrate --agent-dir $PI_AGENT_DIR --repo-root $REPO_ROOT --state-dir $state_dir --normalize --install-git-filter"
+    return
+  fi
+
+  node "$tool" \
+    --migrate \
+    --agent-dir "$PI_AGENT_DIR" \
+    --repo-root "$REPO_ROOT" \
+    --state-dir "$state_dir" \
+    --normalize \
+    --install-git-filter
+}
+
 check_update_plan() {
   say ""
   say "${CYAN}--- check only ---${NC}"
@@ -977,6 +1005,7 @@ check_update_plan() {
   else
     say "  skip local config migration (--no-configure)"
   fi
+  say "  migrate settings.json lastChangelogVersion into ~/.pi/pi67/state.json and install local git clean filter"
   say "  sync shared skills into $SHARED_SKILLS_DIR"
   if [ "$RUN_NPM" = true ]; then
     say "  sync npm dependencies when package.json differs"
@@ -1136,6 +1165,7 @@ fi
 update_repo
 sync_local_config_templates
 run_configure
+migrate_settings_runtime_state
 sync_shared_skills
 retire_legacy_agent_skills
 sync_npm

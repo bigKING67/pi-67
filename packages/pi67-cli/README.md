@@ -129,8 +129,9 @@ The explicit theme setter also writes a runtime backup before changing
 `settings.json`; normal update never changes the selected theme.
 
 The manager writes lightweight state outside the repo at `~/.pi/pi67/state.json`.
-It records versions, paths, theme, provider/model, and commit information; it
-does not store API keys.
+It records versions, paths, theme, provider/model, commit information, and
+runtime-only UI markers such as `settings.json.lastChangelogVersion` after
+migrating them out of tracked config; it does not store API keys.
 
 ## Main commands
 

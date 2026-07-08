@@ -42,7 +42,7 @@ Options:
   --no-skill-list         Skip pi skill list on POSIX platforms; accepted as a no-op on Windows.
   --skill-list-timeout-seconds N
                           Timeout for pi skill list where enabled.
-  --strict-shared-skills  Treat differing shared skills as blocking.
+  --strict-shared-skills  Treat preserved user-modified shared skills as blocking.
   --dry-run               Print the script invocation without running it.
 
 Examples:

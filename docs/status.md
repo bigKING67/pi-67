@@ -109,8 +109,11 @@ Stable top-level fields:
 only change is the `settings.json` runtime marker (`lastChangelogVersion`) and
 trailing-newline churn is reported as `benignRuntimeOnly`; this is shown in text
 output as `local runtime state only` and does not become a blocking update
-warning. Any other tracked or untracked change still appears as a normal dirty
-worktree warning.
+warning. Current update/repair also migrates that runtime-only marker into
+ignored manager state at `~/.pi/pi67/state.json`, removes it from
+`settings.json`, and installs a local Git clean filter so the marker is not
+carried into normal diffs or commits. Any other tracked or untracked change
+still appears as a normal dirty worktree warning.
 
 ## xtalpi smoke status
 
