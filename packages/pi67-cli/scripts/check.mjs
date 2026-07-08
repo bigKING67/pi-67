@@ -42,6 +42,7 @@ runPublishTargetSelfTests();
 runShellRunnerSelfTests();
 runExtensionRegistrySelfTests();
 runSettingsRuntimeStateSelfTests();
+runUpdatePreflightMigrationSelfTests();
 runUpdatePlanSelfTests();
 runUpdateSafetySelfTests();
 
@@ -405,6 +406,94 @@ function runSettingsRuntimeStateSelfTests() {
       state.runtimeMarkers.lastChangelogVersion.storage === "state.json",
     "settings runtime marker must migrate into state runtimeMarkers",
   );
+}
+
+function runUpdatePreflightMigrationSelfTests() {
+  if (spawnSync("git", ["--version"], { encoding: "utf8" }).status !== 0) return;
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-update-preflight-migration-"));
+  const home = path.join(tmpRoot, "home");
+  const repo = path.join(tmpRoot, "agent");
+  const skillsDir = path.join(tmpRoot, "skills");
+  const packagesDir = path.join(tmpRoot, "packages");
+  fs.mkdirSync(path.join(repo, "scripts"), { recursive: true });
+  fs.mkdirSync(home, { recursive: true });
+  fs.mkdirSync(skillsDir, { recursive: true });
+  fs.mkdirSync(packagesDir, { recursive: true });
+  fs.writeFileSync(path.join(repo, "VERSION"), "0.10.0\n");
+  fs.writeFileSync(path.join(repo, "settings.json"), "{\n  \"theme\": \"gruvbox-dark\"\n}\n");
+  fs.writeFileSync(path.join(repo, "scripts", "pi67-update.sh"), `#!/usr/bin/env bash
+set -euo pipefail
+agent_dir=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --agent-dir)
+      agent_dir="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if grep -q "lastChangelogVersion" "$agent_dir/settings.json"; then
+  echo "marker still present before distro script" >&2
+  exit 44
+fi
+`);
+  for (const args of [
+    ["-C", repo, "init", "-q"],
+    ["-C", repo, "config", "user.email", "pi67-check@example.invalid"],
+    ["-C", repo, "config", "user.name", "pi67-check"],
+    ["-C", repo, "add", "VERSION", "settings.json", "scripts/pi67-update.sh"],
+    ["-C", repo, "commit", "-q", "-m", "init"],
+  ]) {
+    const result = spawnSync("git", args, { encoding: "utf8" });
+    assert(result.status === 0, `git setup failed for update preflight migration self-test: git ${args.join(" ")}\n${result.stderr}`);
+  }
+  fs.writeFileSync(path.join(repo, "settings.json"), "{\n  \"lastChangelogVersion\": \"0.80.4\",\n  \"theme\": \"gruvbox-dark\"\n}\n");
+  const env = { ...process.env, HOME: home, USERPROFILE: home };
+  const result = spawnSync(process.execPath, [
+    path.join(root, "bin", "pi-67.mjs"),
+    "--agent-dir",
+    repo,
+    "--repo-root",
+    repo,
+    "--skills-dir",
+    skillsDir,
+    "--packages-dir",
+    packagesDir,
+    "update",
+    "--repair",
+    "--no-remote",
+    "--no-npm",
+  ], {
+    cwd: root,
+    env,
+    encoding: "utf8",
+  });
+  assert(
+    result.status === 0,
+    `update must preflight-normalize settings runtime marker before calling the distro script\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+  );
+  assert(
+    result.stdout.includes("Preflight: Migrated settings.json lastChangelogVersion") &&
+      result.stdout.includes("Preflight: Normalized settings.json"),
+    `update output must report preflight runtime marker migration\n${result.stdout}`,
+  );
+  const settings = JSON.parse(fs.readFileSync(path.join(repo, "settings.json"), "utf8"));
+  assert(settings.lastChangelogVersion === undefined, "update preflight migration must remove lastChangelogVersion from settings.json");
+  const state = JSON.parse(fs.readFileSync(path.join(home, ".pi", "pi67", "state.json"), "utf8"));
+  assert(
+    state.runtimeMarkers?.lastChangelogVersion?.value === "0.80.4",
+    "update preflight migration must persist lastChangelogVersion into ignored state",
+  );
+  const status = spawnSync("git", ["-C", repo, "status", "--short"], { encoding: "utf8" });
+  assert(status.status === 0, `git status failed for update preflight migration self-test\n${status.stderr}`);
+  assert(
+    !status.stdout.split(/\r?\n/).some((line) => line.trim().endsWith("settings.json")),
+    `settings.json should be clean after preflight marker migration\n${status.stdout}`,
+  );
+  fs.rmSync(tmpRoot, { recursive: true, force: true });
 }
 
 function runUpdatePlanSelfTests() {

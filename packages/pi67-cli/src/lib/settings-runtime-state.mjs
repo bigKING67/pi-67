@@ -138,6 +138,32 @@ export function installSettingsRuntimeGitFilter(ctx, options = {}) {
   }
 
   const cleanCommand = `node ${SETTINGS_RUNTIME_FILTER_SCRIPT} --clean`;
+  const existingClean = captureCommand("git", [
+    "-C",
+    ctx.repoRoot,
+    "config",
+    "--local",
+    "--get",
+    `filter.${SETTINGS_RUNTIME_FILTER_NAME}.clean`,
+  ]);
+  const existingRequired = captureCommand("git", [
+    "-C",
+    ctx.repoRoot,
+    "config",
+    "--local",
+    "--get",
+    `filter.${SETTINGS_RUNTIME_FILTER_NAME}.required`,
+  ]);
+  if (
+    existingClean.ok &&
+    existingClean.stdout.trim() === cleanCommand &&
+    existingRequired.ok &&
+    existingRequired.stdout.trim() === "false"
+  ) {
+    result.skipped = "settings runtime filter already installed";
+    return result;
+  }
+
   const clean = captureCommand("git", [
     "-C",
     ctx.repoRoot,

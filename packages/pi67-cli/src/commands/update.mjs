@@ -61,6 +61,8 @@ export async function updateCommand(ctx, argv) {
     info(`Preserved runtime backup skipped: ${lifecycle.backupReason}`);
   }
 
+  reportSettingsRuntimeStateMigration(ctx, { dryRun, phase: "Preflight" });
+
   const args = isWindows()
     ? buildWindowsUpdateArgs(ctx, options, dryRun)
     : buildBashUpdateArgs(ctx, options, dryRun);
@@ -68,7 +70,7 @@ export async function updateCommand(ctx, argv) {
     runDistroScript(ctx, { sh: "pi67-update.sh", ps1: "pi67-update.ps1" }, args, { dryRun: false });
     if (!dryRun) {
       writeState(ctx, options.repair ? "repair" : "update");
-      reportSettingsRuntimeStateMigration(ctx);
+      reportSettingsRuntimeStateMigration(ctx, { phase: "Post-update" });
     }
   } finally {
     lifecycle.release();
@@ -86,19 +88,22 @@ export async function updateCommand(ctx, argv) {
   }
 }
 
-function reportSettingsRuntimeStateMigration(ctx) {
+function reportSettingsRuntimeStateMigration(ctx, options = {}) {
+  const dryRun = Boolean(options.dryRun);
+  const phase = options.phase ? `${options.phase}: ` : "";
   const result = migrateSettingsRuntimeState(ctx, {
     normalizeSettingsJson: true,
     installGitFilter: true,
+    dryRun,
   });
-  if (result.markerFound && result.stateWritten) {
-    info("Migrated settings.json lastChangelogVersion to ignored state: ~/.pi/pi67/state.json");
+  if (result.markerFound && (result.stateWritten || dryRun)) {
+    info(`${phase}${dryRun ? "would migrate" : "Migrated"} settings.json lastChangelogVersion to ignored state: ~/.pi/pi67/state.json`);
   }
   if (result.settingsNormalized) {
-    info("Normalized settings.json by removing runtime-only lastChangelogVersion.");
+    info(`${phase}${dryRun ? "would normalize" : "Normalized"} settings.json by removing runtime-only lastChangelogVersion.`);
   }
   if (result.gitFilterInstalled) {
-    info("Installed local git clean filter for future settings.json runtime markers.");
+    info(`${phase}${dryRun ? "would install" : "Installed"} local git clean filter for future settings.json runtime markers.`);
   }
   for (const error of result.errors) {
     warn(`settings runtime marker migration skipped: ${error}`);

@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.10.9]
+
+- Runs settings runtime-marker migration before the local distro updater script
+  as well as after it, so latest npm manager repair can clean `M settings.json`
+  even when the local checkout still contains an older updater script.
+
 ## [0.10.8]
 
 - Adds actionable `pi-67 version` recommendations when the npm manager has

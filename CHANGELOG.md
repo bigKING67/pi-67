@@ -6,6 +6,16 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.9] - 2026-07-08
+
+### Fixed
+
+- `pi-67 update --repair` now migrates and normalizes the
+  `settings.json.lastChangelogVersion` runtime marker before invoking the
+  local distro updater script. This lets a freshly installed latest npm manager
+  clean the common `M settings.json` state even when the checked-out distro is
+  still older than the runtime-marker migration scripts.
+
 ## [0.10.8] - 2026-07-08
 
 ### Changed
