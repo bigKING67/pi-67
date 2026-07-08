@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.10.10]
+
+- Extends the update preflight runtime-marker regression to include the
+  PowerShell updater entrypoint used on Windows.
+
 ## [0.10.9]
 
 - Runs settings runtime-marker migration before the local distro updater script

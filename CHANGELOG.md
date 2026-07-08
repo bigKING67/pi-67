@@ -6,6 +6,14 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.10] - 2026-07-08
+
+### Fixed
+
+- The update preflight runtime-marker regression test now covers both Bash and
+  PowerShell distro updater entrypoints, matching the real cross-platform
+  manager dispatch path.
+
 ## [0.10.9] - 2026-07-08
 
 ### Fixed

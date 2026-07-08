@@ -440,11 +440,27 @@ if grep -q "lastChangelogVersion" "$agent_dir/settings.json"; then
   exit 44
 fi
 `);
+  fs.writeFileSync(path.join(repo, "scripts", "pi67-update.ps1"), `param(
+  [string]$AgentDir,
+  [string]$RepoRoot,
+  [string]$SkillsDir,
+  [switch]$DryRun,
+  [switch]$ForceNpm,
+  [switch]$NoNpm,
+  [switch]$AllowDirty,
+  [switch]$StrictSharedSkills
+)
+$settings = Get-Content -LiteralPath (Join-Path $AgentDir "settings.json") -Raw
+if ($settings -match "lastChangelogVersion") {
+  Write-Error "marker still present before distro script"
+  exit 44
+}
+`);
   for (const args of [
     ["-C", repo, "init", "-q"],
     ["-C", repo, "config", "user.email", "pi67-check@example.invalid"],
     ["-C", repo, "config", "user.name", "pi67-check"],
-    ["-C", repo, "add", "VERSION", "settings.json", "scripts/pi67-update.sh"],
+    ["-C", repo, "add", "VERSION", "settings.json", "scripts/pi67-update.sh", "scripts/pi67-update.ps1"],
     ["-C", repo, "commit", "-q", "-m", "init"],
   ]) {
     const result = spawnSync("git", args, { encoding: "utf8" });
