@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.18]
+
+- Persists the discovered Git for Windows directory into Windows User PATH
+  during `pi-67 install --repair --yes` when Git is installed but PowerShell
+  cannot find `git`. The repair writes only User PATH under explicit `--yes`;
+  it does not write Machine PATH or silently install Git.
+
 ## [0.10.17]
 
 - Adds Windows Git for Windows auto-discovery. If `git.exe` is installed in a

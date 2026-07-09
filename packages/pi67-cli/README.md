@@ -16,10 +16,11 @@ Windows PowerShell uses the same public commands:
 
 ```powershell
 git --version
-# pi-67 0.10.17+ auto-detects common Git for Windows install paths when PATH
-# is stale. If Git is genuinely not installed:
+# pi-67 0.10.18+ auto-detects common Git for Windows install paths when PATH
+# is stale. install --repair --yes also persists the Git directory into
+# Windows User PATH for future PowerShell windows.
+# If Git is genuinely not installed:
 # winget install --id Git.Git -e --source winget
-# Close and reopen PowerShell before continuing.
 
 npm install -g @bigking67/pi-67
 pi-67 install --repair --yes

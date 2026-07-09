@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { parseCommandOptions } from "../lib/args.mjs";
 import { DEFAULT_REPO_URL } from "../lib/paths.mjs";
-import { captureCommand, runCommand } from "../lib/shell-runner.mjs";
+import { captureCommand, repairWindowsGitPath, runCommand } from "../lib/shell-runner.mjs";
 import { runDistroScript } from "../lib/distro-scripts.mjs";
 import { isWindows } from "../lib/platform.mjs";
 import { isGitRepo } from "../lib/git.mjs";
@@ -24,7 +24,7 @@ export async function installCommand(ctx, argv) {
   const repairConfirmed = Boolean(options.repair && (options.yes || ctx.yes));
 
   const cloneAgent = () => {
-    if (!dryRun) ensureGitAvailable();
+    if (!dryRun) ensureGitAvailable({ persistWindowsUserPath: repairConfirmed });
     fs.mkdirSync(path.dirname(ctx.agentDir), { recursive: true });
     const cloneArgs = ["clone"];
     if (options.branch) cloneArgs.push("--branch", options.branch);
@@ -54,7 +54,7 @@ export async function installCommand(ctx, argv) {
       cloneAgent();
       return;
     }
-    ensureGitAvailable();
+    ensureGitAvailable({ persistWindowsUserPath: repairConfirmed });
     fs.mkdirSync(backupDir, { recursive: true, mode: 0o700 });
     fs.renameSync(ctx.agentDir, backupTarget);
     info(`Moved existing non-git agent dir to backup: ${backupTarget}`);
@@ -119,7 +119,24 @@ export async function installCommand(ctx, argv) {
   info("Install finished. Run `pi-67 doctor` next.");
 }
 
-function ensureGitAvailable() {
+function ensureGitAvailable(options = {}) {
+  const repair = repairWindowsGitPath({
+    persistUserPath: Boolean(options.persistWindowsUserPath),
+  });
+  if (repair.found && repair.processPathPatched) {
+    info(`Found Git for Windows outside PATH: ${repair.gitExe}`);
+    info(`Added Git directory to current pi-67 process PATH: ${repair.gitDir}`);
+  }
+  if (repair.persisted) {
+    info(`Added Git directory to Windows user PATH for future PowerShell sessions: ${repair.gitDir}`);
+    info("Close and reopen PowerShell for `git --version` to work in a new shell.");
+  } else if (repair.alreadyPersisted) {
+    info(`Git directory already exists in Windows user PATH: ${repair.gitDir}`);
+  } else if (repair.found && options.persistWindowsUserPath && repair.persistence && !repair.persistence.ok) {
+    warn(`Could not persist Git directory to Windows user PATH: ${repair.persistence.error}`);
+    warn("Install will continue with the current pi-67 process PATH repaired.");
+  }
+
   const result = captureCommand("git", ["--version"]);
   if (result.ok) return;
   const detail = (result.stderr || result.error || `exit status ${result.status}`).trim();
@@ -171,6 +188,7 @@ Options:
   --dry-run       Print planned writes without changing files.
   --repair        Force owned asset repair during the installer update phase.
                   With --yes, also backs up a non-git agent dir before recloning.
+                  On Windows, also repairs installed Git-for-Windows PATH.
   --yes           Confirm explicit non-git agent dir backup/reclone repair.
 
 Examples:

@@ -12,6 +12,16 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
   wrapper (`Plan mode is now disabled... Implement this proposed plan now`) as
   active Plan mode, and smoke gates now cover that continuation path.
 
+## [0.10.18] - 2026-07-09
+
+### Fixed
+
+- `pi-67 install --repair --yes` now persists a discovered Git for Windows
+  directory into Windows User PATH when Git is installed but the current
+  PowerShell session cannot find `git`. The installer still patches the current
+  process PATH first, writes only User PATH under explicit `--yes`, and does
+  not silently modify Machine PATH or install Git.
+
 ## [0.10.17] - 2026-07-09
 
 ### Fixed

@@ -92,20 +92,27 @@ normal installer/update flow.
 ## `failed to run git: spawnSync git ENOENT`
 
 This means Windows cannot find `git.exe` in the current PowerShell session.
-From `0.10.17`, pi-67 first checks common Git for Windows install locations and
-temporarily repairs PATH for the current process when Git is installed but the
-current shell missed it. If Git is genuinely not installed, install Git for
-Windows, close and reopen PowerShell, then retry:
+From `0.10.18`, `pi-67 install --repair --yes` first checks common Git for
+Windows install locations, repairs PATH for the current install process, and
+persists the discovered Git directory into Windows User PATH. If Git is
+genuinely not installed, install Git for Windows, then retry:
 
 ```powershell
 winget install --id Git.Git -e --source winget
-git --version
 pi-67 install --repair --yes
 ```
 
-If `git --version` still fails after installation, the Git installer did not
-update PATH for the shell you are using. Reopen Windows Terminal/PowerShell, or
-repair the Git for Windows installation and enable command-line PATH support.
+If `winget` says Git is already installed but `git --version` still fails, run
+`pi-67 install --repair --yes` anyway. When Git exists in a standard Git for
+Windows path, pi-67 will repair the install flow and User PATH. Close and
+reopen Windows Terminal/PowerShell after the repair, then run:
+
+```powershell
+git --version
+```
+
+pi-67 writes only User PATH, not Machine PATH, and does not silently install
+Git for Windows by itself.
 
 ## `node` or `npm` command not found
 

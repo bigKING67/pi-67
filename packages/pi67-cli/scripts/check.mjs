@@ -4,7 +4,13 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { npmLatestVersion, npmPublishTargetStatus, npmRegistryPackageUrl } from "../src/lib/npm-registry.mjs";
-import { commandCandidatesForPlatform, envWithWindowsGitFallback, findWindowsGitExecutable } from "../src/lib/shell-runner.mjs";
+import {
+  commandCandidatesForPlatform,
+  envWithWindowsGitFallback,
+  findWindowsGitExecutable,
+  persistWindowsUserPathDirectory,
+  repairWindowsGitPath,
+} from "../src/lib/shell-runner.mjs";
 import { parseCommandOptions, splitGlobalArgs } from "../src/lib/args.mjs";
 import { readExtensionRegistry, validateExtensionRegistry } from "../src/lib/extension-registry.mjs";
 import { buildPlanDecisions, classifyGitShort } from "../src/lib/update-plan.mjs";
@@ -415,6 +421,49 @@ function runShellRunnerSelfTests() {
     assert(
       patchedEnv.PATH.startsWith(path.dirname(fakeGitExe)),
       "Windows git fallback must prepend the discovered Git directory to PATH",
+    );
+    const repairEnv = { PATH: "", ProgramFiles: fakeProgramFiles };
+    const dryRepair = repairWindowsGitPath({
+      env: repairEnv,
+      platform: "win32",
+      persistUserPath: true,
+      dryRun: true,
+    });
+    assert(
+      dryRepair.found && dryRepair.processPathPatched && repairEnv.PATH.startsWith(path.dirname(fakeGitExe)),
+      "Windows git repair must patch the current process PATH before clone/install commands run",
+    );
+    assert(
+      dryRepair.persistence.dryRun,
+      "Windows git repair dry-run must not persist User PATH",
+    );
+    const persisted = persistWindowsUserPathDirectory(path.dirname(fakeGitExe), {
+      platform: "win32",
+      powerShellCommands: ["powershell.exe"],
+      spawnImpl(command, args, options) {
+        assert(command === "powershell.exe", "Windows user PATH persistence must use the provided PowerShell command");
+        assert(args.includes("-EncodedCommand"), "Windows user PATH persistence must avoid shell-interpolated script text");
+        assert(
+          options.env.PI67_GIT_DIR_TO_PERSIST === path.dirname(fakeGitExe),
+          "Windows user PATH persistence must pass the Git directory through environment, not command text",
+        );
+        return { status: 0, stdout: "updated\n", stderr: "" };
+      },
+    });
+    assert(
+      persisted.ok && persisted.persisted && !persisted.alreadyPresent,
+      "Windows user PATH persistence must report successful updates",
+    );
+    const alreadyPresent = persistWindowsUserPathDirectory(path.dirname(fakeGitExe), {
+      platform: "win32",
+      powerShellCommands: ["powershell.exe"],
+      spawnImpl() {
+        return { status: 0, stdout: "already-present\n", stderr: "" };
+      },
+    });
+    assert(
+      alreadyPresent.ok && !alreadyPresent.persisted && alreadyPresent.alreadyPresent,
+      "Windows user PATH persistence must report already-present directories as no-op success",
     );
     assert(
       JSON.stringify(commandCandidatesForPlatform("npm", "darwin")) === JSON.stringify(["npm"]),
