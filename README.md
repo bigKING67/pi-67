@@ -4,7 +4,7 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
-当前发行版版本：`0.10.22`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.10.23`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 这是什么
 
@@ -75,8 +75,9 @@ bash ~/.pi/agent/scripts/pi67-shared-skills-inventory.sh --json
 - `design-craft` / `browser67`：不要作为 Pi active package 重复声明；普通用户把其中的 skills 安装到 `~/.agents/skills`。
 - browser67 MCP：在本机 ignored `mcp.json` 里配置源码路径；默认模板用
   `cwd=~/.agents/packages/browser67` 加相对 `args`，也可用
-  `pi67-configure --tmwd-repo` 改到任意 checkout。不要在 MCP `command` /
-  `args` 里写 `$HOME/...`；`pi-mcp-adapter` 不会 shell-expand 这些字段。
+  `pi67-configure --tmwd-repo` 改到任意 checkout；该 helper 会写成本机
+  absolute `cwd` + relative `args`。不要在 MCP `command` / `args` 里写
+  `$HOME/...`；`pi-mcp-adapter` 不会 shell-expand 这些字段。
 
 旧安装如果已经出现 duplicate / conflict / skipped / `auto (user)` 之类
 `pi skill list` 警告，先用迁移工具预览；它默认 dry-run、只复制缺失 skill、

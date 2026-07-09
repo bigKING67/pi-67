@@ -638,8 +638,10 @@ bash ~/.pi/agent/scripts/pi67-configure.sh \
   --agent-memory-bin "$HOME/.local/bin/agent-memory-mcp"
 ```
 
-Healthy runtime `mcp.json` should use absolute paths, or adapter-supported
-`cwd` plus relative `args`; it should not rely on `$HOME` in `command` / `args`.
+Healthy runtime `mcp.json` should use a machine-local absolute `cwd` plus
+relative `args` for browser67 MCP servers. Absolute `command` / `args` also
+work when needed, but `mcp.json` should not rely on `$HOME` in `command` /
+`args`.
 
 Use the configure helper to set the common local paths:
 

@@ -324,8 +324,27 @@ const serialized = JSON.stringify(mcp);
 if (serialized.includes("$HOME/") || serialized.includes("${HOME}/") || serialized.includes("%USERPROFILE%")) {
   throw new Error("mcp.example.json must not contain home placeholders in command/args");
 }
+
+const { normalizeMcpConfig } = require(path.join(repoRoot, "scripts", "pi67-mcp-config-utils.cjs"));
+const browser67Root = path.join(repoRoot, "fixtures", "browser67-root");
+const runtime = { mcpServers: {} };
+normalizeMcpConfig(runtime, { agentDir: repoRoot, browser67Root });
+const normalizedTmwd = runtime.mcpServers.tmwd_browser || {};
+const normalizedJsReverse = runtime.mcpServers["js-reverse"] || {};
+if (normalizedTmwd.cwd !== browser67Root || normalizedJsReverse.cwd !== browser67Root) {
+  throw new Error("browser67Root normalization should write absolute cwd");
+}
+if (normalizedTmwd.args?.[0] !== "src/mcp/browser/server.mjs") {
+  throw new Error(`browser67Root normalization should keep tmwd args cwd-relative: ${normalizedTmwd.args?.[0]}`);
+}
+if (normalizedJsReverse.args?.[0] !== "src/mcp/js-reverse/server.mjs") {
+  throw new Error(`browser67Root normalization should keep js-reverse args cwd-relative: ${normalizedJsReverse.args?.[0]}`);
+}
+if (String(normalizedTmwd.args?.[0] || "").includes(browser67Root) || String(normalizedJsReverse.args?.[0] || "").includes(browser67Root)) {
+  throw new Error("browser67Root normalization must not duplicate absolute paths into args");
+}
 NODE
-pass "shared skill defaults avoid active Pi package duplication and MCP args use adapter-compatible cwd"
+pass "shared skill defaults and MCP normalization use adapter-compatible cwd"
 
 section "Release metadata"
 if ! "$REPO_ROOT/scripts/pi67-release-check.sh" >/tmp/pi67-smoke-release-check.log 2>&1; then
@@ -1057,19 +1076,24 @@ node -e '
 const fs = require("fs");
 const path = require("path");
 const mcp = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+const tmwdCwd = mcp.mcpServers?.tmwd_browser?.cwd || "";
+const jsCwd = mcp.mcpServers?.["js-reverse"]?.cwd || "";
 const tmwdArg = mcp.mcpServers?.tmwd_browser?.args?.[0] || "";
 const jsArg = mcp.mcpServers?.["js-reverse"]?.args?.[0] || "";
 const memoryCommand = mcp.mcpServers?.agent_memory?.command || "";
-for (const [label, value] of Object.entries({ tmwdArg, jsArg, memoryCommand })) {
+for (const [label, value] of Object.entries({ tmwdCwd, jsCwd, tmwdArg, jsArg, memoryCommand })) {
   if (/^(?:~|\$HOME|\$\{HOME\}|%USERPROFILE%)(?:$|[\\/])/.test(value)) {
     throw new Error(`${label} kept an unsupported runtime placeholder: ${value}`);
   }
 }
-if (!path.isAbsolute(tmwdArg) || !path.isAbsolute(jsArg) || !path.isAbsolute(memoryCommand)) {
-  throw new Error("configured MCP browser67 and agent_memory paths must be absolute");
+if (!path.isAbsolute(tmwdCwd) || !path.isAbsolute(jsCwd) || !path.isAbsolute(memoryCommand)) {
+  throw new Error("configured MCP browser67 cwd and agent_memory command must be absolute");
+}
+if (tmwdArg !== "src/mcp/browser/server.mjs" || jsArg !== "src/mcp/js-reverse/server.mjs") {
+  throw new Error("configured MCP browser67 args must stay cwd-relative");
 }
 ' "$AGENT_DIR/mcp.json"
-pass "configure writes adapter-runnable absolute MCP paths"
+pass "configure writes adapter-runnable MCP cwd with relative browser67 args"
 
 if grep -q 'Result: READY WITH WARNINGS' /tmp/pi67-smoke-doctor-configured.log; then
   cat /tmp/pi67-smoke-doctor-configured.log >&2

@@ -467,6 +467,32 @@ if ($NodeAvailable) {
     }
   }
 
+  Run-Check "MCP normalizer keeps browser67 args cwd-relative" {
+    $script = @'
+const path = require("path");
+const repoRoot = process.argv[1];
+const { normalizeMcpConfig } = require(path.join(repoRoot, "scripts", "pi67-mcp-config-utils.cjs"));
+const browser67Root = path.join(repoRoot, "fixtures", "browser67-root");
+const runtime = { mcpServers: {} };
+normalizeMcpConfig(runtime, { agentDir: repoRoot, browser67Root });
+const tmwd = runtime.mcpServers.tmwd_browser || {};
+const jsReverse = runtime.mcpServers["js-reverse"] || {};
+if (tmwd.cwd !== browser67Root || jsReverse.cwd !== browser67Root) {
+  throw new Error("browser67Root normalization should write absolute cwd");
+}
+if (tmwd.args?.[0] !== "src/mcp/browser/server.mjs") {
+  throw new Error(`tmwd args should be cwd-relative, got ${tmwd.args?.[0]}`);
+}
+if (jsReverse.args?.[0] !== "src/mcp/js-reverse/server.mjs") {
+  throw new Error(`js-reverse args should be cwd-relative, got ${jsReverse.args?.[0]}`);
+}
+if (String(tmwd.args?.[0] || "").includes(browser67Root) || String(jsReverse.args?.[0] || "").includes(browser67Root)) {
+  throw new Error("browser67Root normalization must not duplicate absolute paths into args");
+}
+'@
+    Invoke-External "node" @("-e", $script, $RepoRoot) | Out-Null
+  }
+
   Run-Check "xtalpi provider error contract validator self-test passed" {
     Invoke-External "node" @((RepoPath "scripts/pi67-validate-xtalpi-provider-error-contract.mjs"), (RepoPath "extensions/xtalpi-pi-tools/provider-error-contract.json"), "--self-test") | Out-Null
   }

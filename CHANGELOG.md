@@ -6,6 +6,16 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.23] - 2026-07-09
+
+### Changed
+
+- `pi67-configure.sh` and the MCP config normalizer now write browser67 custom
+  checkout paths as machine-local `cwd` plus relative `args` instead of copying
+  the full browser67 path into each MCP entrypoint argument.
+- Clarified MCP path documentation so public templates stay portable while
+  local ignored `mcp.json` files may contain machine-specific paths.
+
 ## [0.10.22] - 2026-07-09
 
 ### Added

@@ -87,15 +87,17 @@ function normalizeMcpConfig(config, options = {}) {
     const jsReverse = ensureObject(mcpServers, "js-reverse");
     setChanged(tmwd, "command", tmwd.command || "node", "tmwd_browser.command", changes);
     setChanged(jsReverse, "command", jsReverse.command || "node", "js-reverse.command", changes);
-    const tmwdArgs = [path.join(root, "src", "mcp", "browser", "server.mjs")];
-    const jsArgs = [path.join(root, "src", "mcp", "js-reverse", "server.mjs")];
+    setChanged(tmwd, "cwd", root, "tmwd_browser.cwd", changes);
+    setChanged(jsReverse, "cwd", root, "js-reverse.cwd", changes);
+    const tmwdArgs = ["src/mcp/browser/server.mjs"];
+    const jsArgs = ["src/mcp/js-reverse/server.mjs"];
     if (JSON.stringify(tmwd.args || []) !== JSON.stringify(tmwdArgs)) {
       tmwd.args = tmwdArgs;
-      changes.push(`tmwd_browser.args: set absolute browser67 MCP entrypoint`);
+      changes.push(`tmwd_browser.args: set cwd-relative browser67 MCP entrypoint`);
     }
     if (JSON.stringify(jsReverse.args || []) !== JSON.stringify(jsArgs)) {
       jsReverse.args = jsArgs;
-      changes.push(`js-reverse.args: set absolute browser67 MCP entrypoint`);
+      changes.push(`js-reverse.args: set cwd-relative browser67 MCP entrypoint`);
     }
   }
 

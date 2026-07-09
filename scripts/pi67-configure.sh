@@ -511,9 +511,11 @@ if (env("PI67_TMWD_BROWSER_MCP_REPO")) {
   mcp.mcpServers["js-reverse"] = mcp.mcpServers["js-reverse"] || {};
   mcp.mcpServers.tmwd_browser.command = mcp.mcpServers.tmwd_browser.command || "node";
   mcp.mcpServers["js-reverse"].command = mcp.mcpServers["js-reverse"].command || "node";
-  mcp.mcpServers.tmwd_browser.args = [path.join(tmwdRoot, "src", "mcp", "browser", "server.mjs")];
-  mcp.mcpServers["js-reverse"].args = [path.join(tmwdRoot, "src", "mcp", "js-reverse", "server.mjs")];
-  noteChange(`configure browser67 tmwd_browser/js-reverse MCP repo: ${tmwdRoot}`);
+  mcp.mcpServers.tmwd_browser.cwd = tmwdRoot;
+  mcp.mcpServers["js-reverse"].cwd = tmwdRoot;
+  mcp.mcpServers.tmwd_browser.args = ["src/mcp/browser/server.mjs"];
+  mcp.mcpServers["js-reverse"].args = ["src/mcp/js-reverse/server.mjs"];
+  noteChange(`configure browser67 tmwd_browser/js-reverse MCP cwd: ${tmwdRoot}`);
 }
 
 if (env("PI67_AGENT_MEMORY_BIN")) {

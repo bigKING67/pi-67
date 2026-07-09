@@ -490,7 +490,8 @@ Fill API keys and local paths after installation. Existing local config files ar
 `mcp.json` must be runnable by `pi-mcp-adapter` directly. Do not put `$HOME`,
 `${HOME}`, `%USERPROFILE%`, or `~` inside MCP `command` or `args`; those fields
 are not shell-expanded by the adapter. pi-67 writes adapter-compatible config by
-using either absolute paths or a supported `cwd` plus relative `args`.
+using either absolute paths or, preferably, a machine-local absolute `cwd` plus
+relative `args`.
 
 ## Configure local readiness
 

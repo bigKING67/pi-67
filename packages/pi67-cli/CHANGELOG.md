@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.23]
+
+- Keeps browser67 custom MCP paths in the cleaner machine-local `cwd` plus
+  relative `args` form when normalizing or configuring `mcp.json`.
+- Clarifies that public templates stay portable, while local ignored
+  `mcp.json` files can contain machine-specific paths.
+
 ## [0.10.22]
 
 - Normalizes Pi `mcp.json` MCP runtime paths so browser67 / `tmwd_browser`
