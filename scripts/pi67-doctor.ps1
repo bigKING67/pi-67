@@ -69,6 +69,7 @@ $HomePath = Get-HomePath
 $ScriptPath = Resolve-ScriptPath
 $ScriptDir = Split-Path -Parent $ScriptPath
 . (Join-Path $ScriptDir "pi67-json-utils.ps1")
+$Pi67GitPathInit = Initialize-Pi67GitPath
 
 if (-not $RepoRoot) {
   $RepoRoot = (Resolve-Path (Join-Path $ScriptDir "..")).Path
@@ -370,9 +371,13 @@ if (Test-CommandExists "npm") {
 }
 
 if (Test-CommandExists "git") {
-  Pass "git found"
+  if ($Pi67GitPathInit.AddedToPath) {
+    Pass ("git found via installed Git path: {0}" -f $Pi67GitPathInit.Source)
+  } else {
+    Pass "git found"
+  }
 } else {
-  Fail "git is required for update/status checks"
+  Fail "git is required for update/status checks; install Git for Windows with: winget install --id Git.Git -e --source winget"
 }
 
 if (Test-CommandExists "pi") {

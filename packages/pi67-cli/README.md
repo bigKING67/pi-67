@@ -16,7 +16,8 @@ Windows PowerShell uses the same public commands:
 
 ```powershell
 git --version
-# If git is not found:
+# pi-67 0.10.17+ auto-detects common Git for Windows install paths when PATH
+# is stale. If Git is genuinely not installed:
 # winget install --id Git.Git -e --source winget
 # Close and reopen PowerShell before continuing.
 

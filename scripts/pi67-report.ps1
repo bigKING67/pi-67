@@ -54,6 +54,8 @@ function Resolve-ScriptPath {
 $HomePath = Get-HomePath
 $ScriptPath = Resolve-ScriptPath
 $ScriptDir = Split-Path -Parent $ScriptPath
+. (Join-Path $ScriptDir "pi67-json-utils.ps1")
+$Pi67GitPathInit = Initialize-Pi67GitPath
 
 if (-not $RepoRoot) {
   $RepoRoot = (Resolve-Path (Join-Path $ScriptDir "..")).Path

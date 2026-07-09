@@ -35,6 +35,7 @@ if ($Help) {
 $ScriptPath = if ($PSCommandPath) { $PSCommandPath } else { $MyInvocation.MyCommand.Path }
 $ScriptDir = Split-Path -Parent $ScriptPath
 . (Join-Path $ScriptDir "pi67-json-utils.ps1")
+$Pi67GitPathInit = Initialize-Pi67GitPath
 $RepoRoot = (Resolve-Path (Join-Path $ScriptDir "..")).Path
 
 $script:PassCount = 0
@@ -210,9 +211,13 @@ if ($NodeAvailable) {
 }
 
 if ($GitAvailable) {
-  Pass "git found"
+  if ($Pi67GitPathInit.AddedToPath) {
+    Pass ("git found via installed Git path: {0}" -f $Pi67GitPathInit.Source)
+  } else {
+    Pass "git found"
+  }
 } else {
-  Warn "git not found; skipped Git-only checks"
+  Warn "git not found; skipped Git-only checks" "install Git for Windows with: winget install --id Git.Git -e --source winget"
 }
 
 Section "Release metadata"

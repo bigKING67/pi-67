@@ -134,7 +134,8 @@ npm install -g @earendil-works/pi-coding-agent
 pi --version
 
 git --version
-# If git is not found:
+# pi-67 0.10.17+ can auto-detect common Git for Windows install paths when
+# PowerShell PATH is stale. If Git is genuinely not installed:
 # winget install --id Git.Git -e --source winget
 # Close and reopen PowerShell, then rerun git --version.
 
@@ -148,8 +149,9 @@ case where `pi --version` or a manual setup already created
 `$env:USERPROFILE\.pi\agent` as a plain non-Git folder. In that case pi-67 moves
 the existing folder into
 `$env:USERPROFILE\.pi\pi67\backups\<timestamp>-non-git-agent-dir\agent`, then
-clones the managed Git checkout. Git must be installed and visible in the new
-PowerShell session before the clone can run.
+clones the managed Git checkout. From `0.10.17`, pi-67 also checks common Git
+for Windows install paths and temporarily repairs PATH for the current process
+when Git is installed but the current PowerShell window has stale PATH.
 
 `pi-67 smoke` dispatches to the PowerShell-native repository validation on
 Windows. It does not call Bash and it does not write local Pi config.

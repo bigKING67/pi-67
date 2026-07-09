@@ -92,7 +92,10 @@ normal installer/update flow.
 ## `failed to run git: spawnSync git ENOENT`
 
 This means Windows cannot find `git.exe` in the current PowerShell session.
-Install Git for Windows, close and reopen PowerShell, then retry:
+From `0.10.17`, pi-67 first checks common Git for Windows install locations and
+temporarily repairs PATH for the current process when Git is installed but the
+current shell missed it. If Git is genuinely not installed, install Git for
+Windows, close and reopen PowerShell, then retry:
 
 ```powershell
 winget install --id Git.Git -e --source winget

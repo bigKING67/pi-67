@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.10.17]
+
+- Adds Windows Git for Windows auto-discovery. If `git.exe` is installed in a
+  common location but PowerShell/npm did not inherit it in `PATH`, `pi-67`
+  prepends the discovered Git directory for the current process before running
+  clone/update/doctor/smoke flows.
+- Shares the same Git path repair in PowerShell helper scripts, covering users
+  who run `.\scripts\pi67-update.ps1` or `.\scripts\pi67-smoke.ps1` directly.
+
 ## [0.10.16]
 
 - Checks for `git --version` before moving an existing non-Git agent directory

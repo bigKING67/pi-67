@@ -6,6 +6,18 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.17] - 2026-07-09
+
+### Fixed
+
+- Windows Git discovery is now self-healing for common Git for Windows
+  installs. If `git.exe` exists in standard install locations but PowerShell
+  has not picked it up in `PATH`, `pi-67` prepends that Git directory for the
+  current process before clone/update/doctor/smoke commands run.
+- PowerShell helper scripts now use the same Git discovery path, so direct
+  `.\scripts\pi67-update.ps1`, `doctor`, `smoke`, and report flows no longer
+  fail just because Git is installed but missing from the current shell PATH.
+
 ## [0.10.16] - 2026-07-09
 
 ### Fixed

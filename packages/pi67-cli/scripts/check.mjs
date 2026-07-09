@@ -4,7 +4,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { npmLatestVersion, npmPublishTargetStatus, npmRegistryPackageUrl } from "../src/lib/npm-registry.mjs";
-import { commandCandidatesForPlatform } from "../src/lib/shell-runner.mjs";
+import { commandCandidatesForPlatform, envWithWindowsGitFallback, findWindowsGitExecutable } from "../src/lib/shell-runner.mjs";
 import { parseCommandOptions, splitGlobalArgs } from "../src/lib/args.mjs";
 import { readExtensionRegistry, validateExtensionRegistry } from "../src/lib/extension-registry.mjs";
 import { buildPlanDecisions, classifyGitShort } from "../src/lib/update-plan.mjs";
@@ -172,7 +172,18 @@ function runInstallNonGitAgentDirSelfTests() {
     );
     assert(fs.existsSync(path.join(agentDir, "settings.json")), "repair dry-run must not move the existing non-git folder");
 
-    const noGitEnv = { ...env, PATH: "", Path: "" };
+    const noGitEnv = {
+      ...env,
+      PATH: "",
+      Path: "",
+      PI67_GIT_EXE: "",
+      ProgramW6432: "",
+      ProgramFiles: "",
+      "ProgramFiles(x86)": "",
+      LOCALAPPDATA: path.join(tmpRoot, "no-localappdata"),
+      LocalAppData: path.join(tmpRoot, "no-localappdata"),
+      ChocolateyInstall: "",
+    };
     const noGitRepair = spawnSync(process.execPath, [...baseArgs, "--repair", "--yes"], {
       cwd: root,
       env: noGitEnv,
@@ -381,18 +392,37 @@ async function runNpmRegistrySelfTests() {
 }
 
 function runShellRunnerSelfTests() {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-shell-runner-"));
+  const fakeProgramFiles = path.join(tmpRoot, "Program Files");
+  const fakeGitExe = path.join(fakeProgramFiles, "Git", "cmd", "git.exe");
+  fs.mkdirSync(path.dirname(fakeGitExe), { recursive: true });
+  fs.writeFileSync(fakeGitExe, "");
+  const fakeEnv = { PATH: "", ProgramFiles: fakeProgramFiles };
   assert(
     JSON.stringify(commandCandidatesForPlatform("npm", "win32")) === JSON.stringify(["npm", "npm.cmd", "cmd.exe"]),
     "Windows npm execution must fall back through npm.cmd and cmd.exe",
   );
-  assert(
-    JSON.stringify(commandCandidatesForPlatform("git", "win32")) === JSON.stringify(["git"]),
-    "Windows non-npm execution should keep the requested command",
-  );
-  assert(
-    JSON.stringify(commandCandidatesForPlatform("npm", "darwin")) === JSON.stringify(["npm"]),
-    "POSIX npm execution should keep the requested command",
-  );
+  try {
+    assert(
+      JSON.stringify(commandCandidatesForPlatform("git", "win32", fakeEnv)) === JSON.stringify(["git", "git.exe", fakeGitExe]),
+      "Windows git execution must include installed Git for Windows fallback paths",
+    );
+    assert(
+      findWindowsGitExecutable(fakeEnv, "win32") === fakeGitExe,
+      "Windows git executable discovery must find common Git for Windows locations",
+    );
+    const patchedEnv = envWithWindowsGitFallback(fakeEnv, "win32");
+    assert(
+      patchedEnv.PATH.startsWith(path.dirname(fakeGitExe)),
+      "Windows git fallback must prepend the discovered Git directory to PATH",
+    );
+    assert(
+      JSON.stringify(commandCandidatesForPlatform("npm", "darwin")) === JSON.stringify(["npm"]),
+      "POSIX npm execution should keep the requested command",
+    );
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
 }
 
 function runExtensionRegistrySelfTests() {

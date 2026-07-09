@@ -222,3 +222,98 @@ function Repair-Pi67JsonFileEncoding {
     FirstBytesHex = $info.FirstBytesHex
   }
 }
+
+function Get-Pi67GitCandidatePaths {
+  $candidates = @()
+  if ($env:PI67_GIT_EXE) {
+    $candidates += $env:PI67_GIT_EXE
+  }
+  foreach ($root in @($env:ProgramW6432, $env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+    if ($root) {
+      $candidates += (Join-Path (Join-Path $root "Git") "cmd\git.exe")
+      $candidates += (Join-Path (Join-Path $root "Git") "bin\git.exe")
+    }
+  }
+  $localAppData = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { $env:LocalAppData }
+  if ($localAppData) {
+    $candidates += (Join-Path (Join-Path (Join-Path $localAppData "Programs") "Git") "cmd\git.exe")
+  }
+  $userHome = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
+  if ($userHome) {
+    $candidates += (Join-Path (Join-Path (Join-Path (Join-Path $userHome "scoop") "apps") "git") "current\cmd\git.exe")
+  }
+  if ($env:ChocolateyInstall) {
+    $candidates += (Join-Path (Join-Path $env:ChocolateyInstall "bin") "git.exe")
+  }
+
+  $seen = @{}
+  $result = @()
+  foreach ($candidate in $candidates) {
+    if (-not $candidate) { continue }
+    $key = $candidate.ToLowerInvariant()
+    if ($seen.ContainsKey($key)) { continue }
+    $seen[$key] = $true
+    $result += $candidate
+  }
+  return $result
+}
+
+function Find-Pi67GitExecutable {
+  $existing = Get-Command "git" -ErrorAction SilentlyContinue
+  if ($existing) {
+    return [pscustomobject]@{
+      Source = $existing.Source
+      AlreadyOnPath = $true
+      AddedToPath = $false
+    }
+  }
+
+  foreach ($candidate in (Get-Pi67GitCandidatePaths)) {
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+      return [pscustomobject]@{
+        Source = $candidate
+        AlreadyOnPath = $false
+        AddedToPath = $false
+      }
+    }
+  }
+
+  return [pscustomobject]@{
+    Source = ""
+    AlreadyOnPath = $false
+    AddedToPath = $false
+  }
+}
+
+function Test-Pi67PathContainsDirectory {
+  param([Parameter(Mandatory = $true)][string]$Directory)
+  $pathValue = if ($env:Path) { $env:Path } else { "" }
+  $separator = [string][System.IO.Path]::PathSeparator
+  $target = $Directory.TrimEnd('\', '/').ToLowerInvariant()
+  foreach ($segment in @($pathValue -split [Regex]::Escape($separator))) {
+    if (-not $segment) { continue }
+    if ($segment.TrimEnd('\', '/').ToLowerInvariant() -eq $target) {
+      return $true
+    }
+  }
+  return $false
+}
+
+function Initialize-Pi67GitPath {
+  $found = Find-Pi67GitExecutable
+  if (-not $found.Source -or $found.AlreadyOnPath) {
+    return $found
+  }
+
+  $gitDir = Split-Path -Parent $found.Source
+  if (-not (Test-Pi67PathContainsDirectory $gitDir)) {
+    $separator = [string][System.IO.Path]::PathSeparator
+    if ($env:Path) {
+      $env:Path = "{0}{1}{2}" -f $gitDir, $separator, $env:Path
+    } else {
+      $env:Path = $gitDir
+    }
+    $found.AddedToPath = $true
+  }
+  return $found
+}
