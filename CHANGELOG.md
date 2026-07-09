@@ -6,6 +6,18 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.20] - 2026-07-09
+
+### Added
+
+- Added the bundled `pi-vision-bridge` local extension and `vision_read` tool
+  so screenshot, image, and OCR tasks are routed through a local multimodal
+  bridge before `xtalpi-pi-tools` hands ordinary text evidence to xtalpi.
+- Added xtalpi vision-task detection, image-path `read` de-prioritization,
+  vision bridge readiness fail-closed behavior, model-output repair prompts,
+  doctor checks, smoke-plan metadata, coverage audit rules, and release gates
+  for `vision_read`.
+
 ### Fixed
 
 - `xtalpi-pi-tools` no longer treats Pi's accepted Plan mode continuation
