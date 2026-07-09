@@ -75,6 +75,9 @@ const CONTINUATION_PROMPT_PATTERN = new RegExp(
   "^\\s*(?:继续上一轮|继续上一步|继续(?:呀|吧)?|接着(?:来|吧)?|下一步|然后呢|再来|往下|go on|continue|next|proceed)(?:\\s|$|[，。,.!！?？])",
   "i",
 );
+const RETRY_CONTINUATION_PATTERN = /(?:再试(?:一下|下)?|重试|重新试(?:一下|下)?|try\s+again|retry)/i;
+const NEGATIVE_RETRY_CONTINUATION_PATTERN =
+  /(?:不要|不用|无需|别|禁止|do\s+not|don't|dont|without|no).{0,16}(?:再试|重试|重新试|try\s+again|retry)/i;
 
 export function contentToText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -110,7 +113,10 @@ function latestUserText(messages: MessageLike[]): string {
 }
 
 function isContinuationPrompt(value: string): boolean {
-  return CONTINUATION_PROMPT_PATTERN.test(value.trim());
+  const text = value.trim();
+  if (CONTINUATION_PROMPT_PATTERN.test(text)) return true;
+  if (NEGATIVE_RETRY_CONTINUATION_PATTERN.test(text)) return false;
+  return text.length <= 160 && RETRY_CONTINUATION_PATTERN.test(text);
 }
 
 function truncateSelectionContext(value: string): string {

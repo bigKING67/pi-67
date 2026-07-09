@@ -21,6 +21,7 @@ const { pathToFileURL } = require("node:url");
   const protocolBoundary = await import(ext("protocol-boundary.ts"));
   const protocol = await import(ext("protocol.ts"));
   const providerTurn = await import(ext("provider-turn.ts"));
+  const browserBridge = await import(ext("browser-bridge.ts"));
   const diagnostics = await import(ext("diagnostics.ts"));
   const errors = await import(ext("errors.ts"));
   const finalGuard = await import(ext("final-guard.ts"));
@@ -2543,6 +2544,171 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
   assert.ok(browserMcpContext.toolSelectionSummary.selected[0].reasonCodes.includes("browser_mcp_route"));
   assert.ok(browserMcpContext.toolSelectionSummary.selected[0].reasonCodes.includes("prompt_browser_tool_name"));
   assert.ok(browserMcpContext.toolSelectionSummary.selected[0].reasonCodes.includes("prompt_browser_cn_intent"));
+
+  const browserTildeContext = serializer.serializeContextForXtalpi(
+    {
+      systemPrompt: "system base",
+      tools: browserMcpTools,
+      messages: [{ role: "user", content: "打开浏览器～browser67" }],
+    },
+    {
+      maxTools: 1,
+      maxToolResultChars: 2000,
+    },
+  );
+  assert.deepEqual([...browserTildeContext.selectedToolNames], ["mcp"]);
+  assert.ok(browserTildeContext.toolSelectionSummary.selected[0].reasonCodes.includes("browser_mcp_route"));
+  assert.ok(browserTildeContext.toolSelectionSummary.selected[0].reasonCodes.includes("prompt_browser_tool_name"));
+  assert.ok(browserTildeContext.toolSelectionSummary.selected[0].reasonCodes.includes("prompt_browser_cn_intent"));
+
+  const browserChromeBeforeOpenContext = serializer.serializeContextForXtalpi(
+    {
+      systemPrompt: "system base",
+      tools: browserMcpTools,
+      messages: [{ role: "user", content: "用chrome打开蝉妈妈首页" }],
+    },
+    {
+      maxTools: 1,
+      maxToolResultChars: 2000,
+    },
+  );
+  assert.deepEqual([...browserChromeBeforeOpenContext.selectedToolNames], ["mcp"]);
+  assert.ok(
+    browserChromeBeforeOpenContext.toolSelectionSummary.selected[0].reasonCodes.includes(
+      "prompt_browser_cn_tool_then_action",
+    ),
+  );
+
+  const browserRetryContinuationContext = serializer.serializeContextForXtalpi(
+    {
+      systemPrompt: "system base",
+      tools: browserMcpTools,
+      messages: [
+        { role: "user", content: "用chrome打开蝉妈妈首页" },
+        { role: "assistant", content: "当前没有成功走 browser67。" },
+        { role: "user", content: "你用的是browser67嘛，再试一下" },
+      ],
+    },
+    {
+      maxTools: 1,
+      maxToolResultChars: 2000,
+    },
+  );
+  assert.equal(browserRetryContinuationContext.toolSelectionPromptSource, "recent_user_continuation");
+  assert.deepEqual([...browserRetryContinuationContext.selectedToolNames], ["mcp"]);
+
+  const browserMcpEnglishOpenContext = serializer.serializeContextForXtalpi(
+    {
+      systemPrompt: "system base",
+      tools: browserMcpTools,
+      messages: [{ role: "user", content: "open https://www.chanmama.com/ with browser67, not the default browser." }],
+    },
+    {
+      maxTools: 1,
+      maxToolResultChars: 2000,
+    },
+  );
+  assert.deepEqual([...browserMcpEnglishOpenContext.selectedToolNames], ["mcp"]);
+  assert.ok(browserMcpEnglishOpenContext.toolSelectionSummary.selected[0].reasonCodes.includes("browser_mcp_route"));
+  assert.ok(browserMcpEnglishOpenContext.toolSelectionSummary.selected[0].reasonCodes.includes("prompt_browser_url_open"));
+  assert.equal(browserBridge.selectedBrowserMcpToolName(browserMcpEnglishOpenContext.selectedToolNames), "mcp");
+
+  const browserShellOpenGuard = shellCommandGuard.validateShellCommandRequest({
+    requestedCall: { name: "bash", arguments: { command: "open https://www.chanmama.com/" } },
+    toolSelectionPromptText: "请用 browser67 打开 https://www.chanmama.com/，不要用系统默认浏览器。",
+    selectedToolNames: ["bash", "mcp"],
+  });
+  assert.equal(browserShellOpenGuard.ok, false);
+  assert.equal(browserShellOpenGuard.code, "browser_task_shell_open_misroute");
+
+  const browserShellChromeOpenGuard = shellCommandGuard.validateShellCommandRequest({
+    requestedCall: {
+      name: "bash",
+      arguments: { command: 'open -a "Google Chrome" "https://www.chanmama.com"' },
+    },
+    toolSelectionPromptText: "用chrome打开蝉妈妈首页",
+    selectedToolNames: ["bash", "mcp"],
+  });
+  assert.equal(browserShellChromeOpenGuard.ok, false);
+  assert.equal(browserShellChromeOpenGuard.code, "browser_task_shell_open_misroute");
+
+  const browserShellAppOpenGuard = shellCommandGuard.validateShellCommandRequest({
+    requestedCall: {
+      name: "bash",
+      arguments: { command: 'open -a "Google Chrome"' },
+    },
+    toolSelectionPromptText: "打开浏览器～browser67",
+    selectedToolNames: ["bash", "mcp"],
+  });
+  assert.equal(browserShellAppOpenGuard.ok, false);
+  assert.equal(browserShellAppOpenGuard.code, "browser_task_shell_open_misroute");
+
+  const browserCliProbeGuard = shellCommandGuard.validateShellCommandRequest({
+    requestedCall: {
+      name: "bash",
+      arguments: {
+        command:
+          "which browser67 2>/dev/null || npm ls -g browser67 2>/dev/null || ls -la ~/.browser67/",
+      },
+    },
+    toolSelectionPromptText: "用 browser67/tmwd_browser 打开网页并截图。",
+    selectedToolNames: ["bash", "mcp"],
+  });
+  assert.equal(browserCliProbeGuard.ok, false);
+  assert.equal(browserCliProbeGuard.code, "browser_task_shell_open_misroute");
+
+  const browserShellOpenDecision = toolCallDecision.decideToolCallRequest({
+    requestedCall: { name: "bash", arguments: { command: "open https://www.chanmama.com/" } },
+    selectedToolNames: new Set(["bash", "mcp"]),
+    selectedToolNamesList: ["bash", "mcp"],
+    selectedToolByName: new Map(browserMcpTools.map((tool) => [tool.name, tool])),
+    toolSelectionPromptText: "请用 browser67 打开 https://www.chanmama.com/，不要用 bash/open。",
+    canRepair: true,
+  });
+  assert.equal(browserShellOpenDecision.kind, "repair");
+  assert.equal(browserShellOpenDecision.event, "recovery.shell_command_mismatch");
+  assert.match(browserShellOpenDecision.prompt, /browser67\/tmwd_browser task/);
+  assert.match(browserShellOpenDecision.prompt, /\{"kind":"tool_call","name":"mcp","arguments":\{"connect":"tmwd_browser"\}\}/);
+
+  await withProviderTurnEnv({
+    XTALPI_PI_TOOLS_MAX_TOOLS: "1",
+    XTALPI_PI_TOOLS_MAX_EMPTY_RETRIES: "0",
+    XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES: "0",
+    XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES: "0",
+  }, async () => {
+    const browserNoMcpChat = makeProviderTurnChat([
+      { content: '{"kind":"tool_call","name":"bash","arguments":{"command":"open https://www.chanmama.com/"}}' },
+    ]);
+    const browserNoMcpResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: {
+        systemPrompt: "system base",
+        tools: browserMcpTools.filter((tool) => tool.name !== "mcp"),
+        messages: [{ role: "user", content: "open https://www.chanmama.com/ with browser67." }],
+      },
+      callChat: browserNoMcpChat.callChat,
+    });
+    assert.equal(browserNoMcpResult.kind, "final");
+    assert.match(browserNoMcpResult.text, /没有可执行 browser MCP 工具被选中/);
+    assert.match(browserNoMcpResult.text, /拒绝继续使用 bash\/open/);
+    assert.equal(browserNoMcpChat.calls.length, 0);
+
+    const browserNoMcpChineseChat = makeProviderTurnChat([
+      { content: '{"kind":"tool_call","name":"bash","arguments":{"command":"open -a \\"Google Chrome\\" \\"https://www.chanmama.com\\""}}' },
+    ]);
+    const browserNoMcpChineseResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: {
+        systemPrompt: "system base",
+        tools: browserMcpTools.filter((tool) => tool.name !== "mcp"),
+        messages: [{ role: "user", content: "用chrome打开蝉妈妈首页" }],
+      },
+      callChat: browserNoMcpChineseChat.callChat,
+    });
+    assert.equal(browserNoMcpChineseResult.kind, "final");
+    assert.match(browserNoMcpChineseResult.text, /没有可执行 browser MCP 工具被选中/);
+    assert.equal(browserNoMcpChineseChat.calls.length, 0);
+  });
 
   const ordinaryUrlFetchContext = serializer.serializeContextForXtalpi(
     {

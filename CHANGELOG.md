@@ -6,6 +6,21 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+### Fixed
+
+- Hardened `xtalpi-pi-tools` browser67 routing for Chinese prompts such as
+  "打开浏览器～browser67" and "用 Chrome 打开..." where the browser marker may use
+  Chinese punctuation or appear before the action verb, so the `mcp` gateway is
+  selected instead of `bash` / `web_fetch`.
+- Browser67 / `tmwd_browser` tasks now fail closed or repair when the model
+  tries to use `bash` with macOS `open`, `open -a "Google Chrome"`, `xdg-open`,
+  `start`, `python -m webbrowser`, normal browser-app launches, or local
+  `browser67` CLI probes as a
+  substitute for Pi's MCP gateway.
+- Retry-style follow-ups such as "再试一下" now reuse recent user context for
+  tool selection, preventing a second browser attempt from losing the original
+  Chrome/browser67 intent.
+
 ## [0.10.24] - 2026-07-09
 
 ### Changed

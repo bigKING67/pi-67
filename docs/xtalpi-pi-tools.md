@@ -340,6 +340,9 @@ Network 检查时，本轮还必须把可执行工具展示给模型。常见入
 1. `extensions/xtalpi-pi-tools/browser-bridge.ts` 识别 `browser67`、`tmwd_browser`、
    `Chrome`、`Edge`、`browser`、`mcp`、`CDP`，以及“打开浏览器 / 当前标签页 / 登录态 /
    点击 / 输入 / 上传 / 下载 / 截图 / 抓包 / 控制台 / 开发者工具”等中英文意图。
+   中文里浏览器名在动作前也会识别，例如“用 Chrome 打开...”、
+   “用 browser67 截图...”；中文标点/波浪号连接的“打开浏览器～browser67”也必须
+   选中 browser MCP。此类 prompt 不能退回 `bash open`。
 2. 如果本轮 `context.tools` 里有 `mcp`，浏览器任务优先 selected `mcp`；即使
    `XTALPI_PI_TOOLS_MAX_TOOLS=1`，也不会把 `mcp` 挤掉。
 3. 如果没有 `mcp` 但存在 direct browser tool，则选择 direct browser tool。
@@ -347,6 +350,13 @@ Network 检查时，本轮还必须把可执行工具展示给模型。常见入
    不会因为 URL 里出现 `https://` 就强制打开真实浏览器，避免性能损耗和登录态副作用。
 5. 如果用户明确说“不要用 browser67 / 不用浏览器 / without browser”，本地不会触发
    browser bridge。
+6. 如果检测到是 browser67 / `tmwd_browser` 任务但本轮没有 `mcp` 或 direct browser
+   tool，provider 会直接给出 readiness final，不会继续让模型调用 `bash open`。
+7. 如果模型在 browser67 任务里仍尝试 `bash` 的 macOS `open`、`open -a "Google Chrome"`、
+   `xdg-open`、Windows `start`、`python -m webbrowser`、普通浏览器 app launch，
+   或用 `which browser67` /
+   `npm ls -g browser67` / `ls ~/.browser67` 代替 MCP gateway，本地 shell guard 会阻止执行；
+   如果 `mcp` 已 selected，会要求修复为 `{"kind":"tool_call","name":"mcp","arguments":{"connect":"tmwd_browser"}}`。
 
 这个边界解决的是 selected-tool 白名单断层：模型不能自己“猜”一个没展示的 `mcp` 工具。
 如果仍看到：

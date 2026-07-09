@@ -54,6 +54,7 @@ export function decideToolCallRequest(input: {
   selectedToolNames: ReadonlySet<string>;
   selectedToolNamesList: readonly string[];
   selectedToolByName: ReadonlyMap<string, ToolLike>;
+  toolSelectionPromptText?: string;
   lastCompletedCall?: ToolCallRequest;
   canRepair: boolean;
 }): ToolCallDecision {
@@ -108,7 +109,11 @@ export function decideToolCallRequest(input: {
     };
   }
 
-  const shellCommandGuard = validateShellCommandRequest(requestedCall);
+  const shellCommandGuard = validateShellCommandRequest({
+    requestedCall,
+    toolSelectionPromptText: input.toolSelectionPromptText,
+    selectedToolNames: selectedToolNamesList,
+  });
   if (!shellCommandGuard.ok) {
     if (canRepair) {
       return {
@@ -119,6 +124,7 @@ export function decideToolCallRequest(input: {
           reason: shellCommandGuard.reason,
           command: shellCommandGuard.command,
           errors: shellCommandGuard.errors,
+          selectedToolNames: selectedToolNamesList,
         }),
         toolName: requestedCall.name,
         errors: shellCommandGuard.errors,

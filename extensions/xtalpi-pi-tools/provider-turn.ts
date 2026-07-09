@@ -14,6 +14,12 @@ import type { XtalpiProviderTurnResult } from "./output-message.ts";
 import { parseJsonAction } from "./parser.ts";
 import { validateFinalAnswer } from "./final-guard.ts";
 import {
+  buildBrowserMcpReadinessFinal,
+  detectBrowserMcpTaskText,
+  preferredBrowserMcpToolName,
+  selectedBrowserMcpToolName,
+} from "./browser-bridge.ts";
+import {
   DEFAULT_MAX_TOOL_RESULT_CHARS,
   DEFAULT_MAX_TOOLS,
   type XtalpiChatMessage,
@@ -100,9 +106,12 @@ export async function runProviderTurn(input: {
   debugLog("turn.start", debugContext);
 
   const visionDetection = detectVisionTaskText(serializedContext.toolSelectionPromptText);
+  const browserDetection = detectBrowserMcpTaskText(serializedContext.toolSelectionPromptText);
   const availableToolNames = [...(contextLike.tools ?? []).map((tool) => tool.name).filter(Boolean)];
   const preferredVisionTool = preferredVisionToolName(contextLike.tools);
   const selectedVisionTool = selectedVisionToolName(names);
+  const preferredBrowserTool = preferredBrowserMcpToolName(contextLike.tools ?? []);
+  const selectedBrowserTool = selectedBrowserMcpToolName(names);
   if (visionDetection.isVisionTask && !selectedVisionTool) {
     debugLog("vision_bridge.not_ready", {
       ...debugContext,
@@ -118,6 +127,24 @@ export async function runProviderTurn(input: {
         selectedToolNames,
         maxTools,
         preferredToolName: preferredVisionTool,
+      }),
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+    };
+  }
+  if (browserDetection.isBrowserMcpTask && !selectedBrowserTool) {
+    debugLog("browser_mcp.not_ready", {
+      ...debugContext,
+      browserReasonCodes: browserDetection.reasonCodes,
+      preferredBrowserToolName: preferredBrowserTool,
+    });
+    return {
+      kind: "final",
+      text: buildBrowserMcpReadinessFinal({
+        detection: browserDetection,
+        availableToolNames,
+        selectedToolNames,
+        maxTools,
+        preferredToolName: preferredBrowserTool,
       }),
       usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
     };
@@ -375,6 +402,7 @@ export async function runProviderTurn(input: {
       selectedToolNames: names,
       selectedToolNamesList: selectedToolNames,
       selectedToolByName,
+      toolSelectionPromptText: serializedContext.toolSelectionPromptText,
       lastCompletedCall,
       canRepair: loopState.canRecoverRepair(debugContext),
     });

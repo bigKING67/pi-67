@@ -212,10 +212,25 @@ export function buildShellCommandMismatchRepairPrompt(input: {
   reason: string;
   command: string;
   errors: string[];
+  selectedToolNames?: readonly string[];
 }): string {
   const details = input.errors.slice(0, 8).map((error) => `- ${safeInlineText(error, 400)}`).join("\n") ||
     "- the command does not match the shell used by the bash tool";
-  const correctedToolCall = toolCallShapeForPrompt('"bash"', '{"command":"pwd","timeout":30}');
+  const selectedNames = formatToolNamesForPrompt(input.selectedToolNames ?? []);
+  const hasMcp = (input.selectedToolNames ?? []).includes("mcp");
+  const correctedToolCall = input.code === "browser_task_shell_open_misroute" && hasMcp
+    ? toolCallShapeForPrompt('"mcp"', '{"connect":"tmwd_browser"}')
+    : toolCallShapeForPrompt('"bash"', '{"command":"pwd","timeout":30}');
+  const browserMisrouteInstruction = input.code === "browser_task_shell_open_misroute"
+    ? [
+      "This is a browser67/tmwd_browser task. Do not use bash, macOS `open`, `osascript`, `xdg-open`, `start`, `python -m webbrowser`, `which browser67`, `npm ls -g browser67`, or `ls ~/.browser67` as a substitute for browser67.",
+      hasMcp
+        ? `Use the available "mcp" gateway instead. Start with exactly ${toolCallShapeForPrompt('"mcp"', '{"connect":"tmwd_browser"}')} unless the active task already requires a more specific tmwd_browser tool call.`
+        : "The `mcp` gateway is not currently selected. Return a final JSON action that says browser67/tmwd_browser is unavailable in this Pi turn; do not open the system default browser.",
+      `Selected tool names:\n${selectedNames}`,
+      "",
+    ].join("\n")
+    : "";
   const finalOrTool = `Return either ${finalShapeForPrompt()}, or exactly one corrected JSON action:
 ${correctedToolCall}`;
   return `[xtalpi-pi-tools-shell-command-mismatch-repair]
@@ -230,6 +245,7 @@ ${safeBlockText(input.command, 1600)}
 Details:
 ${details}
 
+${browserMisrouteInstruction}
 The Pi tool name is "bash", so its "command" argument is interpreted as POSIX shell text.
 - Do not send raw PowerShell cmdlets such as Get-ChildItem, Select-Object, Where-Object, or Set-Location directly to bash.
 - If a shell command is still needed, prefer bash-compatible commands such as pwd, ls, find, test, sed, node, git, or npm.

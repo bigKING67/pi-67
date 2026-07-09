@@ -435,8 +435,28 @@ the model was not shown.
 Expected current behavior: prompts that mention browser67, Chrome, Edge, current
 tab, login state, clicking, typing, uploads, downloads, screenshots, DevTools,
 console, DOM, or network inspection should select `mcp` when it is available.
+Chinese prompts where the browser name appears before the action, such as
+`用chrome打开蝉妈妈首页`, or prompts with punctuation between intent and runtime,
+such as `打开浏览器～browser67`, are browser tasks too. Retry follow-ups such as
+`再试一下` reuse recent user context for tool selection, so the second attempt
+should not lose the original browser intent.
 Prompts that only ask to summarize a public URL should still select
 `web_fetch` / `web_search` instead of opening a real browser.
+
+If Pi opens Safari or the macOS default browser, inspect the session log for a
+`bash` tool call such as:
+
+```json
+{"command":"open https://..."}
+{"command":"open -a \"Google Chrome\" \"https://...\""}
+{"command":"open -a \"Google Chrome\""}
+```
+
+That is a browser-route failure: `bash open` talks to the OS default browser (or
+a regular Chrome app launch), not browser67's managed `tmwd_browser` MCP
+surface. Current `xtalpi-pi-tools` blocks this path and either repairs toward
+`mcp({"connect":"tmwd_browser"})` or returns a readiness final if no browser MCP
+tool is selected.
 
 Run:
 
