@@ -67,6 +67,7 @@ async function doctor(ctx, argv) {
       blocked: updatePlan.blocked.filter((item) => extensionBlockKinds().has(item.kind)),
       warnings: updatePlan.warnings,
     },
+    managedPackages: updatePlan.packages,
   };
   if (ctx.json || options.json) {
     printJson(data);
@@ -91,6 +92,14 @@ async function doctor(ctx, argv) {
   }
   for (const blocked of data.updatePlan.blocked) {
     warn(`${blocked.id}: ${blocked.reason}`);
+  }
+  if (data.managedPackages?.summary) {
+    section("Managed npm package baseline");
+    const summary = data.managedPackages.summary;
+    info(`${summary.current || 0} current, ${summary.installedBehind || 0} installed stale, ${summary.baselineBehindLatest || 0} baseline drift`);
+    for (const item of data.managedPackages.packages.filter((entry) => entry.status !== "current" && entry.status !== "registry-skipped")) {
+      warn(`${item.packageName}: ${item.status}; baseline=${item.versionRange}; installed=${item.installedVersion || "missing"}; latest=${item.latestVersion || "unknown"}`);
+    }
   }
 }
 
@@ -164,7 +173,7 @@ function updateHint(_ctx, argv) {
 }
 
 function extensionActionKinds() {
-  return new Set(["local-extension", "theme-package", "skill-pack"]);
+  return new Set(["local-extension", "theme-package", "skill-pack", "npm-package-sync"]);
 }
 
 function extensionBlockKinds() {

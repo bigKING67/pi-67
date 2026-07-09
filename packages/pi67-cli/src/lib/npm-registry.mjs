@@ -323,6 +323,32 @@ export function compareSemver(left, right) {
   return 0;
 }
 
+export function versionFromRange(range) {
+  const match = String(range || "").match(/(\d+\.\d+\.\d+)/);
+  return match ? match[1] : "";
+}
+
+export function versionSatisfiesSupportedRange(version, range) {
+  const value = versionFromRange(version);
+  const baseline = versionFromRange(range);
+  const rawRange = String(range || "").trim();
+  if (!value || !baseline) return false;
+  if (rawRange === "*" || rawRange.toLowerCase() === "latest") return true;
+  if (compareSemver(value, baseline) < 0) return false;
+  const current = semverParts(value);
+  const base = semverParts(baseline);
+  if (rawRange.startsWith("^")) {
+    if (base[0] > 0) return current[0] === base[0];
+    if (base[1] > 0) return current[0] === 0 && current[1] === base[1];
+    return current[0] === 0 && current[1] === 0 && current[2] === base[2];
+  }
+  if (rawRange.startsWith("~")) {
+    return current[0] === base[0] && current[1] === base[1];
+  }
+  if (rawRange.startsWith(">=")) return true;
+  return compareSemver(value, baseline) === 0;
+}
+
 function semverParts(value) {
   const match = String(value || "").match(/^(\d+)\.(\d+)\.(\d+)/);
   if (!match) return [0, 0, 0];

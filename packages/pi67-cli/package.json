@@ -1,6 +1,6 @@
 {
   "name": "@bigking67/pi-67",
-  "version": "0.10.23",
+  "version": "0.10.24",
   "description": "Cross-platform manager CLI for the pi-67 Pi Coding Agent distribution.",
   "type": "module",
   "bin": {

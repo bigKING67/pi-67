@@ -6,6 +6,21 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.24] - 2026-07-09
+
+### Changed
+
+- Updated the managed `pi-subagents` baseline to `^0.34.0`, matching the
+  current npm release so Pi no longer keeps asking users to run the upstream
+  `pi update --extensions` path after a normal `pi-67 update --repair`.
+
+### Added
+
+- Added managed npm package baseline auditing to `pi-67 update --check` and
+  `pi-67 extensions doctor`, distinguishing local install drift from
+  pi-67-release baseline drift before users see a generic Pi package-update
+  prompt.
+
 ## [0.10.23] - 2026-07-09
 
 ### Changed

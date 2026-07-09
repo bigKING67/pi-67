@@ -902,6 +902,20 @@ distribution updater. If it was run manually, use `pi-67 update --repair` to
 re-run the pi-67 npm sync, known patch checks, shared skill checks, smoke,
 doctor, and report path.
 
+If the prompt appears right after `pi-67 update --repair`, check the ownership
+layer before running the upstream command:
+
+```bash
+pi-67 update --check
+pi-67 extensions doctor
+```
+
+`installed stale` means the local `npm/node_modules` copy is behind the pi-67
+baseline and `pi-67 update --repair` should sync it. `baseline drift` means a
+new upstream npm package exists beyond the current pi-67 release baseline; the
+clean fix is a new pi-67 release that bumps the managed package and passes
+smoke/release gates.
+
 `pi-67 update` preserves `settings.json` and the selected theme value; it may
 update the installed theme package, but it will not change the selected theme.
 Before a real update/repair, the npm manager writes

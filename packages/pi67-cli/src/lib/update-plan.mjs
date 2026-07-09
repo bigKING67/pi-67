@@ -6,7 +6,12 @@ import { readJsonFileIfExists } from "./config-json.mjs";
 import { listExternal } from "./external-repos.mjs";
 import { inventorySkills } from "./skill-policy.mjs";
 import { readCliPackageJson, readTextIfExists } from "./paths.mjs";
-import { npmLatestVersion } from "./npm-registry.mjs";
+import {
+  compareSemver,
+  npmLatestVersion,
+  versionFromRange,
+  versionSatisfiesSupportedRange,
+} from "./npm-registry.mjs";
 import { buildDistroManifest } from "./distro-manifest.mjs";
 import { PRESERVED_RUNTIME_FILES } from "./update-safety.mjs";
 import { settingsRuntimeMarkerFromObject } from "./settings-runtime-state.mjs";
@@ -40,6 +45,9 @@ export async function buildUpdatePlan(ctx, options = {}) {
     currentVersion: pkg.version,
     noRemote: options.noRemote,
   });
+  const packageAudit = await auditManagedDependencyPackages(ctx, manifest, {
+    noRemote: ctx.noRemote || options.noRemote,
+  });
   const settingsRuntimeMarker = settingsRuntimeMarkerFromObject(settings);
   const dirtyClass = classifyGitShort(git?.short || "");
   const benignRuntime = classifyBenignRuntimeDiff(ctx, dirtyClass.preservedRuntime);
@@ -72,6 +80,16 @@ export async function buildUpdatePlan(ctx, options = {}) {
   if (manifest.summary.userManagedRuntimePackages > 0) {
     recommendations.push("User-managed Pi runtime packages detected; pi-67 will report them but not overwrite them by default.");
   }
+  if (packageAudit.summary.baselineBehindLatest > 0) {
+    const names = packageAudit.packages
+      .filter((item) => item.status === "baseline-behind-latest")
+      .map((item) => `${item.packageName}@${item.latestVersion}`)
+      .join(", ");
+    recommendations.push(`pi-67 release should adopt newer managed package baselines after smoke: ${names}`);
+  }
+  if (packageAudit.summary.installedBehind > 0) {
+    recommendations.push("Run: pi-67 update --repair --yes to sync managed npm packages to the pi-67 baseline.");
+  }
   const decisions = buildPlanDecisions({
     ctx,
     git,
@@ -82,6 +100,7 @@ export async function buildUpdatePlan(ctx, options = {}) {
     manifest,
     skills,
     external,
+    packageAudit,
     scriptStatus,
     theme,
     themeInstalled: theme ? hasTheme(ctx, theme) : false,
@@ -124,6 +143,7 @@ export async function buildUpdatePlan(ctx, options = {}) {
     },
     scripts: scriptStatus,
     manifest: manifest.summary,
+    packages: packageAudit,
     skills: skills.summary,
     runtimeState: {
       settingsLastChangelogVersion: settingsRuntimeMarker?.value || "",
@@ -135,6 +155,68 @@ export async function buildUpdatePlan(ctx, options = {}) {
     blocked: decisions.blocked,
     warnings: decisions.warnings,
     recommendations,
+  };
+}
+
+export async function auditManagedDependencyPackages(ctx, manifest, options = {}) {
+  const packages = await Promise.all((manifest.dependencyPackages || []).map(async (item) => {
+    const baselineVersion = versionFromRange(item.versionRange);
+    const installedVersion = installedDependencyVersion(ctx, item.packageName);
+    const registry = await npmLatestVersion(item.packageName, {
+      currentVersion: baselineVersion,
+      noRemote: options.noRemote,
+    });
+    const latestVersion = registry.latestVersion || "";
+    const latestSatisfiesRange = Boolean(latestVersion) &&
+      versionSatisfiesSupportedRange(latestVersion, item.versionRange);
+    const baselineBehindLatest = Boolean(latestVersion) &&
+      Boolean(baselineVersion) &&
+      compareSemver(baselineVersion, latestVersion) < 0 &&
+      !latestSatisfiesRange;
+    const installedBehindBaseline = Boolean(installedVersion) &&
+      Boolean(baselineVersion) &&
+      compareSemver(installedVersion, baselineVersion) < 0;
+    const installedBehindRangeLatest = Boolean(installedVersion) &&
+      Boolean(latestVersion) &&
+      latestSatisfiesRange &&
+      compareSemver(installedVersion, latestVersion) < 0;
+    let status = "current";
+    if (registry.skipped) status = "registry-skipped";
+    else if (!registry.ok) status = "registry-unknown";
+    else if (!installedVersion) status = "not-installed";
+    else if (baselineBehindLatest) status = "baseline-behind-latest";
+    else if (installedBehindBaseline) status = "installed-behind-baseline";
+    else if (installedBehindRangeLatest) status = "installed-behind-range-latest";
+    return {
+      packageName: item.packageName,
+      role: item.role,
+      versionRange: item.versionRange,
+      baselineVersion,
+      installedVersion,
+      latestVersion,
+      latestSatisfiesRange,
+      baselineBehindLatest,
+      installedBehindBaseline,
+      installedBehindRangeLatest,
+      status,
+      registry,
+    };
+  }));
+  const summary = {
+    total: packages.length,
+    current: packages.filter((item) => item.status === "current").length,
+    baselineBehindLatest: packages.filter((item) => item.status === "baseline-behind-latest").length,
+    installedBehind: packages.filter((item) =>
+      item.status === "installed-behind-baseline" || item.status === "installed-behind-range-latest").length,
+    notInstalled: packages.filter((item) => item.status === "not-installed").length,
+    registryUnknown: packages.filter((item) => item.status === "registry-unknown").length,
+    registrySkipped: packages.filter((item) => item.status === "registry-skipped").length,
+  };
+  return {
+    schema: "pi67.managed-package-audit.v1",
+    remoteSkipped: Boolean(options.noRemote),
+    summary,
+    packages,
   };
 }
 
@@ -292,6 +374,30 @@ export function buildPlanDecisions(context) {
     }
   }
 
+  const packageAudit = context.packageAudit || { summary: {}, packages: [] };
+  const installedBehindPackages = packageAudit.packages.filter((item) =>
+    item.status === "installed-behind-baseline" || item.status === "installed-behind-range-latest");
+  if (installedBehindPackages.length > 0) {
+    actions.push({
+      id: "managed-npm-packages",
+      kind: "npm-package-sync",
+      operation: "sync-to-pi67-baseline",
+      writes: ["npm/package.json", "npm/package-lock.json", "npm/node_modules"],
+      preserves: preservedRuntimeFiles,
+      risk: "low",
+      reason: `${installedBehindPackages.length} managed npm package(s) are installed behind the pi-67 baseline or allowed latest range`,
+      explicitCommand: "pi-67 update --repair --yes",
+    });
+  }
+  for (const item of packageAudit.packages.filter((entry) => entry.status === "baseline-behind-latest")) {
+    warnings.push(
+      `managed package ${item.packageName} latest ${item.latestVersion} is beyond pi-67 baseline ${item.versionRange}; wait for a pi-67 release that adopts it after smoke instead of running upstream pi update --extensions`,
+    );
+  }
+  for (const item of packageAudit.packages.filter((entry) => entry.status === "not-installed")) {
+    warnings.push(`managed package ${item.packageName} is missing from npm/node_modules; update/repair will install the pi-67 baseline`);
+  }
+
   for (const repo of context.external) {
     if (!repo.exists) {
       warnings.push(`external repo ${repo.name} is missing; install is explicit via pi-67 external install ${repo.name}`);
@@ -322,6 +428,12 @@ export function buildPlanDecisions(context) {
   }
 
   return { actions, blocked, warnings };
+}
+
+function installedDependencyVersion(ctx, packageName) {
+  const packageFile = path.join(ctx.agentDir, "npm", "node_modules", ...packageName.split("/"), "package.json");
+  const pkg = readJsonFileIfExists(packageFile);
+  return typeof pkg?.version === "string" ? pkg.version : "";
 }
 
 function classifyIncomingRemoteStatus(git, remote) {

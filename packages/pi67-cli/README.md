@@ -45,11 +45,12 @@ If `pi update --extensions` was run manually, repair the pi-67 managed state:
 pi-67 update --repair
 ```
 
-`pi-67 update --check` reports whether the npm manager is outdated. Updating the
-manager itself is explicit. The latest-version check reads the npm registry
-HTTP API directly and does not depend on spawning local `npm` / `npm.cmd`.
-Explicit npm operations such as `self-update` still use npm, with Windows
-fallback through `cmd.exe /d /s /c npm.cmd ...`:
+`pi-67 update --check` reports whether the npm manager is outdated and whether
+pi-67 managed npm package baselines are current. Updating the manager itself is
+explicit. The latest-version checks read the npm registry HTTP API directly and
+do not depend on spawning local `npm` / `npm.cmd`. Explicit npm operations such
+as `self-update` still use npm, with Windows fallback through
+`cmd.exe /d /s /c npm.cmd ...`:
 
 ```bash
 pi-67 self-update

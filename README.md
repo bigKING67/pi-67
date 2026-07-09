@@ -4,7 +4,7 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
-当前发行版版本：`0.10.23`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.10.24`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 这是什么
 
@@ -214,6 +214,10 @@ pi-67 smoke --quick
 - `pi update` / `pi update --extensions` 是 Pi 官方上游更新命令。
 - `pi-67 update` 是 pi-67 发行版主更新命令。
 - 如果误跑了 `pi update --extensions`，再运行 `pi-67 update --repair` 重新对齐 pi-67 管理状态。
+- 如果 Pi 启动时提示 `Package Updates Available`，先运行
+  `pi-67 update --check` 或 `pi-67 extensions doctor`。pi-67 会区分：
+  本地 `npm/node_modules` 没同步，还是 pi-67 发行版还没吸收某个上游
+  npm 扩展最新版；不要默认让小白直接跑 `pi update --extensions`。
 
 `pi-67 update` 默认不覆盖用户本地选择：现有 `settings.json`、`models.json`、
 `auth.json`、`mcp.json`、`image-gen.json`、用户添加的 packages、全局 skills 和
@@ -996,6 +1000,11 @@ pi-67 manifest --validate
 pi-67 extensions doctor
 pi-67 extensions inspect xtalpi-pi-tools
 ```
+
+`pi-67 update --check` 和 `pi-67 extensions doctor` 也会检查 pi-67 管理的
+npm 扩展 baseline：若只是本机安装落后，运行 `pi-67 update --repair` 同步；
+若显示 `baseline drift`，说明上游包已发布新版本但当前 pi-67 release 尚未
+吸收，应由维护者升级 baseline、跑 smoke/release 后再发布新的 pi-67。
 
 查看和恢复 update/repair/theme-set 产生的 repo 外运行态备份：
 

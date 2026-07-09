@@ -159,6 +159,13 @@ function printPlan(plan) {
   keyValue("Model", plan.settings.defaultModel || "unset");
   keyValue("Theme", plan.settings.theme || "unset");
   keyValue("Theme installed", plan.settings.themeInstalled ? "yes" : "no");
+  if (plan.packages?.summary) {
+    const packages = plan.packages.summary;
+    keyValue(
+      "Managed packages",
+      `${packages.current || 0} current, ${packages.installedBehind || 0} installed stale, ${packages.baselineBehindLatest || 0} baseline drift`,
+    );
+  }
   keyValue("Shared skills", `${plan.skills.identical} ok, ${plan.skills.missing} missing, ${preservedUserModified(plan.skills)} preserved user-modified`);
   for (const repo of plan.external) {
     keyValue(`External ${repo.name}`, repo.exists ? `${repo.git?.dirty ? "dirty" : "clean"} ${repo.git?.commit || ""}` : "missing");

@@ -3,7 +3,13 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { npmLatestVersion, npmPublishTargetStatus, npmRegistryPackageUrl } from "../src/lib/npm-registry.mjs";
+import {
+  npmLatestVersion,
+  npmPublishTargetStatus,
+  npmRegistryPackageUrl,
+  versionFromRange,
+  versionSatisfiesSupportedRange,
+} from "../src/lib/npm-registry.mjs";
 import {
   commandCandidatesForPlatform,
   envWithWindowsGitFallback,
@@ -364,6 +370,11 @@ async function runNpmRegistrySelfTests() {
     fetchImpl: async () => jsonResponse(200, { version: "1.2.3" }),
   });
   assert(current.ok && current.latestVersion === "1.2.3" && current.outdated, "direct registry latest lookup must parse version payloads");
+  assert(versionFromRange("^0.33.1") === "0.33.1", "versionFromRange must read caret baselines");
+  assert(!versionSatisfiesSupportedRange("0.34.0", "^0.33.1"), "caret zero-minor range must not accept the next minor");
+  assert(versionSatisfiesSupportedRange("0.33.2", "^0.33.1"), "caret zero-minor range must accept patch updates");
+  assert(versionSatisfiesSupportedRange("5.1.0", "^5.0.2"), "caret non-zero-major range must accept same-major updates");
+  assert(!versionSatisfiesSupportedRange("6.0.0", "^5.0.2"), "caret non-zero-major range must reject next major");
 
   const missing = await npmLatestVersion("@example/missing", {
     fetchImpl: async () => jsonResponse(404, { error: "not found" }),
@@ -837,6 +848,31 @@ function runUpdatePlanSelfTests() {
   assert(
     buildPlanDecisions(managerOutdated).actions.some((item) => item.id === "pi67-manager"),
     "outdated npm manager must produce an explicit self-update action",
+  );
+
+  const installedPackageBehind = decisionsFixture({
+    packageAudit: {
+      packages: [{ packageName: "pi-subagents", status: "installed-behind-baseline" }],
+    },
+  });
+  assert(
+    buildPlanDecisions(installedPackageBehind).actions.some((item) => item.id === "managed-npm-packages"),
+    "installed managed npm package drift must create a package sync action",
+  );
+
+  const baselinePackageBehind = decisionsFixture({
+    packageAudit: {
+      packages: [{
+        packageName: "pi-subagents",
+        status: "baseline-behind-latest",
+        versionRange: "^0.33.1",
+        latestVersion: "0.34.0",
+      }],
+    },
+  });
+  assert(
+    buildPlanDecisions(baselinePackageBehind).warnings.some((item) => item.includes("pi-subagents latest 0.34.0")),
+    "managed npm package baseline drift must be visible as a warning",
   );
 }
 

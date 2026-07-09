@@ -1,6 +1,6 @@
 {
   "name": "pi-extensions",
-  "version": "0.10.23",
+  "version": "0.10.24",
   "private": true,
   "dependencies": {
     "@feniix/pi-sequential-thinking": "^5.0.2",
@@ -16,7 +16,7 @@
     "pi-rewind": "^0.5.0",
     "pi-simplify": "^0.2.2",
     "pi-smart-fetch": "^0.3.12",
-    "pi-subagents": "^0.33.1",
+    "pi-subagents": "^0.34.0",
     "pi-until-done": "^0.2.2",
     "pi-web-access": "^0.13.0"
   }

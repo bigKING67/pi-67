@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.24]
+
+- Reports managed npm package baseline drift in `pi-67 update --check` and
+  `pi-67 extensions doctor`, so upstream Pi extension update prompts are
+  classified before users reach for `pi update --extensions`.
+- Updates the pi-67 managed `pi-subagents` baseline to `^0.34.0`.
+
 ## [0.10.23]
 
 - Keeps browser67 custom MCP paths in the cleaner machine-local `cwd` plus

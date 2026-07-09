@@ -705,6 +705,14 @@ updates upstream Pi extensions according to Pi's own semantics. Use
 pi-67 to re-run npm sync, known patch checks, shared skill checks, doctor,
 smoke, report generation, and theme-preserving configuration checks.
 
+If Pi shows `Package Updates Available`, run `pi-67 update --check` or
+`pi-67 extensions doctor` first. pi-67 classifies whether the local
+`npm/node_modules` install is stale, or whether the pi-67 release baseline has
+not yet adopted a newer upstream package. Local stale installs are fixed by
+`pi-67 update --repair`; baseline drift should be handled by a new pi-67
+release after smoke gates, not by asking every user to run the upstream
+`pi update --extensions` path.
+
 If your installed pi-67 already includes the updater:
 
 Windows PowerShell:
