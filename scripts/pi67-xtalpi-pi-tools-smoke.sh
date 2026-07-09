@@ -36,7 +36,7 @@ COMMON_BASE_ARGS=(
 )
 COMMON_ARGS=("${COMMON_BASE_ARGS[@]}" --no-session)
 
-DEFAULT_CASES=(no-tool bash read bash-read web-read plan-mode-contract tool-selection-clipping tool-selection-continuation until-done-continuation tool-result-injection)
+DEFAULT_CASES=(no-tool bash read bash-read web-read plan-mode-contract plan-mode-accepted-continuation tool-selection-clipping tool-selection-continuation until-done-continuation tool-result-injection)
 QUICK_CASES=(no-tool read)
 EXTENSION_LOW_RISK_CASES=(mcp-status subagent-list recall-not-found)
 EXTENSION_EXPANDED_CASES=(fffind-package ffgrep-package batch-web-fetch-example seq-thinking-status mcp-status subagent-list recall-not-found)
@@ -47,6 +47,7 @@ AVAILABLE_CASES=(
   bash-read
   web-read
   plan-mode-contract
+  plan-mode-accepted-continuation
   tool-selection-clipping
   tool-selection-continuation
   until-done-continuation
@@ -101,7 +102,7 @@ print_cases() {
 
 case_name_is_valid() {
   case "$1" in
-    no-tool | bash | read | bash-read | web-read | plan-mode-contract | tool-selection-clipping | tool-selection-continuation | until-done-continuation | tool-result-injection | fffind-package | ffgrep-package | batch-web-fetch-example | seq-thinking-status | mcp-status | subagent-list | recall-not-found) return 0 ;;
+    no-tool | bash | read | bash-read | web-read | plan-mode-contract | plan-mode-accepted-continuation | tool-selection-clipping | tool-selection-continuation | until-done-continuation | tool-result-injection | fffind-package | ffgrep-package | batch-web-fetch-example | seq-thinking-status | mcp-status | subagent-list | recall-not-found) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -417,6 +418,7 @@ const expectedPackageVersion = String(process.env.PI67_EXPECTED_PACKAGE_VERSION 
 const requiredFinalTextByCase = {
   "web-read": ["Example Domain", "pi-extensions"],
   "plan-mode-contract": ["<proposed_plan>", "</proposed_plan>"],
+  "plan-mode-accepted-continuation": ["PLAN_ACCEPTED_CONTINUATION_OK"],
   "until-done-continuation": ["UNTIL_DONE_SMOKE_OK", "pi-extensions"],
   "tool-result-injection": ["PI_TOOL_RESULT_INJECTION_CANARY"],
   "fffind-package": ["EXTENSION_SMOKE_FFFIND_OK", "package.json"],
@@ -447,6 +449,13 @@ const forbiddenFinalTextPatterns = [
   { label: "MOCK", pattern: /\bMOCK\b/i },
   { label: "UNKNOWN_*", pattern: /\bUNKNOWN_[A-Z0-9_]+\b/i },
 ];
+if (caseName === "plan-mode-accepted-continuation") {
+  forbiddenFinalTextPatterns.push(
+    { label: "PROPOSED_PLAN_BLOCK", pattern: /<\/?proposed_plan\b/i },
+    { label: "LOCAL_FALLBACK_NOTE", pattern: /Local fallback note/i },
+    { label: "ACTIVE_PLAN_MODE_LANGUAGE", pattern: /(?:Plan mode is active|active Plan mode|active-plan|plan_mode_contract_missing)/i },
+  );
+}
 const forbiddenFinalText = forbiddenFinalTextPatterns
   .filter((item) => item.pattern.test(finalText))
   .map((item) => item.label);
@@ -720,6 +729,11 @@ writeFixture("plan-mode-contract", {
   finalText: "<proposed_plan>\n1. Inspect the task.\n2. Wait for approval.\n</proposed_plan>",
   caseName: "plan-mode-contract",
 });
+writeFixture("plan-mode-accepted-continuation", {
+  tools: [],
+  finalText: "PLAN_ACCEPTED_CONTINUATION_OK accepted plan is executing, not planning again.",
+  caseName: "plan-mode-accepted-continuation",
+});
 writeFixture("tool-selection-clipping", {
   tools: ["read"],
   toolArgsByName: { read: { path: "package.json" } },
@@ -936,6 +950,11 @@ writeFixture("forbidden-final-marker", {
   finalText: `pi-extensions ${expectedVersion} UNKNOWN_SIMULATED`,
   caseName: "read",
 });
+writeFixture("plan-mode-accepted-continuation-fallback", {
+  tools: [],
+  finalText: "<proposed_plan>\n1. Re-plan instead of continuing.\n\nLocal fallback note: generated a plan.\n</proposed_plan>",
+  caseName: "plan-mode-accepted-continuation",
+});
 NODE
 
   if ! output="$(summarize_jsonl "$tmp_dir/good.jsonl" "$tmp_dir/good.stderr" 0 "all:web_fetch,read;only:web_fetch,read" "$tmp_dir/good.debug.jsonl" "$tmp_dir/good.lifecycle.json" 2>&1)"; then
@@ -1023,6 +1042,11 @@ NODE
   fi
   if output="$(summarize_jsonl "$tmp_dir/forbidden-final-marker.jsonl" "$tmp_dir/forbidden-final-marker.stderr" 0 "read" "$tmp_dir/forbidden-final-marker.debug.jsonl" "$tmp_dir/forbidden-final-marker.lifecycle.json" 2>&1)"; then
     echo "expected forbidden-final-marker fixture to fail"
+    echo "$output"
+    return 1
+  fi
+  if output="$(summarize_jsonl "$tmp_dir/plan-mode-accepted-continuation-fallback.jsonl" "$tmp_dir/plan-mode-accepted-continuation-fallback.stderr" 0 "none" "$tmp_dir/plan-mode-accepted-continuation-fallback.debug.jsonl" "$tmp_dir/plan-mode-accepted-continuation-fallback.lifecycle.json" 2>&1)"; then
+    echo "expected plan-mode-accepted-continuation-fallback fixture to fail"
     echo "$output"
     return 1
   fi
@@ -2276,6 +2300,13 @@ run_selected_case "plan-mode-contract" "Plan mode: planning
 Produce a <proposed_plan> block.
 
 这是 targeted plan-mode smoke。不要调用任何工具。最终回答必须只给出一个完整的 <proposed_plan>...</proposed_plan> block，里面用 2-3 条列出：先核对真实状态、再提出最小改动、最后验证结果。不要复述 Pi 协议、tool history 或工具选择说明。" "none" --tools read || failures=$((failures + 1))
+
+run_selected_case "plan-mode-accepted-continuation" "Plan mode is now disabled. Full tool access is restored. Implement this proposed plan now:
+
+1. This is targeted accepted-plan continuation smoke.
+2. Do not call any tool for this smoke.
+3. Do not output another <proposed_plan> block.
+4. Final answer must include PLAN_ACCEPTED_CONTINUATION_OK exactly once." "none" --plan --tools read,plan_mode_question || failures=$((failures + 1))
 
 FFF_FRECENCY_DB_FILE="$OUT_DIR/${STAMP}-fff-frecency.db"
 FFF_HISTORY_DB_FILE="$OUT_DIR/${STAMP}-fff-history.db"

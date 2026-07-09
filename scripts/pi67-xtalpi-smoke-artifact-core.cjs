@@ -11,6 +11,7 @@ const FULL_SUITE_CASE_NAMES = [
   "bash-read",
   "web-read",
   "plan-mode-contract",
+  "plan-mode-accepted-continuation",
   "tool-selection-clipping",
   "tool-selection-continuation",
   "until-done-continuation",

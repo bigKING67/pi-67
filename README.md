@@ -701,10 +701,10 @@ targeted live runner 验证低风险 extension 工具链路：
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -ListCases
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-low-risk
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-expanded
-.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,plan-mode-contract,until-done-continuation,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,plan-mode-contract,plan-mode-accepted-continuation,until-done-continuation,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
 ```
 
-这个 PowerShell runner 覆盖 `read-package`、`plan-mode-contract`、`until-done-continuation`、`fffind-package`、
+这个 PowerShell runner 覆盖 `read-package`、`plan-mode-contract`、`plan-mode-accepted-continuation`、`until-done-continuation`、`fffind-package`、
 `ffgrep-package`、`batch-web-fetch-example`、`seq-thinking-status`、`mcp-status`、`subagent-list`
 和 `recall-not-found` 这些低风险 targeted case，并为 FFF / sequential-thinking
 使用临时隔离状态。PowerShell live runner 默认会对“工具调用、参数和 debug telemetry
@@ -760,12 +760,12 @@ bash ./scripts/pi67-test-xtalpi-pi-tools.sh
 bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh
 ```
 
-真实冒烟覆盖 no-tool、bash、read、bash/read、web/read、`plan-mode-contract`、low-`maxTools` `tool-selection-clipping`、multi-turn `tool-selection-continuation`、`until-done-continuation`，以及 adversarial `tool-result-injection` 场景；可用 `--case plan-mode-contract` 单独复核 `<proposed_plan>` contract，用 `--case tool-selection-clipping` 单独复核 selected-tool clipping telemetry，用 `--case tool-selection-continuation` 或 `--case until-done-continuation` 单独复核 continuation prompt source telemetry，也可用 `--case tool-result-injection` 单独复核工具结果注入边界与 canary confirmation gate。
+真实冒烟覆盖 no-tool、bash、read、bash/read、web/read、`plan-mode-contract`、`plan-mode-accepted-continuation`、low-`maxTools` `tool-selection-clipping`、multi-turn `tool-selection-continuation`、`until-done-continuation`，以及 adversarial `tool-result-injection` 场景；可用 `--case plan-mode-contract` 单独复核 `<proposed_plan>` contract，用 `--case plan-mode-accepted-continuation` 单独复核“Plan mode 已关闭、执行已接受计划”不会递归生成 `<proposed_plan>` fallback，用 `--case tool-selection-clipping` 单独复核 selected-tool clipping telemetry，用 `--case tool-selection-continuation` 或 `--case until-done-continuation` 单独复核 continuation prompt source telemetry，也可用 `--case tool-result-injection` 单独复核工具结果注入边界与 canary confirmation gate。
 
 targeted extension smoke 还覆盖 `fffind-package`、`ffgrep-package`、
 `batch-web-fetch-example`、`seq-thinking-status`、`mcp-status`、`subagent-list`
 和 `recall-not-found`；PowerShell runner 额外提供 `read-package` 作为
-Windows-native cwd-relative path 基线，并覆盖 plan-mode / until-done targeted contract。以上 extension case 默认不进入 full-suite；它们用于按需证明具体
+Windows-native cwd-relative path 基线，并覆盖 plan-mode / accepted-plan continuation / until-done targeted contract。以上 extension case 默认不进入 full-suite；它们用于按需证明具体
 extension tool 的真实 `tool_execution_start` 链路，同时避免 MCP 认证、子代理执行、
 observational-memory 真实内容、图片生成或交互 UI 混入常规发布门。
 装新 extension 后，Bash runner 可先用低风险 profile：
@@ -779,7 +779,7 @@ bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --profile extension-low-risk
 ```
 
 该 profile 等价于 `mcp-status,subagent-list,recall-not-found`。需要扩展覆盖时再用
-`--profile extension-expanded`；默认不传 profile 仍是 10-case full-suite。
+`--profile extension-expanded`；默认不传 profile 仍是 11-case full-suite。
 
 provider health 快速预检：
 

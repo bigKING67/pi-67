@@ -6,6 +6,12 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+### Fixed
+
+- `xtalpi-pi-tools` no longer treats Pi's accepted Plan mode continuation
+  wrapper (`Plan mode is now disabled... Implement this proposed plan now`) as
+  active Plan mode, and smoke gates now cover that continuation path.
+
 ## [0.10.17] - 2026-07-09
 
 ### Fixed

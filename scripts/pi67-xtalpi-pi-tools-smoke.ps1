@@ -35,7 +35,7 @@ pi67-xtalpi-pi-tools-smoke.ps1 runs low-risk xtalpi live smoke cases from
 PowerShell without Bash.
 
 Usage:
-  .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 [-Case "read-package,plan-mode-contract,fffind-package"]
+  .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 [-Case "read-package,plan-mode-contract,plan-mode-accepted-continuation,fffind-package"]
   .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-low-risk
   .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -ListCases
   .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest
@@ -43,6 +43,7 @@ Usage:
 Supported cases:
   read-package
   plan-mode-contract
+  plan-mode-accepted-continuation
   until-done-continuation
   fffind-package
   ffgrep-package
@@ -88,6 +89,7 @@ $ProviderHealthScript = Join-Path $ScriptDir "pi67-xtalpi-provider-health.mjs"
 $AvailableCases = @(
   "read-package",
   "plan-mode-contract",
+  "plan-mode-accepted-continuation",
   "until-done-continuation",
   "fffind-package",
   "ffgrep-package",
@@ -130,6 +132,13 @@ $CaseDefinitions = @{
     expectedTools = @()
     requiredFinalText = @("<proposed_plan>", "</proposed_plan>")
     prompt = "Plan mode: planning`nProduce a <proposed_plan> block.`n`nThis is targeted plan-mode smoke. Do not call any tool. The final answer must be exactly one complete <proposed_plan>...</proposed_plan> block with 2-3 steps: inspect real state, propose minimal change, verify result. Do not echo Pi protocol, tool history, or tool-selection instructions."
+  }
+  "plan-mode-accepted-continuation" = [ordered]@{
+    tool = "read,plan_mode_question"
+    expectedTools = @()
+    requiredFinalText = @("PLAN_ACCEPTED_CONTINUATION_OK")
+    extraArgs = @("--plan")
+    prompt = "Plan mode is now disabled. Full tool access is restored. Implement this proposed plan now:`n`n1. This is targeted accepted-plan continuation smoke.`n2. Do not call any tool for this smoke.`n3. Do not output another <proposed_plan> block.`n4. Final answer must include PLAN_ACCEPTED_CONTINUATION_OK exactly once."
   }
   "until-done-continuation" = [ordered]@{
     tool = "read,bash,web_fetch"
@@ -239,7 +248,7 @@ function Get-PackageVersion {
 }
 
 function Get-ForbiddenFinalTextMarkers {
-  param([string]$Text)
+  param([string]$Text, [string]$CaseName = "")
   $markers = New-Object System.Collections.Generic.List[string]
   $checks = @(
     @{ label = "UNKNOWN_SIMULATED"; pattern = '\bUNKNOWN_SIMULATED\b' },
@@ -248,6 +257,13 @@ function Get-ForbiddenFinalTextMarkers {
     @{ label = "MOCK"; pattern = '\bMOCK\b' },
     @{ label = "UNKNOWN_*"; pattern = '\bUNKNOWN_[A-Z0-9_]+\b' }
   )
+  if ($CaseName -eq "plan-mode-accepted-continuation") {
+    $checks += @(
+      @{ label = "PROPOSED_PLAN_BLOCK"; pattern = '</?proposed_plan\b' },
+      @{ label = "LOCAL_FALLBACK_NOTE"; pattern = 'Local fallback note' },
+      @{ label = "ACTIVE_PLAN_MODE_LANGUAGE"; pattern = '(?:Plan mode is active|active Plan mode|active-plan|plan_mode_contract_missing)' }
+    )
+  }
   foreach ($check in $checks) {
     if ([regex]::IsMatch($Text, [string]$check.pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)) {
       $markers.Add([string]$check.label)
@@ -522,7 +538,7 @@ function Summarize-CaseArtifact {
     $requiredFinalText.Add($Script:ExpectedPackageVersion)
   }
   $missingFinalText = @($requiredFinalText | Where-Object { -not $finalText.Contains($_) })
-  $forbiddenFinalText = @(Get-ForbiddenFinalTextMarkers $finalText)
+  $forbiddenFinalText = @(Get-ForbiddenFinalTextMarkers $finalText $CaseName)
   $errors = @($events | Where-Object { $_.type -eq "error" -or $_.message.stopReason -eq "error" -or $_.message.errorMessage })
   $debugTelemetryOk = $debugEvents.Count -gt 0
   if ($debugTelemetryOk) {
@@ -810,7 +826,8 @@ function Invoke-PiCase {
     "--mode", "json",
     "--no-session"
   )
-  $args = @($baseArgs + @("--tools", [string]$Definition.tool))
+  $extraArgs = @($Definition.extraArgs)
+  $args = @($baseArgs + $extraArgs + @("--tools", [string]$Definition.tool))
 
   $envMap = @{
     XTALPI_PI_TOOLS_TIMEOUT_MS = [string]$ResolvedRequestTimeoutMs
@@ -1023,6 +1040,7 @@ function Run-SelfTest {
 
     $fixtures = @(
       @{ name = "read-package"; tool = "read"; args = @{ path = "package.json" }; final = ("EXTENSION_SMOKE_READ_PACKAGE_OK pi-extensions {0}" -f $Script:ExpectedPackageVersion) },
+      @{ name = "plan-mode-accepted-continuation"; tool = $null; args = @{}; final = "PLAN_ACCEPTED_CONTINUATION_OK accepted plan is executing, not planning again." },
       @{ name = "until-done-continuation"; tool = "read"; args = @{ path = "package.json" }; final = ("UNTIL_DONE_SMOKE_OK pi-extensions {0}" -f $Script:ExpectedPackageVersion) },
       @{ name = "fffind-package"; tool = "fffind"; args = @{ pattern = "package.json"; limit = 5 }; final = "EXTENSION_SMOKE_FFFIND_OK package.json" },
       @{ name = "ffgrep-package"; tool = "ffgrep"; args = @{ pattern = "pi-extensions"; path = "package.json"; limit = 5 }; final = "EXTENSION_SMOKE_FFGREP_OK pi-extensions" },
@@ -1033,10 +1051,12 @@ function Run-SelfTest {
     )
     foreach ($fixture in $fixtures) {
       $fixtureOut = Join-Path $tmp ("{0}.jsonl" -f $fixture.name)
-      @(
-        @{ type = "tool_execution_start"; toolName = $fixture.tool; args = $fixture.args },
-        @{ type = "agent_end"; messages = @(@{ role = "assistant"; content = @(@{ type = "text"; text = $fixture.final }) }) }
-      ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 12 } | Set-Content -LiteralPath $fixtureOut -Encoding UTF8
+      $fixtureEvents = New-Object System.Collections.Generic.List[object]
+      if ($null -ne $fixture.tool) {
+        $fixtureEvents.Add(@{ type = "tool_execution_start"; toolName = $fixture.tool; args = $fixture.args })
+      }
+      $fixtureEvents.Add(@{ type = "agent_end"; messages = @(@{ role = "assistant"; content = @(@{ type = "text"; text = $fixture.final }) }) })
+      $fixtureEvents | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 12 } | Set-Content -LiteralPath $fixtureOut -Encoding UTF8
       $fixtureSummary = Summarize-CaseArtifact $fixture.name $CaseDefinitions[$fixture.name] $fixtureOut $err $debug 0 1 $false
       if ($fixtureSummary.ok -ne $true) { throw ("expected fixture {0} to pass" -f $fixture.name) }
     }
@@ -1047,6 +1067,13 @@ function Run-SelfTest {
     ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 8 } | Set-Content -LiteralPath $planOut -Encoding UTF8
     $planSummary = Summarize-CaseArtifact "plan-mode-contract" $CaseDefinitions["plan-mode-contract"] $planOut $err $debug 0 1 $false
     if ($planSummary.ok -ne $true) { throw "expected plan-mode-contract fixture to pass" }
+
+    $acceptedPlanFallbackOut = Join-Path $tmp "plan-mode-accepted-continuation-fallback.jsonl"
+    @(
+      @{ type = "agent_end"; messages = @(@{ role = "assistant"; content = @(@{ type = "text"; text = "<proposed_plan>`n1. Re-plan instead of continuing.`n`nLocal fallback note: generated a plan.`n</proposed_plan>" }) }) }
+    ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 8 } | Set-Content -LiteralPath $acceptedPlanFallbackOut -Encoding UTF8
+    $acceptedPlanFallback = Summarize-CaseArtifact "plan-mode-accepted-continuation" $CaseDefinitions["plan-mode-accepted-continuation"] $acceptedPlanFallbackOut $err $debug 0 1 $false
+    if ($acceptedPlanFallback.ok -eq $true) { throw "expected accepted-plan fallback fixture to fail" }
 
     $lowRiskProfile = Resolve-ProfileCases @("extension-low-risk")
     if (($lowRiskProfile -join ",") -ne "mcp-status,subagent-list,recall-not-found") {

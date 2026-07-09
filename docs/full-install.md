@@ -556,7 +556,7 @@ Windows PowerShell users can run the low-risk targeted live smoke without Bash:
 
 ```powershell
 Set-Location $env:USERPROFILE\.pi\agent
-.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,plan-mode-contract,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,plan-mode-contract,plan-mode-accepted-continuation,until-done-continuation,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
 ```
 
 The PowerShell runner covers low-risk targeted cases for cwd-relative `read`,

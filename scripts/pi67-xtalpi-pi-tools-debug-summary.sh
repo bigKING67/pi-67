@@ -104,7 +104,7 @@ Default OUT_DIR:
 EOF
 }
 
-FULL_SUITE_CASE_NAMES="no-tool,bash,read,bash-read,web-read,plan-mode-contract,tool-selection-clipping,tool-selection-continuation,until-done-continuation,tool-result-injection"
+FULL_SUITE_CASE_NAMES="no-tool,bash,read,bash-read,web-read,plan-mode-contract,plan-mode-accepted-continuation,tool-selection-clipping,tool-selection-continuation,until-done-continuation,tool-result-injection"
 FULL_SUITE_REQUIRED_TOOL_SELECTION_REASON_CODES="core_tool,prompt_path_file"
 FULL_SUITE_REQUIRED_SELECTED_TOOL_SELECTION_REASON_CODES="core_tool,prompt_path_file"
 FULL_SUITE_REQUIRED_OMITTED_TOOL_SELECTION_REASON_CODES="core_tool"
@@ -115,7 +115,7 @@ apply_profile_defaults() {
     "")
       ;;
     full-suite-strict|full-suite-runtime-strict|full-suite-ranking-strict)
-      EXPECT_CASES="${EXPECT_CASES:-10}"
+      EXPECT_CASES="${EXPECT_CASES:-11}"
       EXPECT_CASE_NAMES="${EXPECT_CASE_NAMES:-$FULL_SUITE_CASE_NAMES}"
       RUN_KIND_FILTER="${RUN_KIND_FILTER:-full-suite}"
       REQUIRE_RUN_KIND="${REQUIRE_RUN_KIND:-full-suite}"
@@ -547,6 +547,7 @@ const fullSuiteCases = [
   "bash-read",
   "web-read",
   "plan-mode-contract",
+  "plan-mode-accepted-continuation",
   "tool-selection-clipping",
   "tool-selection-continuation",
   "until-done-continuation",
@@ -1179,7 +1180,7 @@ function assert(condition, message) {
 }
 assert(data.ok === true, "full-suite-strict profile should pass for clean full-suite history");
 assert(data.limits.profile === "full-suite-strict", "profile should be visible in trend gate limits");
-assert(data.limits.expectCases === 10, "profile should set full-suite case count");
+assert(data.limits.expectCases === 11, "profile should set full-suite case count");
 assert(data.limits.maxRecoveries === 2, "profile should allow bounded local repair");
 assert(data.limits.maxRecoveryRate === 0.15, "profile should cap local repair rate");
 assert(data.limits.maxRecoveryCaseRuns === 3, "profile should cap repeated recovered case runs");
@@ -1190,6 +1191,7 @@ assert(
     "bash",
     "bash-read",
     "no-tool",
+    "plan-mode-accepted-continuation",
     "plan-mode-contract",
     "read",
     "tool-result-injection",

@@ -87,6 +87,34 @@ const { pathToFileURL } = require("node:url");
     }).code,
     "internal_context_leak",
   );
+  assert.deepEqual(
+    finalGuard.validateFinalAnswer({
+      text: "I will implement the accepted plan now.",
+      context: {
+        systemPrompt: "system base",
+        messages: [{
+          role: "user",
+          content:
+            "Plan mode is now disabled. Full tool access is restored. Implement this proposed plan now:\n\n" +
+            "1. Treat the latest user request as the task target.\n" +
+            "2. Inspect relevant state after approval.",
+        }],
+      },
+      selectedToolNames: ["plan_mode_question", "read", "bash"],
+    }),
+    { ok: true },
+  );
+  assert.equal(
+    finalGuard.validateFinalAnswer({
+      text: "I will inspect the ETL filename parser next.",
+      context: {
+        systemPrompt: "Plan mode: planning\nProduce a <proposed_plan> block.",
+        messages: [{ role: "user", content: "先给解决计划" }],
+      },
+      selectedToolNames: ["plan_mode_question", "read"],
+    }).code,
+    "plan_mode_contract_missing",
+  );
   assert.equal(
     finalGuard.validateFinalAnswer({
       text: '阶段：ANALYSIS | T-003\n[{"id":"pi_tool_until_done_task_update_mra0pzuf_done","name":"until_done_task_update","arguments":{"id":"T-003","patch":{"status":"in_progress"}}}]',
@@ -505,6 +533,11 @@ const { pathToFileURL } = require("node:url");
       },
     },
   };
+  const planModeQuestionTool = {
+    name: "plan_mode_question",
+    description: "Ask a question while Plan mode is active",
+    parameters: { type: "object", required: ["question"], properties: { question: { type: "string" } } },
+  };
 
   await withProviderTurnEnv({
     XTALPI_PI_TOOLS_MAX_TOOLS: "8",
@@ -915,6 +948,30 @@ Produce a <proposed_plan> block.`,
     assert.ok(!planModeFallbackResult.text.includes("已停止自动修复"));
     assert.equal(planModeFallbackChat.calls.length, 2);
     assert.match(planModeFallbackChat.calls[1].at(-1).content, /Plan mode is active/);
+
+    const acceptedPlanContinuationChat = makeProviderTurnChat([
+      {
+        content: '{"kind":"final","text":"Proceeding with the accepted plan now."}',
+      },
+    ]);
+    const acceptedPlanContinuationResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: {
+        systemPrompt: "system base",
+        tools: [readTool, bashTool, planModeQuestionTool],
+        messages: [{
+          role: "user",
+          content:
+            "Plan mode is now disabled. Full tool access is restored. Implement this proposed plan now:\n\n" +
+            "1. Treat the latest user request as the task target.\n" +
+            "2. Inspect relevant state after approval.",
+        }],
+      },
+      callChat: acceptedPlanContinuationChat.callChat,
+    });
+    assert.equal(acceptedPlanContinuationResult.kind, "final");
+    assert.equal(acceptedPlanContinuationResult.text, "Proceeding with the accepted plan now.");
+    assert.equal(acceptedPlanContinuationChat.calls.length, 1);
 
     const continuationNoProgressChat = makeProviderTurnChat([
       { content: "I will inspect the file next." },
