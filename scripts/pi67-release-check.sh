@@ -172,7 +172,8 @@ if [ -f "$NPM_PUBLISH_WORKFLOW" ]; then
   if grep -q "workflow_dispatch" "$NPM_PUBLISH_WORKFLOW" \
     && grep -q "id-token: write" "$NPM_PUBLISH_WORKFLOW" \
     && grep -q "Use npm with trusted publishing support" "$NPM_PUBLISH_WORKFLOW" \
-    && grep -q "npm install -g npm@latest" "$NPM_PUBLISH_WORKFLOW" \
+    && grep -q 'npm_version="$(npm --version)"' "$NPM_PUBLISH_WORKFLOW" \
+    && grep -q "require >= 11.5.1" "$NPM_PUBLISH_WORKFLOW" \
     && grep -q "Validate npm publish target" "$NPM_PUBLISH_WORKFLOW" \
     && grep -q "first_publish_confirm" "$NPM_PUBLISH_WORKFLOW" \
     && grep -q "publish-check --strict --no-pack" "$NPM_PUBLISH_WORKFLOW" \

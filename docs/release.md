@@ -305,6 +305,9 @@ publish a package by accident. It validates:
 - root `package.json.version`
 - `packages/pi67-cli/package.json.version`
 - npm version support for Trusted Publishing
+- setup-node's bundled npm is used directly; do not float the workflow to
+  `npm@latest`, because npm major releases can drift and break CI publishing
+  independently of pi-67.
 - npm manager smoke commands
 - `scripts/pi67-release-check.sh`
 - `npm pack --dry-run ./packages/pi67-cli`

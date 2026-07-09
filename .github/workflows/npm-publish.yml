@@ -54,8 +54,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm install -g npm@latest
           npm_version="$(npm --version)"
+          echo "Using npm ${npm_version}"
           node - "$npm_version" <<'NODE'
           const [version] = process.argv.slice(2);
           const match = /^([0-9]+)\.([0-9]+)\.([0-9]+)/.exec(version);
