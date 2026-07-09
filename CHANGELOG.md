@@ -6,6 +6,19 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.15] - 2026-07-09
+
+### Fixed
+
+- `pi-67 install --repair --yes` now safely handles an existing non-Git
+  `~/.pi/agent` directory by moving it to
+  `~/.pi/pi67/backups/<timestamp>-non-git-agent-dir/agent` before cloning the
+  managed pi-67 checkout. The default `pi-67 install` path still blocks instead
+  of silently overwriting a plain folder, but now prints the exact dry-run and
+  repair commands.
+- Empty pre-created agent directories are now accepted as clone targets instead
+  of being rejected as non-Git folders.
+
 ## [0.10.14] - 2026-07-08
 
 ### Fixed

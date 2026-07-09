@@ -52,7 +52,8 @@ export async function buildUpdatePlan(ctx, options = {}) {
   if (!fs.existsSync(ctx.repoRoot)) {
     recommendations.push("Run: pi-67 install");
   } else if (!git?.isRepo) {
-    recommendations.push("Agent dir exists but is not a git checkout; inspect before installing.");
+    recommendations.push("Agent dir exists but is not a git checkout; preview repair with: pi-67 install --repair --yes --dry-run");
+    recommendations.push("If the preview looks correct, run: pi-67 install --repair --yes");
   } else if (git.dirty && dirtyClass.unsafeTracked.length > 0) {
     recommendations.push("Resolve or commit local changes before pi-67 update.");
   } else if (git.dirty && benignRuntime.benign) {
@@ -178,8 +179,8 @@ export function buildPlanDecisions(context) {
     blocked.push({
       id: "repo-root",
       kind: "distro",
-      reason: "repo root is not a git checkout; install/update needs operator inspection first",
-      recovery: "pi-67 install",
+      reason: "repo root is not a git checkout; pi-67 will not overwrite an existing plain folder silently",
+      recovery: "pi-67 install --repair --yes",
     });
   } else if (context.git.dirty && dirty.unsafeTracked.length > 0) {
     blocked.push({

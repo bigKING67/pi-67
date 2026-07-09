@@ -133,13 +133,20 @@ Unix-like shell is available.
 npm install -g @earendil-works/pi-coding-agent
 pi --version
 
-git clone https://github.com/bigKING67/pi-67.git $env:USERPROFILE\.pi\agent
-Set-Location $env:USERPROFILE\.pi\agent
-.\scripts\pi67-smoke.ps1 -Ci
+npm install -g @bigking67/pi-67@latest
+pi-67 install --repair --yes
+pi-67 smoke
 ```
 
-`scripts\pi67-smoke.ps1` is a PowerShell-native repository validation. It does
-not call Bash and it does not write local Pi config.
+`pi-67 install --repair --yes` is safe for first install and for the common
+case where `pi --version` or a manual setup already created
+`$env:USERPROFILE\.pi\agent` as a plain non-Git folder. In that case pi-67 moves
+the existing folder into
+`$env:USERPROFILE\.pi\pi67\backups\<timestamp>-non-git-agent-dir\agent`, then
+clones the managed Git checkout.
+
+`pi-67 smoke` dispatches to the PowerShell-native repository validation on
+Windows. It does not call Bash and it does not write local Pi config.
 
 For day-to-day updates on Windows, use the PowerShell-native updater:
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.10.15]
+
+- Adds a safe non-Git agent directory repair path for first installs:
+  `pi-67 install --repair --yes` moves an existing plain `~/.pi/agent` folder
+  into `~/.pi/pi67/backups/<timestamp>-non-git-agent-dir/agent`, then clones the
+  managed pi-67 checkout. Plain `pi-67 install` still blocks, but now prints the
+  exact preview and repair commands.
+- Allows empty pre-created agent directories as clone targets.
+
 ## [0.10.14]
 
 - Refreshes the Git index stat cache for `settings.json` during

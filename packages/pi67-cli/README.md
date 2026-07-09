@@ -7,7 +7,7 @@ diagnosing, and repairing the pi-67 Pi Coding Agent distribution.
 
 ```bash
 npm install -g @bigking67/pi-67
-pi-67 install
+pi-67 install --repair --yes
 pi-67 update
 pi-67 doctor
 ```
@@ -16,7 +16,7 @@ Windows PowerShell uses the same public commands:
 
 ```powershell
 npm install -g @bigking67/pi-67
-pi-67 install
+pi-67 install --repair --yes
 pi-67 update
 pi-67 doctor
 ```
@@ -162,6 +162,25 @@ pi-67 skills inventory
 pi-67 skills sync
 pi-67 external list
 ```
+
+If `pi-67 install` reports `agent dir exists but is not a git checkout`, the
+target `~/.pi/agent` already exists as a plain folder, usually because Pi or a
+manual install created it before pi-67 was installed. pi-67 does not overwrite
+that folder silently. Preview the safe takeover:
+
+```bash
+pi-67 install --repair --yes --dry-run
+```
+
+Then run the repair if the preview is correct:
+
+```bash
+pi-67 install --repair --yes
+```
+
+The repair moves the existing folder into
+`~/.pi/pi67/backups/<timestamp>-non-git-agent-dir/agent` and then clones the
+pi-67 Git checkout into `~/.pi/agent`.
 
 ## Ownership manifest
 

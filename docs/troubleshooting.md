@@ -55,6 +55,40 @@ Then rerun:
 ./install.sh
 ```
 
+## `agent dir exists but is not a git checkout`
+
+This means the target agent directory already exists, but it is a plain folder
+instead of a Git checkout:
+
+```text
+~/.pi/agent
+```
+
+The most common cause is running Pi or creating files manually before running
+`pi-67 install`. pi-67 blocks by default because it must not overwrite a user's
+existing folder silently.
+
+Preview the safe repair first:
+
+```bash
+pi-67 install --repair --yes --dry-run
+```
+
+If the preview shows the expected backup/reclone action, run:
+
+```bash
+pi-67 install --repair --yes
+```
+
+The existing folder is moved, not deleted:
+
+```text
+~/.pi/pi67/backups/<timestamp>-non-git-agent-dir/agent
+```
+
+Then pi-67 clones a fresh Git checkout into `~/.pi/agent` and continues the
+normal installer/update flow.
+
 ## `node` or `npm` command not found
 
 Pi and several extensions require Node/npm. Install Node first, then rerun:

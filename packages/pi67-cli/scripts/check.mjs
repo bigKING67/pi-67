@@ -39,6 +39,7 @@ for (const file of files.filter((item) => item.endsWith(".json"))) {
 await runNpmRegistrySelfTests();
 runArgsSelfTests();
 runCliHelpContractSelfTests();
+runInstallNonGitAgentDirSelfTests();
 runVersionRecommendationSelfTests();
 runPublishTargetSelfTests();
 runShellRunnerSelfTests();
@@ -124,6 +125,81 @@ function runCliHelpContractSelfTests() {
     "help commands must not create runtime backups",
   );
   fs.rmSync(tmpRoot, { recursive: true, force: true });
+}
+
+function runInstallNonGitAgentDirSelfTests() {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-install-non-git-"));
+  const home = path.join(tmpRoot, "home");
+  const agentDir = path.join(tmpRoot, "agent");
+  const skillsDir = path.join(tmpRoot, "skills");
+  fs.mkdirSync(home, { recursive: true });
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.mkdirSync(skillsDir, { recursive: true });
+  try {
+    fs.writeFileSync(path.join(agentDir, "settings.json"), "{}\n");
+    const env = { ...process.env, HOME: home, USERPROFILE: home };
+    const baseArgs = [
+      path.join(root, "bin", "pi-67.mjs"),
+      "--agent-dir",
+      agentDir,
+      "--repo-root",
+      agentDir,
+      "--skills-dir",
+      skillsDir,
+      "install",
+      "--repo",
+      "https://example.invalid/pi-67.git",
+    ];
+
+    const blocked = spawnSync(process.execPath, baseArgs, { cwd: root, env, encoding: "utf8" });
+    assert(blocked.status !== 0, "non-git agent dir install must block by default");
+    assert(
+      blocked.stderr.includes("agent dir exists but is not a git checkout") &&
+        blocked.stderr.includes("pi-67 install --repair --yes --dry-run"),
+      `non-git agent dir error must include actionable repair guidance\n${blocked.stderr}`,
+    );
+
+    const preview = spawnSync(process.execPath, [...baseArgs, "--repair", "--yes", "--dry-run"], {
+      cwd: root,
+      env,
+      encoding: "utf8",
+    });
+    assert(preview.status === 0, `non-git agent dir repair dry-run failed\n${preview.stderr || preview.stdout}`);
+    assert(
+      preview.stdout.includes("DRY-RUN would move existing non-git agent dir") &&
+        preview.stdout.includes("git clone https://example.invalid/pi-67.git"),
+      `repair dry-run must preview backup move and clone\n${preview.stdout}`,
+    );
+    assert(fs.existsSync(path.join(agentDir, "settings.json")), "repair dry-run must not move the existing non-git folder");
+
+    const emptyAgentDir = path.join(tmpRoot, "empty-agent");
+    fs.mkdirSync(emptyAgentDir, { recursive: true });
+    const emptyPreview = spawnSync(process.execPath, [
+      path.join(root, "bin", "pi-67.mjs"),
+      "--agent-dir",
+      emptyAgentDir,
+      "--repo-root",
+      emptyAgentDir,
+      "--skills-dir",
+      skillsDir,
+      "install",
+      "--repo",
+      "https://example.invalid/pi-67.git",
+      "--dry-run",
+    ], {
+      cwd: root,
+      env,
+      encoding: "utf8",
+    });
+    assert(emptyPreview.status === 0, `empty agent dir install dry-run should be allowed\n${emptyPreview.stderr || emptyPreview.stdout}`);
+    assert(
+      emptyPreview.stdout.includes("agent dir exists and is empty") &&
+        emptyPreview.stdout.includes("git clone https://example.invalid/pi-67.git"),
+      `empty agent dir dry-run must preview clone into existing empty directory\n${emptyPreview.stdout}`,
+    );
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
 }
 
 function runVersionRecommendationSelfTests() {
