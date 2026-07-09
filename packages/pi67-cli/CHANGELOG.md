@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.19]
+
+- Broadcasts the Windows environment change after `pi-67 install --repair --yes`
+  persists a discovered Git for Windows directory into User PATH. This keeps
+  the repair permanent for newly opened PowerShell windows while still avoiding
+  Machine PATH writes.
+
 ## [0.10.18]
 
 - Persists the discovered Git for Windows directory into Windows User PATH

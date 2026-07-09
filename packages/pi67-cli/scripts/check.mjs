@@ -447,12 +447,12 @@ function runShellRunnerSelfTests() {
           options.env.PI67_GIT_DIR_TO_PERSIST === path.dirname(fakeGitExe),
           "Windows user PATH persistence must pass the Git directory through environment, not command text",
         );
-        return { status: 0, stdout: "updated\n", stderr: "" };
+        return { status: 0, stdout: "updated\nbroadcasted\n", stderr: "" };
       },
     });
     assert(
-      persisted.ok && persisted.persisted && !persisted.alreadyPresent,
-      "Windows user PATH persistence must report successful updates",
+      persisted.ok && persisted.persisted && persisted.broadcasted && !persisted.alreadyPresent,
+      "Windows user PATH persistence must report successful updates and environment broadcasts",
     );
     const alreadyPresent = persistWindowsUserPathDirectory(path.dirname(fakeGitExe), {
       platform: "win32",

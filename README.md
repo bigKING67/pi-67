@@ -4,7 +4,7 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
-当前发行版版本：`0.10.18`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.10.19`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 这是什么
 
@@ -134,10 +134,12 @@ bash ~/.pi/agent/scripts/pi67-check-external-skills.sh \
 Windows 用户默认使用 PowerShell；macOS/Linux 用户继续使用 Bash 示例。
 
 pi-67 会把完整发行版 clone 到 `~/.pi/agent`，因此本机必须能运行 `git`。
-`0.10.18+` 会自动查找常见 Git for Windows 安装位置；如果 Git 已安装但
+`0.10.19+` 会自动查找常见 Git for Windows 安装位置；如果 Git 已安装但
 PowerShell 当前窗口没刷新 PATH，`pi-67 install --repair --yes` 会先为当前
 pi-67 进程补上 Git 路径，并把 Git 目录写入 Windows **User PATH**，后续新开的
-PowerShell 也能直接运行 `git --version`。真正没安装 Git 时，再按下面命令安装：
+PowerShell 也能直接运行 `git --version`。写入后还会广播 Windows 环境变更；
+如果已经打开的旧 PowerShell 仍看不到新 PATH，关闭并重新打开即可。真正没安装
+Git 时，再按下面命令安装：
 
 ```powershell
 git --version

@@ -12,6 +12,15 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
   wrapper (`Plan mode is now disabled... Implement this proposed plan now`) as
   active Plan mode, and smoke gates now cover that continuation path.
 
+## [0.10.19] - 2026-07-09
+
+### Fixed
+
+- Windows Git PATH repair now broadcasts the Windows environment change after
+  `pi-67 install --repair --yes` writes the discovered Git directory into User
+  PATH, improving the "new terminal can run git" behavior while preserving the
+  safe User-PATH-only boundary.
+
 ## [0.10.18] - 2026-07-09
 
 ### Fixed

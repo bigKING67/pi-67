@@ -136,6 +136,7 @@ export function persistWindowsUserPathDirectory(directory, options = {}) {
         supported: true,
         persisted: stdout.includes("updated"),
         alreadyPresent: stdout.includes("already-present"),
+        broadcasted: stdout.includes("broadcasted"),
         command,
         attempts,
       };
@@ -300,6 +301,17 @@ if ($exists) {
 $newPath = if ([string]::IsNullOrWhiteSpace($current)) { $gitDir } else { "$gitDir;$current" }
 [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
 Write-Output 'updated'
+try {
+  Add-Type -Namespace Pi67Win32 -Name NativeMethods -MemberDefinition @'
+[DllImport("user32.dll", SetLastError=true, CharSet=CharSet.Auto)]
+public static extern IntPtr SendMessageTimeout(IntPtr hWnd, UInt32 Msg, UIntPtr wParam, string lParam, UInt32 fuFlags, UInt32 uTimeout, out UIntPtr lpdwResult);
+'@
+  $result = [UIntPtr]::Zero
+  [void][Pi67Win32.NativeMethods]::SendMessageTimeout([IntPtr]0xffff, 0x001A, [UIntPtr]::Zero, 'Environment', 0x0002, 5000, [ref]$result)
+  Write-Output 'broadcasted'
+} catch {
+  Write-Output "broadcast-skipped:$($_.Exception.Message)"
+}
 `;
 }
 

@@ -16,9 +16,9 @@ Windows PowerShell uses the same public commands:
 
 ```powershell
 git --version
-# pi-67 0.10.18+ auto-detects common Git for Windows install paths when PATH
-# is stale. install --repair --yes also persists the Git directory into
-# Windows User PATH for future PowerShell windows.
+# pi-67 0.10.19+ auto-detects common Git for Windows install paths when PATH
+# is stale. install --repair --yes persists the Git directory into Windows
+# User PATH and broadcasts the environment change for newly opened terminals.
 # If Git is genuinely not installed:
 # winget install --id Git.Git -e --source winget
 

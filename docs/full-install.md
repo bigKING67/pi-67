@@ -134,9 +134,9 @@ npm install -g @earendil-works/pi-coding-agent
 pi --version
 
 git --version
-# pi-67 0.10.18+ can auto-detect common Git for Windows install paths when
+# pi-67 0.10.19+ can auto-detect common Git for Windows install paths when
 # PowerShell PATH is stale. install --repair --yes also persists the discovered
-# Git directory into Windows User PATH for future PowerShell windows.
+# Git directory into Windows User PATH and broadcasts the environment change.
 # If Git is genuinely not installed:
 # winget install --id Git.Git -e --source winget
 
@@ -150,11 +150,13 @@ case where `pi --version` or a manual setup already created
 `$env:USERPROFILE\.pi\agent` as a plain non-Git folder. In that case pi-67 moves
 the existing folder into
 `$env:USERPROFILE\.pi\pi67\backups\<timestamp>-non-git-agent-dir\agent`, then
-clones the managed Git checkout. From `0.10.18`, pi-67 also checks common Git
+clones the managed Git checkout. From `0.10.19`, pi-67 also checks common Git
 for Windows install paths, repairs PATH for the current install process, and
 with explicit `--repair --yes` persists the discovered Git directory into
-Windows User PATH. Close and reopen PowerShell after the repair if you want the
-plain `git --version` command to work in a fresh shell.
+Windows User PATH. It also broadcasts the Windows environment change so newly
+opened terminals can pick up the updated User PATH. Close and reopen
+PowerShell after the repair if an already-open window still cannot run the
+plain `git --version` command.
 
 `pi-67 smoke` dispatches to the PowerShell-native repository validation on
 Windows. It does not call Bash and it does not write local Pi config.

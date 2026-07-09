@@ -128,8 +128,11 @@ function ensureGitAvailable(options = {}) {
     info(`Added Git directory to current pi-67 process PATH: ${repair.gitDir}`);
   }
   if (repair.persisted) {
-    info(`Added Git directory to Windows user PATH for future PowerShell sessions: ${repair.gitDir}`);
-    info("Close and reopen PowerShell for `git --version` to work in a new shell.");
+    info(`Permanently added Git directory to Windows User PATH: ${repair.gitDir}`);
+    if (repair.persistence?.broadcasted) {
+      info("Broadcasted the Windows environment change for newly opened terminals.");
+    }
+    info("Close and reopen PowerShell if the already-open window still cannot run `git --version`.");
   } else if (repair.alreadyPersisted) {
     info(`Git directory already exists in Windows user PATH: ${repair.gitDir}`);
   } else if (repair.found && options.persistWindowsUserPath && repair.persistence && !repair.persistence.ok) {
