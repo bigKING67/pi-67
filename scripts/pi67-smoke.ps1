@@ -305,6 +305,7 @@ $RequiredFiles = @(
   "extensions/xtalpi-pi-tools/json-action-protocol.ts",
   "extensions/xtalpi-pi-tools/runtime-config.ts",
   "extensions/xtalpi-pi-tools/vision-bridge.ts",
+  "extensions/xtalpi-pi-tools/browser-bridge.ts",
   "extensions/pi-vision-bridge/index.ts",
   "extensions/xtalpi-pi-tools/fixtures/replay-cases.json",
   "extensions/xtalpi-pi-tools/provider-error-contract.json"
@@ -781,6 +782,7 @@ if ($GitAvailable) {
     "extensions/xtalpi-pi-tools/json-file.ts",
     "extensions/xtalpi-pi-tools/json-action-protocol.ts",
     "extensions/xtalpi-pi-tools/vision-bridge.ts",
+    "extensions/xtalpi-pi-tools/browser-bridge.ts",
     "extensions/pi-vision-bridge/index.ts",
     ".gitattributes",
     ".github/workflows/ci.yml"

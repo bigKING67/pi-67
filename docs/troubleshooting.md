@@ -417,6 +417,57 @@ That offline test includes a guard for `XTALPI_PI_TOOLS_MAX_TOOLS=1`: image
 paths must select `vision_read` / `image_review`, and `read` must be omitted with
 an `image_path_read_penalty` reason code.
 
+## xtalpi-pi-tools says `mcp` is unavailable for a browser67 / Chrome task
+
+Symptom:
+
+```text
+xtalpi-pi-tools 请求了不可用工具：mcp。本轮可用工具：...
+```
+
+For browser work, `browser67` is the skill/runtime name; the executable Pi tool
+is normally `mcp` from `pi-mcp-adapter`, or a direct browser tool such as
+`browser_tab_lifecycle`, `browser_wait`, `browser_execute_js`, or
+`browser_screenshot_ops`. If `mcp` is not in the selected-tool allowlist for the
+current turn, `xtalpi-pi-tools` must reject the call instead of executing a tool
+the model was not shown.
+
+Expected current behavior: prompts that mention browser67, Chrome, Edge, current
+tab, login state, clicking, typing, uploads, downloads, screenshots, DevTools,
+console, DOM, or network inspection should select `mcp` when it is available.
+Prompts that only ask to summarize a public URL should still select
+`web_fetch` / `web_search` instead of opening a real browser.
+
+Run:
+
+```bash
+cd ~/.pi/agent
+pi-67 update --repair
+bash scripts/pi67-test-xtalpi-pi-tools.sh
+bash scripts/pi67-doctor.sh
+```
+
+Windows PowerShell:
+
+```powershell
+Set-Location $env:USERPROFILE\.pi\agent
+pi-67 update --repair
+.\scripts\pi67-smoke.ps1 -Ci
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile quick
+```
+
+If it still fails after updating, check whether the runtime exposes `mcp`:
+
+- `settings.json` includes the package that provides `pi-mcp-adapter`.
+- `mcp.json` contains the browser67 / `tmwd_browser` MCP server configuration.
+- `pi-67 doctor` does not report MCP adapter or browser67 readiness errors.
+- The selected tools in debug telemetry include `mcp` for browser tasks.
+
+If `mcp` is absent from the runtime, this is an MCP registration/readiness
+problem, not a provider parsing problem; fix `mcp.json`, the browser67 install,
+or the MCP adapter first. If `mcp` is present in `context.tools` but omitted from
+selected tools for a browser task, treat it as a `browser-bridge.ts` regression.
+
 ## xtalpi-pi-tools reports raw `previous_pi_tool_call` markup
 
 If Pi stops with an error similar to:

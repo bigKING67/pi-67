@@ -2518,6 +2518,50 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
     assert.ok(!dynamicMcpDirectChat.calls[0][0].content.includes("- mcp:"));
   });
 
+  const browserMcpTools = [
+    { name: "read", description: "Read a file", parameters: { type: "object", properties: { path: { type: "string" } } } },
+    { name: "bash", description: "Run a shell command", parameters: { type: "object", properties: { command: { type: "string" } } } },
+    { name: "web_fetch", description: "Fetch a URL", parameters: { type: "object", properties: { url: { type: "string" } } } },
+    { name: "web_search", description: "Search the web", parameters: { type: "object", properties: { query: { type: "string" } } } },
+    { name: "vision_read", description: "Read an image", parameters: { type: "object", properties: { image: { type: "string" } } } },
+    { name: "mcp", description: "MCP gateway proxy tool for browser67/tmwd_browser", parameters: { type: "object", properties: {} } },
+  ];
+  const browserMcpContext = serializer.serializeContextForXtalpi(
+    {
+      systemPrompt: "system base",
+      tools: browserMcpTools,
+      messages: [{ role: "user", content: "请用 browser67 打开 Chrome 当前标签页，检查页面并截图。" }],
+    },
+    {
+      maxTools: 1,
+      maxToolResultChars: 2000,
+    },
+  );
+  assert.deepEqual([...browserMcpContext.selectedToolNames], ["mcp"]);
+  assert.match(browserMcpContext.messages[0].content, /- mcp:/);
+  assert.ok(!browserMcpContext.messages[0].content.includes("- web_fetch:"));
+  assert.ok(browserMcpContext.toolSelectionSummary.selected[0].reasonCodes.includes("browser_mcp_route"));
+  assert.ok(browserMcpContext.toolSelectionSummary.selected[0].reasonCodes.includes("prompt_browser_tool_name"));
+  assert.ok(browserMcpContext.toolSelectionSummary.selected[0].reasonCodes.includes("prompt_browser_cn_intent"));
+
+  const ordinaryUrlFetchContext = serializer.serializeContextForXtalpi(
+    {
+      systemPrompt: "system base",
+      tools: browserMcpTools,
+      messages: [{ role: "user", content: "请总结 https://example.invalid 这个页面的正文内容。" }],
+    },
+    {
+      maxTools: 1,
+      maxToolResultChars: 2000,
+    },
+  );
+  assert.deepEqual([...ordinaryUrlFetchContext.selectedToolNames], ["web_fetch"]);
+  assert.match(ordinaryUrlFetchContext.messages[0].content, /- web_fetch:/);
+  assert.ok(!ordinaryUrlFetchContext.messages[0].content.includes("- mcp:"));
+  const omittedMcpFromOrdinaryUrl = ordinaryUrlFetchContext.toolSelectionSummary.omitted.find((item) => item.name === "mcp");
+  assert.ok(omittedMcpFromOrdinaryUrl);
+  assert.ok(!omittedMcpFromOrdinaryUrl.reasonCodes.includes("browser_mcp_route"));
+
   const mcpAdapterFixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "xtalpi-pi-tools-mcp-adapter."));
   const previousMcpAdapterEnv = {
     HOME: process.env.HOME,

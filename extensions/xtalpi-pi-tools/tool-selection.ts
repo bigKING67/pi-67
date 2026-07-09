@@ -1,5 +1,10 @@
 import { safeInlineText } from "./text-safety.ts";
 import {
+  browserMcpToolRouteForName,
+  detectBrowserMcpTaskText,
+  preferredBrowserMcpToolName,
+} from "./browser-bridge.ts";
+import {
   detectVisionTaskText,
   preferredVisionToolName,
   visionToolRouteForName,
@@ -47,6 +52,7 @@ type RankedTool = ToolScore & {
 };
 
 type ToolSelectionVisionState = ReturnType<typeof detectVisionTaskText>;
+type ToolSelectionBrowserState = ReturnType<typeof detectBrowserMcpTaskText>;
 
 const MAX_TOOL_SELECTION_SUMMARY_ITEMS = 12;
 const MAX_TOOL_SELECTION_REASON_CODES = 8;
@@ -167,7 +173,12 @@ function summarizeParameters(parameters: unknown): string {
     .join("; ");
 }
 
-function scoreTool(tool: ToolLike, prompt: string, visionState: ToolSelectionVisionState): ToolScore {
+function scoreTool(
+  tool: ToolLike,
+  prompt: string,
+  visionState: ToolSelectionVisionState,
+  browserState: ToolSelectionBrowserState,
+): ToolScore {
   const description = typeof tool.description === "string" ? tool.description.slice(0, 1000) : "";
   const haystack = `${tool.name} ${description}`.toLowerCase();
   const promptLower = prompt.toLowerCase();
@@ -199,6 +210,13 @@ function scoreTool(tool: ToolLike, prompt: string, visionState: ToolSelectionVis
       for (const reasonCode of visionState.reasonCodes) addScore(0, reasonCode);
     } else if (visionState.hasImagePath && /read|file|path|grep|find|ls|bash/i.test(haystack)) {
       addScore(IMAGE_PATH_READ_PENALTY, "image_path_read_penalty");
+    }
+  }
+  if (browserState.isBrowserMcpTask) {
+    const browserRoute = browserMcpToolRouteForName(tool.name);
+    if (browserRoute) {
+      addScore(browserRoute === "mcp_gateway" ? 500 : 460, "browser_mcp_route");
+      for (const reasonCode of browserState.reasonCodes) addScore(0, reasonCode);
     }
   }
   if (/(修改|编辑|修复|实现|patch|edit|write|create|delete|commit|push)/i.test(prompt) && /edit|write|bash/i.test(haystack)) {
@@ -258,8 +276,12 @@ export function selectToolsWithSummary(
   const limit = normalizeMaxTools(maxTools);
   const available = collectValidTools(tools);
   const visionState = detectVisionTaskText(prompt);
-  const scored = available.map((tool, index) => ({ tool, index, ...scoreTool(tool, prompt, visionState) }));
+  const browserState = detectBrowserMcpTaskText(prompt);
+  const scored = available.map((tool, index) => ({ tool, index, ...scoreTool(tool, prompt, visionState, browserState) }));
   const preferredVisionName = visionState.isVisionTask && limit > 0 ? preferredVisionToolName(available) : undefined;
+  const preferredBrowserMcpName = browserState.isBrowserMcpTask && limit > 0
+    ? preferredBrowserMcpToolName(available)
+    : undefined;
   const exclusiveToolNames = new Set(
     scored
       .filter((item) => item.reasonCodes.includes("prompt_tool_exclusive"))
@@ -270,6 +292,9 @@ export function selectToolsWithSummary(
     if (preferredVisionName) {
       return ranked.filter((item) => item.tool.name === preferredVisionName).slice(0, 1);
     }
+    if (preferredBrowserMcpName) {
+      return ranked.filter((item) => item.tool.name === preferredBrowserMcpName).slice(0, 1);
+    }
     if (exclusiveToolNames.size > 0) {
       const exclusiveRanked = ranked.filter((item) => exclusiveToolNames.has(item.tool.name));
       return exclusiveRanked.length > limit ? exclusiveRanked.slice(0, limit) : exclusiveRanked;
@@ -277,7 +302,7 @@ export function selectToolsWithSummary(
     return scored.length > limit ? ranked.slice(0, limit) : scored;
   })();
   const selectedToolNameSet = availableToolNames(selectedRanked.map((item) => item.tool));
-  const omittedRanked = preferredVisionName || exclusiveToolNames.size > 0 || scored.length > limit
+  const omittedRanked = preferredVisionName || preferredBrowserMcpName || exclusiveToolNames.size > 0 || scored.length > limit
     ? ranked.filter((item) => !selectedToolNameSet.has(item.tool.name))
     : [];
   const clipped = omittedRanked.length > 0;

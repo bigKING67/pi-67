@@ -326,6 +326,42 @@ Pi。默认配置来源：
 注意：`image_review` 是 TUI 人工确认/反馈工具，不是自动 OCR。自动 OCR/图片理解应走
 `vision_read`；如果 `vision_read` 没有 ready，`image_review` 只能作为人工审查 fallback。
 
+## browser67 / MCP 的本地 selected-tool 路由
+
+`browser67` 出现在 AGENTS / skills / rules 里，只代表 Pi 知道“真实浏览器任务应该怎么做”；
+真正执行 Chrome / Edge / 登录态 / 当前标签页 / 点击 / 输入 / 上传下载 / 页面截图 / DOM /
+Network 检查时，本轮还必须把可执行工具展示给模型。常见入口是 `pi-mcp-adapter` 暴露的
+`mcp` gateway；如果 runtime 暴露的是 direct browser tools，则会是
+`browser_tab_lifecycle`、`browser_wait`、`browser_execute_js`、`browser_screenshot_ops`
+等工具名。
+
+因此 `xtalpi-pi-tools` 对浏览器任务也做本地硬路由：
+
+1. `extensions/xtalpi-pi-tools/browser-bridge.ts` 识别 `browser67`、`tmwd_browser`、
+   `Chrome`、`Edge`、`browser`、`mcp`、`CDP`，以及“打开浏览器 / 当前标签页 / 登录态 /
+   点击 / 输入 / 上传 / 下载 / 截图 / 抓包 / 控制台 / 开发者工具”等中英文意图。
+2. 如果本轮 `context.tools` 里有 `mcp`，浏览器任务优先 selected `mcp`；即使
+   `XTALPI_PI_TOOLS_MAX_TOOLS=1`，也不会把 `mcp` 挤掉。
+3. 如果没有 `mcp` 但存在 direct browser tool，则选择 direct browser tool。
+4. 普通网页正文总结、资料检索、非登录态 URL 读取仍优先走 `web_fetch` / `web_search`，
+   不会因为 URL 里出现 `https://` 就强制打开真实浏览器，避免性能损耗和登录态副作用。
+5. 如果用户明确说“不要用 browser67 / 不用浏览器 / without browser”，本地不会触发
+   browser bridge。
+
+这个边界解决的是 selected-tool 白名单断层：模型不能自己“猜”一个没展示的 `mcp` 工具。
+如果仍看到：
+
+```text
+xtalpi-pi-tools 请求了不可用工具：mcp。本轮可用工具：...
+```
+
+优先检查两件事：
+
+- 版本是否包含 `browser-bridge.ts`；执行 `pi-67 update --repair` 后再跑 release/smoke。
+- 当前 Pi runtime 是否真的注册了 `mcp` 或 direct browser tools；如果 runtime 没注册，
+  selected-tool 路由无法凭空创建工具，需要排查 `pi-mcp-adapter` / `mcp.json` /
+  browser67 MCP readiness。
+
 ## Extension / tool coverage 审计
 
 `xtalpi-pi-tools` 只负责把当前 turn 的 Pi 工具协议展示给晶泰模型，并把模型返回的
