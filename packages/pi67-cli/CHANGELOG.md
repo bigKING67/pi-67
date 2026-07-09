@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.10.21]
+
+- Adds xtalpi browser/MCP selected-tool routing so browser67 / Chrome / Edge /
+  login-state / screenshot tasks select the `mcp` gateway when it is available,
+  while ordinary public-URL summarization still uses fetch/search tools.
+
+## [0.10.20]
+
+- Adds the bundled `pi-vision-bridge` local extension and xtalpi vision-task
+  routing so screenshot, image, and OCR tasks are converted into local text
+  evidence before reaching the text-only xtalpi provider.
+
 ## [0.10.19]
 
 - Broadcasts the Windows environment change after `pi-67 install --repair --yes`

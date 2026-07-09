@@ -4,7 +4,7 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
-当前发行版版本：`0.10.20`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.10.21`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 这是什么
 

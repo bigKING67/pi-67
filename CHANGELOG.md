@@ -6,6 +6,25 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.21] - 2026-07-09
+
+### Added
+
+- Added `xtalpi-pi-tools` browser/MCP selected-tool routing so browser67,
+  Chrome, Edge, current-tab, login-state, click/type, upload/download,
+  screenshot, DevTools, DOM, and network-inspection tasks select the `mcp`
+  gateway when available, even with a low `XTALPI_PI_TOOLS_MAX_TOOLS`.
+- Added documentation and release/smoke tracked-file gates for the new
+  browser bridge.
+
+### Fixed
+
+- Browser tasks no longer fail with `xtalpi-pi-tools 请求了不可用工具：mcp`
+  when `mcp` exists in the runtime tool list but was previously omitted from
+  the selected-tool allowlist.
+- Ordinary public-URL summarization remains routed to `web_fetch` /
+  `web_search`, avoiding unnecessary browser67 activation.
+
 ## [0.10.20] - 2026-07-09
 
 ### Added
