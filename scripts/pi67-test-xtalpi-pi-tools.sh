@@ -40,6 +40,7 @@ const { pathToFileURL } = require("node:url");
   const turnDebugContext = await import(ext("turn-debug-context.ts"));
   const turnLoopState = await import(ext("turn-loop-state.ts"));
   const validator = await import(ext("argument-validator.ts"));
+  const visionBridge = await import(ext("vision-bridge.ts"));
   const provider = await import(ext("index.ts"));
   const replayFixtures = JSON.parse(
     fs.readFileSync(path.join(repoRoot, "extensions", "xtalpi-pi-tools", "fixtures", "replay-cases.json"), "utf8"),
@@ -495,6 +496,33 @@ const { pathToFileURL } = require("node:url");
     name: "read",
     description: "Read a file",
     parameters: { type: "object", required: ["path"], properties: { path: { type: "string" } } },
+  };
+  const visionReadTool = {
+    name: "vision_read",
+    description: "本地视觉桥接工具。读取图片/截图并返回文本证据，适合 OCR、截图报错分析、图片内容理解。",
+    parameters: {
+      type: "object",
+      required: ["image"],
+      properties: {
+        image: { type: "string" },
+        prompt: { type: "string" },
+      },
+    },
+  };
+  const imageReviewTool = {
+    name: "image_review",
+    description: "用户图片审查工具。展示图片给用户确认并收集反馈。",
+    parameters: {
+      type: "object",
+      required: ["image"],
+      properties: {
+        image: { type: "string" },
+        title: { type: "string" },
+        question: { type: "string" },
+        context: { type: "string" },
+        allow_feedback: { type: "boolean" },
+      },
+    },
   };
   const untilDoneTaskUpdateTool = {
     name: "until_done_task_update",
@@ -2136,6 +2164,110 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
   assert.ok(!selectedSummaryJson.includes("Hidden admin tool"));
   assert.ok(!selectedSummaryJson.includes("Run a shell command"));
   assert.ok(!selectedContext.toolSelectionSummary.omitted.some((item) => Object.prototype.hasOwnProperty.call(item, "description")));
+
+  const visionPrompt = "请读取 /var/folders/np/pi-clipboard-561f7544.png，分析这张图片";
+  const detectedVisionPrompt = visionBridge.detectVisionTaskText(visionPrompt);
+  assert.equal(detectedVisionPrompt.isVisionTask, true);
+  assert.deepEqual(detectedVisionPrompt.imagePaths, ["/var/folders/np/pi-clipboard-561f7544.png"]);
+  assert.ok(detectedVisionPrompt.reasonCodes.includes("vision_bridge_task"));
+  assert.equal(visionBridge.detectVisionTaskText("请解释 OCR 技术路线，不要读取任何图片。").isVisionTask, false);
+  const visionSelectedContext = serializer.serializeContextForXtalpi(
+    {
+      systemPrompt: "system base",
+      tools: [readTool, visionReadTool, imageReviewTool],
+      messages: [{ role: "user", content: visionPrompt }],
+    },
+    {
+      maxTools: 1,
+      maxToolResultChars: 2000,
+    },
+  );
+  assert.deepEqual([...visionSelectedContext.selectedToolNames], ["vision_read"]);
+  assert.ok(visionSelectedContext.messages[0].content.includes("- vision_read:"));
+  assert.ok(!visionSelectedContext.messages[0].content.includes("- read:"));
+  assert.ok(visionSelectedContext.toolSelectionSummary.selected[0].reasonCodes.includes("vision_bridge_route"));
+  assert.ok(visionSelectedContext.toolSelectionSummary.selected[0].reasonCodes.includes("prompt_image_path"));
+  const omittedReadFromVision = visionSelectedContext.toolSelectionSummary.omitted.find((item) => item.name === "read");
+  assert.ok(omittedReadFromVision);
+  assert.ok(omittedReadFromVision.reasonCodes.includes("image_path_read_penalty"));
+
+  const visionReviewFallbackContext = serializer.serializeContextForXtalpi(
+    {
+      systemPrompt: "system base",
+      tools: [readTool, imageReviewTool],
+      messages: [{ role: "user", content: "分析截图 C:\\Users\\Groland\\AppData\\Local\\Temp\\pi-clipboard-test.png" }],
+    },
+    {
+      maxTools: 1,
+      maxToolResultChars: 2000,
+    },
+  );
+  assert.deepEqual([...visionReviewFallbackContext.selectedToolNames], ["image_review"]);
+  assert.ok(visionReviewFallbackContext.toolSelectionSummary.selected[0].reasonCodes.includes("vision_bridge_route"));
+
+  const inlineImageContext = serializer.serializeContextForXtalpi(
+    {
+      systemPrompt: "system base",
+      tools: [readTool, visionReadTool],
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: "分析这张图，提取报错原因" },
+          { type: "image", path: "/tmp/pi-clipboard-inline.png" },
+        ],
+      }],
+    },
+    {
+      maxTools: 1,
+      maxToolResultChars: 2000,
+    },
+  );
+  assert.deepEqual([...inlineImageContext.selectedToolNames], ["vision_read"]);
+  assert.match(inlineImageContext.toolSelectionPromptText, /Pi must route image tasks through a local vision bridge/);
+  assert.ok(inlineImageContext.messages.some((msg) => msg.content.includes("Pi must route image tasks through a local vision bridge")));
+
+  await withProviderTurnEnv({
+    XTALPI_PI_TOOLS_MAX_TOOLS: "1",
+    XTALPI_PI_TOOLS_MAX_EMPTY_RETRIES: "0",
+    XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES: "1",
+    XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES: "1",
+  }, async () => {
+    const visionNotReadyChat = makeProviderTurnChat([
+      { content: '{"kind":"final","text":"should not be called"}' },
+    ]);
+    const visionNotReadyResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: {
+        systemPrompt: "system base",
+        tools: [readTool],
+        messages: [{ role: "user", content: "请分析 /tmp/pi-clipboard-test.png 这张截图" }],
+      },
+      callChat: visionNotReadyChat.callChat,
+    });
+    assert.equal(visionNotReadyResult.kind, "final");
+    assert.match(visionNotReadyResult.text, /vision bridge 当前未 ready/);
+    assert.match(visionNotReadyResult.text, /避免把图片路径误交给 read/);
+    assert.equal(visionNotReadyChat.calls.length, 0);
+
+    const visionRepairChat = makeProviderTurnChat([
+      { content: "抱歉，我当前是纯文本模式，无法实际处理图片内容。" },
+      { content: '{"kind":"tool_call","name":"vision_read","arguments":{"image":"/tmp/pi-clipboard-test.png","prompt":"请分析这张图片"}}' },
+    ]);
+    const visionRepairResult = await providerTurn.runProviderTurn({
+      model: providerTurnModel,
+      context: {
+        systemPrompt: "system base",
+        tools: [readTool, visionReadTool],
+        messages: [{ role: "user", content: "请分析 /tmp/pi-clipboard-test.png 这张截图" }],
+      },
+      callChat: visionRepairChat.callChat,
+    });
+    assert.equal(visionRepairResult.kind, "tool_call");
+    assert.equal(visionRepairResult.toolCall.name, "vision_read");
+    assert.equal(visionRepairResult.toolCall.arguments.image, "/tmp/pi-clipboard-test.png");
+    assert.equal(visionRepairChat.calls.length, 2);
+    assert.match(visionRepairChat.calls[1].at(-1).content, /xtalpi-pi-tools-vision-bridge-tool-call-repair/);
+  });
 
   const futureExtensionTool = {
     name: "future_extension_tool",

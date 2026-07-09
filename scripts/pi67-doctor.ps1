@@ -437,7 +437,9 @@ $requiredFiles = @(
   "scripts/pi67-json-utils.cjs",
   "scripts/pi67-xtalpi-pi-tools-smoke.ps1",
   "extensions/xtalpi-pi-tools/json-file.ts",
-  "extensions/xtalpi-pi-tools/runtime-config.ts"
+  "extensions/xtalpi-pi-tools/runtime-config.ts",
+  "extensions/xtalpi-pi-tools/vision-bridge.ts",
+  "extensions/pi-vision-bridge/index.ts"
 )
 foreach ($file in $requiredFiles) {
   if (Test-Path -LiteralPath (RepoPath $file) -PathType Leaf) {
@@ -486,6 +488,34 @@ if (Test-Path -LiteralPath $modelsPath -PathType Leaf) {
       }
     } else {
       Fail "models.json missing provider xtalpi-pi-tools"
+    }
+
+    $codexProvider = Get-JsonPropertyValue $models.providers "codex"
+    if ($codexProvider) {
+      $codexModels = Get-JsonPropertyValue $codexProvider "models"
+      $imageModel = $null
+      if ($codexModels -is [System.Array]) {
+        foreach ($model in $codexModels) {
+          $inputTypes = Get-JsonPropertyValue $model "input"
+          if (($inputTypes -is [System.Array]) -and ($inputTypes -contains "image")) {
+            $imageModel = $model
+            break
+          }
+        }
+      }
+      if ($imageModel) {
+        Pass ("vision_read default image model exists under codex: {0}" -f (Get-JsonPropertyValue $imageModel "id"))
+      } else {
+        Warn "vision_read default provider codex has no image-input model"
+      }
+      $codexApiKey = Get-JsonPropertyValue $codexProvider "apiKey"
+      if (Test-Placeholder $codexApiKey) {
+        Warn "vision_read codex apiKey is missing or placeholder"
+      } else {
+        Pass "vision_read codex apiKey is configured"
+      }
+    } else {
+      Warn "vision_read default provider codex is missing from models.json"
     }
   } catch {
     Fail ("could not inspect models.json: {0}" -f $_.Exception.Message)

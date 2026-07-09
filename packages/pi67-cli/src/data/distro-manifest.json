@@ -56,6 +56,12 @@
       "policy": "pi-local-json-action-provider"
     },
     {
+      "name": "pi-vision-bridge",
+      "path": "extensions/pi-vision-bridge",
+      "required": true,
+      "policy": "local-vision-read-bridge-for-text-only-providers"
+    },
+    {
       "name": "pi-rules-loader",
       "path": "extensions/pi-rules-loader",
       "required": true,

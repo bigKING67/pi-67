@@ -17,6 +17,9 @@ import {
   type ToolLike,
   type ToolSelectionSummary,
 } from "./tool-selection.ts";
+import {
+  imageContentBlockToText,
+} from "./vision-bridge.ts";
 
 export {
   availableToolNames,
@@ -59,6 +62,7 @@ export type SerializedXtalpiContext = {
   selectedTools: ToolLike[];
   selectedToolNames: Set<string>;
   toolSelectionSummary: ToolSelectionSummary;
+  toolSelectionPromptText: string;
   toolSelectionPromptSource: ToolSelectionPromptSource;
   toolSelectionPromptChars: number;
   toolSelectionUserMessageCount: number;
@@ -81,7 +85,7 @@ export function contentToText(content: unknown): string {
       if (typeof block !== "object" || block === null) return "";
       const item = block as ContentBlock;
       if (item.type === "text" && typeof item.text === "string") return item.text;
-      if (item.type === "image") return "[image omitted: xtalpi-pi-tools is text-only]";
+      if (item.type === "image") return imageContentBlockToText(item);
       if (item.type === "thinking") return "";
       if (item.type === "toolCall") {
         // The following toolResult message carries the observable evidence.
@@ -204,6 +208,7 @@ export function serializeContextForXtalpi(
     selectedTools,
     selectedToolNames,
     toolSelectionSummary: toolSelection.summary,
+    toolSelectionPromptText: prompt.text,
     toolSelectionPromptSource: prompt.source,
     toolSelectionPromptChars: prompt.text.length,
     toolSelectionUserMessageCount: prompt.userMessageCount,

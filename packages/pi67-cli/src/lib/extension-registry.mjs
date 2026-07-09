@@ -4,6 +4,7 @@ import { packageRoot } from "./paths.mjs";
 
 export const REQUIRED_EXTENSION_REGISTRY_IDS = [
   "xtalpi-pi-tools",
+  "pi-vision-bridge",
   "pi-rules-loader",
   "pi-curated-themes",
   "shared-skills",

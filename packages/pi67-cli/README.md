@@ -77,6 +77,12 @@ Use `npm install -g @bigking67/pi-67` for normal daily operation. Use `npx -y
 @bigking67/pi-67@latest ...` when you want a zero-install, always-fresh one-shot
 check or repair before trusting the globally installed manager.
 
+The managed distribution includes the local `pi-vision-bridge` extension.
+Screenshot/image/OCR tasks under `xtalpi-pi-tools` should route to
+`vision_read` first, then optionally `image_review`; if neither tool is
+available, Pi returns a local readiness error instead of asking the text-only
+xtalpi provider to read PNG/JPG files.
+
 ## Safety defaults
 
 `pi-67 update` preserves local runtime choices:
@@ -211,7 +217,9 @@ The manifest also embeds the extension registry from
 shared-skill packs, runtime packages, or external repos must declare owner,
 install/update/repair strategy, config patch mode, and smoke gates there before
 release. This keeps extension behavior explicit instead of scattering preserve
-rules across scripts. `pi-67 extensions doctor` is the user-facing registry
+rules across scripts. Required local extensions currently include
+`xtalpi-pi-tools`, `pi-rules-loader`, and `pi-vision-bridge`.
+`pi-67 extensions doctor` is the user-facing registry
 diagnostic, and `pi-67 extensions inspect <id>` shows the exact owner/update
 policy for one entry. `pi-67 manifest --validate`, `pi-67 publish-check`, and
 release gates reuse the same registry validator so duplicate ids, missing smoke

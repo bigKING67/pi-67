@@ -304,6 +304,8 @@ $RequiredFiles = @(
   "extensions/xtalpi-pi-tools/json-file.ts",
   "extensions/xtalpi-pi-tools/json-action-protocol.ts",
   "extensions/xtalpi-pi-tools/runtime-config.ts",
+  "extensions/xtalpi-pi-tools/vision-bridge.ts",
+  "extensions/pi-vision-bridge/index.ts",
   "extensions/xtalpi-pi-tools/fixtures/replay-cases.json",
   "extensions/xtalpi-pi-tools/provider-error-contract.json"
 )
@@ -610,6 +612,10 @@ $report = [ordered]@{
     if (-not $rulesLoader -or $rulesLoader.status -ne "not_model_callable") {
       throw "smoke plan did not classify pi-rules-loader"
     }
+    $visionBridge = $plan.packages | Where-Object { $_.spec -eq "local:extensions/pi-vision-bridge" } | Select-Object -First 1
+    if (-not $visionBridge -or $visionBridge.smokePolicy -ne "manual_artifact") {
+      throw "smoke plan did not classify pi-vision-bridge"
+    }
   }
 } else {
   Warn "skipped Node helper checks because node is missing"
@@ -774,6 +780,8 @@ if ($GitAvailable) {
     "scripts/pi67-shared-skills-inventory.sh",
     "extensions/xtalpi-pi-tools/json-file.ts",
     "extensions/xtalpi-pi-tools/json-action-protocol.ts",
+    "extensions/xtalpi-pi-tools/vision-bridge.ts",
+    "extensions/pi-vision-bridge/index.ts",
     ".gitattributes",
     ".github/workflows/ci.yml"
   )

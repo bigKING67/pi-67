@@ -353,6 +353,70 @@ If the task is time-critical and xtalpi continues returning empty content, tempo
 bash ~/.pi/agent/scripts/pi67-configure.sh --provider codex --model gpt-5.4 --prompt-secrets
 ```
 
+## xtalpi-pi-tools says it cannot see a screenshot or tries to `read` a PNG
+
+Expected current behavior: image/screenshot/OCR tasks should not be sent directly
+to the xtalpi text-only model and should not call `read` for `.png`, `.jpg`,
+`.webp`, clipboard screenshots, or inline image blocks.
+
+The local routing contract is:
+
+1. `xtalpi-pi-tools` detects image paths, `pi-clipboard-*.png`,
+   `codex-clipboard-*.png`, inline image blocks, and “截图 / 看图 / OCR /
+   image analysis” intent.
+2. It selects `vision_read` first when available. `vision_read` is registered by
+   `extensions/pi-vision-bridge` and uses a local multimodal provider, normally
+   `models.json.providers.codex`, to convert the image into text evidence.
+3. If `vision_read` is not available but `image_review` is available, it can fall
+   back to user-assisted review.
+4. If neither tool is selected, Pi returns a local readiness error before calling
+   xtalpi. This is intentional fail-closed behavior.
+
+If you see a message like:
+
+```text
+检测到图片/截图理解任务，但 Pi 本地 vision bridge 当前未 ready
+```
+
+run:
+
+```bash
+cd ~/.pi/agent
+pi-67 update --repair
+bash scripts/pi67-doctor.sh
+bash scripts/pi67-test-xtalpi-pi-tools.sh
+bash scripts/pi67-xtalpi-tool-coverage-audit.sh --include pi-vision-bridge --json
+```
+
+Windows PowerShell:
+
+```powershell
+Set-Location $env:USERPROFILE\.pi\agent
+pi-67 update --repair
+.\scripts\pi67-doctor.ps1
+.\scripts\pi67-smoke.ps1 -Ci
+node .\scripts\pi67-xtalpi-smoke-plan.mjs --json
+```
+
+Check these fields:
+
+- `extensions/pi-vision-bridge/index.ts` exists.
+- coverage audit contains `local:extensions/pi-vision-bridge`.
+- `modelCallableTools` contains `vision_read`.
+- `models.json.providers.codex` has a usable `baseUrl`, `apiKey`, and an image
+  input model; or set `PI67_VISION_PROVIDER`, `PI67_VISION_MODEL`,
+  `PI67_VISION_BASE_URL`, `PI67_VISION_API_KEY`.
+
+If a screenshot task still calls `read`, treat it as a regression and run:
+
+```bash
+bash scripts/pi67-test-xtalpi-pi-tools.sh
+```
+
+That offline test includes a guard for `XTALPI_PI_TOOLS_MAX_TOOLS=1`: image
+paths must select `vision_read` / `image_review`, and `read` must be omitted with
+an `image_path_read_penalty` reason code.
+
 ## xtalpi-pi-tools reports raw `previous_pi_tool_call` markup
 
 If Pi stops with an error similar to:

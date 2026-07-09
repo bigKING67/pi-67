@@ -12,7 +12,7 @@
 
 - 常驻内核：`AGENTS.md` 只保留硬规则、工具分流、rules 读取契约和交付闭环。
 - 长规则外置：`rules/` 存放质量、架构、目录、性能、前端、浏览器、上下文、数据和电商增长规则，按任务最小读取。
-- 扩展补强：`extensions/pi-rules-loader/` 给 Pi 注入 rules 索引；`extensions/xtalpi-pi-tools/` 让 Pi 本地托管 xtalpi 工具协议。
+- 扩展补强：`extensions/pi-rules-loader/` 给 Pi 注入 rules 索引；`extensions/xtalpi-pi-tools/` 让 Pi 本地托管 xtalpi 工具协议；`extensions/pi-vision-bridge/` 把图片/截图任务桥接到本地多模态 provider。
 - 生产力资产：Skills、Prompts、Docs、Templates 和脚本保持仓库化，便于审计、同步和回滚。
 
 仓库不会提交真实 `auth.json`、`models.json`、`mcp.json`、`image-gen.json`、会话、缓存或运行历史；只提供 `.example` 模板。
@@ -31,7 +31,7 @@
 | **MCP** | `mcp.example.json` | browser67 tmwd_browser、js-reverse、agent_memory 模板 |
 | **全局内核** | `AGENTS.md` | Pi 常驻行为规范（v1.5-pi kernel） |
 | **Rules** | `rules/` (9 篇) | 质量、架构、结构、性能、前端、浏览器、上下文、数据质量、电商增长规则 |
-| **自定义扩展** | `extensions/` (2 个) | `xtalpi-pi-tools` + `pi-rules-loader` |
+| **自定义扩展** | `extensions/` (3 个) | `xtalpi-pi-tools` + `pi-rules-loader` + `pi-vision-bridge` |
 | **Shared Skills** | `shared-skills/` (32 个) | 安装到 `~/.agents/skills`，供 Pi/Codex 共用 |
 | **Skill 治理** | `docs/skill-governance.md` | skill 公开发行 / 个人 overlay / 过期治理规则 |
 | **文档** | `docs/` | 全量安装、doctor/report/status schema、排障、发布流程、MCP 优化、爬虫指南、工具速查、xtalpi 配置 |
@@ -568,6 +568,8 @@ pi-67/
 ├── extensions/
 │   ├── pi-rules-loader/            # Rules 索引注入扩展
 │   │   └── index.ts
+│   ├── pi-vision-bridge/           # 本地 vision_read 桥接工具
+│   │   └── index.ts
 │   └── xtalpi-pi-tools/            # xtalpi 本地工具协议 provider
 │       ├── index.ts
 │       ├── parser.ts
@@ -658,6 +660,16 @@ pi-67/
 xtalpi 是晶泰科技内部 API。`models.example.json` 中只保留一个晶泰 provider：`xtalpi-pi-tools`。
 
 `xtalpi-pi-tools` 不再向晶泰发送 OpenAI 原生 `tools` / `tool_choice` / `role=tool`，而是让晶泰只生成普通 Chat Completions 文本中的本地 JSON action；Pi 本地负责解析、校验、repair、错误分类和工具执行。运行时只保留 JSON action 单协议；旧 `<pi_tool_call>` 文本只作为 provider drift 输入被识别、拒绝并修复回 JSON action，不再提供可切换 fallback。
+
+图片、截图、OCR、看图/读图任务不再交给晶泰 text-only 模型直接处理，也不会把
+`.png/.jpg/.webp` 这类图片路径误路由给 `read`。`xtalpi-pi-tools` 会在本地先识别
+vision task：优先 selected `vision_read`（由 `extensions/pi-vision-bridge/` 注册），
+把图片转成文本证据后再让晶泰继续普通文本推理；如果没有 `vision_read` 但有
+`image_review`，则走人工审查 fallback；如果两者都没有进入当前 turn 的工具白名单，
+Pi 会直接返回 readiness error，提示修复本地 vision bridge，而不是让模型回答“我看不了图片”。
+`vision_read` 默认读取 `models.json.providers.codex` 中 `input` 包含 `image` 的模型，
+也可用 `PI67_VISION_PROVIDER`、`PI67_VISION_MODEL`、`PI67_VISION_BASE_URL`、
+`PI67_VISION_API_KEY` 覆盖。
 
 extension 工具识别不是写死名单：provider 每轮从 Pi runtime 的 `context.tools`
 动态读取当前可调用工具，再按 prompt 做 selected-tool ranking。以后安装新 extension 时，

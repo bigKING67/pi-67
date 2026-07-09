@@ -528,7 +528,12 @@ To switch provider/model:
 bash ~/.pi/agent/scripts/pi67-configure.sh --provider codex --model gpt-5.4 --prompt-secrets
 ```
 
-For xtalpi tasks, pi-67 now uses `xtalpi-pi-tools`: Pi owns the tool protocol locally and sends only plain chat messages to the company proxy. Use the stable launcher for important tasks:
+For xtalpi tasks, pi-67 now uses `xtalpi-pi-tools`: Pi owns the tool protocol
+locally and sends only plain chat messages to the company proxy.
+Image/screenshot/OCR tasks are routed locally through `vision_read` from
+`extensions/pi-vision-bridge` before xtalpi sees text evidence, so the text-only
+provider is not asked to read PNG/JPG files directly. Use the stable launcher
+for important tasks:
 
 ```bash
 pi-67 xtalpi run
@@ -598,6 +603,7 @@ pi-67 distinguishes between installed and ready:
 | Prompts | Yes | Prompt files exist and do not use legacy double-brace placeholders |
 | Skills | Yes | `pi skill list` succeeds |
 | xtalpi-pi-tools provider | Yes | `models.json` has a real xtalpi API key under `xtalpi-pi-tools` |
+| vision bridge | Yes | `extensions/pi-vision-bridge` is installed and `vision_read` can use a configured image-input provider |
 | Codex provider | Yes | local Codex proxy and API key are configured |
 | tmwd_browser MCP | Yes | browser67 package clone or local browser67 checkout path exists |
 | js-reverse MCP | Yes | browser67 package clone or local browser67 checkout path and bridge settings are valid |

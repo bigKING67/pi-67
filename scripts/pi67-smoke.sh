@@ -812,12 +812,14 @@ pass "skill audit JSON output parsed"
 section "xtalpi-pi-tools extension coverage audit"
 bash "$REPO_ROOT/scripts/pi67-xtalpi-tool-coverage-audit.sh" \
   --agent-dir "$REPO_ROOT" \
-  --include pi-rules-loader >/tmp/pi67-smoke-xtalpi-tool-coverage.log
+  --include pi-rules-loader \
+  --include pi-vision-bridge >/tmp/pi67-smoke-xtalpi-tool-coverage.log
 pass "xtalpi-pi-tools extension coverage text output completed"
 
 bash "$REPO_ROOT/scripts/pi67-xtalpi-tool-coverage-audit.sh" \
   --agent-dir "$REPO_ROOT" \
   --include pi-rules-loader \
+  --include pi-vision-bridge \
   --json >/tmp/pi67-smoke-xtalpi-tool-coverage-json.log
 node -e '
 const fs = require("fs");
@@ -840,6 +842,9 @@ for (const spec of ["npm:@ff-labs/pi-fff", "npm:pi-smart-fetch", "npm:pi-mcp-ada
 const rulesLoader = data.entries.find((candidate) => candidate.spec === "local:extensions/pi-rules-loader");
 if (!rulesLoader || rulesLoader.installed !== true) throw new Error("coverage audit did not include pi-rules-loader");
 if (rulesLoader.surface !== "command_or_hook_only") throw new Error(`unexpected pi-rules-loader surface: ${rulesLoader.surface}`);
+const visionBridge = data.entries.find((candidate) => candidate.spec === "local:extensions/pi-vision-bridge");
+if (!visionBridge || visionBridge.installed !== true) throw new Error("coverage audit did not include pi-vision-bridge");
+if (!visionBridge.modelCallableTools.includes("vision_read")) throw new Error("coverage audit did not find vision_read");
 ' /tmp/pi67-smoke-xtalpi-tool-coverage-json.log
 pass "xtalpi-pi-tools extension coverage JSON output parsed"
 
@@ -869,6 +874,8 @@ if (smartFetch.installed) {
 }
 const rulesLoader = data.packages.find((entry) => entry.spec === "local:extensions/pi-rules-loader");
 if (!rulesLoader || rulesLoader.status !== "not_model_callable") throw new Error("smoke plan did not classify rules-loader");
+const visionBridge = data.packages.find((entry) => entry.spec === "local:extensions/pi-vision-bridge");
+if (!visionBridge || visionBridge.smokePolicy !== "manual_artifact") throw new Error("smoke plan did not classify vision bridge");
 ' /tmp/pi67-smoke-xtalpi-smoke-plan-json.log
 pass "xtalpi-pi-tools smoke plan JSON output parsed"
 
@@ -910,7 +917,7 @@ while IFS= read -r -d '' file; do
   fi
   mkdir -p "$INPLACE_AGENT/$(dirname "$file")"
   cp -p "$REPO_ROOT/$file" "$INPLACE_AGENT/$file"
-done < <(git -C "$REPO_ROOT" ls-files -z)
+done < <(git -C "$REPO_ROOT" ls-files -z --cached --others --exclude-standard)
 
 git -C "$INPLACE_AGENT" init -q
 git -C "$INPLACE_AGENT" config user.email "pi67-smoke@example.invalid"

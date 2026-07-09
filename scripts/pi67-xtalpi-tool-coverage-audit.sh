@@ -232,6 +232,13 @@ const KNOWN = {
     risk: "low",
     notes: ["local extension loaded from extensions/pi-rules-loader rather than npm packages"],
   },
+  "local:extensions/pi-vision-bridge": {
+    packageName: "pi-vision-bridge",
+    expectedTools: ["vision_read"],
+    safeSmoke: "static only; live vision_read requires local multimodal provider/proxy and image artifact",
+    risk: "medium",
+    notes: ["local extension loaded from extensions/pi-vision-bridge; xtalpi-pi-tools hard-routes image understanding tasks to it when registered"],
+  },
 };
 
 const TARGET_ALIASES = {
@@ -254,6 +261,7 @@ const TARGET_ALIASES = {
   "pi-markdown-preview": "npm:pi-markdown-preview",
   "@juicesharp/rpiv-ask-user-question": "npm:@juicesharp/rpiv-ask-user-question",
   "pi-rules-loader": "local:extensions/pi-rules-loader",
+  "pi-vision-bridge": "local:extensions/pi-vision-bridge",
 };
 
 function readJson(file) {

@@ -953,6 +953,8 @@ function decisionsFixture(overrides = {}) {
       },
       localExtensions: [
         { name: "xtalpi-pi-tools", owner: "pi67-managed", exists: true, path: "extensions/xtalpi-pi-tools" },
+        { name: "pi-vision-bridge", owner: "pi67-managed", exists: true, path: "extensions/pi-vision-bridge" },
+        { name: "pi-rules-loader", owner: "pi67-managed", exists: true, path: "extensions/pi-rules-loader" },
       ],
     },
     skills: { summary: { missing: 0, conflicts: 0 } },
@@ -975,6 +977,7 @@ function extensionRegistryTestManifest() {
     },
     localExtensions: [
       { name: "xtalpi-pi-tools", owner: "pi67-managed" },
+      { name: "pi-vision-bridge", owner: "pi67-managed" },
       { name: "pi-rules-loader", owner: "pi67-managed" },
     ],
   };

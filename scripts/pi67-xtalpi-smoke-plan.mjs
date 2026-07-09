@@ -167,6 +167,13 @@ const KNOWN = {
     smokePolicy: "not_model_callable",
     safeSmoke: "hook-only rules index injection; not directly model-callable",
   },
+  "local:extensions/pi-vision-bridge": {
+    packageName: "pi-vision-bridge",
+    expectedTools: ["vision_read"],
+    risk: "medium",
+    smokePolicy: "manual_artifact",
+    safeSmoke: "live vision_read requires a local multimodal provider/proxy and image artifact; xtalpi self-test covers routing/readiness gates",
+  },
 };
 
 const TARGET_ALIASES = {
@@ -189,6 +196,7 @@ const TARGET_ALIASES = {
   "pi-markdown-preview": "npm:pi-markdown-preview",
   "@juicesharp/rpiv-ask-user-question": "npm:@juicesharp/rpiv-ask-user-question",
   "pi-rules-loader": "local:extensions/pi-rules-loader",
+  "pi-vision-bridge": "local:extensions/pi-vision-bridge",
 };
 
 function usage() {
@@ -466,7 +474,7 @@ function buildPlan(options) {
   const settings = readJson(settingsFile);
   const settingsSpecs = Array.isArray(settings.packages) ? settings.packages.map(String) : [];
   const includeSpecs = options.include.map(normalizeSpec);
-  const specs = unique([...settingsSpecs, "local:extensions/pi-rules-loader", ...includeSpecs]);
+  const specs = unique([...settingsSpecs, "local:extensions/pi-rules-loader", "local:extensions/pi-vision-bridge", ...includeSpecs]);
   const entries = specs.map((spec) => packageEntry(options.agentDir, spec, settingsSpecs.includes(spec) ? "settings" : "included"));
   const packagePlans = entries.map(planEntry);
   const summary = {

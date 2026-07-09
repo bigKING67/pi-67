@@ -532,6 +532,24 @@ if (!provider) {
     emit("PASS", `provider ${providerId} apiKey is configured`);
   }
 }
+
+const codexProvider = models.providers?.codex;
+if (!codexProvider) {
+  emit("WARN", "vision_read default provider codex is missing from models.json");
+} else {
+  const codexModels = Array.isArray(codexProvider.models) ? codexProvider.models : [];
+  const imageModel = codexModels.find((item) => Array.isArray(item.input) && item.input.map(String).includes("image"));
+  if (imageModel?.id) {
+    emit("PASS", `vision_read default image model exists under codex: ${imageModel.id}`);
+  } else {
+    emit("WARN", "vision_read default provider codex has no image-input model");
+  }
+  if (String(codexProvider.apiKey || "").includes("YOUR_") || !codexProvider.apiKey) {
+    emit("WARN", "vision_read codex apiKey is missing or placeholder");
+  } else {
+    emit("PASS", "vision_read codex apiKey is configured");
+  }
+}
 NODE
   run_node_report "$tmp"
   rm -f "$tmp"
@@ -1214,6 +1232,12 @@ if [ -f "$PI_AGENT_DIR/extensions/pi-rules-loader/index.ts" ]; then
   pass "pi-rules-loader installed"
 else
   fail "pi-rules-loader missing"
+fi
+
+if [ -f "$PI_AGENT_DIR/extensions/pi-vision-bridge/index.ts" ]; then
+  pass "pi-vision-bridge installed"
+else
+  fail "pi-vision-bridge missing"
 fi
 
 check_prompt_placeholders

@@ -21,8 +21,8 @@ import {
 import { buildParseErrorRepairPlan } from "./recovery-decision.ts";
 import {
   buildEmptyResponseRepairPrompt,
-  buildPlanModeFallbackPlan,
   buildPrematureFinalRepairPrompt,
+  buildPlanModeFallbackPlan,
   envInt,
 } from "./retry.ts";
 import type { ProviderRuntimeConfig } from "./runtime-config.ts";
@@ -38,6 +38,14 @@ import {
 } from "./tool-call-history.ts";
 import { buildTurnDebugContext } from "./turn-debug-context.ts";
 import { TurnLoopState } from "./turn-loop-state.ts";
+import {
+  buildVisionBridgeReadinessFinal,
+  buildVisionBridgeToolCallRepairPrompt,
+  detectVisionTaskText,
+  isVisionInabilityFinal,
+  preferredVisionToolName,
+  selectedVisionToolName,
+} from "./vision-bridge.ts";
 
 export type ProviderTurnChatClient = (input: {
   model: Model<Api>;
@@ -91,11 +99,39 @@ export async function runProviderTurn(input: {
   const selectedToolNames = debugContext.selectedToolNames;
   debugLog("turn.start", debugContext);
 
+  const visionDetection = detectVisionTaskText(serializedContext.toolSelectionPromptText);
+  const availableToolNames = [...(contextLike.tools ?? []).map((tool) => tool.name).filter(Boolean)];
+  const preferredVisionTool = preferredVisionToolName(contextLike.tools);
+  const selectedVisionTool = selectedVisionToolName(names);
+  if (visionDetection.isVisionTask && !selectedVisionTool) {
+    debugLog("vision_bridge.not_ready", {
+      ...debugContext,
+      visionReasonCodes: visionDetection.reasonCodes,
+      imagePathCount: visionDetection.imagePaths.length,
+      preferredVisionToolName: preferredVisionTool,
+    });
+    return {
+      kind: "final",
+      text: buildVisionBridgeReadinessFinal({
+        detection: visionDetection,
+        availableToolNames,
+        selectedToolNames,
+        maxTools,
+        preferredToolName: preferredVisionTool,
+      }),
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+    };
+  }
+
   const loopState = new TurnLoopState();
 
   function finalGuardRequiresPlanBlock(input: { code: string; reason: string }): boolean {
     return input.code === "plan_mode_contract_missing" ||
       /(?:Plan mode|<proposed_plan>)/i.test(input.reason);
+  }
+
+  function visionBridgeToolNotCalledFinalText(): string {
+    return "xtalpi-pi-tools 检测到图片/截图任务，但模型没有调用本地 vision bridge，且自动修复预算已用尽。请重试上一句，或运行 pi-67 doctor 检查 vision_read/image_review 是否 ready。";
   }
 
   // Recovery turns must stay serial: each repair prompt depends on the exact
@@ -124,6 +160,30 @@ export async function runProviderTurn(input: {
     const parsed = parseJsonAction(raw);
     if (parsed.kind === "error") {
       if (loopState.canRecoverRepair(debugContext)) {
+        if (
+          visionDetection.isVisionTask &&
+          selectedVisionTool &&
+          isVisionInabilityFinal(raw)
+        ) {
+          const recovery = loopState.noteRepairRecovery();
+          messages.push({
+            role: "user",
+            content: buildVisionBridgeToolCallRepairPrompt({
+              toolName: selectedVisionTool,
+              detection: visionDetection,
+              latestUserText: serializedContext.toolSelectionPromptText,
+            }),
+          });
+          debugLog("recovery.vision_bridge_tool_not_called", {
+            ...debugContext,
+            toolName: selectedVisionTool,
+            code: "vision_bridge_tool_not_called",
+            ...recovery,
+            rawExcerpt: safeBlockText(raw, 500),
+          });
+          continue;
+        }
+
         const parseErrorFinalGuard = validateFinalAnswer({
           text: raw,
           context: contextLike,
@@ -168,6 +228,18 @@ export async function runProviderTurn(input: {
         continue;
       }
 
+      if (
+        visionDetection.isVisionTask &&
+        selectedVisionTool &&
+        isVisionInabilityFinal(raw)
+      ) {
+        return {
+          kind: "final",
+          text: visionBridgeToolNotCalledFinalText(),
+          ...loopState.resultFields(),
+        };
+      }
+
       const parseErrorFinalGuard = validateFinalAnswer({
         text: raw,
         context: contextLike,
@@ -200,6 +272,38 @@ export async function runProviderTurn(input: {
     }
 
     if (parsed.kind === "none") {
+      if (
+        visionDetection.isVisionTask &&
+        selectedVisionTool &&
+        isVisionInabilityFinal(parsed.text)
+      ) {
+        if (loopState.canRecoverRepair(debugContext)) {
+          const recovery = loopState.noteRepairRecovery();
+          messages.push({
+            role: "user",
+            content: buildVisionBridgeToolCallRepairPrompt({
+              toolName: selectedVisionTool,
+              detection: visionDetection,
+              latestUserText: serializedContext.toolSelectionPromptText,
+            }),
+          });
+          debugLog("recovery.vision_bridge_tool_not_called", {
+            ...debugContext,
+            toolName: selectedVisionTool,
+            code: "vision_bridge_tool_not_called",
+            ...recovery,
+            rawExcerpt: safeBlockText(raw, 500),
+          });
+          continue;
+        }
+
+        return {
+          kind: "final",
+          text: visionBridgeToolNotCalledFinalText(),
+          ...loopState.resultFields(),
+        };
+      }
+
       const finalGuard = validateFinalAnswer({
         text: parsed.text,
         context: contextLike,
