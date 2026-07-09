@@ -6,6 +6,15 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.16] - 2026-07-09
+
+### Fixed
+
+- `pi-67 install --repair --yes` now checks that `git` is available before
+  moving an existing non-Git `~/.pi/agent` directory into the repair backup.
+  Missing Git now fails early with actionable install guidance instead of doing
+  a backup/restore round trip and surfacing `spawnSync git ENOENT`.
+
 ## [0.10.15] - 2026-07-09
 
 ### Fixed

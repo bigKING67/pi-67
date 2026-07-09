@@ -15,6 +15,11 @@ pi-67 doctor
 Windows PowerShell uses the same public commands:
 
 ```powershell
+git --version
+# If git is not found:
+# winget install --id Git.Git -e --source winget
+# Close and reopen PowerShell before continuing.
+
 npm install -g @bigking67/pi-67
 pi-67 install --repair --yes
 pi-67 update

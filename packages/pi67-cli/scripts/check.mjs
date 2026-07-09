@@ -172,6 +172,26 @@ function runInstallNonGitAgentDirSelfTests() {
     );
     assert(fs.existsSync(path.join(agentDir, "settings.json")), "repair dry-run must not move the existing non-git folder");
 
+    const noGitEnv = { ...env, PATH: "", Path: "" };
+    const noGitRepair = spawnSync(process.execPath, [...baseArgs, "--repair", "--yes"], {
+      cwd: root,
+      env: noGitEnv,
+      encoding: "utf8",
+    });
+    assert(noGitRepair.status !== 0, "repair install must fail when git is not available");
+    assert(
+      noGitRepair.stderr.includes("git is required before pi-67 can clone") &&
+        noGitRepair.stderr.includes("git --version") &&
+        noGitRepair.stderr.includes("pi-67 install --repair --yes"),
+      `missing git error must be actionable\n${noGitRepair.stderr}`,
+    );
+    assert(fs.existsSync(path.join(agentDir, "settings.json")), "missing git repair must not move the existing non-git folder");
+    const backupRoot = path.join(home, ".pi", "pi67", "backups");
+    assert(
+      !fs.existsSync(backupRoot) || fs.readdirSync(backupRoot).length === 0,
+      "missing git repair must not create non-git takeover backups before clone is possible",
+    );
+
     const emptyAgentDir = path.join(tmpRoot, "empty-agent");
     fs.mkdirSync(emptyAgentDir, { recursive: true });
     const emptyPreview = spawnSync(process.execPath, [

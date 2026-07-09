@@ -4,7 +4,7 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
-当前发行版版本：`0.10.15`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.10.16`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 这是什么
 
@@ -132,6 +132,19 @@ bash ~/.pi/agent/scripts/pi67-check-external-skills.sh \
 ### 前置条件
 
 Windows 用户默认使用 PowerShell；macOS/Linux 用户继续使用 Bash 示例。
+
+pi-67 会把完整发行版 clone 到 `~/.pi/agent`，因此本机必须能运行 `git`：
+
+```powershell
+git --version
+```
+
+Windows 如果提示找不到 `git`，先安装 Git for Windows，关闭并重新打开 PowerShell：
+
+```powershell
+winget install --id Git.Git -e --source winget
+git --version
+```
 
 ```bash
 # 已安装 pi

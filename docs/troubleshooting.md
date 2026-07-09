@@ -89,6 +89,21 @@ The existing folder is moved, not deleted:
 Then pi-67 clones a fresh Git checkout into `~/.pi/agent` and continues the
 normal installer/update flow.
 
+## `failed to run git: spawnSync git ENOENT`
+
+This means Windows cannot find `git.exe` in the current PowerShell session.
+Install Git for Windows, close and reopen PowerShell, then retry:
+
+```powershell
+winget install --id Git.Git -e --source winget
+git --version
+pi-67 install --repair --yes
+```
+
+If `git --version` still fails after installation, the Git installer did not
+update PATH for the shell you are using. Reopen Windows Terminal/PowerShell, or
+repair the Git for Windows installation and enable command-line PATH support.
+
 ## `node` or `npm` command not found
 
 Pi and several extensions require Node/npm. Install Node first, then rerun:

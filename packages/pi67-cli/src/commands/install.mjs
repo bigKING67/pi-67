@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { parseCommandOptions } from "../lib/args.mjs";
 import { DEFAULT_REPO_URL } from "../lib/paths.mjs";
-import { runCommand } from "../lib/shell-runner.mjs";
+import { captureCommand, runCommand } from "../lib/shell-runner.mjs";
 import { runDistroScript } from "../lib/distro-scripts.mjs";
 import { isWindows } from "../lib/platform.mjs";
 import { isGitRepo } from "../lib/git.mjs";
@@ -24,6 +24,7 @@ export async function installCommand(ctx, argv) {
   const repairConfirmed = Boolean(options.repair && (options.yes || ctx.yes));
 
   const cloneAgent = () => {
+    if (!dryRun) ensureGitAvailable();
     fs.mkdirSync(path.dirname(ctx.agentDir), { recursive: true });
     const cloneArgs = ["clone"];
     if (options.branch) cloneArgs.push("--branch", options.branch);
@@ -53,6 +54,7 @@ export async function installCommand(ctx, argv) {
       cloneAgent();
       return;
     }
+    ensureGitAvailable();
     fs.mkdirSync(backupDir, { recursive: true, mode: 0o700 });
     fs.renameSync(ctx.agentDir, backupTarget);
     info(`Moved existing non-git agent dir to backup: ${backupTarget}`);
@@ -115,6 +117,30 @@ export async function installCommand(ctx, argv) {
     }
   }
   info("Install finished. Run `pi-67 doctor` next.");
+}
+
+function ensureGitAvailable() {
+  const result = captureCommand("git", ["--version"]);
+  if (result.ok) return;
+  const detail = (result.stderr || result.error || `exit status ${result.status}`).trim();
+  const guidance = isWindows()
+    ? [
+        "Install Git for Windows, then close and reopen PowerShell:",
+        "  winget install --id Git.Git -e --source winget",
+        "  git --version",
+        "  pi-67 install --repair --yes",
+      ]
+    : [
+        "Install Git, then retry:",
+        "  git --version",
+        "  pi-67 install --repair --yes",
+      ];
+  throw new CliError([
+    "git is required before pi-67 can clone the managed agent checkout, but git was not found.",
+    detail ? `git check failed: ${detail}` : "",
+    "",
+    ...guidance,
+  ].filter(Boolean).join("\n"));
 }
 
 function isEmptyDirectory(dir) {

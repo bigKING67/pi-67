@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.10.16]
+
+- Checks for `git --version` before moving an existing non-Git agent directory
+  during `pi-67 install --repair --yes`. Missing Git now fails early with
+  install guidance, leaving the original folder untouched.
+
 ## [0.10.15]
 
 - Adds a safe non-Git agent directory repair path for first installs:
