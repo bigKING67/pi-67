@@ -571,6 +571,60 @@ function Invoke-LocalConfigMigration {
   } else {
     Write-Pass "models.json unchanged"
   }
+
+  Invoke-McpConfigNormalization
+}
+
+function Invoke-McpConfigNormalization {
+  $tool = Join-Path (Join-Path $RepoRoot "scripts") "pi67-mcp-config-utils.cjs"
+  $mcpPath = Join-Path $AgentDir "mcp.json"
+
+  if (-not (Test-Path -LiteralPath $mcpPath -PathType Leaf)) {
+    Write-Warn "mcp.json missing; skipped MCP runtime path normalization"
+    return
+  }
+  if (-not (Test-Path -LiteralPath $tool -PathType Leaf)) {
+    Write-Warn ("MCP config normalizer missing: {0}" -f $tool)
+    return
+  }
+  if (-not (Test-CommandExists "node")) {
+    Write-Warn "node not found; skipped MCP runtime path normalization"
+    return
+  }
+
+  $args = @(
+    $tool,
+    "--normalize",
+    "--file",
+    $mcpPath,
+    "--agent-dir",
+    $AgentDir,
+    "--json"
+  )
+  if ($DryRun) {
+    $args += "--dry-run"
+  }
+
+  try {
+    if ($DryRun) {
+      Invoke-PlannedExternal "node" $args | Out-Null
+      return
+    }
+    $output = Invoke-External "node" $args
+    $result = ($output -join "`n") | ConvertFrom-Json
+    if ($result.changed) {
+      foreach ($change in @($result.changes)) {
+        Write-Pass ("normalized MCP runtime path: {0}" -f $change)
+      }
+    } else {
+      Write-Pass "mcp.json runtime paths unchanged"
+    }
+    foreach ($issue in @($result.issues)) {
+      Write-Warn ("MCP {0}.{1} still uses unsupported runtime placeholder: {2}" -f $issue.server, $issue.field, $issue.value)
+    }
+  } catch {
+    Write-Warn ("MCP runtime path normalization failed: {0}" -f $_.Exception.Message)
+  }
 }
 
 function Invoke-SettingsRuntimeStateMigration {

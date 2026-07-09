@@ -57,6 +57,7 @@ AVAILABLE_CASES=(
   batch-web-fetch-example
   seq-thinking-status
   mcp-status
+  mcp-connect-tmwd-browser
   subagent-list
   recall-not-found
 )
@@ -102,7 +103,7 @@ print_cases() {
 
 case_name_is_valid() {
   case "$1" in
-    no-tool | bash | read | bash-read | web-read | plan-mode-contract | plan-mode-accepted-continuation | tool-selection-clipping | tool-selection-continuation | until-done-continuation | tool-result-injection | fffind-package | ffgrep-package | batch-web-fetch-example | seq-thinking-status | mcp-status | subagent-list | recall-not-found) return 0 ;;
+    no-tool | bash | read | bash-read | web-read | plan-mode-contract | plan-mode-accepted-continuation | tool-selection-clipping | tool-selection-continuation | until-done-continuation | tool-result-injection | fffind-package | ffgrep-package | batch-web-fetch-example | seq-thinking-status | mcp-status | mcp-connect-tmwd-browser | subagent-list | recall-not-found) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -406,6 +407,14 @@ if (relativePackageReadCases.has(caseName)) {
     }
   }
 }
+if (caseName === "mcp-connect-tmwd-browser") {
+  for (const event of toolStartEvents.filter((item) => item.toolName === "mcp")) {
+    const connect = typeof event.args?.connect === "string" ? event.args.connect : "";
+    if (connect !== "tmwd_browser") {
+      packageReadPathFailures.push(`expected mcp.connect to equal tmwd_browser, got ${JSON.stringify(connect)}`);
+    }
+  }
+}
 const errors = events
   .filter((event) => event.type === "error" || event.message?.stopReason === "error" || event.message?.errorMessage)
   .map((event) => event.message?.errorMessage || event.error || event.message)
@@ -426,6 +435,7 @@ const requiredFinalTextByCase = {
   "batch-web-fetch-example": ["EXTENSION_SMOKE_BATCH_FETCH_OK", "Example Domain"],
   "seq-thinking-status": ["EXTENSION_SMOKE_SEQ_STATUS_OK"],
   "mcp-status": ["EXTENSION_SMOKE_MCP_STATUS_OK", "MCP"],
+  "mcp-connect-tmwd-browser": ["EXTENSION_SMOKE_MCP_CONNECT_TMWD_BROWSER_OK", "tmwd_browser"],
   "subagent-list": ["EXTENSION_SMOKE_SUBAGENT_LIST_OK"],
   "recall-not-found": ["EXTENSION_SMOKE_RECALL_NOT_FOUND_OK"],
 };
@@ -2346,6 +2356,8 @@ run_selected_case_with_env \
   --tools get_thinking_status || failures=$((failures + 1))
 
 run_selected_case "mcp-status" "这是 targeted extension smoke。请只使用 mcp 工具查看 MCP gateway/status，参数必须是空对象 {}。不要 connect、auth、call 任何 MCP server/tool，不要调用 read、bash、web_fetch 或其他工具。最后用一句话总结，必须原样包含 EXTENSION_SMOKE_MCP_STATUS_OK 和 MCP。" "all:mcp;only:mcp" --tools mcp || failures=$((failures + 1))
+
+run_selected_case "mcp-connect-tmwd-browser" "这是 targeted MCP startup smoke。请只使用 mcp 工具连接 tmwd_browser，参数必须是 {\"connect\":\"tmwd_browser\"}。不要调用 tmwd_browser 内部工具，不要打开网页，不要调用 read、bash、web_fetch 或其他工具。连接完成后用一句话总结，必须原样包含 EXTENSION_SMOKE_MCP_CONNECT_TMWD_BROWSER_OK 和 tmwd_browser。" "all:mcp;only:mcp" --tools mcp || failures=$((failures + 1))
 
 run_selected_case "subagent-list" "这是 targeted extension smoke。请只使用 subagent 工具执行只读 management action list，参数必须是 {\"action\":\"list\"}。不要执行 agent、task、chain、tasks、parallel、resume、interrupt 或 append-step，不要触发子代理运行，不要调用 read、bash、web_fetch 或其他工具。最后用一句话总结，必须原样包含 EXTENSION_SMOKE_SUBAGENT_LIST_OK。" "all:subagent;only:subagent" --tools subagent || failures=$((failures + 1))
 

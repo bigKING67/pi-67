@@ -3,8 +3,9 @@
     "tmwd_browser": {
       "command": "node",
       "args": [
-        "$HOME/.agents/packages/browser67/src/mcp/browser/server.mjs"
+        "src/mcp/browser/server.mjs"
       ],
+      "cwd": "~/.agents/packages/browser67",
       "env": {
         "BROWSER_STRUCTURED_TMWD_MODE": "tmwd",
         "BROWSER_STRUCTURED_TMWD_TRANSPORT": "auto"
@@ -15,8 +16,9 @@
     "js-reverse": {
       "command": "node",
       "args": [
-        "$HOME/.agents/packages/browser67/src/mcp/js-reverse/server.mjs"
+        "src/mcp/js-reverse/server.mjs"
       ],
+      "cwd": "~/.agents/packages/browser67",
       "env": {
         "BROWSER_STRUCTURED_TMWD_MODE": "tmwd",
         "BROWSER_STRUCTURED_TMWD_TRANSPORT": "auto",
@@ -28,7 +30,7 @@
       "directTools": true
     },
     "agent_memory": {
-      "command": "$HOME/.local/bin/agent-memory-mcp",
+      "command": "agent-memory-mcp",
       "args": [],
       "env": {},
       "lifecycle": "lazy",

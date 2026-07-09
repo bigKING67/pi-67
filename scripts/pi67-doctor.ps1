@@ -435,6 +435,7 @@ $requiredFiles = @(
   "scripts/pi67-smoke.ps1",
   "scripts/pi67-json-utils.ps1",
   "scripts/pi67-json-utils.cjs",
+  "scripts/pi67-mcp-config-utils.cjs",
   "scripts/pi67-xtalpi-pi-tools-smoke.ps1",
   "extensions/xtalpi-pi-tools/json-file.ts",
   "extensions/xtalpi-pi-tools/runtime-config.ts",
@@ -459,6 +460,26 @@ $localJson = @(
 )
 foreach ($entry in $localJson) {
   Test-JsonFile $entry[1] $entry[0] | Out-Null
+}
+
+$mcpNormalizer = RepoPath "scripts/pi67-mcp-config-utils.cjs"
+$mcpPath = AgentPath "mcp.json"
+if ((Test-Path -LiteralPath $mcpNormalizer -PathType Leaf) -and (Test-Path -LiteralPath $mcpPath -PathType Leaf) -and (Test-CommandExists "node")) {
+  try {
+    $mcpRuntimeOutput = Invoke-External "node" @($mcpNormalizer, "--inspect-runtime", "--file", $mcpPath, "--agent-dir", $AgentDir, "--json")
+    $mcpRuntime = ($mcpRuntimeOutput -join "`n") | ConvertFrom-Json
+    if ($mcpRuntime.issues.Count -eq 0) {
+      Pass "mcp.json runtime paths are adapter-compatible"
+    } else {
+      foreach ($issue in @($mcpRuntime.issues)) {
+        Warn ("MCP {0}.{1} uses unsupported runtime placeholder: {2}" -f $issue.server, $issue.field, $issue.value)
+      }
+    }
+  } catch {
+    Warn ("could not inspect mcp.json runtime path compatibility: {0}" -f $_.Exception.Message)
+  }
+} else {
+  Warn "skipped mcp.json runtime path compatibility check"
 }
 
 $modelsPath = AgentPath "models.json"

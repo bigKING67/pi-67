@@ -33,6 +33,13 @@ Windows, also run:
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,plan-mode-contract,plan-mode-accepted-continuation,until-done-continuation,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
 ```
 
+If the release changes MCP/browser67 startup behavior and the machine has a
+configured browser67 checkout/package, additionally run:
+
+```powershell
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "mcp-connect-tmwd-browser"
+```
+
 macOS/Linux and full release gate:
 
 ```bash

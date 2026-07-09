@@ -626,6 +626,20 @@ copy_example_if_missing "mcp.example.json" "mcp.json"
 copy_example_if_missing "auth.example.json" "auth.json"
 copy_example_if_missing "image-gen.example.json" "image-gen.json"
 
+if [ -f "$REPO_ROOT/scripts/pi67-configure.sh" ]; then
+  if [ "$DRY_RUN" = true ]; then
+    say "  ${CYAN}DRY-RUN${NC} bash $REPO_ROOT/scripts/pi67-configure.sh --repo-root $REPO_ROOT --agent-dir $PI_AGENT_DIR --no-prompt --no-doctor --dry-run"
+  else
+    bash "$REPO_ROOT/scripts/pi67-configure.sh" \
+      --repo-root "$REPO_ROOT" \
+      --agent-dir "$PI_AGENT_DIR" \
+      --no-prompt \
+      --no-doctor
+  fi
+else
+  warn "configure script missing; skipped local MCP path normalization"
+fi
+
 say ""
 say "${CYAN}--- npm packages ---${NC}"
 install_npm_packages

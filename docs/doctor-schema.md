@@ -109,7 +109,11 @@ Messages are intended for display and troubleshooting. Do not parse specific wor
 | `skillList` | boolean | Whether doctor ran `pi skill list`. |
 | `skillListTimeoutSeconds` | number | Watchdog timeout for `pi skill list`; timeout becomes a `WARN` so doctor does not hang indefinitely. |
 
-Normal doctor mode only checks MCP commands and paths. `--deep-mcp` is opt-in because it starts local MCP server processes.
+Normal doctor mode checks MCP commands and paths using the same no-shell
+assumption as `pi-mcp-adapter`. `--deep-mcp` is opt-in because it starts local
+MCP server processes. Deep MCP probing treats adapter-incompatible placeholders
+in stdio `command` / `args` such as `$HOME/...` as `FAIL`, because those values
+would be passed literally to the child process.
 
 The PowerShell doctor is Windows-native and intentionally does not start MCP
 servers. It emits the same `schemaId`/`schemaVersion` contract, sets

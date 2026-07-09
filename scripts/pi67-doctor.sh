@@ -733,30 +733,16 @@ const fs = require("fs");
 const path = require("path");
 const [, , repoRoot, agentDir] = process.argv;
 const { readJsonFile } = require(path.join(repoRoot, "scripts", "pi67-json-utils.cjs"));
+const {
+  adapterRuntimeIssues,
+  commandExistsForAdapter,
+  isUrl,
+  resolvePathArgForAdapter,
+} = require(path.join(repoRoot, "scripts", "pi67-mcp-config-utils.cjs"));
 const home = process.env.HOME || "";
 
 function emit(level, message) {
   console.log(`${level}|${message}`);
-}
-
-function expand(value) {
-  return String(value || "")
-    .replace(/\$\{HOME\}/g, home)
-    .replace(/\$HOME/g, home);
-}
-
-function commandExists(command) {
-  if (!command) return false;
-  const expanded = expand(command);
-  if (expanded.includes("/")) {
-    return fs.existsSync(expanded);
-  }
-  const pathEnv = process.env.PATH || "";
-  return pathEnv.split(path.delimiter).some((dir) => fs.existsSync(path.join(dir, expanded)));
-}
-
-function looksLikePath(value) {
-  return typeof value === "string" && (value.includes("/") || value.startsWith("$HOME") || value.startsWith("${HOME}"));
 }
 
 const file = path.join(agentDir, "mcp.json");
@@ -776,21 +762,30 @@ if (names.length === 0) {
 
 for (const name of names) {
   const server = servers[name] || {};
-  const commandLabel = expand(server.command);
-  if (commandExists(server.command)) {
-    emit("PASS", `MCP ${name} command is available: ${commandLabel}`);
+  const issues = adapterRuntimeIssues({ mcpServers: { [name]: server } }, { agentDir, home });
+  for (const issue of issues) {
+    emit("WARN", `MCP ${name} ${issue.field} uses unsupported runtime placeholder for pi-mcp-adapter: ${issue.value}`);
+  }
+
+  const commandState = commandExistsForAdapter(server.command, server, { agentDir, home });
+  if (commandState.exists) {
+    emit("PASS", `MCP ${name} command is available: ${commandState.label}`);
+  } else if (commandState.unsupported) {
+    emit("WARN", `MCP ${name} command cannot run until placeholder is normalized: ${commandState.label}`);
   } else {
-    emit("WARN", `MCP ${name} command is not available yet: ${commandLabel}`);
+    emit("WARN", `MCP ${name} command is not available yet: ${commandState.label}`);
   }
 
   for (const arg of server.args || []) {
-    if (!looksLikePath(arg)) continue;
-    const expanded = expand(arg);
-    if (/^https?:\/\//.test(expanded) || /^wss?:\/\//.test(expanded)) continue;
-    if (fs.existsSync(expanded)) {
-      emit("PASS", `MCP ${name} path exists: ${expanded}`);
+    if (isUrl(arg)) continue;
+    const resolved = resolvePathArgForAdapter(arg, server, { agentDir, home });
+    if (!resolved.checkable) continue;
+    if (resolved.unsupported) {
+      emit("WARN", `MCP ${name} path cannot run until placeholder is normalized: ${resolved.path}`);
+    } else if (fs.existsSync(resolved.path)) {
+      emit("PASS", `MCP ${name} path exists: ${resolved.path}`);
     } else {
-      emit("WARN", `MCP ${name} path missing or needs local edit: ${expanded}`);
+      emit("WARN", `MCP ${name} path missing or needs local edit: ${resolved.path}`);
     }
   }
 }
@@ -811,47 +806,33 @@ const { spawn } = require("child_process");
 
 const [, , repoRoot, agentDir, timeoutArg] = process.argv;
 const { readJsonFile } = require(path.join(repoRoot, "scripts", "pi67-json-utils.cjs"));
+const {
+  adapterInterpolateEnvVars,
+  adapterRuntimeIssues,
+  commandExistsForAdapter,
+  isUrl,
+  resolveAdapterCwd,
+  resolvePathArgForAdapter,
+} = require(path.join(repoRoot, "scripts", "pi67-mcp-config-utils.cjs"));
 const timeoutMs = Number(timeoutArg) || 2500;
 
 function emit(level, message) {
   console.log(`${level}|${message}`);
 }
 
-function expand(value) {
-  return String(value || "")
-    .replace(/\$\{([^}]+)\}/g, (_, name) => process.env[name] || "")
-    .replace(/\$([A-Za-z_][A-Za-z0-9_]*)/g, (_, name) => process.env[name] || "");
-}
-
-function commandExists(command) {
-  if (!command) return false;
-  const expanded = expand(command);
-  if (expanded.includes("/")) {
-    return fs.existsSync(expanded);
-  }
-  const pathEnv = process.env.PATH || "";
-  return pathEnv.split(path.delimiter).some((dir) => fs.existsSync(path.join(dir, expanded)));
-}
-
-function looksLikePath(value) {
-  return typeof value === "string" && (value.includes("/") || value.startsWith("$HOME") || value.startsWith("${HOME}"));
-}
-
-function isUrl(value) {
-  return /^https?:\/\//.test(value) || /^wss?:\/\//.test(value);
-}
-
 function pathArgsMissing(server) {
   return (server.args || [])
-    .filter((arg) => looksLikePath(arg))
-    .map((arg) => expand(arg))
+    .map((arg) => resolvePathArgForAdapter(arg, server, { agentDir }))
+    .filter((item) => item.checkable && !item.unsupported)
+    .map((item) => item.path)
     .filter((arg) => !isUrl(arg) && !fs.existsSync(arg));
 }
 
 function usesNewlineJsonRpc(server) {
-  const command = expand(server.command || "");
-  const args = (server.args || []).map((arg) => expand(arg));
-  const text = [command, ...args].join(" ");
+  const command = server.command || "";
+  const args = server.args || [];
+  const cwd = resolveAdapterCwd(server.cwd, agentDir);
+  const text = [command, cwd, ...args].join(" ");
   return /browser67|tmwd-browser-mcp|agent-memory|agent_memory|everos|src\/mcp\/browser\/server\.mjs|src\/mcp\/js-reverse\/server\.mjs|src\/server\.mjs|src\/js-reverse-server\.mjs/.test(text);
 }
 
@@ -961,8 +942,16 @@ async function probeServer(name, server) {
     return;
   }
 
-  if (!commandExists(server.command)) {
-    emit("WARN", `MCP ${name} deep probe skipped: command unavailable`);
+  const runtimeIssues = adapterRuntimeIssues({ mcpServers: { [name]: server } }, { agentDir });
+  if (runtimeIssues.length > 0) {
+    const issue = runtimeIssues[0];
+    emit("FAIL", `MCP ${name} deep probe blocked: ${issue.field} uses unsupported runtime placeholder for pi-mcp-adapter: ${issue.value}`);
+    return;
+  }
+
+  const commandState = commandExistsForAdapter(server.command, server, { agentDir });
+  if (!commandState.exists) {
+    emit("WARN", `MCP ${name} deep probe skipped: command unavailable (${commandState.label})`);
     return;
   }
 
@@ -972,12 +961,13 @@ async function probeServer(name, server) {
     return;
   }
 
-  const command = expand(server.command);
-  const args = (server.args || []).map((arg) => expand(arg));
+  const command = server.command || "";
+  const args = server.args || [];
   const env = { ...process.env };
   for (const [key, value] of Object.entries(server.env || {})) {
-    env[key] = expand(value);
+    env[key] = adapterInterpolateEnvVars(value);
   }
+  const cwd = resolveAdapterCwd(server.cwd, agentDir);
 
   const waiters = new Map();
   let stderrBytes = 0;
@@ -986,7 +976,7 @@ async function probeServer(name, server) {
 
   try {
     child = spawn(command, args, {
-      cwd: agentDir,
+      cwd,
       env,
       stdio: ["pipe", "pipe", "pipe"],
     });

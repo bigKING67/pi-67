@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.22]
+
+- Normalizes Pi `mcp.json` MCP runtime paths so browser67 / `tmwd_browser`
+  stdio servers do not fail when old configs used shell-only `$HOME`
+  placeholders in `command` or `args`.
+- Adds doctor/smoke/release gates and an explicit `mcp-connect-tmwd-browser`
+  targeted smoke for browser67 MCP startup verification.
+
 ## [0.10.21]
 
 - Adds xtalpi browser/MCP selected-tool routing so browser67 / Chrome / Edge /

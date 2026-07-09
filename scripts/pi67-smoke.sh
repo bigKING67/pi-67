@@ -283,6 +283,8 @@ if [ -f "$REPO_ROOT/extensions/xtalpi-pi-tools/provider-error-contract.json" ]; 
 fi
 node "$REPO_ROOT/scripts/pi67-json-utils.cjs" --self-test >/tmp/pi67-smoke-json-utils.log
 pass "JSON compatibility utility self-test completed"
+node --check "$REPO_ROOT/scripts/pi67-mcp-config-utils.cjs" >/tmp/pi67-smoke-mcp-config-utils.log
+pass "MCP config utility syntax check completed"
 
 if grep -qx 'settings\.json text eol=lf filter=pi67-settings-runtime-state' "$REPO_ROOT/.gitattributes"; then
   pass "settings.json git attributes pin LF and runtime clean filter"
@@ -305,16 +307,25 @@ for (const spec of packages) {
 }
 
 const mcp = JSON.parse(fs.readFileSync(path.join(repoRoot, "mcp.example.json"), "utf8"));
-const tmwdArg = mcp.mcpServers?.tmwd_browser?.args?.[0] || "";
-const jsArg = mcp.mcpServers?.["js-reverse"]?.args?.[0] || "";
-if (!tmwdArg.includes(".agents/packages/browser67/src/mcp/browser/server.mjs")) {
-  throw new Error(`tmwd_browser example does not use shared browser67 package path: ${tmwdArg}`);
+const tmwd = mcp.mcpServers?.tmwd_browser || {};
+const jsReverse = mcp.mcpServers?.["js-reverse"] || {};
+const tmwdArg = tmwd.args?.[0] || "";
+const jsArg = jsReverse.args?.[0] || "";
+if (tmwdArg !== "src/mcp/browser/server.mjs") {
+  throw new Error(`tmwd_browser example should use cwd-relative browser67 entrypoint: ${tmwdArg}`);
 }
-if (!jsArg.includes(".agents/packages/browser67/src/mcp/js-reverse/server.mjs")) {
-  throw new Error(`js-reverse example does not use shared browser67 package path: ${jsArg}`);
+if (jsArg !== "src/mcp/js-reverse/server.mjs") {
+  throw new Error(`js-reverse example should use cwd-relative browser67 entrypoint: ${jsArg}`);
+}
+if (tmwd.cwd !== "~/.agents/packages/browser67" || jsReverse.cwd !== "~/.agents/packages/browser67") {
+  throw new Error("browser67 MCP examples must use adapter-supported cwd, not $HOME in args");
+}
+const serialized = JSON.stringify(mcp);
+if (serialized.includes("$HOME/") || serialized.includes("${HOME}/") || serialized.includes("%USERPROFILE%")) {
+  throw new Error("mcp.example.json must not contain home placeholders in command/args");
 }
 NODE
-pass "shared skill defaults avoid active Pi package duplication"
+pass "shared skill defaults avoid active Pi package duplication and MCP args use adapter-compatible cwd"
 
 section "Release metadata"
 if ! "$REPO_ROOT/scripts/pi67-release-check.sh" >/tmp/pi67-smoke-release-check.log 2>&1; then
@@ -1042,6 +1053,24 @@ PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
   --skills-dir "$TMP_ROOT/shared-skills" \
   --agent-dir "$AGENT_DIR" >/tmp/pi67-smoke-doctor-configured.log
 
+node -e '
+const fs = require("fs");
+const path = require("path");
+const mcp = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+const tmwdArg = mcp.mcpServers?.tmwd_browser?.args?.[0] || "";
+const jsArg = mcp.mcpServers?.["js-reverse"]?.args?.[0] || "";
+const memoryCommand = mcp.mcpServers?.agent_memory?.command || "";
+for (const [label, value] of Object.entries({ tmwdArg, jsArg, memoryCommand })) {
+  if (/^(?:~|\$HOME|\$\{HOME\}|%USERPROFILE%)(?:$|[\\/])/.test(value)) {
+    throw new Error(`${label} kept an unsupported runtime placeholder: ${value}`);
+  }
+}
+if (!path.isAbsolute(tmwdArg) || !path.isAbsolute(jsArg) || !path.isAbsolute(memoryCommand)) {
+  throw new Error("configured MCP browser67 and agent_memory paths must be absolute");
+}
+' "$AGENT_DIR/mcp.json"
+pass "configure writes adapter-runnable absolute MCP paths"
+
 if grep -q 'Result: READY WITH WARNINGS' /tmp/pi67-smoke-doctor-configured.log; then
   cat /tmp/pi67-smoke-doctor-configured.log >&2
   fail "doctor still reported warnings after configure"
@@ -1170,8 +1199,42 @@ if (!messages.includes("MCP fake_mcp deep tools/list succeeded: 1 tools")) {
   throw new Error("missing deep tools/list success");
 }
 ' /tmp/pi67-smoke-doctor-deep-mcp.log
+
+cat > "$AGENT_DIR/mcp.json" <<'JSON'
+{
+  "mcpServers": {
+    "bad_mcp": {
+      "command": "node",
+      "args": [
+        "$HOME/pi67-smoke-bad-mcp/server.mjs"
+      ],
+      "env": {}
+    }
+  }
+}
+JSON
+
+if PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
+  --repo-root "$REPO_ROOT" \
+  --agent-dir "$AGENT_DIR" \
+  --skills-dir "$TMP_ROOT/shared-skills" \
+  --deep-mcp \
+  --mcp-timeout-ms 2000 \
+  --json >/tmp/pi67-smoke-doctor-deep-mcp-bad-path.log; then
+  cat /tmp/pi67-smoke-doctor-deep-mcp-bad-path.log >&2
+  fail "doctor deep MCP accepted unsupported $HOME arg placeholder"
+fi
+node -e '
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+const messages = data.checks.map((item) => item.message).join("\n");
+if (data.result !== "FAIL") throw new Error(`bad MCP placeholder should fail deep doctor, got ${data.result}`);
+if (!messages.includes("unsupported runtime placeholder")) {
+  throw new Error("deep MCP doctor did not explain unsupported runtime placeholder");
+}
+' /tmp/pi67-smoke-doctor-deep-mcp-bad-path.log
 mv "$TMP_ROOT/mcp-configured.json" "$AGENT_DIR/mcp.json"
-pass "doctor deep MCP probe completed"
+pass "doctor deep MCP probe completed and rejects adapter-incompatible placeholders"
 
 section "Update helper"
 UPDATE_REPO="$TMP_ROOT/update-repo"

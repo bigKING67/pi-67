@@ -362,6 +362,23 @@ xtalpi-pi-tools 请求了不可用工具：mcp。本轮可用工具：...
   selected-tool 路由无法凭空创建工具，需要排查 `pi-mcp-adapter` / `mcp.json` /
   browser67 MCP readiness。
 
+如果已经看到模型调用了 `mcp`，但随后出现：
+
+```text
+Server "tmwd_browser" not available
+Failed to connect to "tmwd_browser": MCP error -32000: Connection closed
+```
+
+说明 selected-tool 层已经通过，失败点在下一层：Pi 的 MCP adapter 没能启动
+`tmwd_browser` server。常见根因是 `mcp.json` 在 `command` / `args` 里写了
+`$HOME/...` 这类 shell-only 占位符；`pi-mcp-adapter` 不会 shell-expand 这些字段。
+用以下命令归一化并做真实 stdio probe：
+
+```bash
+bash ~/.pi/agent/scripts/pi67-configure.sh --no-prompt --no-doctor
+bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp --mcp-timeout-ms 5000
+```
+
 ## Extension / tool coverage 审计
 
 `xtalpi-pi-tools` 只负责把当前 turn 的 Pi 工具协议展示给晶泰模型，并把模型返回的
@@ -668,6 +685,20 @@ telemetry 都已正确但最终 assistant 文本为空”的瞬时 live 模型/t
 脚本；Windows 上只有在显式具备 Bash-compatible shell 时才运行，不把 Git Bash
 当成默认前置条件。下面 Bash 命令均假设已经在 agent repo 根目录。
 
+如果要验证 browser67 MCP server 本身能被 Pi 启动，而不是只看 gateway/status，
+单独运行：
+
+```powershell
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "mcp-connect-tmwd-browser"
+```
+
+```bash
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case mcp-connect-tmwd-browser
+```
+
+该 case 要求本机 `mcp.json` 已配置 `tmwd_browser`，并且 browser67 checkout/package
+存在；它会执行 `mcp({"connect":"tmwd_browser"})`，但不会调用任何浏览器内部工具或打开网页。
+
 只验证 smoke runner、smoke/debug-summary gate 本身，不调用真实模型：
 
 ```bash
@@ -700,6 +731,7 @@ bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case fffind-package,ffgrep-packag
 bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case batch-web-fetch-example
 bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case seq-thinking-status
 bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case mcp-status
+bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case mcp-connect-tmwd-browser
 bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case subagent-list
 bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case recall-not-found
 XTALPI_PI_TOOLS_SMOKE_CASES=web-read bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh
@@ -723,11 +755,13 @@ bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --profile extension-expanded
 
 `extension-low-risk` 当前包含 `mcp-status,subagent-list,recall-not-found`；它只做
 只读 gateway/status、agent management list 和 sentinel recall-not-found，不触发
-子代理运行、不读取真实 observation 内容、不调用任意 MCP server/tool。`--case` 与
+子代理运行、不读取真实 observation 内容、不调用任意 MCP server/tool。
+`mcp-connect-tmwd-browser` 是 browser67 启动层排查 case，需要显式指定，避免默认
+profile 在没有 browser67 本地 checkout 的机器上误失败。`--case` 与
 `--profile` 可以叠加，最终按声明顺序去重。
 
 `fffind-package`、`ffgrep-package`、`batch-web-fetch-example`、`seq-thinking-status`、
-`mcp-status`、`subagent-list` 和 `recall-not-found` 是 targeted-only extension
+`mcp-status`、`mcp-connect-tmwd-browser`、`subagent-list` 和 `recall-not-found` 是 targeted-only extension
 live smoke case；默认不加入
 11-case full-suite，避免常规发布门被文件索引、外部 fetch 或 extension 专项
 状态放慢。需要验证 xtalpi-pi-tools 对 extension tools 的真实调用链路时显式

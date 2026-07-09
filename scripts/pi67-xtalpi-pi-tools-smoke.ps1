@@ -50,11 +50,12 @@ Supported cases:
   batch-web-fetch-example
   seq-thinking-status
   mcp-status
+  mcp-connect-tmwd-browser
   subagent-list
   recall-not-found
 
 Options:
-  -Case NAME[,NAME]       Target cases. Defaults to all supported cases.
+  -Case NAME[,NAME]       Target cases. Defaults to the standard targeted case set.
   -Profile NAME[,NAME]    quick, full-suite, extension-low-risk, or extension-expanded.
   -ListCases              Print supported case names.
   -SelfTest               Run offline parser/summary self-test.
@@ -96,6 +97,20 @@ $AvailableCases = @(
   "batch-web-fetch-example",
   "seq-thinking-status",
   "mcp-status",
+  "mcp-connect-tmwd-browser",
+  "subagent-list",
+  "recall-not-found"
+)
+$DefaultCases = @(
+  "read-package",
+  "plan-mode-contract",
+  "plan-mode-accepted-continuation",
+  "until-done-continuation",
+  "fffind-package",
+  "ffgrep-package",
+  "batch-web-fetch-example",
+  "seq-thinking-status",
+  "mcp-status",
   "subagent-list",
   "recall-not-found"
 )
@@ -107,7 +122,7 @@ $AvailableProfiles = @(
 )
 $ProfileCaseMap = @{
   "quick" = @("read-package")
-  "full-suite" = $AvailableCases
+  "full-suite" = $DefaultCases
   "extension-low-risk" = @("mcp-status", "subagent-list", "recall-not-found")
   "extension-expanded" = @(
     "fffind-package",
@@ -187,6 +202,13 @@ $CaseDefinitions = @{
     requiredFinalText = @("EXTENSION_SMOKE_MCP_STATUS_OK", "MCP")
     argCheck = "mcp-status"
     prompt = "This is targeted extension smoke. Use only the mcp tool to inspect MCP gateway/status. Arguments must be an empty object {}. Do not connect, auth, or call any MCP server/tool. Do not call read, bash, web_fetch, or any other tool. Final answer must include EXTENSION_SMOKE_MCP_STATUS_OK and MCP."
+  }
+  "mcp-connect-tmwd-browser" = [ordered]@{
+    tool = "mcp"
+    expectedTools = @("mcp")
+    requiredFinalText = @("EXTENSION_SMOKE_MCP_CONNECT_TMWD_BROWSER_OK", "tmwd_browser")
+    argCheck = "mcp-connect-tmwd-browser"
+    prompt = "This is targeted MCP startup smoke. Use only the mcp tool to connect tmwd_browser. Arguments must be {`"connect`":`"tmwd_browser`"}. Do not call any tmwd_browser inner tool, do not open websites, and do not call read, bash, web_fetch, or any other tool. Final answer must include EXTENSION_SMOKE_MCP_CONNECT_TMWD_BROWSER_OK and tmwd_browser."
   }
   "subagent-list" = [ordered]@{
     tool = "subagent"
@@ -491,6 +513,11 @@ function Test-CaseToolArgs {
     "mcp-status" {
       $event = Get-ToolStartByName $ToolStarts "mcp"
       if ((Get-PropertyCount $event.args) -ne 0) { $failures.Add(("mcp args must be empty object, got {0}" -f ($event.args | ConvertTo-Json -Compress -Depth 6))) }
+    }
+    "mcp-connect-tmwd-browser" {
+      $event = Get-ToolStartByName $ToolStarts "mcp"
+      $connect = Get-ObjectValue $event.args "connect"
+      if ($connect -ne "tmwd_browser") { $failures.Add(("mcp.connect must equal tmwd_browser, got {0}" -f ($connect | ConvertTo-Json -Compress -Depth 4))) }
     }
     "subagent-list" {
       $event = Get-ToolStartByName $ToolStarts "subagent"
@@ -1233,7 +1260,7 @@ foreach ($caseName in (Parse-CaseList (@($Case) + @($caseEnv)))) {
   }
 }
 if ($selectedCases.Count -eq 0) {
-  $selectedCases = $AvailableCases
+  $selectedCases = $DefaultCases
 }
 
 foreach ($name in $selectedCases) {

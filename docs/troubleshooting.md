@@ -587,6 +587,60 @@ local Codex proxy if using the codex provider
 
 Do not delete the MCP entries just because doctor warns. pi-67 intentionally installs the full best-practice configuration; doctor tells you which capabilities still need local setup.
 
+If Pi shows this while Codex/browser67 works:
+
+```text
+Server "tmwd_browser" not available
+Failed to connect to "tmwd_browser": MCP error -32000: Connection closed
+```
+
+first check whether `~/.pi/agent/mcp.json` contains shell-only path placeholders
+inside MCP `command` or `args`, for example:
+
+```json
+"args": ["$HOME/Documents/.../browser67/src/mcp/browser/server.mjs"]
+```
+
+`pi-mcp-adapter` does not run those fields through a shell. The literal
+`$HOME/...` path is passed to `node`, the MCP server exits immediately, and Pi
+reports `Connection closed`. Codex can still work at the same time because
+Codex often uses a separate MCP config with absolute paths.
+
+Fix it with the normalizer:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-configure.sh --no-prompt --no-doctor
+bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp --mcp-timeout-ms 5000
+```
+
+Then verify the same path through xtalpi/Pi instead of only doctor:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --case mcp-connect-tmwd-browser
+```
+
+On Windows PowerShell:
+
+```powershell
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "mcp-connect-tmwd-browser"
+```
+
+This case performs `mcp({"connect":"tmwd_browser"})` only. It does not call
+browser tools or open a website, but it proves Pi can start the browser67 MCP
+server that Codex may already be able to start through a separate config.
+
+Or explicitly point Pi at a browser67 checkout/package:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-configure.sh \
+  --no-prompt \
+  --tmwd-repo "/path/to/browser67" \
+  --agent-memory-bin "$HOME/.local/bin/agent-memory-mcp"
+```
+
+Healthy runtime `mcp.json` should use absolute paths, or adapter-supported
+`cwd` plus relative `args`; it should not rely on `$HOME` in `command` / `args`.
+
 Use the configure helper to set the common local paths:
 
 ```bash
@@ -694,6 +748,7 @@ Common warning causes:
 ```text
 deep probe skipped: command unavailable
 deep probe skipped: missing path
+deep probe blocked: args uses unsupported runtime placeholder
 deep initialize did not complete
 deep tools/list did not complete
 deep tools/list returned no tools

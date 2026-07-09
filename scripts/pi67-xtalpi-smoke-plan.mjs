@@ -141,7 +141,7 @@ const KNOWN = {
     dynamicTools: true,
     risk: "medium",
     smokePolicy: "gateway_windows_targeted",
-    safeSmoke: "mcp gateway/status is covered; direct MCP tools depend on mcp.json/cache/env/auth",
+    safeSmoke: "mcp gateway/status is covered; browser67 startup can be checked with explicit mcp-connect-tmwd-browser when mcp.json and browser67 are configured",
   },
   "npm:pi-markdown-preview": {
     expectedTools: ["preview_export"],

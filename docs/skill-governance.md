@@ -99,6 +99,10 @@ outside active skill roots and point `mcp.json` at the server files:
 ~/.agents/packages/browser67/src/mcp/js-reverse/server.mjs
 ```
 
+For Pi runtime `mcp.json`, prefer absolute paths or `cwd` plus relative `args`.
+Do not put `$HOME` in MCP `command` / `args`; `pi-mcp-adapter` passes those
+fields directly to the child process without shell expansion.
+
 Do not install or expose the same skill name from both `~/.agents/skills` and
 `~/.pi/agent/git/.../skills`; Pi will de-duplicate, but the warning means the
 skill registry is no longer single-source.

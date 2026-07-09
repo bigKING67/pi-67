@@ -6,6 +6,29 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.22] - 2026-07-09
+
+### Added
+
+- Added `scripts/pi67-mcp-config-utils.cjs` to normalize and inspect Pi
+  `mcp.json` runtime paths using the same no-shell-expansion rules as
+  `pi-mcp-adapter`.
+- Added a targeted `mcp-connect-tmwd-browser` smoke case for verifying that Pi
+  can start the browser67 `tmwd_browser` MCP server, not just inspect gateway
+  status.
+
+### Fixed
+
+- Fixed browser67 / `tmwd_browser` MCP startup failures when Pi `mcp.json`
+  used shell-only `$HOME` / home placeholders inside stdio `command` or `args`;
+  install, configure, update, doctor, smoke, and release gates now normalize or
+  report adapter-incompatible paths.
+- `pi67-doctor.sh --deep-mcp` now matches `pi-mcp-adapter` runtime behavior
+  instead of expanding `$HOME` itself, so bad MCP args fail the diagnostic
+  instead of producing a false pass.
+- Fresh installs and Windows PowerShell updates now run MCP path normalization
+  for local config, while preserving user-owned runtime files.
+
 ## [0.10.21] - 2026-07-09
 
 ### Added

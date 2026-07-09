@@ -487,6 +487,11 @@ image-gen.example.json
 
 Fill API keys and local paths after installation. Existing local config files are preserved.
 
+`mcp.json` must be runnable by `pi-mcp-adapter` directly. Do not put `$HOME`,
+`${HOME}`, `%USERPROFILE%`, or `~` inside MCP `command` or `args`; those fields
+are not shell-expanded by the adapter. pi-67 writes adapter-compatible config by
+using either absolute paths or a supported `cwd` plus relative `args`.
+
 ## Configure local readiness
 
 Use `pi67-configure.sh` after installation to safely turn copied templates into usable local config:
@@ -499,7 +504,8 @@ The helper:
 
 1. Creates missing local config files from repo examples.
 2. Writes API keys through hidden prompts or env vars.
-3. Updates `tmwd_browser`, `js-reverse`, and `agent_memory` MCP paths.
+3. Updates and normalizes `tmwd_browser`, `js-reverse`, and `agent_memory` MCP
+   paths into adapter-runnable form.
 4. Optionally switches `settings.defaultProvider` / `settings.defaultModel`.
 5. Runs doctor after writing unless `--no-doctor` is passed.
 
@@ -574,6 +580,16 @@ plan-mode contract, FFF search/grep, batch web fetch, sequential-thinking status
 read-only subagent list, and sentinel recall-not-found. It uses temporary state
 for FFF and sequential-thinking. Use the Bash runner for the full xtalpi suite on
 macOS/Linux or an explicitly configured Bash-compatible Windows environment.
+
+If browser67 / `tmwd_browser` shows `Connection closed`, verify the MCP startup
+path explicitly after running configure/doctor:
+
+```powershell
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "mcp-connect-tmwd-browser"
+```
+
+That case connects `tmwd_browser` through Pi's `mcp` tool and does not open any
+website or call browser inner tools.
 
 It keeps your existing xtalpi URL/API key and only sets stable local runtime variables for the current Pi process:
 
@@ -661,6 +677,17 @@ bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp --mcp-timeout-ms 5000
 
 The normal doctor only checks MCP commands and local paths. `--deep-mcp` briefly starts each stdio MCP server from `mcp.json`, sends JSON-RPC `initialize`, then calls `tools/list`. This is intentionally opt-in because it can start local MCP processes and may require machine-specific dependencies.
 
+If Codex can use `tmwd_browser` but Pi reports `Connection closed`, run:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-configure.sh --no-prompt --no-doctor
+bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp --mcp-timeout-ms 5000
+```
+
+This catches the common mismatch where a config worked in a shell or in Codex
+but Pi's MCP adapter received a literal `$HOME/...` argument and could not start
+the server process.
+
 ## Updating
 
 Recommended cross-platform entrypoint:
@@ -699,10 +726,12 @@ The PowerShell updater:
 3. Creates newly introduced local config files from `.example` templates only when missing.
 4. Backs up and rewrites parseable local JSON files as UTF-8 without BOM when PowerShell/Windows saved them as UTF-16, UTF-8 BOM, or with leading NUL bytes.
 5. Applies the safe non-interactive `xtalpi` / `xtalpi-tools` to `xtalpi-pi-tools` local config migration directly in PowerShell.
-6. Syncs npm dependencies when `package.json` differs from `~/.pi/agent/npm/package.json`.
-7. Applies the `pi-until-done` runtime queue/progress compatibility patch when needed.
-8. Runs `scripts\pi67-smoke.ps1 -Ci` after the update.
-9. Writes `~/.pi/agent/pi67-report.json` and embeds `scripts\pi67-doctor.ps1 -Json` unless `-NoDoctor` is used.
+6. Normalizes `mcp.json` so MCP `command` / `args` do not depend on shell-only
+   `$HOME` expansion.
+7. Syncs npm dependencies when `package.json` differs from `~/.pi/agent/npm/package.json`.
+8. Applies the `pi-until-done` runtime queue/progress compatibility patch when needed.
+9. Runs `scripts\pi67-smoke.ps1 -Ci` after the update.
+10. Writes `~/.pi/agent/pi67-report.json` and embeds `scripts\pi67-doctor.ps1 -Json` unless `-NoDoctor` is used.
 
 `npm sync` is skipped when the copied `npm/package.json` already matches the
 repo `package.json`. When it does run, the updater uses npm's local cache first

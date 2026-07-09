@@ -268,6 +268,7 @@ $RequiredFiles = @(
   "scripts/pi67-update.ps1",
   "scripts/pi67-json-utils.ps1",
   "scripts/pi67-json-utils.cjs",
+  "scripts/pi67-mcp-config-utils.cjs",
   "scripts/pi67-release-check.sh",
   "scripts/pi67-xtalpi-pi-tools.ps1",
   "scripts/pi67-xtalpi-pi-tools-smoke.ps1",
@@ -397,6 +398,7 @@ Section "Node helpers"
 if ($NodeAvailable) {
   $NodeCheckFiles = @(
     "scripts/pi67-json-utils.cjs",
+    "scripts/pi67-mcp-config-utils.cjs",
     "scripts/pi67-xtalpi-smoke-status-core.cjs",
     "scripts/pi67-xtalpi-smoke-artifact-core.cjs",
     "scripts/pi67-xtalpi-smoke-plan.mjs",
@@ -444,6 +446,25 @@ if ($NodeAvailable) {
 
   Run-Check "JSON utility self-test passed" {
     Invoke-External "node" @((RepoPath "scripts/pi67-json-utils.cjs"), "--self-test") | Out-Null
+  }
+
+  Run-Check "MCP example uses adapter-compatible browser67 cwd" {
+    $mcp = Read-JsonFile (RepoPath "mcp.example.json")
+    $tmwd = $mcp.mcpServers.tmwd_browser
+    $jsReverse = $mcp.mcpServers.'js-reverse'
+    if ($tmwd.args[0] -ne "src/mcp/browser/server.mjs") {
+      throw ("tmwd_browser args must be cwd-relative, got {0}" -f $tmwd.args[0])
+    }
+    if ($jsReverse.args[0] -ne "src/mcp/js-reverse/server.mjs") {
+      throw ("js-reverse args must be cwd-relative, got {0}" -f $jsReverse.args[0])
+    }
+    if ($tmwd.cwd -ne "~/.agents/packages/browser67" -or $jsReverse.cwd -ne "~/.agents/packages/browser67") {
+      throw "browser67 MCP examples must use adapter-supported cwd"
+    }
+    $raw = Get-Content -LiteralPath (RepoPath "mcp.example.json") -Raw
+    if ($raw.Contains('$HOME/') -or $raw.Contains('${HOME}/') -or $raw.Contains('%USERPROFILE%')) {
+      throw "mcp.example.json must not put home placeholders in command/args"
+    }
   }
 
   Run-Check "xtalpi provider error contract validator self-test passed" {

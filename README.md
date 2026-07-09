@@ -4,7 +4,7 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
-当前发行版版本：`0.10.21`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.10.22`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 这是什么
 
@@ -73,7 +73,10 @@ bash ~/.pi/agent/scripts/pi67-shared-skills-inventory.sh --json
 - `~/.agents/skills`：唯一跨 agent active skill registry。
 - `~/.pi/agent/skills`：不再使用；出现时视为 legacy duplicate。
 - `design-craft` / `browser67`：不要作为 Pi active package 重复声明；普通用户把其中的 skills 安装到 `~/.agents/skills`。
-- browser67 MCP：在本机 ignored `mcp.json` 里配置源码路径；默认模板指向 `~/.agents/packages/browser67/src/mcp/...`，也可用 `pi67-configure --tmwd-repo` 改到任意 checkout。
+- browser67 MCP：在本机 ignored `mcp.json` 里配置源码路径；默认模板用
+  `cwd=~/.agents/packages/browser67` 加相对 `args`，也可用
+  `pi67-configure --tmwd-repo` 改到任意 checkout。不要在 MCP `command` /
+  `args` 里写 `$HOME/...`；`pi-mcp-adapter` 不会 shell-expand 这些字段。
 
 旧安装如果已经出现 duplicate / conflict / skipped / `auto (user)` 之类
 `pi skill list` 警告，先用迁移工具预览；它默认 dry-run、只复制缺失 skill、
@@ -505,6 +508,10 @@ bash ~/.pi/agent/scripts/pi67-configure.sh \
   --agent-memory-bin "$HOME/.local/bin/agent-memory-mcp"
 ```
 
+`pi67-configure.sh` 会把 MCP 路径归一化为 adapter 可直接执行的绝对路径；
+如果 Pi 报 `MCP error -32000: Connection closed`，先跑它再跑
+`bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp --mcp-timeout-ms 5000`。
+
 预览但不写入：
 
 ```bash
@@ -739,6 +746,14 @@ missing tool、错误参数、非零退出或 runtime error。完整 xtalpi full
 只有在显式具备 Bash-compatible shell 时才运行下面的 full-suite/live case，不要把
 Git Bash 当成默认前置条件。下面 Bash 命令均假设已经在 agent repo 根目录。
 
+排查 browser67 / `tmwd_browser` 的 MCP 启动层时，单独跑 connect case；它会真实执行
+`mcp({"connect":"tmwd_browser"})`，因此要求本机已经安装 browser67 且 `mcp.json`
+指向可启动的 browser67 checkout/package：
+
+```powershell
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "mcp-connect-tmwd-browser"
+```
+
 显式启动：
 
 ```bash
@@ -789,7 +804,9 @@ bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh
 
 targeted extension smoke 还覆盖 `fffind-package`、`ffgrep-package`、
 `batch-web-fetch-example`、`seq-thinking-status`、`mcp-status`、`subagent-list`
-和 `recall-not-found`；PowerShell runner 额外提供 `read-package` 作为
+和 `recall-not-found`；排查 browser67 MCP 启动时可额外显式运行
+`mcp-connect-tmwd-browser`，它不进入默认低风险 profile，避免没有 browser67
+checkout 的机器误触发外部依赖。PowerShell runner 额外提供 `read-package` 作为
 Windows-native cwd-relative path 基线，并覆盖 plan-mode / accepted-plan continuation / until-done targeted contract。以上 extension case 默认不进入 full-suite；它们用于按需证明具体
 extension tool 的真实 `tool_execution_start` 链路，同时避免 MCP 认证、子代理执行、
 observational-memory 真实内容、图片生成或交互 UI 混入常规发布门。

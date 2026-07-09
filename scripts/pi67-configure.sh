@@ -245,6 +245,7 @@ const fs = require("fs");
 const path = require("path");
 
 const [, , repoRoot, agentDir, dryRunValue] = process.argv;
+const { normalizeMcpConfig, absolutePath } = require(path.join(repoRoot, "scripts", "pi67-mcp-config-utils.cjs"));
 const dryRun = dryRunValue === "true";
 const home = process.env.HOME || "";
 let failed = false;
@@ -504,23 +505,28 @@ if (env("PI67_IMAGE_GEN_MODEL")) {
 }
 
 if (env("PI67_TMWD_BROWSER_MCP_REPO")) {
-  const tmwdRoot = compactHome(env("PI67_TMWD_BROWSER_MCP_REPO"));
+  const tmwdRoot = absolutePath(env("PI67_TMWD_BROWSER_MCP_REPO"), { home, baseDir: agentDir });
   mcp.mcpServers = mcp.mcpServers || {};
   mcp.mcpServers.tmwd_browser = mcp.mcpServers.tmwd_browser || {};
   mcp.mcpServers["js-reverse"] = mcp.mcpServers["js-reverse"] || {};
   mcp.mcpServers.tmwd_browser.command = mcp.mcpServers.tmwd_browser.command || "node";
   mcp.mcpServers["js-reverse"].command = mcp.mcpServers["js-reverse"].command || "node";
-  mcp.mcpServers.tmwd_browser.args = [`${tmwdRoot}/src/mcp/browser/server.mjs`];
-  mcp.mcpServers["js-reverse"].args = [`${tmwdRoot}/src/mcp/js-reverse/server.mjs`];
+  mcp.mcpServers.tmwd_browser.args = [path.join(tmwdRoot, "src", "mcp", "browser", "server.mjs")];
+  mcp.mcpServers["js-reverse"].args = [path.join(tmwdRoot, "src", "mcp", "js-reverse", "server.mjs")];
   noteChange(`configure browser67 tmwd_browser/js-reverse MCP repo: ${tmwdRoot}`);
 }
 
 if (env("PI67_AGENT_MEMORY_BIN")) {
   mcp.mcpServers = mcp.mcpServers || {};
   mcp.mcpServers.agent_memory = mcp.mcpServers.agent_memory || {};
-  mcp.mcpServers.agent_memory.command = compactHome(env("PI67_AGENT_MEMORY_BIN"));
+  mcp.mcpServers.agent_memory.command = absolutePath(env("PI67_AGENT_MEMORY_BIN"), { home, baseDir: agentDir });
   mcp.mcpServers.agent_memory.args = Array.isArray(mcp.mcpServers.agent_memory.args) ? mcp.mcpServers.agent_memory.args : [];
   noteChange(`configure agent_memory MCP command: ${mcp.mcpServers.agent_memory.command}`);
+}
+
+const mcpNormalization = normalizeMcpConfig(mcp, { home, agentDir });
+for (const change of mcpNormalization.changes) {
+  noteChange(`normalize MCP runtime path: ${change}`);
 }
 
 if (settings.defaultProvider === "xtalpi-tools" || settings.defaultProvider === "xtalpi") {
