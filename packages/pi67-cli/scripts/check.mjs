@@ -35,6 +35,10 @@ import {
   listRuntimeBackups,
   restoreRuntimeBackup,
 } from "../src/lib/update-safety.mjs";
+import {
+  managerFreshnessBlockReason,
+  managerFreshnessStatus,
+} from "../src/lib/manager-freshness.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const files = [];
@@ -843,11 +847,39 @@ function runUpdatePlanSelfTests() {
   );
 
   const managerOutdated = decisionsFixture({
+    manager: { name: "@bigking67/pi-67", version: "0.10.24" },
     managerRegistry: { outdated: true },
   });
   assert(
     buildPlanDecisions(managerOutdated).actions.some((item) => item.id === "pi67-manager"),
     "outdated npm manager must produce an explicit self-update action",
+  );
+  assert(
+    buildPlanDecisions(managerOutdated).blocked.some((item) => item.id === "pi67-manager"),
+    "outdated npm manager must block distro update/repair until the manager is refreshed",
+  );
+  const managerBehindDistro = decisionsFixture({
+    manager: { name: "@bigking67/pi-67", version: "0.10.24" },
+    managerRegistry: { outdated: false },
+    managerBehindLocalDistro: true,
+    managerFreshness: {
+      managerVersion: "0.10.24",
+      distroVersion: "0.10.25",
+      managerBehindLocalDistro: true,
+      registryOutdated: false,
+    },
+  });
+  assert(
+    buildPlanDecisions(managerBehindDistro).blocked.some((item) => item.id === "pi67-manager"),
+    "manager older than local distro must block update/repair even when registry latest is not known",
+  );
+  assert(
+    managerFreshnessStatus(managerBehindDistro.managerFreshness).includes("older than local distro"),
+    "manager freshness status must explain local distro skew",
+  );
+  assert(
+    managerFreshnessBlockReason(managerBehindDistro.managerFreshness).includes("latest safety gates"),
+    "manager freshness block reason must explain why self-update comes first",
   );
 
   const installedPackageBehind = decisionsFixture({

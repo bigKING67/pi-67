@@ -6,6 +6,18 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.25] - 2026-07-09
+
+### Changed
+
+- `pi-67 update` / `pi-67 update --repair` now block when the active npm
+  manager is older than npm latest or older than the local distro version, so
+  users update the manager before running stale update/repair logic.
+- `pi-67 update --check --no-remote` now reports registry-skipped managed
+  packages explicitly instead of showing an ambiguous zero-current summary.
+- `pi-67 doctor` now emits a human-readable manager preflight warning when the
+  active npm manager is stale, without changing JSON doctor output.
+
 ### Fixed
 
 - Hardened `xtalpi-pi-tools` browser67 routing for Chinese prompts such as

@@ -124,9 +124,17 @@ function buildBashUpdateArgs(ctx, options, dryRun) {
 }
 
 function assertPlanCanProceed(plan, options = {}) {
-  if (options.allowDirty || !plan.blocked?.length) return;
-  for (const item of plan.blocked) warn(`${item.id}: ${item.reason}`);
-  throw new CliError("pi-67 update is blocked; run `pi-67 update --check` for the full plan or rerun with --allow-dirty if you accept the risk", 2);
+  const remaining = (plan.blocked || []).filter((item) =>
+    !(options.allowDirty && item.id === "repo-root"));
+  if (remaining.length === 0) return;
+  for (const item of remaining) warn(`${item.id}: ${item.reason}`);
+  if (remaining.some((item) => item.id === "pi67-manager")) {
+    throw new CliError(
+      `pi-67 manager is outdated; run \`pi-67 self-update\` or \`npm install -g ${plan.manager.package}@latest\`, then rerun \`pi-67 update --repair --yes\``,
+      2,
+    );
+  }
+  throw new CliError("pi-67 update is blocked; run `pi-67 update --check` for the full plan or rerun with --allow-dirty if you accept the repo-root dirty risk", 2);
 }
 
 function buildWindowsUpdateArgs(ctx, options, dryRun) {
@@ -161,9 +169,10 @@ function printPlan(plan) {
   keyValue("Theme installed", plan.settings.themeInstalled ? "yes" : "no");
   if (plan.packages?.summary) {
     const packages = plan.packages.summary;
+    const skipped = packages.registrySkipped ? `, ${packages.registrySkipped} registry skipped` : "";
     keyValue(
       "Managed packages",
-      `${packages.current || 0} current, ${packages.installedBehind || 0} installed stale, ${packages.baselineBehindLatest || 0} baseline drift`,
+      `${packages.current || 0} current, ${packages.installedBehind || 0} installed stale, ${packages.baselineBehindLatest || 0} baseline drift${skipped}`,
     );
   }
   keyValue("Shared skills", `${plan.skills.identical} ok, ${plan.skills.missing} missing, ${preservedUserModified(plan.skills)} preserved user-modified`);

@@ -1,5 +1,7 @@
 import { parseCommandOptions } from "../lib/args.mjs";
 import { runDistroScript } from "../lib/distro-scripts.mjs";
+import { inspectManagerFreshness, managerFreshnessBlockReason } from "../lib/manager-freshness.mjs";
+import { info, section, warn } from "../lib/output.mjs";
 import { isWindows } from "../lib/platform.mjs";
 
 export async function doctorCommand(ctx, argv) {
@@ -10,6 +12,15 @@ export async function doctorCommand(ctx, argv) {
   if (options.help) {
     printDoctorHelp();
     return;
+  }
+  if (!(ctx.json || options.json) && !options.quiet) {
+    const freshness = await inspectManagerFreshness(ctx, { noRemote: ctx.noRemote });
+    if (freshness.blocking) {
+      section("pi-67 manager preflight");
+      warn(managerFreshnessBlockReason(freshness));
+      info(`Run: ${freshness.updateCommand}`);
+      info("Then rerun: pi-67 update --repair --yes");
+    }
   }
   const args = isWindows()
     ? ["-AgentDir", ctx.agentDir, "-RepoRoot", ctx.repoRoot, "-SkillsDir", ctx.skillsDir]

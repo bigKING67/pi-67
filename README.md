@@ -4,7 +4,7 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
-当前发行版版本：`0.10.24`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.10.25`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 这是什么
 
@@ -213,6 +213,9 @@ pi-67 smoke --quick
 
 - `pi update` / `pi update --extensions` 是 Pi 官方上游更新命令。
 - `pi-67 update` 是 pi-67 发行版主更新命令。
+- `npm install -g @bigking67/pi-67@latest` / `pi-67 self-update` 是 npm
+  manager 自身更新命令；如果 manager 落后，先更新 manager，再跑
+  `pi-67 update --repair --yes`。
 - 如果误跑了 `pi update --extensions`，再运行 `pi-67 update --repair` 重新对齐 pi-67 管理状态。
 - 如果 Pi 启动时提示 `Package Updates Available`，先运行
   `pi-67 update --check` 或 `pi-67 extensions doctor`。pi-67 会区分：
@@ -282,6 +285,8 @@ pi-67 update --strict-shared-skills
 这个 latest 检查直接访问 npm registry HTTP API，不再依赖本机
 `npm` / `npm.cmd` shim。显式 npm 操作（例如 `pi-67 self-update`）在
 Windows 上还会追加 `cmd.exe /d /s /c npm.cmd ...` 兜底。
+`0.10.25+` 开始，真实 `pi-67 update` / `pi-67 update --repair` 会在
+manager 落后时先阻断并提示更新 manager，避免旧 manager 继续执行旧的修复逻辑。
 显式更新管理器用：
 
 ```bash

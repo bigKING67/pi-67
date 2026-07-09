@@ -16,7 +16,7 @@ export async function selfUpdateCommand(ctx, argv) {
     info(`DRY-RUN would update ${pkg.name} globally via npm`);
     return;
   }
-  pass(`${pkg.name} manager updated. Run \`pi-67 version\` to verify the active PATH entry.`);
+  pass(`${pkg.name} manager updated. Run \`pi-67 version\` in a new terminal to verify the active PATH entry.`);
 }
 
 function printSelfUpdateHelp() {

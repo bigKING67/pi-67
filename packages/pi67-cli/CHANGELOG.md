@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.10.25]
+
+- Blocks `pi-67 update` / `pi-67 update --repair` when the active npm manager
+  is older than npm latest or older than the local distro version, forcing the
+  safer `pi-67 self-update` / `npm install -g @bigking67/pi-67@latest` path
+  before stale repair logic can run.
+- Shows `registry skipped` managed-package counts in `update --check
+  --no-remote`.
+- Adds a human-readable manager preflight warning to `pi-67 doctor` while
+  preserving JSON doctor output.
+
 ## [0.10.24]
 
 - Reports managed npm package baseline drift in `pi-67 update --check` and

@@ -5,19 +5,29 @@ import { currentTheme, hasTheme, listThemes } from "./theme-policy.mjs";
 import { readJsonFileIfExists } from "./config-json.mjs";
 import { listExternal } from "./external-repos.mjs";
 import { inventorySkills } from "./skill-policy.mjs";
-import { readCliPackageJson, readTextIfExists } from "./paths.mjs";
+import { readTextIfExists } from "./paths.mjs";
 import {
   compareSemver,
   npmLatestVersion,
   versionFromRange,
   versionSatisfiesSupportedRange,
 } from "./npm-registry.mjs";
+import { inspectManagerFreshness, managerFreshnessBlockReason } from "./manager-freshness.mjs";
 import { buildDistroManifest } from "./distro-manifest.mjs";
 import { PRESERVED_RUNTIME_FILES } from "./update-safety.mjs";
 import { settingsRuntimeMarkerFromObject } from "./settings-runtime-state.mjs";
 
 export async function buildUpdatePlan(ctx, options = {}) {
   const versionFile = path.join(ctx.repoRoot, "VERSION");
+  const managerFreshness = await inspectManagerFreshness(ctx, {
+    noRemote: ctx.noRemote || options.noRemote,
+  });
+  const pkg = {
+    name: managerFreshness.package,
+    version: managerFreshness.managerVersion,
+  };
+  const managerRegistry = managerFreshness.registry;
+  const distroVersion = managerFreshness.distroVersion;
   const settings = readJsonFileIfExists(path.join(ctx.agentDir, "settings.json")) || {};
   const theme = currentTheme(ctx);
   const themes = listThemes(ctx);
@@ -40,11 +50,6 @@ export async function buildUpdatePlan(ctx, options = {}) {
     name,
     fs.existsSync(path.join(ctx.repoRoot, "scripts", name)),
   ]));
-  const pkg = readCliPackageJson();
-  const managerRegistry = await npmLatestVersion(pkg.name, {
-    currentVersion: pkg.version,
-    noRemote: options.noRemote,
-  });
   const packageAudit = await auditManagedDependencyPackages(ctx, manifest, {
     noRemote: ctx.noRemote || options.noRemote,
   });
@@ -53,7 +58,11 @@ export async function buildUpdatePlan(ctx, options = {}) {
   const benignRuntime = classifyBenignRuntimeDiff(ctx, dirtyClass.preservedRuntime);
 
   const recommendations = [];
-  if (managerRegistry.outdated) {
+  if (managerFreshness.blocking) {
+    recommendations.push(`Update pi-67 manager first: ${managerFreshness.updateCommand}`);
+    recommendations.push(`Then rerun: pi-67 update --repair --yes`);
+    recommendations.push(`Always-fresh one-shot: ${managerFreshness.oneShotCommand}`);
+  } else if (managerRegistry.outdated) {
     recommendations.push(`Update pi-67 manager: npm install -g ${pkg.name}@latest`);
     recommendations.push(`Always-fresh one-shot: npx -y ${pkg.name}@latest update --repair`);
   }
@@ -95,6 +104,9 @@ export async function buildUpdatePlan(ctx, options = {}) {
     git,
     benignRuntime,
     settingsRuntimeMarker,
+    manager: pkg,
+    managerFreshness,
+    managerBehindLocalDistro: managerFreshness.managerBehindLocalDistro,
     managerRegistry,
     remote,
     manifest,
@@ -114,6 +126,11 @@ export async function buildUpdatePlan(ctx, options = {}) {
       package: pkg.name,
       version: pkg.version,
       registry: managerRegistry,
+      freshness: {
+        blocking: managerFreshness.blocking,
+        managerBehindLocalDistro: managerFreshness.managerBehindLocalDistro,
+        registryOutdated: managerFreshness.registryOutdated,
+      },
     },
     paths: {
       agentDir: ctx.agentDir,
@@ -122,7 +139,7 @@ export async function buildUpdatePlan(ctx, options = {}) {
       packagesDir: ctx.packagesDir,
     },
     distro: {
-      version: readTextIfExists(versionFile).trim(),
+      version: distroVersion || readTextIfExists(versionFile).trim(),
     },
     git,
     remote,
@@ -231,16 +248,27 @@ export function buildPlanDecisions(context) {
   const benignRuntime = context.benignRuntime || { benign: false, reasons: [] };
   const settingsRuntimeMarker = context.settingsRuntimeMarker || null;
 
-  if (context.managerRegistry.outdated) {
+  if (context.managerRegistry.outdated || context.managerBehindLocalDistro) {
+    const packageName = context.manager?.name || "@bigking67/pi-67";
     actions.push({
       id: "pi67-manager",
       kind: "npm-manager",
       operation: "self-update",
-      writes: ["global npm package @bigking67/pi-67"],
+      writes: [`global npm package ${packageName}`],
       preserves: ["upstream pi binary"],
       risk: "low",
-      reason: "npm registry has a newer pi-67 manager version",
+      reason: context.managerBehindLocalDistro
+        ? `active pi-67 manager is older than local distro ${context.managerFreshness?.distroVersion || "unknown"}`
+        : "npm registry has a newer pi-67 manager version",
       explicitCommand: "pi-67 self-update",
+    });
+    blocked.push({
+      id: "pi67-manager",
+      kind: "npm-manager",
+      reason: context.managerFreshness
+        ? managerFreshnessBlockReason(context.managerFreshness)
+        : "active pi-67 manager is outdated; update the npm manager before running distro update/repair",
+      recovery: `npm install -g ${packageName}@latest`,
     });
   }
 

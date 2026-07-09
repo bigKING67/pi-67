@@ -118,6 +118,16 @@ unless `--no-remote` is used. Manager self-updates are explicit:
 pi-67 self-update
 ```
 
+`0.10.25+` blocks real `pi-67 update` / `pi-67 update --repair` runs when the
+active npm manager is older than npm latest or older than the local distro
+version. This avoids running stale repair logic after the distro has already
+moved forward. Update the manager first:
+
+```bash
+npm install -g @bigking67/pi-67@latest
+pi-67 update --repair --yes
+```
+
 To bypass a stale local manager for one run:
 
 ```bash
@@ -712,6 +722,10 @@ not yet adopted a newer upstream package. Local stale installs are fixed by
 `pi-67 update --repair`; baseline drift should be handled by a new pi-67
 release after smoke gates, not by asking every user to run the upstream
 `pi update --extensions` path.
+
+If `Manager latest` says `update available`, run `npm install -g
+@bigking67/pi-67@latest` or `pi-67 self-update` before repair. The manager owns
+the safety gate, so keeping it current comes before updating the distro.
 
 If your installed pi-67 already includes the updater:
 

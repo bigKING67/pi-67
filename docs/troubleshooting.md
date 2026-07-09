@@ -973,6 +973,17 @@ If `pi-67 update --check` says the npm manager is outdated, update it explicitly
 pi-67 self-update
 ```
 
+Since `0.10.25`, real `pi-67 update` / `pi-67 update --repair` runs block when
+the active npm manager is stale, including the case where the local distro is
+newer than the global manager. This is intentional: update the manager first so
+the next repair uses the latest safety gates.
+
+```bash
+npm install -g @bigking67/pi-67@latest
+pi-67 version
+pi-67 update --repair --yes
+```
+
 Since `0.10.2`, the `Manager latest` field is queried directly from the npm
 registry HTTP API. It no longer spawns local `npm` / `npm.cmd`, so Windows
 PowerShell errors such as `spawnSync npm ENOENT` or `spawnSync npm.cmd EINVAL`

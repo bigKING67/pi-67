@@ -56,6 +56,15 @@ as `self-update` still use npm, with Windows fallback through
 pi-67 self-update
 ```
 
+`pi-67 update` and `pi-67 update --repair` block when the active npm manager is
+older than npm latest or older than the local distro version. Update the
+manager first, then rerun the distro repair:
+
+```bash
+npm install -g @bigking67/pi-67@latest
+pi-67 update --repair --yes
+```
+
 For automation, `pi-67 update --check --json` includes explicit `actions`,
 `blocked`, and `warnings` arrays. Each action lists planned writes and preserved
 paths, so update previews stay auditable instead of relying on prose output.
