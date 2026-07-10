@@ -151,7 +151,7 @@ git --version
 npm install -g @bigking67/pi-67@latest
 pi-67 install --repair --yes
 pi-67 doctor
-pi-67 launch -- --version
+pi --version
 pi-67 smoke
 ```
 
@@ -168,12 +168,14 @@ opened terminals can pick up the updated User PATH. Close and reopen
 PowerShell after the repair if an already-open window still cannot run the
 plain `git --version` command.
 
-Do not start bare `pi` before this repair/doctor step on a fresh Windows
-machine. Upstream Pi installs git-based packages such as
+Before the first `pi` run on a fresh Windows machine, complete the
+repair/doctor step and reopen PowerShell so the new terminal inherits the
+repaired Git User PATH. Upstream Pi installs git-based packages such as
 `git:github.com/justhil/pi-image-gen`; if the current PowerShell cannot find
-`git.exe`, bare `pi` exits with `spawn git ENOENT`. `pi-67 launch` is the
-Windows-safe first-run entrypoint because it injects the discovered Git for
-Windows directory into the upstream `pi` child process PATH.
+`git.exe`, `pi` exits with `spawn git ENOENT`. Daily use still starts with
+`pi`. `pi-67 launch` is only an optional compatibility helper when an
+already-open terminal cannot be restarted immediately; it repairs PATH for
+that child process and is not the standard Pi entrypoint.
 
 `pi-67 smoke` dispatches to the PowerShell-native repository validation on
 Windows. It does not call Bash and it does not write local Pi config.
@@ -203,10 +205,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\pi67-windows-accep
 The acceptance entrypoint runs `pi-67 self-update` first, then
 `pi-67 update --repair --yes`, and finally validates manager/distro version
 parity, the canonical `xtalpi-pi-tools + deepseek-v4-pro` config, doctor,
-repository smoke, `pi-67 launch -- --version`, provider health, the canonical
-JSON-action capability, and the targeted `read-package,read-enoent-recovery`
-live tool chain. Long output is kept in a repo-external temporary artifact
-directory. Successful runs keep the console compact; failed runs print the
+repository smoke, the real `pi --version` runtime entrypoint, provider health,
+the canonical JSON-action capability, and the targeted
+`read-package,read-enoent-recovery` live tool chain. Long output is kept in a
+repo-external temporary artifact directory. Successful runs keep the console
+compact; failed runs print the
 last 40 lines from the failed stage plus its full log and summary paths. Use
 `-SkipUpdate` only to validate the currently installed version: the manager
 and distro update stages will be labeled as explicitly skipped by that option.

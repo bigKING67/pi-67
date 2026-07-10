@@ -45,6 +45,9 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
+      - name: Install upstream Pi runtime
+        run: npm install -g @earendil-works/pi-coding-agent
+
       - name: Install Pi extension dependencies
         shell: pwsh
         run: |
@@ -66,24 +69,32 @@ jobs:
           node packages/pi67-cli/bin/pi-67.mjs --agent-dir $Repo --repo-root $Repo xtalpi smoke --self-test
           .\scripts\pi67-windows-acceptance.ps1 -SelfTest
 
-      - name: Run Windows cmd shim launch integration
+      - name: Run upstream Pi runtime smoke
+        shell: pwsh
+        run: |
+          $Output = @(& pi --version 2>&1)
+          if ($LASTEXITCODE -ne 0) {
+            throw "bare pi --version failed: $($Output -join [Environment]::NewLine)"
+          }
+          if ([string]::IsNullOrWhiteSpace(($Output -join "`n"))) {
+            throw "bare pi --version returned empty output"
+          }
+          $Output
+
+      - name: Run optional launch-helper compatibility
         shell: pwsh
         run: |
           $Repo = (Get-Location).Path
-          $ShimDir = Join-Path $env:RUNNER_TEMP "pi67-launch-shim"
-          New-Item -ItemType Directory -Force -Path $ShimDir | Out-Null
-          Set-Content -LiteralPath (Join-Path $ShimDir "pi.cmd") -Encoding Ascii -Value @(
-            "@echo off"
-            "echo pi67-fake-pi 0.0.0"
-            "exit /b 0"
-          )
-          $env:Path = "$ShimDir;$env:Path"
+          $PiVersion = ((@(& pi --version 2>&1)) -join "`n").Trim()
+          if ([string]::IsNullOrWhiteSpace($PiVersion)) {
+            throw "installed upstream Pi runtime returned an empty version"
+          }
           $Output = @(& node packages/pi67-cli/bin/pi-67.mjs --agent-dir $Repo --repo-root $Repo launch -- --version 2>&1)
           if ($LASTEXITCODE -ne 0) {
-            throw "pi-67 launch failed through the Windows pi.cmd shim: $($Output -join [Environment]::NewLine)"
+            throw "optional pi-67 launch helper failed: $($Output -join [Environment]::NewLine)"
           }
-          if (($Output -join "`n") -notmatch "pi67-fake-pi 0.0.0") {
-            throw "pi-67 launch did not execute the Windows pi.cmd shim"
+          if (-not (($Output -join "`n").Contains($PiVersion))) {
+            throw "optional pi-67 launch helper did not execute the installed upstream Pi runtime"
           }
           $Output
 

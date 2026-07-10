@@ -92,7 +92,7 @@ Commands:
   publish-check        Verify npm publish readiness and trusted publishing
   manifest             Show managed package/config/theme ownership policy
   backups              list/inspect/restore/prune/archive runtime backups
-  launch               Start upstream pi with Windows Git PATH guard
+  launch               Optional Windows PATH compatibility wrapper for pi
 
 Examples:
   pi-67 install
@@ -105,7 +105,6 @@ Examples:
   pi-67 manifest --validate
   pi-67 backups list
   pi-67 backups prune --keep-last 10 --dry-run
-  pi-67 launch
   pi-67 extensions doctor
   pi-67 skills plan
   pi-67 xtalpi smoke --quick

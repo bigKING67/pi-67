@@ -137,6 +137,18 @@ function runCliHelpContractSelfTests() {
     assert(result.status === 0, `help command failed: pi-67 ${command.join(" ")}\n${result.stderr || result.stdout}`);
     assert(!result.stderr.trim(), `help command wrote stderr: pi-67 ${command.join(" ")}\n${result.stderr}`);
     assert(result.stdout.includes("Usage:"), `help command must print Usage: pi-67 ${command.join(" ")}`);
+    if (command[0] === "--help") {
+      assert(
+        result.stdout.includes("launch               Optional Windows PATH compatibility wrapper for pi"),
+        "global help must keep pi-67 launch in its optional compatibility role",
+      );
+    }
+    if (command[0] === "launch") {
+      assert(
+        result.stdout.includes("Daily use should run `pi` directly."),
+        "launch help must preserve the upstream Pi daily-entrypoint boundary",
+      );
+    }
   }
   const capabilityOutput = path.join(tmpRoot, "capability.json");
   const capability = spawnSync(

@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.10.29]
+
+- Restores the runtime/manager boundary: daily work starts with upstream `pi`;
+  `pi-67` manages the team workspace, configuration, updates, diagnostics, and
+  acceptance flow.
+- Changes Windows one-command acceptance to validate `pi --version` directly
+  instead of using the optional `pi-67 launch` compatibility wrapper as a
+  runtime health check.
+- Repositions `pi-67 launch` in CLI help and package documentation as an
+  optional helper for an already-open Windows terminal with stale PATH state.
+- Adds contract tests and Windows Node 22/24 CI coverage against the actual
+  upstream Pi npm installation, while retaining a separate compatibility
+  check for the launch helper.
+- Documents the pi-67 name, 67's maintainer role, and the project's curated
+  Windows/macOS team-workspace purpose.
+
 ## [0.10.28]
 
 - Fixes Windows `pi-67 launch` for npm/Scoop installations where PowerShell

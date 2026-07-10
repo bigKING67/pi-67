@@ -1,7 +1,7 @@
 {
   "name": "@bigking67/pi-67",
-  "version": "0.10.28",
-  "description": "Cross-platform manager CLI for the pi-67 Pi Coding Agent distribution.",
+  "version": "0.10.29",
+  "description": "Cross-platform workspace distribution and configuration manager for upstream Pi.",
   "type": "module",
   "bin": {
     "pi-67": "bin/pi-67.mjs",

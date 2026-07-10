@@ -36,9 +36,12 @@ export async function launchCommand(ctx, argv) {
     throw new CliError([
       "upstream `pi` command was not found.",
       "",
-      "Install the upstream Pi CLI first, then rerun:",
+      "Install the upstream Pi CLI first, then use the real Pi entrypoint:",
       "  npm install -g @earendil-works/pi-coding-agent",
-      "  pi-67 launch",
+      "  pi --version",
+      "  pi",
+      "",
+      "Only retry `pi-67 launch` if this already-open Windows terminal still needs temporary PATH repair.",
     ].join("\n"));
   }
 
@@ -76,13 +79,15 @@ function missingGitMessage(gitCheck) {
     "Recommended Windows repair:",
     "  npm install -g @bigking67/pi-67@latest",
     "  pi-67 install --repair --yes",
-    "  pi-67 launch",
+    "  close and reopen PowerShell",
+    "  git --version",
+    "  pi",
     "",
     "If Git is genuinely not installed:",
     "  winget install --id Git.Git -e --source winget",
     "  close and reopen PowerShell",
     "  git --version",
-    "  pi-67 launch",
+    "  pi",
   ];
   const otherGuidance = [
     "Git is required before upstream `pi` can install git-based Pi packages such as `git:github.com/justhil/pi-image-gen`.",
@@ -90,13 +95,17 @@ function missingGitMessage(gitCheck) {
     "",
     "Install Git, then retry:",
     "  git --version",
-    "  pi-67 launch",
+    "  pi",
   ];
   return (isWindows() ? windowsGuidance : otherGuidance).filter(Boolean).join("\n");
 }
 
 function printLaunchHelp() {
-  process.stdout.write(`pi-67 launch - start upstream pi with pi-67 Windows Git PATH guard
+  process.stdout.write(`pi-67 launch - optional Windows PATH compatibility wrapper for upstream pi
+
+Daily use should run \`pi\` directly. This helper is only for an already-open
+Windows terminal that has not inherited a repaired User PATH. Without
+--persist-git-path, PATH repair applies only to the child Pi process.
 
 Usage:
   pi-67 launch [--persist-git-path] [--] [pi args...]
@@ -107,8 +116,8 @@ Options:
   -h, --help          Show help
 
 Examples:
-  pi-67 launch
-  pi-67 launch -- --help
+  pi
+  pi-67 launch -- --version
   pi-67 launch --persist-git-path
 `);
 }

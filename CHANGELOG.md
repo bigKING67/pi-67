@@ -6,6 +6,31 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.29] - 2026-07-10
+
+### Changed
+
+- Restored the product boundary between upstream Pi and pi-67: `pi` is the
+  standard runtime and daily entrypoint, while `pi-67` installs, configures,
+  updates, diagnoses, and validates the surrounding team workspace.
+- Windows one-command acceptance now uses the real `pi --version` command as
+  its runtime hard gate. The optional `pi-67 launch` compatibility helper is
+  no longer treated as proof that upstream Pi is installed or usable.
+- Repositioned `pi-67 launch` in CLI help and installation/troubleshooting
+  documentation as a temporary PATH helper for an already-open Windows
+  terminal, not as the normal startup path.
+- Documented why the project is named pi-67, how it grew from 67's long-term
+  Pi usage and company Agent tooling responsibilities, and why it remains a
+  curated Windows/macOS team distribution rather than a generic starter.
+
+### Fixed
+
+- Windows Node 22/24 CI now installs the real upstream Pi npm package and runs
+  bare `pi --version`. The separate launch-helper compatibility check also
+  targets that installed runtime instead of a temporary fake `pi.cmd`.
+- Release gates now reject a Windows acceptance contract that substitutes
+  `pi-67 launch` for the real Pi runtime check.
+
 ## [0.10.28] - 2026-07-10
 
 ### Fixed

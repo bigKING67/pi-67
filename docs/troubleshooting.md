@@ -133,37 +133,42 @@ spawnargs: [
 ```
 
 Upstream Pi is trying to install `git:github.com/justhil/pi-image-gen`, but the
-current PowerShell process cannot find `git.exe`. Repair with pi-67 first, then
-launch through the guarded entrypoint:
+current PowerShell process cannot find `git.exe`. Repair the workspace and User
+PATH with pi-67 first:
 
 ```powershell
 npm install -g @bigking67/pi-67@latest
 pi-67 install --repair --yes
 pi-67 doctor
-pi-67 launch
 ```
 
-If you want bare `pi` to work in every new PowerShell window, close and reopen
-PowerShell after the repair, then verify:
+Close and reopen PowerShell after the repair, then verify the real runtime and
+use its standard entrypoint:
 
 ```powershell
 git --version
+pi --version
 pi
 ```
 
-For the already-open window, use `pi-67 launch`; a child process cannot
-permanently rewrite its parent PowerShell `$env:Path`.
+If the already-open window cannot be restarted immediately, `pi-67 launch` is
+available as an optional one-process compatibility helper. It cannot rewrite
+its parent PowerShell `$env:Path`, so it is not a replacement for reopening the
+terminal or for daily `pi` usage.
 
 ## Bare `pi` works but `pi-67 launch` says Pi is not installed
 
 If `pi --version` succeeds in PowerShell but `pi-67 launch -- --version`
-reports `upstream pi command was not found`, upstream Pi is already installed.
+reports `upstream pi command was not found`, upstream Pi is already installed
+and working. There is no need to use `pi-67 launch` for normal work; continue
+to run `pi` directly.
 PowerShell normally selected the npm-generated `pi.ps1` wrapper, while the
 Node-based manager had to execute `pi.cmd`. pi-67 `0.10.26` and `0.10.27`
 could stop on the Windows `EINVAL` result from that batch wrapper before
 reaching the safe `cmd.exe /d /s /c pi.cmd` fallback.
 
-Update the manager and retry:
+If you specifically need to diagnose that optional compatibility helper,
+update the manager and retry it:
 
 ```powershell
 npm install -g @bigking67/pi-67@latest
@@ -173,7 +178,9 @@ pi-67 launch -- --version
 pi-67 `0.10.28` and newer retry `npm`, `npx`, and `pi` npm shims through
 `cmd.exe` after `EINVAL` / `ENOEXEC`. They also check command existence before
 showing installation guidance, so an unrelated child-process failure is no
-longer mislabeled as a missing Pi installation.
+longer mislabeled as a missing Pi installation. From `0.10.29`, the Windows
+one-command acceptance gate validates `pi --version` directly and no longer
+uses this optional helper as the Pi runtime health check.
 
 ## `node` or `npm` command not found
 

@@ -1,12 +1,90 @@
-# pi-67 — Pi Coding Agent 配置一站通
+# pi-67 — 面向团队的 Pi 一键工作台发行版
 
 [![ci](https://github.com/bigKING67/pi-67/actions/workflows/ci.yml/badge.svg)](https://github.com/bigKING67/pi-67/actions/workflows/ci.yml)
 
-> 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
+> 让 Windows 和 macOS 用户用尽可能少的步骤，获得公司统一、持续升级、可诊断、可回滚的 Pi 工作台。`pi` 始终是实际运行入口；`pi-67` 负责把 Pi 所需的配置、扩展、Skills、规则、脚本和公司默认 provider 封装成一键发行版。
 
-当前发行版版本：`0.10.28`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.10.29`（见 `VERSION` 和 `CHANGELOG.md`）。
 
-## 这是什么
+## 项目定位
+
+**一句话定位：pi-67 是面向团队和小白用户的 Pi 工作台发行版与配置管理器，不是 Pi 运行时。**
+
+底座始终是上游
+[@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent)，
+用户最终通过官方 `pi` 命令启动界面、连接模型并执行工具。pi-67 解决的是另一层问题：
+把团队反复需要的安装、配置、扩展、Skills、provider、规则、更新、诊断和验收整理成
+可重复的一键流程，让没有工程背景的同事也能在 Windows 或 macOS 上稳定使用 Pi。
+
+### 名称由来
+
+`pi-67` 中的 **67** 来自项目维护者 67。项目最初由 67 基于自己长期使用 Pi
+形成的配置、习惯、extensions、Skills 和工作流整理而成；随着 67 负责公司 Agent
+工具的开发、配置、推广和使用，它逐步演进为团队可复用、对小白友好的一键 Pi
+工作台发行版。
+
+因此，pi-67 不是一个没有产品判断的通用空壳 starter，也不是只适用于某一台电脑的
+私人配置备份；它是 67 基于真实 Pi 使用经验和公司 Agent 工具实践持续策展、验证并
+面向 Windows/macOS 团队用户发布的工作台。
+
+### 为什么需要 pi-67
+
+如果每位同事都手工安装和维护 Pi，容易出现 provider 名称、扩展版本、Skills 目录、
+MCP 路径、Windows/macOS 命令和排障口径不一致。pi-67 把这些公共部分产品化：
+
+- **小白一键可用**：尽量用少量稳定命令完成安装、配置、更新和验收。
+- **跨平台一致**：同一套发行内容同时支持 Windows 笔记本和 macOS。
+- **公司默认能力开箱即用**：统一提供 `xtalpi-pi-tools` 配置和协议适配；公司同事使用同一 provider，只有个人 API key 不同。
+- **持续升级**：后续新增或升级 extensions、Skills、rules、prompts、MCP 模板和诊断能力，都通过 pi-67 统一发布。
+- **保留个人状态**：更新时保护每个人自己的 key、认证、模型选择、主题、MCP 路径、会话和本地扩展。
+- **可诊断、可回滚**：通过 doctor、smoke、版本合同、备份和恢复降低跨机器维护成本。
+
+### 职责边界
+
+| 层级 | 所有者 | 职责 | 主要入口 |
+|------|--------|------|----------|
+| **Pi 运行时** | 上游 `@earendil-works/pi-coding-agent` | 启动界面、连接模型、加载 extension、执行工具和任务 | `pi` |
+| **pi-67 npm manager** | `@bigking67/pi-67` | 安装、更新、修复、doctor、smoke、备份和发行版治理 | `pi-67` |
+| **Pi 工作台发行版** | 本仓库 / `~/.pi/agent` | `AGENTS.md`、rules、extensions、scripts、prompts、模板和默认配置 | `pi-67 install/update` |
+| **共享 Skills** | pi-67 发布源 / `~/.agents/skills` | 为 Pi、Codex 等 agent 提供团队复用能力 | `pi-67 skills/external` |
+| **个人运行态** | 每位用户自己的电脑 | API key、认证、模型选择、MCP 本地路径、主题和会话 | ignored 本地文件 |
+
+### 不可破坏的架构边界
+
+- `pi` 是唯一标准的日常运行入口；pi-67 不 fork、不重写、不替代 upstream Pi。
+- `pi-67` 是安装和治理工具，不应演变成一套平行的聊天运行时或强制启动器。
+- `pi-67 launch` 若保留，只能作为 Windows 当前终端 PATH 未刷新时的可选兼容工具；它不是日常主入口，也不能作为判断 Pi 是否可用的唯一标准。
+- 验收必须优先验证真实 `pi`、真实工作台配置和真实工具链，不能用临时 wrapper 或 mock 代替端到端结论。
+- 公司统一发布 `xtalpi-pi-tools` 的 provider 结构、base URL 规则和工具协议；每位用户只在本机填写自己的 key，仓库永不保存真实凭据。
+- Windows 和 macOS 是同等支持的平台；新增 extension、Skill 或配置能力时必须考虑两端安装、更新和排障体验。
+- 后续扩展 pi-67 时，优先增加可复用的配置和能力资产，不把 upstream Pi 已经负责的运行时职责搬进本仓库。
+
+### 用户生命周期
+
+```text
+安装 upstream Pi
+  -> 安装 pi-67 manager
+  -> pi-67 一键部署 ~/.pi/agent 和共享 Skills
+  -> 每位用户填写自己的 xtalpi key
+  -> 日常直接运行 pi
+  -> 后续由 pi-67 统一更新和验收工作台能力
+```
+
+对应命令关系：
+
+```bash
+# 底座：安装一次，日常使用 pi
+npm install -g @earendil-works/pi-coding-agent
+
+# 工作台：安装 manager 并部署团队发行版
+npm install -g @bigking67/pi-67@latest
+pi-67 install --repair --yes
+
+# 按文档在本机填写自己的 xtalpi key，完成后启动真实 Pi
+pi
+```
+
+## 工作台组成
 
 这个仓库把 `~/.pi/agent/` 中可复用、可公开的 Pi 配置整理成可安装版本。推荐长期形态是 `~/.pi/agent` 本身就是这个 Git checkout；它不是 minimal starter，而是完整 Pi 工作流发行包：
 
@@ -29,7 +107,7 @@
 | **核心配置** | `settings.json` | 默认 provider/model、Pi package 列表 |
 | **模型配置** | `models.example.json` | xtalpi-pi-tools / codex provider 模板 |
 | **MCP** | `mcp.example.json` | browser67 tmwd_browser、js-reverse、agent_memory 模板 |
-| **全局内核** | `AGENTS.md` | Pi 常驻行为规范（v1.5-pi kernel） |
+| **全局内核** | `AGENTS.md` | Pi 常驻行为规范（v1.6-pi kernel） |
 | **Rules** | `rules/` (9 篇) | 质量、架构、结构、性能、前端、浏览器、上下文、数据质量、电商增长规则 |
 | **自定义扩展** | `extensions/` (3 个) | `xtalpi-pi-tools` + `pi-rules-loader` + `pi-vision-bridge` |
 | **Shared Skills** | `shared-skills/` (32 个) | 安装到 `~/.agents/skills`，供 Pi/Codex 共用 |
@@ -164,15 +242,15 @@ pi-67 install --repair --yes
 ```
 
 安装器会自动修复当前流程；修复完成后关闭并重新打开 PowerShell，再运行
-`git --version` 验证 User PATH 已生效。如果还没重开 PowerShell，也可以先用
-`pi-67 launch` 启动，它会把 Git 路径补进这一次 upstream `pi` 子进程。
+`git --version` 和 `pi --version` 验证新终端已经继承 User PATH。日常启动始终使用
+`pi`。`pi-67 launch` 仅保留为旧终端尚未刷新 PATH 时的临时兼容工具，不是标准入口。
 
 ```bash
-# 已安装 pi
+# 安装真正的 Pi 运行时
 npm install -g @earendil-works/pi-coding-agent
 
-# 不要在 pi-67 install/doctor 之前直接启动 bare pi。
-# upstream pi 首次运行会安装 git-based packages，当前 shell 找不到 git 时会报 spawn git ENOENT。
+# 先用 pi-67 部署团队工作台，再开始日常使用 pi。
+# upstream Pi 首次运行可能安装 git-based packages，因此 Windows 需要先确保 Git PATH 已生效。
 ```
 
 PowerShell 等价命令：
@@ -182,7 +260,8 @@ npm install -g @earendil-works/pi-coding-agent
 npm install -g @bigking67/pi-67@latest
 pi-67 install --repair --yes
 pi-67 doctor
-pi-67 launch -- --version
+pi --version
+pi
 ```
 
 ### 首选：npm 管理器 `pi-67`
@@ -196,7 +275,7 @@ pi-67 install --repair --yes
 pi-67 update
 pi-67 doctor
 pi-67 smoke --quick
-pi-67 launch
+pi
 ```
 
 Windows PowerShell 使用同一套命令：
@@ -207,7 +286,7 @@ pi-67 install --repair --yes
 pi-67 update
 pi-67 doctor
 pi-67 smoke --quick
-pi-67 launch
+pi
 ```
 
 Windows 已有 pi-67 checkout 时，更新和完整验收不需要再手工逐条执行。直接运行：
@@ -219,17 +298,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\pi67-windows-accep
 
 这个一键入口会先执行 `pi-67 self-update` 更新 npm manager，再执行
 `pi-67 update --repair --yes` 更新本地发行版，随后验证版本/配置、doctor、repo
-smoke、`pi-67 launch -- --version`、xtalpi health/capability，以及
+smoke、真实 Pi 运行时、xtalpi health/capability，以及
 `read-package + read-enoent-recovery` 真实工具链。完整长输出写入 repo 外临时目录；成功时终端
 只给紧凑结果，失败时会额外打印失败阶段最后最多 40 行输出、完整日志路径、恢复建议和
 summary 路径。只验当前版本、不更新时才加 `-SkipUpdate`，输出会明确标注这两个更新阶段
 是由该参数主动跳过，并不代表更新失败。
 
-Windows 新机尤其建议用 `pi-67 launch` 完成第一次启动。原因是 upstream
-`pi` 会在启动时安装 `git:github.com/justhil/pi-image-gen` 这类 Git 包；
-如果当前 PowerShell 还没继承 Git for Windows 的 PATH，裸跑 `pi` 会直接报
-`spawn git ENOENT`。`pi-67 launch` 会先做 Git PATH guard，再把参数原样交给
-upstream `pi`。
+Windows 新机完成 `pi-67 install --repair --yes` 后，建议关闭并重新打开
+PowerShell，再运行 `git --version`、`pi --version` 和 `pi`。upstream Pi 首次运行时
+可能安装 `git:github.com/justhil/pi-image-gen` 这类 Git 包；如果旧 PowerShell 还没有
+继承 Git for Windows 的 PATH，先重开终端。`pi-67 launch` 只用于无法立即重开终端时
+给单次子进程临时补 PATH，不应写进团队日常使用流程。
 
 如果你看到 `agent dir exists but is not a git checkout`，说明
 `~/.pi/agent` 已经被 Pi 或手工安装创建成普通文件夹。`pi-67 install` 不会静默覆盖它；
@@ -238,6 +317,7 @@ upstream `pi`。
 
 长期边界：
 
+- `pi` 是 upstream Pi 的标准日常入口；pi-67 负责准备和维护工作台，不替代 `pi`。
 - `pi update` / `pi update --extensions` 是 Pi 官方上游更新命令。
 - `pi-67 update` 是 pi-67 发行版主更新命令。
 - `npm install -g @bigking67/pi-67@latest` / `pi-67 self-update` 是 npm
@@ -602,7 +682,7 @@ pi-67/
 ├── CHANGELOG.md
 ├── install.sh                      # 一键符号链接安装脚本
 ├── .gitignore
-├── AGENTS.md                       # Pi v1.5-pi 常驻内核
+├── AGENTS.md                       # Pi v1.6-pi 常驻内核
 ├── settings.json                   # Pi 核心配置
 ├── models.example.json             # 模型配置模板（需填写 API key）
 ├── mcp.example.json                # MCP 服务配置模板（需修改路径）
@@ -1303,6 +1383,8 @@ bash ~/.pi/agent/scripts/pi67-uninstall.sh --yes
 
 ## 维护原则
 
+- 任何改动都必须保持“Pi 是运行时、pi-67 是工作台发行版与配置管理器”的边界；不得把 `pi-67` 变成平行运行时、强制启动器或 upstream Pi 的替代品。
+- README 的项目定位和 `AGENTS.md` 的架构硬约束是本仓库的产品真源；修改安装、验收、CLI 或文档前先检查是否与它们一致。
 - 不提交真实密钥、token、cookie、运行会话、缓存或本地私有状态。
 - 修改全局行为时优先更新 `AGENTS.md`；长规则优先落到 `rules/`。
 - 修改安装链路后运行 `bash scripts/pi67-smoke.sh`；至少覆盖 `bash -n`、JSON、dry-run、临时 agent-dir 安装和 doctor。

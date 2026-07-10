@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# One-command Windows update and acceptance gate for pi-67 + xtalpi-pi-tools.
+# One-command Windows update and acceptance gate for upstream Pi + pi-67.
 
 [CmdletBinding()]
 param(
@@ -34,7 +34,7 @@ Options:
 Default update order:
   1. pi-67 self-update
   2. pi-67 update --repair --yes
-  3. Windows and xtalpi-pi-tools acceptance checks
+  3. Bare pi runtime, pi-67 workspace, and xtalpi-pi-tools acceptance checks
 "@
 }
 
@@ -167,8 +167,8 @@ function Get-RecoverySuggestion {
     "version-and-config" {
       return "Run: pi-67 update --repair --yes"
     }
-    "launch" {
-      return "Run: pi --version. If it passes, update with npm install -g @bigking67/pi-67@latest and retry pi-67 launch -- --version; otherwise install upstream Pi."
+    "pi-runtime" {
+      return "Run: pi --version. If pi is missing, run npm install -g @earendil-works/pi-coding-agent. If Pi reports spawn git ENOENT, run pi-67 install --repair --yes, reopen PowerShell, and retry pi."
     }
     "xtalpi-health" {
       return "Run: pi-67 xtalpi health; verify the xtalpi-pi-tools API key outside source control."
@@ -427,8 +427,8 @@ function Run-SelfTest {
   if ((Get-RecoverySuggestion "manager-self-update") -notmatch "npm install -g") {
     throw "manager recovery suggestion drifted"
   }
-  if ((Get-RecoverySuggestion "launch") -notmatch "pi --version") {
-    throw "launch recovery suggestion must distinguish direct Pi from the guarded launcher"
+  if ((Get-RecoverySuggestion "pi-runtime") -notmatch "pi --version") {
+    throw "Pi runtime recovery suggestion must use the real pi entrypoint"
   }
   if ((Format-SkippedStageLine "manager-self-update" "requested by -SkipUpdate") -notmatch '-SkipUpdate') {
     throw "skipped-stage output must explain why the update was skipped"
@@ -473,6 +473,7 @@ $script:FailureMessage = ""
 $script:Result = "FAIL"
 $script:ChildPowerShell = ""
 $script:VersionData = $null
+$script:PiRuntimeVersion = ""
 $script:ConfigProvider = ""
 $script:ConfigModel = ""
 $script:HealthData = $null
@@ -694,7 +695,13 @@ try {
 
   Invoke-CommandStage "doctor" "pi-67" ($contextArgs + @("doctor")) | Out-Null
   Invoke-CommandStage "repository-smoke" "pi-67" ($contextArgs + @("smoke", "--quick")) | Out-Null
-  Invoke-CommandStage "launch" "pi-67" ($contextArgs + @("launch", "--", "--version")) | Out-Null
+  Invoke-CommandStage "pi-runtime" "pi" @("--version") {
+    param($commandResult)
+    $script:PiRuntimeVersion = ([string]$commandResult.text).Trim()
+    if ([string]::IsNullOrWhiteSpace($script:PiRuntimeVersion)) {
+      throw "pi --version returned empty output"
+    }
+  } | Out-Null
 
   Invoke-CommandStage "xtalpi-health" "pi-67" ($contextArgs + @(
     "xtalpi", "health",
@@ -816,6 +823,7 @@ $summary = [pscustomobject][ordered]@{
   versions = [pscustomobject][ordered]@{
     manager = $managerVersion
     distro = $distroVersion
+    piRuntime = $script:PiRuntimeVersion
   }
   config = [pscustomobject][ordered]@{
     defaultProvider = $script:ConfigProvider
@@ -849,6 +857,7 @@ Write-Host ""
 if ($script:Result -eq "PASS" -and $exitCode -eq 0) {
   Write-Host "RESULT: PASS" -ForegroundColor Green
   Write-Host ("Version: {0}" -f $distroVersion)
+  Write-Host ("Pi runtime: {0}" -f $script:PiRuntimeVersion)
   Write-Host ("xtalpi: health=true runtimeReady=true mode={0}" -f $recommendedMode)
 } else {
   Write-Host "RESULT: FAIL" -ForegroundColor Red

@@ -235,8 +235,17 @@ else
   fail "Windows PowerShell update/acceptance/doctor/report/smoke entrypoints are missing or not documented"
 fi
 
-if grep -q '\[switch\]\$SkipUpdate' "$POWERSHELL_ACCEPTANCE" && grep -q '\[switch\]\$SelfTest' "$POWERSHELL_ACCEPTANCE" && grep -q 'Arguments = @("self-update")' "$POWERSHELL_ACCEPTANCE" && grep -q '"update", "--repair", "--yes"' "$POWERSHELL_ACCEPTANCE" && grep -q '"read-package", "read-enoent-recovery"' "$POWERSHELL_ACCEPTANCE" && grep -q 'read,fffind,read' "$POWERSHELL_ACCEPTANCE" && grep -q 'pi67.windows-acceptance.v1' "$POWERSHELL_ACCEPTANCE" && grep -q 'RESULT: PASS' "$POWERSHELL_ACCEPTANCE"; then
-  pass "Windows one-command acceptance contract is present"
+if grep -q '\[switch\]\$SkipUpdate' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q '\[switch\]\$SelfTest' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q 'Arguments = @("self-update")' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q '"update", "--repair", "--yes"' "$POWERSHELL_ACCEPTANCE" \
+  && grep -Fq 'Invoke-CommandStage "pi-runtime" "pi" @("--version")' "$POWERSHELL_ACCEPTANCE" \
+  && ! grep -Fq 'Invoke-CommandStage "launch"' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q '"read-package", "read-enoent-recovery"' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q 'read,fffind,read' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q 'pi67.windows-acceptance.v1' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q 'RESULT: PASS' "$POWERSHELL_ACCEPTANCE"; then
+  pass "Windows one-command acceptance validates the real Pi runtime"
 else
   fail "Windows one-command acceptance contract is incomplete"
 fi

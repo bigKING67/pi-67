@@ -1,11 +1,25 @@
 # Pi 全局 AGENTS 规范
 
-> Version: `v1.5-pi`
-> Last Updated: `2026-07-06`
+> Version: `v1.6-pi`
+> Last Updated: `2026-07-10`
 
 核心目标：**质量优先，安全第一，证据优先，效率可控**。默认使用简体中文；代码标识符、命令、日志、报错保持原文。
 
 本文件是 Pi 的常驻内核。详细质量规则外置到 `~/.pi/agent/rules/*.md`，由 `pi-rules-loader` 扩展暴露索引并按任务读取；不要把所有长规则常驻塞进上下文。
+
+---
+
+## pi-67 项目定位与不可变架构边界
+
+- upstream `@earendil-works/pi-coding-agent` / `pi` 是唯一 Pi 运行时，负责界面、模型连接、extension 加载、工具执行和任务生命周期。
+- pi-67 是面向 Windows/macOS 团队用户的一键 Pi 工作台发行版与配置管理器，负责安装、更新、修复、诊断和发布 `~/.pi/agent`、共享 Skills、extensions、rules、prompts、脚本及 provider 模板。
+- pi-67 的名称和产品方向来自维护者 67 的长期 Pi 使用实践，以及其负责公司 Agent 工具开发、配置和推广的工作职责；不得把项目泛化成没有产品判断的通用 starter，也不得收缩成只服务单台电脑的私人配置备份。
+- 用户日常启动入口始终是 `pi`。不得把 pi-67 设计成平行聊天运行时、upstream Pi fork、强制启动器或 Pi 是否可用的唯一裁判。
+- `pi-67 launch` 若保留，只能是 Windows 当前终端 PATH 尚未刷新时的可选兼容工具；不得在 README、安装流程或验收中提升为标准日常入口。
+- 验收必须以真实 `pi`、真实配置加载和真实工具执行为准；wrapper、mock、临时 `pi.cmd` 只能验证局部兼容性，不能代替端到端 Pi 可用性结论。
+- 公司默认使用 `xtalpi-pi-tools`；pi-67 统一发布 provider 结构、公共配置和本地工具协议，每位用户只在本机维护自己的 API key，任何真实凭据都不得进入仓库。
+- 后续新增或升级 extensions、Skills、rules、prompts、MCP 模板和诊断能力时，应继续服务于“让团队更高效便捷地使用 Pi”，不得侵入 upstream Pi 已负责的运行时职责。
+- 涉及 CLI 定位、安装入口、启动方式或验收合同的改动，实施前必须核对根 `README.md` 本节对应的产品边界，实施后同步更新文档和测试。
 
 ---
 

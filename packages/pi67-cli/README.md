@@ -1,16 +1,21 @@
 # @bigking67/pi-67
 
 `@bigking67/pi-67` provides the `pi-67` command for installing, updating,
-diagnosing, and repairing the pi-67 Pi Coding Agent distribution.
+diagnosing, and repairing the pi-67 Pi workspace distribution. It does not
+replace the upstream Pi runtime: users start Pi with `pi` and use `pi-67` to
+manage the surrounding workspace, extensions, Skills, rules, and provider
+configuration.
 
-## Install
+## Install and run
 
 ```bash
+npm install -g @earendil-works/pi-coding-agent
 npm install -g @bigking67/pi-67
 pi-67 install --repair --yes
 pi-67 update
 pi-67 doctor
-pi-67 launch
+pi --version
+pi
 ```
 
 Windows PowerShell uses the same public commands:
@@ -23,22 +28,27 @@ git --version
 # If Git is genuinely not installed:
 # winget install --id Git.Git -e --source winget
 
+npm install -g @earendil-works/pi-coding-agent
 npm install -g @bigking67/pi-67
 pi-67 install --repair --yes
 pi-67 update
 pi-67 doctor
-pi-67 launch
+pi --version
+pi
 ```
 
-On Windows, do not launch bare `pi` before the pi-67 install/repair step has
-verified Git. Upstream Pi installs git-based packages such as
+On Windows, complete `pi-67 install --repair --yes`, then close and reopen
+PowerShell before the first `pi` run so the terminal inherits the repaired Git
+for Windows User PATH. Upstream Pi may install git-based packages such as
 `git:github.com/justhil/pi-image-gen`; if the current PowerShell cannot find
-`git.exe`, bare `pi` fails with `spawn git ENOENT`. `pi-67 launch` starts
-upstream `pi` with the same Git-for-Windows PATH guard used by the installer,
-so the first successful run can happen without reopening PowerShell. On npm or
-Scoop Node installations, the manager also handles the Windows `pi.cmd` shim
-through `cmd.exe`; PowerShell may independently select the sibling `pi.ps1`
-wrapper when users run bare `pi`.
+`git.exe`, `pi` fails with `spawn git ENOENT`.
+
+`pi-67 launch` remains available only as an optional compatibility helper for
+an already-open Windows terminal whose PATH has not refreshed. It temporarily
+adds the discovered Git directory to the upstream Pi child process and handles
+npm/Scoop `pi.cmd` shims through `cmd.exe`. It is not the standard startup
+command and is not used to decide whether the real Pi runtime is installed or
+working.
 
 ## Important update boundary
 
