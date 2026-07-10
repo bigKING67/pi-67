@@ -324,7 +324,7 @@ bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh
 On Windows PowerShell, run the low-risk targeted smoke instead:
 
 ```powershell
-.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,plan-mode-contract,plan-mode-accepted-continuation,until-done-continuation,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,read-enoent-recovery,plan-mode-contract,plan-mode-accepted-continuation,until-done-continuation,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
 ```
 
 Use `.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -ListCases` to inspect the current
