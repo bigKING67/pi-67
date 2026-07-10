@@ -1,6 +1,6 @@
 import { CliError, info, warn } from "../lib/output.mjs";
 import { captureCommand, repairWindowsGitPath, runCommand } from "../lib/shell-runner.mjs";
-import { isWindows } from "../lib/platform.mjs";
+import { commandExists, isWindows } from "../lib/platform.mjs";
 
 export async function launchCommand(ctx, argv) {
   const { options, piArgs } = parseLaunchArgs(argv);
@@ -32,20 +32,17 @@ export async function launchCommand(ctx, argv) {
     throw new CliError(missingGitMessage(gitCheck));
   }
 
-  try {
-    runCommand("pi", piArgs, { cwd: ctx.agentDir });
-  } catch (error) {
-    if (String(error?.message || "").includes("failed to run pi")) {
-      throw new CliError([
-        "upstream `pi` command was not found.",
-        "",
-        "Install the upstream Pi CLI first, then rerun:",
-        "  npm install -g @earendil-works/pi-coding-agent",
-        "  pi-67 launch",
-      ].join("\n"));
-    }
-    throw error;
+  if (!commandExists("pi")) {
+    throw new CliError([
+      "upstream `pi` command was not found.",
+      "",
+      "Install the upstream Pi CLI first, then rerun:",
+      "  npm install -g @earendil-works/pi-coding-agent",
+      "  pi-67 launch",
+    ].join("\n"));
   }
+
+  runCommand("pi", piArgs, { cwd: ctx.agentDir });
 }
 
 function parseLaunchArgs(argv) {

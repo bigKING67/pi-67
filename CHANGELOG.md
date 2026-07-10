@@ -6,6 +6,27 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.28] - 2026-07-10
+
+### Fixed
+
+- Fixed Windows guarded launch when upstream Pi is installed through npm or
+  Scoop and PowerShell resolves `pi.ps1`, but Node must execute `pi.cmd`.
+  `npm`, `npx`, and `pi` now continue through the `cmd.exe /d /s /c *.cmd`
+  fallback after Windows `EINVAL` / `ENOEXEC` spawn failures.
+- `pi-67 launch` now checks whether upstream Pi exists before launching it and
+  no longer converts every child-process spawn failure into the misleading
+  `upstream pi command was not found` error.
+
+### Changed
+
+- Windows one-command acceptance now explains that update stages were skipped
+  because `-SkipUpdate` was requested, prints a bounded failed-stage output
+  tail alongside the full log path, and gives launch recovery guidance that
+  distinguishes a working bare `pi` from a manager-launch defect.
+- Windows CI now executes `pi-67 launch` against a real temporary `pi.cmd`
+  shim instead of checking only the fallback candidate list.
+
 ## [0.10.27] - 2026-07-10
 
 ### Added

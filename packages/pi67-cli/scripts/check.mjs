@@ -16,6 +16,7 @@ import {
   findWindowsGitExecutable,
   persistWindowsUserPathDirectory,
   repairWindowsGitPath,
+  spawnCommandWithFallback,
 } from "../src/lib/shell-runner.mjs";
 import { parseCommandOptions, splitGlobalArgs } from "../src/lib/args.mjs";
 import { readExtensionRegistry, validateExtensionRegistry } from "../src/lib/extension-registry.mjs";
@@ -466,6 +467,44 @@ function runShellRunnerSelfTests() {
     JSON.stringify(commandCandidatesForPlatform("pi", "win32")) === JSON.stringify(["pi", "pi.cmd", "cmd.exe"]),
     "Windows pi execution must fall back through pi.cmd and cmd.exe",
   );
+  for (const command of ["npm", "npx", "pi"]) {
+    const invocations = [];
+    const outcome = spawnCommandWithFallback(command, ["--version"], {
+      platform: "win32",
+      env: { ComSpec: "cmd.exe" },
+      encoding: "utf8",
+      spawnImpl(candidate, args) {
+        invocations.push({ candidate, args });
+        if (invocations.length === 1) {
+          return spawnFailure("ENOENT", `${candidate} was not resolved directly`);
+        }
+        if (invocations.length === 2) {
+          return spawnFailure("EINVAL", `${candidate} requires cmd.exe`);
+        }
+        return { status: 0, stdout: "ok\n", stderr: "" };
+      },
+    });
+    assert(outcome.result.status === 0, `Windows ${command} shim fallback must reach cmd.exe`);
+    assert(
+      invocations.length === 3 && invocations[2].candidate === "cmd.exe",
+      `Windows ${command} EINVAL must continue to the cmd.exe fallback`,
+    );
+    assert(
+      JSON.stringify(invocations[2].args.slice(0, 4)) === JSON.stringify(["/d", "/s", "/c", `${command}.cmd`]),
+      `Windows ${command} cmd.exe fallback arguments drifted`,
+    );
+  }
+  const nonzeroInvocations = [];
+  const nonzero = spawnCommandWithFallback("pi", ["--version"], {
+    platform: "win32",
+    env: { ComSpec: "cmd.exe" },
+    spawnImpl(candidate) {
+      nonzeroInvocations.push(candidate);
+      return { status: 7, stdout: "", stderr: "upstream failure" };
+    },
+  });
+  assert(nonzero.result.status === 7, "real upstream pi exit codes must be preserved");
+  assert(nonzeroInvocations.length === 1, "real upstream pi failures must not trigger shim fallback");
   try {
     assert(
       JSON.stringify(commandCandidatesForPlatform("git", "win32", fakeEnv)) === JSON.stringify(["git", "git.exe", fakeGitExe]),
@@ -530,6 +569,12 @@ function runShellRunnerSelfTests() {
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }
+}
+
+function spawnFailure(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  return { status: null, stdout: "", stderr: "", error };
 }
 
 function runExtensionRegistrySelfTests() {

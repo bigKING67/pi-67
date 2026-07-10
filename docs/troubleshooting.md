@@ -154,6 +154,27 @@ pi
 For the already-open window, use `pi-67 launch`; a child process cannot
 permanently rewrite its parent PowerShell `$env:Path`.
 
+## Bare `pi` works but `pi-67 launch` says Pi is not installed
+
+If `pi --version` succeeds in PowerShell but `pi-67 launch -- --version`
+reports `upstream pi command was not found`, upstream Pi is already installed.
+PowerShell normally selected the npm-generated `pi.ps1` wrapper, while the
+Node-based manager had to execute `pi.cmd`. pi-67 `0.10.26` and `0.10.27`
+could stop on the Windows `EINVAL` result from that batch wrapper before
+reaching the safe `cmd.exe /d /s /c pi.cmd` fallback.
+
+Update the manager and retry:
+
+```powershell
+npm install -g @bigking67/pi-67@latest
+pi-67 launch -- --version
+```
+
+pi-67 `0.10.28` and newer retry `npm`, `npx`, and `pi` npm shims through
+`cmd.exe` after `EINVAL` / `ENOEXEC`. They also check command existence before
+showing installation guidance, so an unrelated child-process failure is no
+longer mislabeled as a missing Pi installation.
+
 ## `node` or `npm` command not found
 
 Pi and several extensions require Node/npm. Install Node first, then rerun:
@@ -1040,10 +1061,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\pi67-windows-accep
 
 It updates the npm manager with `pi-67 self-update`, updates the distro with
 `pi-67 update --repair --yes`, and then runs the Windows/xtalpi acceptance
-contract. On failure, use the printed `Failed stage`, `Recovery`, and `Summary`
-path. Full command output is retained in the adjacent stage logs rather than
-flooding the terminal. To diagnose the current install without changing it,
-rerun with `-SkipUpdate`; use `-SelfTest` only for the offline script contract.
+contract. On failure, use the printed failed-stage output tail, `Recovery`,
+full stage-log path, and `Summary` path. Full command output remains in the
+adjacent stage logs. To diagnose the current install without changing it,
+rerun with `-SkipUpdate`; both update stages will say that this option requested
+the skip. Use `-SelfTest` only for the offline script contract.
 
 If the installed manager is too old to trust, use the latest package for one run:
 

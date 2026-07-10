@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.10.28]
+
+- Fixes Windows `pi-67 launch` for npm/Scoop installations where PowerShell
+  invokes `pi.ps1` but Node must fall back from `pi` / `pi.cmd` spawn errors to
+  `cmd.exe /d /s /c pi.cmd`.
+- Applies the same `EINVAL` / `ENOEXEC` shim fallback contract to `npm`, `npx`,
+  and `pi`, while preserving real upstream nonzero exit codes.
+- Stops reporting every guarded-launch spawn failure as a missing upstream Pi
+  installation and adds a real Windows `pi.cmd` launch integration test.
+
 ## [0.10.27]
 
 - Adds the documented Windows one-command acceptance flow, which starts with

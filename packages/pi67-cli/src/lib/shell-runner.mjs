@@ -9,16 +9,23 @@ export function runCommand(command, args = [], options = {}) {
     info(`DRY-RUN (${cwd}) ${[command, ...args].join(" ")}`);
     return { status: 0, stdout: "", stderr: "" };
   }
-  const env = envWithWindowsGitFallback({ ...process.env, ...(options.env || {}) });
-  const { result } = spawnWithFallback(command, args, {
+  const platform = options.platform || process.platform;
+  const env = envWithWindowsGitFallback({ ...process.env, ...(options.env || {}) }, platform);
+  const { result, attempts } = spawnCommandWithFallback(command, args, {
     cwd,
     stdio: options.stdio || "inherit",
     env,
     encoding: "utf8",
     timeout: options.timeoutMs,
+    platform,
+    spawnImpl: options.spawnImpl,
   });
   if (result.error) {
-    throw new CliError(`failed to run ${command}: ${result.error.message}`);
+    const error = new CliError(`failed to run ${command}: ${result.error.message}`);
+    error.command = command;
+    error.spawnErrorCode = result.error.code || "";
+    error.spawnAttempts = attempts;
+    throw error;
   }
   if (result.status !== 0) {
     throw new CliError(`${command} exited with ${result.status}`, result.status || 1);
@@ -27,12 +34,15 @@ export function runCommand(command, args = [], options = {}) {
 }
 
 export function captureCommand(command, args = [], options = {}) {
-  const env = envWithWindowsGitFallback({ ...process.env, ...(options.env || {}) });
-  const { result } = spawnWithFallback(command, args, {
+  const platform = options.platform || process.platform;
+  const env = envWithWindowsGitFallback({ ...process.env, ...(options.env || {}) }, platform);
+  const { result } = spawnCommandWithFallback(command, args, {
     cwd: options.cwd || process.cwd(),
     env,
     encoding: "utf8",
     timeout: options.timeoutMs,
+    platform,
+    spawnImpl: options.spawnImpl,
   });
   return {
     ok: result.status === 0 && !result.error,
@@ -160,14 +170,33 @@ export function persistWindowsUserPathDirectory(directory, options = {}) {
   };
 }
 
-function spawnWithFallback(command, args, options) {
+export function spawnCommandWithFallback(command, args = [], options = {}) {
+  const {
+    platform = process.platform,
+    spawnImpl = spawnSync,
+    ...spawnOptions
+  } = options;
   let lastResult;
-  for (const candidate of commandInvocationsForPlatform(command, args, process.platform, options.env || process.env)) {
-    const result = spawnSync(candidate.command, candidate.args, options);
+  const attempts = [];
+  for (const candidate of commandInvocationsForPlatform(
+    command,
+    args,
+    platform,
+    spawnOptions.env || process.env,
+  )) {
+    const result = spawnImpl(candidate.command, candidate.args, spawnOptions);
     lastResult = result;
-    if (!isRetryableSpawnFailure(command, result)) return { command: candidate.command, result };
+    attempts.push({
+      command: candidate.command,
+      args: candidate.args,
+      status: result.status,
+      errorCode: result.error?.code || "",
+    });
+    if (!isRetryableSpawnFailure(command, result, platform)) {
+      return { command: candidate.command, result, attempts };
+    }
   }
-  return { command, result: lastResult };
+  return { command, result: lastResult, attempts };
 }
 
 function commandInvocationsForPlatform(command, args, platform = process.platform, env = process.env) {
@@ -196,8 +225,15 @@ function commandInvocationsForPlatform(command, args, platform = process.platfor
 }
 
 function isRetryableSpawnFailure(command, result, platform = process.platform) {
-  if (result?.error?.code === "ENOENT") return true;
-  if (platform === "win32" && command === "npm" && result?.error?.code === "EINVAL") return true;
+  const code = result?.error?.code;
+  if (code === "ENOENT") return true;
+  if (
+    platform === "win32" &&
+    ["npm", "npx", "pi"].includes(command) &&
+    ["EINVAL", "ENOEXEC"].includes(code)
+  ) {
+    return true;
+  }
   return false;
 }
 

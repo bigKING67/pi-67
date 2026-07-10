@@ -66,6 +66,27 @@ jobs:
           node packages/pi67-cli/bin/pi-67.mjs --agent-dir $Repo --repo-root $Repo xtalpi smoke --self-test
           .\scripts\pi67-windows-acceptance.ps1 -SelfTest
 
+      - name: Run Windows cmd shim launch integration
+        shell: pwsh
+        run: |
+          $Repo = (Get-Location).Path
+          $ShimDir = Join-Path $env:RUNNER_TEMP "pi67-launch-shim"
+          New-Item -ItemType Directory -Force -Path $ShimDir | Out-Null
+          Set-Content -LiteralPath (Join-Path $ShimDir "pi.cmd") -Encoding Ascii -Value @(
+            "@echo off"
+            "echo pi67-fake-pi 0.0.0"
+            "exit /b 0"
+          )
+          $env:Path = "$ShimDir;$env:Path"
+          $Output = @(& node packages/pi67-cli/bin/pi-67.mjs --agent-dir $Repo --repo-root $Repo launch -- --version 2>&1)
+          if ($LASTEXITCODE -ne 0) {
+            throw "pi-67 launch failed through the Windows pi.cmd shim: $($Output -join [Environment]::NewLine)"
+          }
+          if (($Output -join "`n") -notmatch "pi67-fake-pi 0.0.0") {
+            throw "pi-67 launch did not execute the Windows pi.cmd shim"
+          }
+          $Output
+
       - name: Run pi-67 PowerShell smoke
         shell: pwsh
         run: .\scripts\pi67-smoke.ps1 -Ci

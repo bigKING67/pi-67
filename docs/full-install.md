@@ -206,9 +206,11 @@ parity, the canonical `xtalpi-pi-tools + deepseek-v4-pro` config, doctor,
 repository smoke, `pi-67 launch -- --version`, provider health, the canonical
 JSON-action capability, and the targeted `read-package,read-enoent-recovery`
 live tool chain. Long output is kept in a repo-external temporary artifact
-directory; the final console output is a compact `PASS/FAIL` result with the
-summary path. Use `-SkipUpdate` to validate the currently installed version or
-`-SelfTest` for the offline acceptance-contract test.
+directory. Successful runs keep the console compact; failed runs print the
+last 40 lines from the failed stage plus its full log and summary paths. Use
+`-SkipUpdate` only to validate the currently installed version: the manager
+and distro update stages will be labeled as explicitly skipped by that option.
+Use `-SelfTest` for the offline acceptance-contract test.
 
 It runs a safe fast-forward Git update, keeps existing local runtime config
 files, creates missing config files from examples only when needed, normalizes

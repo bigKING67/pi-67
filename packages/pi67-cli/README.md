@@ -35,7 +35,10 @@ verified Git. Upstream Pi installs git-based packages such as
 `git:github.com/justhil/pi-image-gen`; if the current PowerShell cannot find
 `git.exe`, bare `pi` fails with `spawn git ENOENT`. `pi-67 launch` starts
 upstream `pi` with the same Git-for-Windows PATH guard used by the installer,
-so the first successful run can happen without reopening PowerShell.
+so the first successful run can happen without reopening PowerShell. On npm or
+Scoop Node installations, the manager also handles the Windows `pi.cmd` shim
+through `cmd.exe`; PowerShell may independently select the sibling `pi.ps1`
+wrapper when users run bare `pi`.
 
 ## Important update boundary
 

@@ -4,7 +4,7 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
-当前发行版版本：`0.10.27`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.10.28`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 这是什么
 
@@ -220,9 +220,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\pi67-windows-accep
 这个一键入口会先执行 `pi-67 self-update` 更新 npm manager，再执行
 `pi-67 update --repair --yes` 更新本地发行版，随后验证版本/配置、doctor、repo
 smoke、`pi-67 launch -- --version`、xtalpi health/capability，以及
-`read-package + read-enoent-recovery` 真实工具链。长输出写入 repo 外临时目录，终端最终只给
-`PASS/FAIL`、失败阶段、恢复建议和 summary 路径。只验当前版本、不更新时加
-`-SkipUpdate`。
+`read-package + read-enoent-recovery` 真实工具链。完整长输出写入 repo 外临时目录；成功时终端
+只给紧凑结果，失败时会额外打印失败阶段最后最多 40 行输出、完整日志路径、恢复建议和
+summary 路径。只验当前版本、不更新时才加 `-SkipUpdate`，输出会明确标注这两个更新阶段
+是由该参数主动跳过，并不代表更新失败。
 
 Windows 新机尤其建议用 `pi-67 launch` 完成第一次启动。原因是 upstream
 `pi` 会在启动时安装 `git:github.com/justhil/pi-image-gen` 这类 Git 包；

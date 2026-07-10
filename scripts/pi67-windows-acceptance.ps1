@@ -168,7 +168,7 @@ function Get-RecoverySuggestion {
       return "Run: pi-67 update --repair --yes"
     }
     "launch" {
-      return "Run: pi-67 install --repair --yes; reopen PowerShell; then run pi-67 launch -- --version"
+      return "Run: pi --version. If it passes, update with npm install -g @bigking67/pi-67@latest and retry pi-67 launch -- --version; otherwise install upstream Pi."
     }
     "xtalpi-health" {
       return "Run: pi-67 xtalpi health; verify the xtalpi-pi-tools API key outside source control."
@@ -189,6 +189,18 @@ function Get-RecoverySuggestion {
       return "Inspect the failed stage log in the acceptance artifact directory, fix the first failure, and rerun."
     }
   }
+}
+
+function Format-SkippedStageLine {
+  param(
+    [Parameter(Mandatory = $true)][string]$Name,
+    [string]$Message = ""
+  )
+
+  if ([string]::IsNullOrWhiteSpace($Message)) {
+    return "  SKIP $Name"
+  }
+  return "  SKIP $Name ($Message)"
 }
 
 function Assert-VersionContract {
@@ -415,6 +427,12 @@ function Run-SelfTest {
   if ((Get-RecoverySuggestion "manager-self-update") -notmatch "npm install -g") {
     throw "manager recovery suggestion drifted"
   }
+  if ((Get-RecoverySuggestion "launch") -notmatch "pi --version") {
+    throw "launch recovery suggestion must distinguish direct Pi from the guarded launcher"
+  }
+  if ((Format-SkippedStageLine "manager-self-update" "requested by -SkipUpdate") -notmatch '-SkipUpdate') {
+    throw "skipped-stage output must explain why the update was skipped"
+  }
 
   Write-Host "pi-67 Windows acceptance self-test passed" -ForegroundColor Green
 }
@@ -520,6 +538,29 @@ function Invoke-NativeCapture {
   }
 }
 
+function Write-StageFailureExcerpt {
+  param(
+    [Parameter(Mandatory = $true)][string]$Name,
+    [Parameter(Mandatory = $true)][string]$LogPath,
+    [object[]]$Output = @(),
+    [int]$MaxLines = 40
+  )
+
+  Write-Host ("  FAIL {0}" -f $Name) -ForegroundColor Red
+  Write-Host ("  LOG  {0}" -f $LogPath) -ForegroundColor Yellow
+  $lines = @($Output | ForEach-Object { [string]$_ })
+  if ($lines.Count -eq 0) {
+    return
+  }
+
+  $tail = @($lines | Select-Object -Last $MaxLines)
+  Write-Host ("  --- output tail ({0}/{1} lines) ---" -f $tail.Count, $lines.Count) -ForegroundColor DarkYellow
+  foreach ($line in $tail) {
+    Write-Host ("  {0}" -f $line)
+  }
+  Write-Host "  --- end output tail ---" -ForegroundColor DarkYellow
+}
+
 function Invoke-CommandStage {
   param(
     [Parameter(Mandatory = $true)][string]$Name,
@@ -532,6 +573,7 @@ function Invoke-CommandStage {
   $logPath = Join-Path $OutDir ("{0}.log" -f $Name)
   Write-Host ("  RUN  {0}" -f $Name) -ForegroundColor Cyan
   $timer = [System.Diagnostics.Stopwatch]::StartNew()
+  $result = $null
   try {
     $result = Invoke-NativeCapture $FilePath $Arguments $RepoRoot $logPath
     if ($result.exitCode -ne 0) {
@@ -547,6 +589,8 @@ function Invoke-CommandStage {
   } catch {
     $timer.Stop()
     Add-StageResult $Name "FAIL" $timer.ElapsedMilliseconds $logPath $_.Exception.Message
+    $failureOutput = if ($null -ne $result) { @($result.output) } else { @() }
+    Write-StageFailureExcerpt $Name $logPath $failureOutput
     throw
   }
 }
@@ -579,7 +623,7 @@ function Add-SkippedStage {
     [Parameter(Mandatory = $true)][string]$Message
   )
   Add-StageResult $Name "SKIP" 0 "" $Message
-  Write-Host ("  SKIP {0}" -f $Name) -ForegroundColor Yellow
+  Write-Host (Format-SkippedStageLine $Name $Message) -ForegroundColor Yellow
 }
 
 Write-Host ""
@@ -627,8 +671,8 @@ try {
   } | Out-Null
 
   if ($SkipUpdate) {
-    Add-SkippedStage "manager-self-update" "skipped by -SkipUpdate"
-    Add-SkippedStage "distro-update" "skipped by -SkipUpdate"
+    Add-SkippedStage "manager-self-update" "requested by -SkipUpdate; validating current install only"
+    Add-SkippedStage "distro-update" "requested by -SkipUpdate; validating current install only"
   } else {
     foreach ($command in @(Get-UpdateCommands $RepoRoot $AgentDir)) {
       Invoke-CommandStage $command.Name $command.FilePath $command.Arguments | Out-Null
