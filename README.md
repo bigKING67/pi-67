@@ -4,7 +4,7 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
-当前发行版版本：`0.10.26`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.10.27`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 这是什么
 
@@ -209,6 +209,20 @@ pi-67 doctor
 pi-67 smoke --quick
 pi-67 launch
 ```
+
+Windows 已有 pi-67 checkout 时，更新和完整验收不需要再手工逐条执行。直接运行：
+
+```powershell
+Set-Location $env:USERPROFILE\.pi\agent
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\pi67-windows-acceptance.ps1
+```
+
+这个一键入口会先执行 `pi-67 self-update` 更新 npm manager，再执行
+`pi-67 update --repair --yes` 更新本地发行版，随后验证版本/配置、doctor、repo
+smoke、`pi-67 launch -- --version`、xtalpi health/capability，以及
+`read-package + read-enoent-recovery` 真实工具链。长输出写入 repo 外临时目录，终端最终只给
+`PASS/FAIL`、失败阶段、恢复建议和 summary 路径。只验当前版本、不更新时加
+`-SkipUpdate`。
 
 Windows 新机尤其建议用 `pi-67 launch` 完成第一次启动。原因是 upstream
 `pi` 会在启动时安装 `git:github.com/justhil/pi-image-gen` 这类 Git 包；
@@ -670,6 +684,7 @@ pi-67/
 │   ├── pi67-test-skill-governance.sh
 │   ├── pi67-update.sh
 │   ├── pi67-update.ps1
+│   ├── pi67-windows-acceptance.ps1
 │   ├── pi67-uninstall.sh
 │   ├── pi67-xtalpi-pi-tools.sh
 │   ├── pi67-xtalpi-pi-tools.ps1

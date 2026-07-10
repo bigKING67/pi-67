@@ -193,6 +193,23 @@ pi-67 update --check
 pi-67 update --repair
 ```
 
+For a single update-and-acceptance command, run:
+
+```powershell
+Set-Location $env:USERPROFILE\.pi\agent
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\pi67-windows-acceptance.ps1
+```
+
+The acceptance entrypoint runs `pi-67 self-update` first, then
+`pi-67 update --repair --yes`, and finally validates manager/distro version
+parity, the canonical `xtalpi-pi-tools + deepseek-v4-pro` config, doctor,
+repository smoke, `pi-67 launch -- --version`, provider health, the canonical
+JSON-action capability, and the targeted `read-package,read-enoent-recovery`
+live tool chain. Long output is kept in a repo-external temporary artifact
+directory; the final console output is a compact `PASS/FAIL` result with the
+summary path. Use `-SkipUpdate` to validate the currently installed version or
+`-SelfTest` for the offline acceptance-contract test.
+
 It runs a safe fast-forward Git update, keeps existing local runtime config
 files, creates missing config files from examples only when needed, normalizes
 parseable Windows JSON encoding issues such as UTF-16, UTF-8 BOM, or leading

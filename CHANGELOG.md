@@ -6,6 +6,27 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.27] - 2026-07-10
+
+### Added
+
+- Added `scripts/pi67-windows-acceptance.ps1`, a single Windows update-and-
+  acceptance entrypoint that updates the npm manager and local distribution,
+  then validates version/configuration, doctor, repository smoke, guarded
+  launch, xtalpi health/capability, and the targeted `read-package` /
+  `read-enoent-recovery` live tool chain.
+- Added `-SkipUpdate` for validating the current installation without network
+  updates and `-SelfTest` for deterministic offline Windows/CI contract
+  validation.
+
+### Changed
+
+- Added the Windows acceptance self-test to GitHub Actions and the release
+  gates so the one-command path cannot drift without detection.
+- Updated installation, release, and troubleshooting documentation to
+  distinguish npm manager self-update, local distribution update, upstream Pi
+  package update, and guarded launch.
+
 ## [0.10.26] - 2026-07-10
 
 ### Added

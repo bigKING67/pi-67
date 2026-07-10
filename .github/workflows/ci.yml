@@ -64,6 +64,7 @@ jobs:
           node packages/pi67-cli/bin/pi-67.mjs --agent-dir $Repo --repo-root $Repo update --check --json --no-remote
           node packages/pi67-cli/bin/pi-67.mjs --agent-dir $Repo --repo-root $Repo backups prune --keep-last 10 --dry-run --json
           node packages/pi67-cli/bin/pi-67.mjs --agent-dir $Repo --repo-root $Repo xtalpi smoke --self-test
+          .\scripts\pi67-windows-acceptance.ps1 -SelfTest
 
       - name: Run pi-67 PowerShell smoke
         shell: pwsh

@@ -24,12 +24,14 @@ PowerShell smoke for Windows-facing changes:
 .\scripts\pi67-report.ps1 -Operation manual
 .\scripts\pi67-patch-pi-until-done-runtime-queue.ps1 -Check
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest
+.\scripts\pi67-windows-acceptance.ps1 -SelfTest
 ```
 
 If xtalpi targeted tool calling changed and a live xtalpi key is available on
 Windows, also run:
 
 ```powershell
+.\scripts\pi67-windows-acceptance.ps1 -SkipUpdate
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,read-enoent-recovery,plan-mode-contract,plan-mode-accepted-continuation,until-done-continuation,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
 ```
 
@@ -57,6 +59,8 @@ Expected result:
 - release metadata is internally consistent
 - Windows PowerShell smoke passes on a PowerShell runtime when Windows-facing files changed
 - Windows PowerShell doctor/report run on a PowerShell runtime when Windows install/update diagnostics changed
+- Windows one-command acceptance self-test passes; a credentialed Windows host
+  passes `pi67-windows-acceptance.ps1 -SkipUpdate` before release
 - PowerShell xtalpi targeted smoke self-test passes; live targeted smoke covers
   read, deterministic `ENOENT` repeated-call recovery, FFF, batch fetch,
   sequential-thinking status, MCP, subagent, and recall when xtalpi credentials
@@ -90,6 +94,7 @@ Expected result:
    - `docs/external-skill-sync-schema.md` if `scripts/pi67-sync-external-skills.sh --json` behavior changed
    - `docs/skill-governance.md` if skill registry, migration, or external sync behavior changed
    - update workflow docs if `scripts/pi67-update.sh` or `scripts/pi67-update.ps1` changed
+   - Windows acceptance docs if `scripts/pi67-windows-acceptance.ps1` changed
    - release artifact docs if `scripts/pi67-release-artifact-smoke.sh` changed
 6. Run:
 
@@ -99,6 +104,7 @@ Expected result:
 .\scripts\pi67-report.ps1 -Operation manual
 .\scripts\pi67-patch-pi-until-done-runtime-queue.ps1 -Check
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest
+.\scripts\pi67-windows-acceptance.ps1 -SelfTest
 ```
 
 ```bash
@@ -507,6 +513,7 @@ bash ~/.pi/agent/scripts/pi67-configure.sh --prompt-secrets
 
 - `.\scripts\pi67-smoke.ps1 -Ci` on Windows PowerShell / PowerShell Core
 - `.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest` on Windows PowerShell / PowerShell Core
+- `.\scripts\pi67-windows-acceptance.ps1 -SelfTest` on Windows PowerShell / PowerShell Core
 - `bash scripts/pi67-smoke.sh --ci`
 - GitHub Actions CI: passed
 

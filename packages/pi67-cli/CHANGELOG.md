@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.10.27]
+
+- Adds the documented Windows one-command acceptance flow, which starts with
+  `pi-67 self-update` for the global npm manager and then runs
+  `pi-67 update --repair --yes` for the local distribution.
+- Adds offline/CI contract coverage for the Windows acceptance entrypoint and
+  release gates that keep its manager-update, distribution-update, launch, and
+  xtalpi validation sequence synchronized.
+- Clarifies that `pi-67 self-update` is the supported wrapper around
+  `npm install -g @bigking67/pi-67@latest`, not a separate update channel.
+
 ## [0.10.26]
 
 - Adds `pi-67 launch`, a guarded upstream Pi launcher that checks Git, patches a

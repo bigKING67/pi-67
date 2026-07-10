@@ -266,6 +266,7 @@ $RequiredFiles = @(
   "scripts/pi67-report.ps1",
   "scripts/pi67-smoke.ps1",
   "scripts/pi67-update.ps1",
+  "scripts/pi67-windows-acceptance.ps1",
   "scripts/pi67-json-utils.ps1",
   "scripts/pi67-json-utils.cjs",
   "scripts/pi67-mcp-config-utils.cjs",
@@ -442,6 +443,25 @@ if ($NodeAvailable) {
 
   Run-Check "xtalpi provider capability probe self-test passed" {
     Invoke-External "node" @((RepoPath "scripts/pi67-xtalpi-provider-capability-probe.mjs"), "--self-test") | Out-Null
+  }
+
+  Run-Check "Windows one-command acceptance self-test passed" {
+    $psExe = ""
+    if (Test-CommandExists "pwsh") {
+      $psExe = "pwsh"
+    } elseif (Test-CommandExists "powershell") {
+      $psExe = "powershell"
+    } else {
+      throw "no child PowerShell executable found"
+    }
+    Invoke-External $psExe @(
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      (RepoPath "scripts/pi67-windows-acceptance.ps1"),
+      "-SelfTest"
+    ) | Out-Null
   }
 
   Run-Check "JSON utility self-test passed" {
@@ -750,6 +770,10 @@ Run-Check "PowerShell update/doctor/report/smoke entrypoints are documented" {
   Assert-ContentContains (RepoPath "README.md") "pi67-update.ps1"
   Assert-ContentContains (RepoPath "docs/full-install.md") "pi67-update.ps1"
   Assert-ContentContains (RepoPath "docs/release.md") "pi67-update.ps1"
+  Assert-ContentContains (RepoPath "README.md") "pi67-windows-acceptance.ps1"
+  Assert-ContentContains (RepoPath "docs/full-install.md") "pi67-windows-acceptance.ps1"
+  Assert-ContentContains (RepoPath "docs/release.md") "pi67-windows-acceptance.ps1"
+  Assert-ContentContains (RepoPath "docs/troubleshooting.md") "pi67-windows-acceptance.ps1"
   Assert-ContentContains (RepoPath "README.md") "pi67-doctor.ps1"
   Assert-ContentContains (RepoPath "docs/full-install.md") "pi67-doctor.ps1"
   Assert-ContentContains (RepoPath "docs/release.md") "pi67-doctor.ps1"
@@ -808,6 +832,7 @@ if ($GitAvailable) {
     "scripts/pi67-report.ps1",
     "scripts/pi67-smoke.ps1",
     "scripts/pi67-update.ps1",
+    "scripts/pi67-windows-acceptance.ps1",
     "scripts/pi67-json-utils.ps1",
     "scripts/pi67-json-utils.cjs",
     "scripts/pi67-release-check.sh",

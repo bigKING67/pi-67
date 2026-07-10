@@ -1029,6 +1029,22 @@ network/registry reachability issue rather than a local npm shim issue.
 Explicit npm operations such as `pi-67 self-update` also retry through
 `cmd.exe /d /s /c npm.cmd ...` on Windows when direct npm shim spawning fails.
 
+For a Windows machine that already has the current checkout, prefer the
+one-command update and acceptance entrypoint instead of copying a long manual
+command list:
+
+```powershell
+Set-Location $env:USERPROFILE\.pi\agent
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\pi67-windows-acceptance.ps1
+```
+
+It updates the npm manager with `pi-67 self-update`, updates the distro with
+`pi-67 update --repair --yes`, and then runs the Windows/xtalpi acceptance
+contract. On failure, use the printed `Failed stage`, `Recovery`, and `Summary`
+path. Full command output is retained in the adjacent stage logs rather than
+flooding the terminal. To diagnose the current install without changing it,
+rerun with `-SkipUpdate`; use `-SelfTest` only for the offline script contract.
+
 If the installed manager is too old to trust, use the latest package for one run:
 
 ```bash
