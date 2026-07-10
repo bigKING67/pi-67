@@ -20,6 +20,8 @@ SMOKE_PREFLIGHT_ATTEMPTS="${XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_ATTEMPTS:-2}"
 SMOKE_PREFLIGHT_RETRY_DELAY_MS="${XTALPI_PI_TOOLS_SMOKE_PREFLIGHT_RETRY_DELAY_MS:-1000}"
 SMOKE_OBSERVATIONAL_MEMORY_PASSIVE="${XTALPI_PI_TOOLS_SMOKE_OBSERVATIONAL_MEMORY_PASSIVE:-1}"
 STAMP="${XTALPI_PI_TOOLS_SMOKE_STAMP:-$(date +%Y%m%d-%H%M%S)-$$}"
+MISSING_READ_PATH=".pi67-xtalpi-smoke-missing-${STAMP}.json"
+export PI67_XTALPI_SMOKE_MISSING_READ_PATH="$MISSING_READ_PATH"
 SUMMARY_FILE="${XTALPI_PI_TOOLS_SMOKE_SUMMARY_FILE:-$OUT_DIR/${STAMP}-summary.json}"
 DEBUG_SUMMARY_JSON_FILE="$OUT_DIR/${STAMP}-debug-summary.json"
 PROVIDER_HEALTH_FILE="$OUT_DIR/${STAMP}-provider-health.json"
@@ -36,7 +38,7 @@ COMMON_BASE_ARGS=(
 )
 COMMON_ARGS=("${COMMON_BASE_ARGS[@]}" --no-session)
 
-DEFAULT_CASES=(no-tool bash read bash-read web-read plan-mode-contract plan-mode-accepted-continuation tool-selection-clipping tool-selection-continuation until-done-continuation tool-result-injection)
+DEFAULT_CASES=(no-tool bash read bash-read web-read plan-mode-contract plan-mode-accepted-continuation read-enoent-recovery tool-selection-clipping tool-selection-continuation until-done-continuation tool-result-injection)
 QUICK_CASES=(no-tool read)
 EXTENSION_LOW_RISK_CASES=(mcp-status subagent-list recall-not-found)
 EXTENSION_EXPANDED_CASES=(fffind-package ffgrep-package batch-web-fetch-example seq-thinking-status mcp-status subagent-list recall-not-found)
@@ -48,6 +50,7 @@ AVAILABLE_CASES=(
   web-read
   plan-mode-contract
   plan-mode-accepted-continuation
+  read-enoent-recovery
   tool-selection-clipping
   tool-selection-continuation
   until-done-continuation
@@ -103,7 +106,7 @@ print_cases() {
 
 case_name_is_valid() {
   case "$1" in
-    no-tool | bash | read | bash-read | web-read | plan-mode-contract | plan-mode-accepted-continuation | tool-selection-clipping | tool-selection-continuation | until-done-continuation | tool-result-injection | fffind-package | ffgrep-package | batch-web-fetch-example | seq-thinking-status | mcp-status | mcp-connect-tmwd-browser | subagent-list | recall-not-found) return 0 ;;
+    no-tool | bash | read | bash-read | web-read | plan-mode-contract | plan-mode-accepted-continuation | read-enoent-recovery | tool-selection-clipping | tool-selection-continuation | until-done-continuation | tool-result-injection | fffind-package | ffgrep-package | batch-web-fetch-example | seq-thinking-status | mcp-status | mcp-connect-tmwd-browser | subagent-list | recall-not-found) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -377,6 +380,73 @@ const agent = events.findLast?.((event) => event.type === "agent_end");
 const toolStartEvents = events.filter((event) => event.type === "tool_execution_start");
 const actualToolNames = toolStartEvents.map((event) => String(event.toolName || ""));
 const toolStarts = toolStartEvents.map((event) => `${event.toolName}:${JSON.stringify(event.args)}`);
+const recoveryExpectationFailures = [];
+let enoentLedgerObserved = false;
+let repeatedReadRecoveryCount = 0;
+if (caseName === "read-enoent-recovery") {
+  const expectedMissingPath = String(process.env.PI67_XTALPI_SMOKE_MISSING_READ_PATH || "");
+  const expectedSequence = ["read", "fffind", "read"];
+  if (JSON.stringify(actualToolNames) !== JSON.stringify(expectedSequence)) {
+    recoveryExpectationFailures.push(
+      `expected executed tool sequence ${JSON.stringify(expectedSequence)}, got ${JSON.stringify(actualToolNames)}`,
+    );
+  }
+
+  const readEvents = toolStartEvents.filter((event) => event.toolName === "read");
+  if (readEvents.length !== 2) {
+    recoveryExpectationFailures.push(`expected exactly two executed read calls, got ${readEvents.length}`);
+  } else {
+    const firstReadPath = typeof readEvents[0]?.args?.path === "string" ? readEvents[0].args.path : "";
+    const secondReadPath = typeof readEvents[1]?.args?.path === "string" ? readEvents[1].args.path : "";
+    if (!expectedMissingPath || firstReadPath !== expectedMissingPath) {
+      recoveryExpectationFailures.push(
+        `expected first read.path ${JSON.stringify(expectedMissingPath)}, got ${JSON.stringify(firstReadPath)}`,
+      );
+    }
+    if (secondReadPath !== "package.json") {
+      recoveryExpectationFailures.push(`expected recovery read.path package.json, got ${JSON.stringify(secondReadPath)}`);
+    }
+  }
+
+  const findEvents = toolStartEvents.filter((event) => event.toolName === "fffind");
+  if (findEvents.length !== 1) {
+    recoveryExpectationFailures.push(`expected exactly one executed fffind call, got ${findEvents.length}`);
+  } else {
+    const pattern = typeof findEvents[0]?.args?.pattern === "string" ? findEvents[0].args.pattern : "";
+    const limit = findEvents[0]?.args?.limit;
+    if (pattern !== "package.json") {
+      recoveryExpectationFailures.push(`expected fffind.pattern package.json, got ${JSON.stringify(pattern)}`);
+    }
+    if (limit !== undefined && (!Number.isFinite(Number(limit)) || Number(limit) > 5)) {
+      recoveryExpectationFailures.push(`expected fffind.limit <= 5, got ${JSON.stringify(limit)}`);
+    }
+  }
+
+  enoentLedgerObserved = debugEvents.some((event) => {
+    if (event.event !== "tool_ledger") return false;
+    const data = eventData(event);
+    const status = event.latest_tool_status ?? data.latestToolStatus;
+    const errorCode = event.latest_tool_error_code ?? data.latestToolErrorCode;
+    return status === "deterministic_error" && errorCode === "ENOENT";
+  });
+  if (!enoentLedgerObserved) {
+    recoveryExpectationFailures.push("missing tool_ledger deterministic_error/ENOENT evidence");
+  }
+
+  const repeatedReadRecoveries = recoveryEvents.filter(
+    (event) => event.event === "recovery.repeated_tool" && event.tool_name === "read",
+  );
+  repeatedReadRecoveryCount = repeatedReadRecoveries.length;
+  if (repeatedReadRecoveryCount !== 1) {
+    recoveryExpectationFailures.push(
+      `expected exactly one recovery.repeated_tool for read, got ${repeatedReadRecoveryCount}`,
+    );
+  }
+  if (recoveryEvents.length > 2) {
+    recoveryExpectationFailures.push(`expected at most two total recoveries, got ${recoveryEvents.length}`);
+  }
+}
+const recoveryExpectationOk = recoveryExpectationFailures.length === 0;
 function protocolBoundaryToolNames(rawExpectation, actualNames) {
   const names = [...actualNames];
   for (const clause of String(rawExpectation || "").split(/[;,]/)) {
@@ -428,6 +498,7 @@ const requiredFinalTextByCase = {
   "web-read": ["Example Domain", "pi-extensions"],
   "plan-mode-contract": ["<proposed_plan>", "</proposed_plan>"],
   "plan-mode-accepted-continuation": ["PLAN_ACCEPTED_CONTINUATION_OK"],
+  "read-enoent-recovery": ["ENOENT_RECOVERY_SMOKE_OK", "pi-extensions"],
   "until-done-continuation": ["UNTIL_DONE_SMOKE_OK", "pi-extensions"],
   "tool-result-injection": ["PI_TOOL_RESULT_INJECTION_CANARY"],
   "fffind-package": ["EXTENSION_SMOKE_FFFIND_OK", "package.json"],
@@ -443,6 +514,7 @@ const packageVersionRequiredCases = new Set([
   "read",
   "bash-read",
   "web-read",
+  "read-enoent-recovery",
   "tool-selection-clipping",
   "tool-selection-continuation",
   "until-done-continuation",
@@ -572,7 +644,12 @@ const timedOutByWatchdog = lifecycle.timedOutByWatchdog === true;
 const processLifecycleOk = processExitedCleanly && postAgentEndLingerOk;
 const protocolFlowOk = hasUsableFinalAnswer && toolExpectation.ok;
 const packageReadPathOk = packageReadPathFailures.length === 0;
-const semanticFlowOk = protocolFlowOk && debugTelemetryOk && toolSelectionRequirementResult.ok && packageReadPathOk;
+const semanticFlowOk =
+  protocolFlowOk &&
+  debugTelemetryOk &&
+  toolSelectionRequirementResult.ok &&
+  packageReadPathOk &&
+  recoveryExpectationOk;
 const timedOutAfterAgentEnd = timedOutByWatchdog && !!agent;
 const ok = processLifecycleOk && semanticFlowOk;
 console.log(JSON.stringify({
@@ -614,6 +691,10 @@ console.log(JSON.stringify({
   missingFinalText,
   emptyAssistantEnds,
   recoveries,
+  recoveryExpectationOk,
+  recoveryExpectationFailures,
+  enoentLedgerObserved,
+  repeatedReadRecoveryCount,
   argumentValidationWarnings,
   argumentValidationWarningCodes,
   toolSelectionRequirement: toolSelectionRequirement || undefined,
@@ -655,14 +736,25 @@ const path = require("path");
 
 const dir = process.argv[2];
 const expectedVersion = process.env.PI67_EXPECTED_PACKAGE_VERSION || "0.0.0-self-test";
+const missingReadPath = process.env.PI67_XTALPI_SMOKE_MISSING_READ_PATH || ".pi67-xtalpi-smoke-missing-self-test.json";
 
 function writeJsonl(file, events) {
   fs.writeFileSync(path.join(dir, file), events.map((event) => JSON.stringify(event)).join("\n") + "\n");
 }
 
-function writeFixture(name, { tools = [], toolArgsByName = {}, finalText = "final answer", debugEvents = [], caseName = name }) {
+function writeFixture(name, {
+  tools = [],
+  toolArgsByName = {},
+  toolEvents,
+  finalText = "final answer",
+  debugEvents = [],
+  caseName = name,
+}) {
+  const resolvedToolEvents = Array.isArray(toolEvents)
+    ? toolEvents
+    : tools.map((toolName) => ({ type: "tool_execution_start", toolName, args: toolArgsByName[toolName] || {} }));
   writeJsonl(`${name}.jsonl`, [
-    ...tools.map((toolName) => ({ type: "tool_execution_start", toolName, args: toolArgsByName[toolName] || {} })),
+    ...resolvedToolEvents,
     {
       type: "agent_end",
       messages: [
@@ -679,7 +771,7 @@ function writeFixture(name, { tools = [], toolArgsByName = {}, finalText = "fina
       schema: "xtalpi-pi-tools.debug.v1",
       event: "turn.start",
       event_category: "turn",
-      selected_tool_count: tools.length,
+      selected_tool_count: new Set(resolvedToolEvents.map((event) => event.toolName).filter(Boolean)).size,
     },
   ]);
   fs.writeFileSync(path.join(dir, `${name}.stderr`), "");
@@ -743,6 +835,46 @@ writeFixture("plan-mode-accepted-continuation", {
   tools: [],
   finalText: "PLAN_ACCEPTED_CONTINUATION_OK accepted plan is executing, not planning again.",
   caseName: "plan-mode-accepted-continuation",
+});
+const enoentRecoveryToolEvents = [
+  { type: "tool_execution_start", toolName: "read", args: { path: missingReadPath } },
+  { type: "tool_execution_start", toolName: "fffind", args: { pattern: "package.json", limit: 5 } },
+  { type: "tool_execution_start", toolName: "read", args: { path: "package.json" } },
+];
+const enoentLedgerEvent = {
+  schema: "xtalpi-pi-tools.debug.v1",
+  event: "tool_ledger",
+  event_category: "protocol",
+  data: {
+    latestToolStatus: "deterministic_error",
+    latestToolErrorCode: "ENOENT",
+  },
+};
+const repeatedReadRecoveryEvent = {
+  schema: "xtalpi-pi-tools.debug.v1",
+  event: "recovery.repeated_tool",
+  event_category: "recovery",
+  event_kind: "repeated_tool",
+  tool_name: "read",
+  total_recoveries: 1,
+};
+writeFixture("read-enoent-recovery", {
+  toolEvents: enoentRecoveryToolEvents,
+  finalText: `ENOENT_RECOVERY_SMOKE_OK pi-extensions ${expectedVersion}`,
+  caseName: "read-enoent-recovery",
+  debugEvents: [enoentLedgerEvent, repeatedReadRecoveryEvent],
+});
+writeFixture("read-enoent-recovery-missing-repair", {
+  toolEvents: enoentRecoveryToolEvents,
+  finalText: `ENOENT_RECOVERY_SMOKE_OK pi-extensions ${expectedVersion}`,
+  caseName: "read-enoent-recovery",
+  debugEvents: [enoentLedgerEvent],
+});
+writeFixture("read-enoent-recovery-duplicate-executed", {
+  toolEvents: [enoentRecoveryToolEvents[0], enoentRecoveryToolEvents[0], ...enoentRecoveryToolEvents.slice(1)],
+  finalText: `ENOENT_RECOVERY_SMOKE_OK pi-extensions ${expectedVersion}`,
+  caseName: "read-enoent-recovery",
+  debugEvents: [enoentLedgerEvent, repeatedReadRecoveryEvent],
 });
 writeFixture("tool-selection-clipping", {
   tools: ["read"],
@@ -972,6 +1104,21 @@ NODE
     return 1
   fi
 
+  if ! output="$(summarize_jsonl "$tmp_dir/read-enoent-recovery.jsonl" "$tmp_dir/read-enoent-recovery.stderr" 0 "all:read,fffind;only:read,fffind" "$tmp_dir/read-enoent-recovery.debug.jsonl" "$tmp_dir/read-enoent-recovery.lifecycle.json" 2>&1)"; then
+    echo "$output"
+    return 1
+  fi
+  if output="$(summarize_jsonl "$tmp_dir/read-enoent-recovery-missing-repair.jsonl" "$tmp_dir/read-enoent-recovery-missing-repair.stderr" 0 "all:read,fffind;only:read,fffind" "$tmp_dir/read-enoent-recovery-missing-repair.debug.jsonl" "$tmp_dir/read-enoent-recovery-missing-repair.lifecycle.json" 2>&1)"; then
+    echo "expected read-enoent-recovery-missing-repair fixture to fail"
+    echo "$output"
+    return 1
+  fi
+  if output="$(summarize_jsonl "$tmp_dir/read-enoent-recovery-duplicate-executed.jsonl" "$tmp_dir/read-enoent-recovery-duplicate-executed.stderr" 0 "all:read,fffind;only:read,fffind" "$tmp_dir/read-enoent-recovery-duplicate-executed.debug.jsonl" "$tmp_dir/read-enoent-recovery-duplicate-executed.lifecycle.json" 2>&1)"; then
+    echo "expected read-enoent-recovery-duplicate-executed fixture to fail"
+    echo "$output"
+    return 1
+  fi
+
   if output="$(summarize_jsonl "$tmp_dir/unexpected-tool.jsonl" "$tmp_dir/unexpected-tool.stderr" 0 "all:web_fetch,read;only:web_fetch,read" "$tmp_dir/unexpected-tool.debug.jsonl" "$tmp_dir/unexpected-tool.lifecycle.json" 2>&1)"; then
     echo "expected unexpected-tool fixture to fail"
     echo "$output"
@@ -1097,7 +1244,7 @@ if (data.postAgentEndLingerSeconds !== 30) throw new Error("unexpected postAgent
 
   REQUESTED_CASES=()
   REQUESTED_CASE_FILTER_ACTIVE=0
-  if ! case_is_requested "no-tool" || ! case_is_requested "tool-result-injection" || case_is_requested "fffind-package"; then
+  if ! case_is_requested "no-tool" || ! case_is_requested "read-enoent-recovery" || ! case_is_requested "tool-result-injection" || case_is_requested "fffind-package"; then
     echo "default case selection should keep extension smoke cases targeted-only"
     return 1
   fi
@@ -1581,6 +1728,10 @@ if [ ! -f "$PI_AGENT_DIR/package.json" ]; then
   echo "xtalpi-pi-tools smoke: package.json not found under PI_AGENT_DIR: $PI_AGENT_DIR" >&2
   exit 2
 fi
+if [ -e "$PI_AGENT_DIR/${MISSING_READ_PATH}" ]; then
+  echo "xtalpi-pi-tools smoke: ENOENT sentinel unexpectedly exists: $PI_AGENT_DIR/${MISSING_READ_PATH}" >&2
+  exit 2
+fi
 PI67_EXPECTED_PACKAGE_VERSION="$(
   node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync(process.argv[1], 'utf8')); process.stdout.write(String(p.version || ''));" "$PI_AGENT_DIR/package.json"
 )"
@@ -1740,6 +1891,7 @@ const eligible =
   summary.toolExpectationOk === true &&
   (summary.toolSelectionRequirementOk !== false) &&
   (summary.packageReadPathOk !== false) &&
+  (summary.recoveryExpectationOk !== false) &&
   empty(summary.errors) &&
   empty(summary.forbiddenFinalText) &&
   Array.isArray(summary.missingFinalText) &&
@@ -2322,6 +2474,16 @@ FFF_FRECENCY_DB_FILE="$OUT_DIR/${STAMP}-fff-frecency.db"
 FFF_HISTORY_DB_FILE="$OUT_DIR/${STAMP}-fff-history.db"
 SEQ_THINK_STORAGE_DIR="$OUT_DIR/${STAMP}-seq-thinking-status-storage"
 mkdir -p "$SEQ_THINK_STORAGE_DIR"
+
+run_selected_case_with_env \
+  "PI_FFF_MODE=tools-only" \
+  "FFF_FRECENCY_DB=$FFF_FRECENCY_DB_FILE" \
+  "FFF_HISTORY_DB=$FFF_HISTORY_DB_FILE" \
+  -- \
+  "read-enoent-recovery" \
+  "这是 xtalpi-pi-tools v2 repeated-tool live smoke。严格按顺序完成：第一步使用 read 读取当前工作区相对路径 ${MISSING_READ_PATH}；该路径应返回 ENOENT。收到 ENOENT 后，下一次响应必须故意再次请求完全相同的 read，path 仍严格等于 ${MISSING_READ_PATH}，这是为了触发本地重复调用保护，不要自行跳过。收到 repeated-tool 修复提示后，不要再读取该缺失路径；改用 fffind 查找 package.json，pattern 必须严格等于 \"package.json\"、limit 不超过 5；然后使用 read 读取相对路径 package.json。禁止调用 bash、web_fetch、ffgrep 或其他工具。最终答案必须原样包含 ENOENT_RECOVERY_SMOKE_OK、pi-extensions 和 package.json 中的版本号，不要输出 Pi 协议标记或工具调用 JSON。" \
+  "all:read,fffind;only:read,fffind" \
+  --tools read,fffind || failures=$((failures + 1))
 
 run_selected_case_with_env \
   "PI_FFF_MODE=tools-only" \

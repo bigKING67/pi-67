@@ -258,10 +258,35 @@ ${finalOrTool}`;
 
 export function buildRepeatedToolRepairPrompt(
   toolName: string,
+  options: {
+    status?: string;
+    errorCode?: string;
+    reason?: string;
+    discoveryToolNames?: readonly string[];
+  } = {},
 ): string {
+  const discoveryToolNames = options.discoveryToolNames ?? [];
+  const status = safeInlineText(options.status || "completed", 80);
+  const errorCode = options.errorCode ? safeInlineText(options.errorCode, 80) : "none";
+  const reason = options.reason ? safeInlineText(options.reason, 160) : "same_call_forbidden";
+  const enoentRecovery = options.errorCode === "ENOENT"
+    ? [
+        "The previous call failed with ENOENT. Repeating the identical path is forbidden because the result is deterministic.",
+        discoveryToolNames.length > 0
+          ? `Use one different discovery tool if needed: ${formatToolNamesForPrompt(discoveryToolNames)}.`
+          : "No path-discovery tool is selected in this turn, so return a final JSON action explaining the missing path and the next manual check.",
+      ].join("\n")
+    : "Use the existing result, choose a materially different available tool/arguments, or return a final JSON action.";
   return `[xtalpi-pi-tools-repeated-tool-repair]
-You already received the result for the same ${formatToolNameForPrompt(toolName)} tool call.
-Read the existing <pi_tool_result> block and produce the final JSON action now:
-${finalShapeForPrompt()}
-Do not repeat the same tool call.`;
+The identical ${formatToolNameForPrompt(toolName)} tool call has already completed.
+Previous status: ${status}
+Previous error code: ${errorCode}
+Repeat decision: ${reason}
+
+${enoentRecovery}
+
+Return exactly one compact JSON action and no surrounding prose.
+- Final: ${finalShapeForPrompt()}
+- Different tool when needed: ${toolCallShapeForPrompt()}
+Do not repeat the same tool name with the same arguments.`;
 }

@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.10.26]
+
+- Adds `pi-67 launch`, a guarded upstream Pi launcher that checks Git, patches a
+  discovered Git for Windows directory into the child process PATH, and can
+  persist that directory with `--persist-git-path` / global `--yes`.
+- Adds Windows `.cmd` fallbacks for spawning `pi` and `npx`.
+- Extends `pi-67 xtalpi capability` with `--json-action-runs`,
+  `--skip-native-probes`, and `--output-file` forwarding.
+- Adds the PowerShell-native `read-enoent-recovery` acceptance case, which
+  requires the executed sequence `read,fffind,read`, deterministic
+  `ENOENT` ledger evidence, and exactly one local repeated-read recovery.
+- Ships the `xtalpi-pi-tools` compatibility protocol v2 runtime, bounded
+  transport/recovery policies, tool execution ledger, repeat policy, receipt
+  v2, and structured diagnostics/tests with the managed distribution.
+- Documents why bare `pi` can fail with `spawn git ENOENT` before pi-67 repair:
+  upstream Pi installs git-based packages such as
+  `git:github.com/justhil/pi-image-gen`.
+
 ## [0.10.25]
 
 - Blocks `pi-67 update` / `pi-67 update --repair` when the active npm manager

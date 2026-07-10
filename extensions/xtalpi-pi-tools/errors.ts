@@ -17,6 +17,7 @@ export type XtalpiErrorCategory =
 export type XtalpiErrorCode =
   | "api_key_missing"
   | "config_error"
+  | "configuration_invalid"
   | "http_401"
   | "http_403"
   | "http_408"
@@ -27,13 +28,18 @@ export type XtalpiErrorCode =
   | "network_error"
   | "non_json_response"
   | "request_aborted"
+  | "request_deadline_exhausted"
   | "request_timeout"
+  | "response_too_large"
   | "unknown_error";
+
+export type RuntimeRetryPolicy = "never" | "backoff" | "retry_after";
 
 type ProviderErrorMetadata = {
   category: XtalpiErrorCategory;
   retryable: boolean;
   healthImmediateRetry: boolean;
+  runtimeRetryPolicy: RuntimeRetryPolicy;
 };
 
 type ProviderErrorContract = {
@@ -109,7 +115,8 @@ function loadProviderErrorContract(): ProviderErrorContract {
       !metadata ||
       !allowedCategories.has(metadata.category) ||
       typeof metadata.retryable !== "boolean" ||
-      typeof metadata.healthImmediateRetry !== "boolean"
+      typeof metadata.healthImmediateRetry !== "boolean" ||
+      !["never", "backoff", "retry_after"].includes(metadata.runtimeRetryPolicy)
     ) {
       throw new Error(`invalid xtalpi provider error metadata for ${code}: ${file}`);
     }
@@ -185,6 +192,10 @@ export function providerHealthImmediateRetry(code: XtalpiErrorCode): boolean {
   return providerErrorMetadata(code).healthImmediateRetry === true;
 }
 
+export function providerRuntimeRetryPolicy(code: XtalpiErrorCode): RuntimeRetryPolicy {
+  return providerErrorMetadata(code).runtimeRetryPolicy;
+}
+
 export function buildProviderError(
   code: XtalpiErrorCode,
   message: string,
@@ -210,7 +221,11 @@ export function classifyHttpStatus(status: number): Pick<ClassifiedErrorOptions,
   return { code, category: metadata.category, retryable: metadata.retryable };
 }
 
-export function buildHttpError(status: number, body: string): XtalpiProviderError {
+export function buildHttpError(
+  status: number,
+  body: string,
+  options: { retryAfterMs?: number } = {},
+): XtalpiProviderError {
   const classified = classifyHttpStatus(status);
   const bodyExcerpt = safeBlockText(body || "(no body)", 1000);
   return buildProviderError(
@@ -221,6 +236,7 @@ export function buildHttpError(status: number, body: string): XtalpiProviderErro
       details: {
         bodyExcerpt,
         bodyChars: body.length,
+        ...(options.retryAfterMs !== undefined ? { retryAfterMs: options.retryAfterMs } : {}),
       },
     },
   );

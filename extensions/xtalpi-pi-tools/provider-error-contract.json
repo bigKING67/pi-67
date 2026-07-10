@@ -3,6 +3,7 @@
   "requiredCodes": [
     "api_key_missing",
     "config_error",
+    "configuration_invalid",
     "http_401",
     "http_403",
     "http_408",
@@ -13,7 +14,9 @@
     "network_error",
     "non_json_response",
     "request_aborted",
+    "request_deadline_exhausted",
     "request_timeout",
+    "response_too_large",
     "unknown_error"
   ],
   "allowedCategories": [
@@ -47,72 +50,104 @@
     "api_key_missing": {
       "category": "configuration",
       "retryable": false,
-      "healthImmediateRetry": false
+      "healthImmediateRetry": false,
+      "runtimeRetryPolicy": "never"
     },
     "config_error": {
       "category": "configuration",
       "retryable": false,
-      "healthImmediateRetry": false
+      "healthImmediateRetry": false,
+      "runtimeRetryPolicy": "never"
+    },
+    "configuration_invalid": {
+      "category": "configuration",
+      "retryable": false,
+      "healthImmediateRetry": false,
+      "runtimeRetryPolicy": "never"
     },
     "http_401": {
       "category": "authentication",
       "retryable": false,
-      "healthImmediateRetry": false
+      "healthImmediateRetry": false,
+      "runtimeRetryPolicy": "never"
     },
     "http_403": {
       "category": "authentication",
       "retryable": false,
-      "healthImmediateRetry": false
+      "healthImmediateRetry": false,
+      "runtimeRetryPolicy": "never"
     },
     "http_408": {
       "category": "timeout",
       "retryable": true,
-      "healthImmediateRetry": true
+      "healthImmediateRetry": true,
+      "runtimeRetryPolicy": "backoff"
     },
     "http_429": {
       "category": "rate_limit",
       "retryable": true,
-      "healthImmediateRetry": false
+      "healthImmediateRetry": false,
+      "runtimeRetryPolicy": "retry_after"
     },
     "http_5xx": {
       "category": "upstream",
       "retryable": true,
-      "healthImmediateRetry": true
+      "healthImmediateRetry": true,
+      "runtimeRetryPolicy": "backoff"
     },
     "http_error": {
       "category": "upstream",
       "retryable": false,
-      "healthImmediateRetry": false
+      "healthImmediateRetry": false,
+      "runtimeRetryPolicy": "never"
     },
     "malformed_response": {
       "category": "protocol",
       "retryable": true,
-      "healthImmediateRetry": true
+      "healthImmediateRetry": true,
+      "runtimeRetryPolicy": "backoff"
     },
     "network_error": {
       "category": "network",
       "retryable": true,
-      "healthImmediateRetry": true
+      "healthImmediateRetry": true,
+      "runtimeRetryPolicy": "backoff"
     },
     "non_json_response": {
       "category": "protocol",
       "retryable": true,
-      "healthImmediateRetry": true
+      "healthImmediateRetry": true,
+      "runtimeRetryPolicy": "backoff"
     },
     "request_aborted": {
       "category": "aborted",
       "retryable": false,
-      "healthImmediateRetry": false
+      "healthImmediateRetry": false,
+      "runtimeRetryPolicy": "never"
+    },
+    "request_deadline_exhausted": {
+      "category": "timeout",
+      "retryable": true,
+      "healthImmediateRetry": false,
+      "runtimeRetryPolicy": "never"
     },
     "request_timeout": {
       "category": "timeout",
       "retryable": true,
-      "healthImmediateRetry": true
+      "healthImmediateRetry": true,
+      "runtimeRetryPolicy": "backoff"
+    },
+    "response_too_large": {
+      "category": "protocol",
+      "retryable": false,
+      "healthImmediateRetry": false,
+      "runtimeRetryPolicy": "never"
     },
     "unknown_error": {
       "category": "upstream",
       "retryable": false,
-      "healthImmediateRetry": false
+      "healthImmediateRetry": false,
+      "runtimeRetryPolicy": "never"
     }
   },
   "httpStatus": {

@@ -20,8 +20,6 @@ import {
   selectedBrowserMcpToolName,
 } from "./browser-bridge.ts";
 import {
-  DEFAULT_MAX_TOOL_RESULT_CHARS,
-  DEFAULT_MAX_TOOLS,
   type XtalpiChatMessage,
 } from "./protocol.ts";
 import { buildParseErrorRepairPlan } from "./recovery-decision.ts";
@@ -29,10 +27,15 @@ import {
   buildEmptyResponseRepairPrompt,
   buildPrematureFinalRepairPrompt,
   buildPlanModeFallbackPlan,
-  envInt,
 } from "./retry.ts";
-import type { ProviderRuntimeConfig } from "./runtime-config.ts";
 import {
+  resolveProviderRuntimePolicy,
+  type ProviderRuntimeConfig,
+} from "./runtime-config.ts";
+import type { RuntimePolicy } from "./config/runtime-policy.ts";
+import {
+  contentToText,
+  isContinuationPrompt,
   serializeContextForXtalpi,
   type ContextLike,
 } from "./serializer.ts";
@@ -42,6 +45,11 @@ import {
   latestToolCallWithResult,
   makeRequestedToolCall,
 } from "./tool-call-history.ts";
+import {
+  buildToolExecutionLedger,
+  latestObservationForCall,
+} from "./turn/tool-execution-ledger.ts";
+import { pathDiscoveryToolNames } from "./tools/repeat-policy.ts";
 import { buildTurnDebugContext } from "./turn-debug-context.ts";
 import { TurnLoopState } from "./turn-loop-state.ts";
 import {
@@ -58,6 +66,7 @@ export type ProviderTurnChatClient = (input: {
   messages: XtalpiChatMessage[];
   options?: SimpleStreamOptions;
   runtimeConfig?: ProviderRuntimeConfig;
+  policy?: RuntimePolicy;
 }) => Promise<XtalpiChatResponse>;
 
 function argumentValidationTelemetry(warnings: readonly ArgumentValidationWarning[] | undefined): {
@@ -82,14 +91,30 @@ export async function runProviderTurn(input: {
 }): Promise<XtalpiProviderTurnResult> {
   const { model, context, options, runtimeConfig } = input;
   const callChat = input.callChat ?? callXtalpiChat;
-  const maxTools = envInt("XTALPI_PI_TOOLS_MAX_TOOLS", DEFAULT_MAX_TOOLS, 0);
-  const maxToolResultChars = envInt(
-    "XTALPI_PI_TOOLS_MAX_TOOL_RESULT_CHARS",
-    DEFAULT_MAX_TOOL_RESULT_CHARS,
-    0,
-  );
+  const policy = resolveProviderRuntimePolicy(options);
+  const maxTools = policy.maxTools;
+  const maxToolResultChars = policy.maxToolResultChars;
   const contextLike = context as unknown as ContextLike;
-  const serializedContext = serializeContextForXtalpi(contextLike, { maxTools, maxToolResultChars });
+  const toolLedger = buildToolExecutionLedger(contextLike);
+  const latestObservation = toolLedger.latestObservation;
+  const latestMessage = contextLike.messages.at(-1);
+  const latestMessageText = latestMessage?.role === "user" ? contentToText(latestMessage.content) : "";
+  const recoveryContextActive = latestMessage?.role === "toolResult" || isContinuationPrompt(latestMessageText);
+  const availableContextToolNames = (contextLike.tools ?? []).map((tool) => tool.name).filter(Boolean);
+  const recoveryToolNames = policy.engine === "v2" &&
+      recoveryContextActive &&
+      latestObservation?.status === "deterministic_error" &&
+      latestObservation.errorCode === "ENOENT"
+    ? pathDiscoveryToolNames(availableContextToolNames, 2)
+    : [];
+  const serializedContext = serializeContextForXtalpi(contextLike, {
+    maxTools,
+    maxToolResultChars,
+    maxToolHistoryChars: policy.maxToolHistoryChars,
+    toolLedger,
+    useToolResultReceiptV2: policy.engine === "v2",
+    recoveryToolNames,
+  });
   const names = serializedContext.selectedToolNames;
   const selectedToolByName = new Map(serializedContext.selectedTools.map((tool) => [tool.name, tool]));
   const messages = serializedContext.messages;
@@ -101,9 +126,22 @@ export async function runProviderTurn(input: {
     maxTools,
     maxToolResultChars,
     options,
+    policy,
   });
   const selectedToolNames = debugContext.selectedToolNames;
   debugLog("turn.start", debugContext);
+  debugLog("tool_ledger", {
+    ...debugContext,
+    ledgerSchema: toolLedger.schema,
+    observationCount: toolLedger.observations.length,
+    pendingCallCount: toolLedger.pendingCallCount,
+    unpairedResultCount: toolLedger.unpairedResultCount,
+    duplicateResultCount: toolLedger.duplicateResultCount,
+    latestToolStatus: latestObservation?.status,
+    latestToolErrorCode: latestObservation?.errorCode,
+    latestToolFingerprint: latestObservation?.fingerprint,
+    recoveryToolNames,
+  });
 
   const visionDetection = detectVisionTaskText(serializedContext.toolSelectionPromptText);
   const browserDetection = detectBrowserMcpTaskText(serializedContext.toolSelectionPromptText);
@@ -164,7 +202,7 @@ export async function runProviderTurn(input: {
   // Recovery turns must stay serial: each repair prompt depends on the exact
   // previous model response and on the current per-turn recovery budget.
   while (true) {
-    const response = await callChat({ model, messages, options, runtimeConfig });
+    const response = await callChat({ model, messages, options, runtimeConfig, policy });
     loopState.addResponse(response);
     const raw = response.content.trim();
 
@@ -186,64 +224,66 @@ export async function runProviderTurn(input: {
 
     const parsed = parseJsonAction(raw);
     if (parsed.kind === "error") {
-      if (loopState.canRecoverRepair(debugContext)) {
-        if (
-          visionDetection.isVisionTask &&
-          selectedVisionTool &&
-          isVisionInabilityFinal(raw)
-        ) {
-          const recovery = loopState.noteRepairRecovery();
-          messages.push({
-            role: "user",
-            content: buildVisionBridgeToolCallRepairPrompt({
-              toolName: selectedVisionTool,
-              detection: visionDetection,
-              latestUserText: serializedContext.toolSelectionPromptText,
-            }),
-          });
-          debugLog("recovery.vision_bridge_tool_not_called", {
-            ...debugContext,
+      if (
+        visionDetection.isVisionTask &&
+        selectedVisionTool &&
+        isVisionInabilityFinal(raw) &&
+        loopState.canRecoverFinal(debugContext)
+      ) {
+        const recovery = loopState.noteFinalRecovery();
+        messages.push({
+          role: "user",
+          content: buildVisionBridgeToolCallRepairPrompt({
             toolName: selectedVisionTool,
-            code: "vision_bridge_tool_not_called",
-            ...recovery,
-            rawExcerpt: safeBlockText(raw, 500),
-          });
-          continue;
-        }
-
-        const parseErrorFinalGuard = validateFinalAnswer({
-          text: raw,
-          context: contextLike,
-          selectedToolNames,
+            detection: visionDetection,
+            latestUserText: serializedContext.toolSelectionPromptText,
+          }),
         });
-        if (
-          parsed.code === "invalid_json" &&
-          !raw.trim().startsWith("{") &&
-          !parseErrorFinalGuard.ok
-        ) {
-          const recovery = loopState.noteRepairRecovery();
-          messages.push({
-            role: "user",
-            content: buildPrematureFinalRepairPrompt({
-              code: parseErrorFinalGuard.code,
-              reason: parseErrorFinalGuard.reason,
-              raw,
-              latestUserText: parseErrorFinalGuard.latestUserText,
-              availableNames: selectedToolNames,
-              forcePlanBlock: finalGuardRequiresPlanBlock(parseErrorFinalGuard),
-            }),
-          });
-          debugLog("recovery.premature_final", {
-            ...debugContext,
+        debugLog("recovery.vision_bridge_tool_not_called", {
+          ...debugContext,
+          toolName: selectedVisionTool,
+          code: "vision_bridge_tool_not_called",
+          ...recovery,
+          rawExcerpt: safeBlockText(raw, 500),
+        });
+        continue;
+      }
+
+      const parseErrorFinalGuard = validateFinalAnswer({
+        text: raw,
+        context: contextLike,
+        selectedToolNames,
+      });
+      if (
+        parsed.code === "invalid_json" &&
+        !raw.trim().startsWith("{") &&
+        !parseErrorFinalGuard.ok &&
+        loopState.canRecoverFinal(debugContext)
+      ) {
+        const recovery = loopState.noteFinalRecovery();
+        messages.push({
+          role: "user",
+          content: buildPrematureFinalRepairPrompt({
             code: parseErrorFinalGuard.code,
             reason: parseErrorFinalGuard.reason,
-            ...recovery,
-            rawExcerpt: safeBlockText(raw, 500),
-          });
-          continue;
-        }
+            raw,
+            latestUserText: parseErrorFinalGuard.latestUserText,
+            availableNames: selectedToolNames,
+            forcePlanBlock: finalGuardRequiresPlanBlock(parseErrorFinalGuard),
+          }),
+        });
+        debugLog("recovery.premature_final", {
+          ...debugContext,
+          code: parseErrorFinalGuard.code,
+          reason: parseErrorFinalGuard.reason,
+          ...recovery,
+          rawExcerpt: safeBlockText(raw, 500),
+        });
+        continue;
+      }
 
-        const recovery = loopState.noteRepairRecovery();
+      if (loopState.canRecoverFormat(debugContext)) {
+        const recovery = loopState.noteFormatRecovery();
         const repairPlan = buildParseErrorRepairPlan(parsed, selectedToolNames);
         messages.push({ role: "user", content: repairPlan.prompt });
         debugLog(repairPlan.event, {
@@ -267,11 +307,6 @@ export async function runProviderTurn(input: {
         };
       }
 
-      const parseErrorFinalGuard = validateFinalAnswer({
-        text: raw,
-        context: contextLike,
-        selectedToolNames,
-      });
       if (!parseErrorFinalGuard.ok && finalGuardRequiresPlanBlock(parseErrorFinalGuard)) {
         debugLog("recovery.plan_mode_fallback", {
           ...debugContext,
@@ -304,8 +339,8 @@ export async function runProviderTurn(input: {
         selectedVisionTool &&
         isVisionInabilityFinal(parsed.text)
       ) {
-        if (loopState.canRecoverRepair(debugContext)) {
-          const recovery = loopState.noteRepairRecovery();
+        if (loopState.canRecoverFinal(debugContext)) {
+          const recovery = loopState.noteFinalRecovery();
           messages.push({
             role: "user",
             content: buildVisionBridgeToolCallRepairPrompt({
@@ -337,8 +372,8 @@ export async function runProviderTurn(input: {
         selectedToolNames,
       });
       if (!finalGuard.ok) {
-        if (loopState.canRecoverRepair(debugContext)) {
-          const recovery = loopState.noteRepairRecovery();
+        if (loopState.canRecoverFinal(debugContext)) {
+          const recovery = loopState.noteFinalRecovery();
           messages.push({
             role: "user",
             content: buildPrematureFinalRepairPrompt({
@@ -396,19 +431,50 @@ export async function runProviderTurn(input: {
     }
 
     const requestedCall = makeRequestedToolCall(parsed.call.name, parsed.call.arguments);
+    const matchingObservation = latestObservationForCall(toolLedger, requestedCall);
+    const selectedDiscoveryToolNames = pathDiscoveryToolNames(names, 2);
 
-    const toolDecision = decideToolCallRequest({
+    const decisionInput = {
       requestedCall,
       selectedToolNames: names,
       selectedToolNamesList: selectedToolNames,
       selectedToolByName,
       toolSelectionPromptText: serializedContext.toolSelectionPromptText,
-      lastCompletedCall,
-      canRepair: loopState.canRecoverRepair(debugContext),
+      canRepair: loopState.canRecoverFormat(debugContext),
+      canRecoverRepeated: loopState.canRecoverRepeatedCall(debugContext),
+      discoveryToolNames: selectedDiscoveryToolNames,
+    };
+    const toolDecision = decideToolCallRequest({
+      ...decisionInput,
+      ...(policy.engine === "v2"
+        ? { lastObservation: matchingObservation }
+        : { lastCompletedCall }),
     });
+    if (policy.engine === "shadow") {
+      const shadowDecision = decideToolCallRequest({
+        ...decisionInput,
+        lastObservation: matchingObservation,
+      });
+      debugLog("tool_decision.shadow", {
+        ...debugContext,
+        toolName: requestedCall.name,
+        legacyDecisionKind: toolDecision.kind,
+        legacyDecisionEvent: toolDecision.kind === "repair" ? toolDecision.event : undefined,
+        v2DecisionKind: shadowDecision.kind,
+        v2DecisionEvent: shadowDecision.kind === "repair" ? shadowDecision.event : undefined,
+        decisionsDiffer:
+          toolDecision.kind !== shadowDecision.kind ||
+          (toolDecision.kind === "repair" && shadowDecision.kind === "repair" && toolDecision.event !== shadowDecision.event),
+        observationStatus: matchingObservation?.status,
+        observationErrorCode: matchingObservation?.errorCode,
+        observationFingerprint: matchingObservation?.fingerprint,
+      });
+    }
 
     if (toolDecision.kind === "repair") {
-      const recovery = loopState.noteRepairRecovery();
+      const recovery = toolDecision.event === "recovery.repeated_tool"
+        ? loopState.noteRepeatedCallRecovery()
+        : loopState.noteFormatRecovery();
       messages.push({ role: "user", content: toolDecision.prompt });
       debugLog(toolDecision.event, {
         ...debugContext,
@@ -433,6 +499,11 @@ export async function runProviderTurn(input: {
       toolName: requestedCall.name,
       argsKeys: Object.keys(requestedCall.arguments),
       warnings: parsed.warnings,
+      repeatPolicy: toolDecision.repeatPolicyDecision?.policy,
+      repeatReason: toolDecision.repeatPolicyDecision?.reason,
+      priorToolStatus: matchingObservation?.status,
+      priorToolErrorCode: matchingObservation?.errorCode,
+      toolFingerprint: matchingObservation?.fingerprint,
       ...argumentValidationTelemetry(toolDecision.argumentValidationWarnings),
     });
 

@@ -12,6 +12,9 @@ export type TurnRecoveryBudget = {
   maxEmptyRetries: number;
   maxRepairRetries: number;
   maxTotalRecoveries: number;
+  maxFormatRecoveries?: number;
+  maxFinalRecoveries?: number;
+  maxRepeatedCallRecoveries?: number;
 };
 
 export type TurnLoopStateSnapshot = {
@@ -26,6 +29,9 @@ export class TurnLoopState {
   #emptyRetries = 0;
   #repairRetries = 0;
   #totalRecoveries = 0;
+  #formatRecoveries = 0;
+  #finalRecoveries = 0;
+  #repeatedCallRecoveries = 0;
   #accumulatedUsage = { ...EMPTY_USAGE };
   #responseModel: string | undefined;
 
@@ -52,6 +58,27 @@ export class TurnLoopState {
     );
   }
 
+  canRecoverFormat(
+    budget: Pick<TurnRecoveryBudget, "maxRepairRetries" | "maxTotalRecoveries" | "maxFormatRecoveries">,
+  ): boolean {
+    return this.canRecoverRepair(budget) &&
+      this.#formatRecoveries < (budget.maxFormatRecoveries ?? budget.maxRepairRetries);
+  }
+
+  canRecoverFinal(
+    budget: Pick<TurnRecoveryBudget, "maxRepairRetries" | "maxTotalRecoveries" | "maxFinalRecoveries">,
+  ): boolean {
+    return this.canRecoverRepair(budget) &&
+      this.#finalRecoveries < (budget.maxFinalRecoveries ?? budget.maxRepairRetries);
+  }
+
+  canRecoverRepeatedCall(
+    budget: Pick<TurnRecoveryBudget, "maxRepairRetries" | "maxTotalRecoveries" | "maxRepeatedCallRecoveries">,
+  ): boolean {
+    return this.canRecoverRepair(budget) &&
+      this.#repeatedCallRecoveries < (budget.maxRepeatedCallRecoveries ?? budget.maxRepairRetries);
+  }
+
   noteEmptyRecovery(): { emptyRetries: number; totalRecoveries: number } {
     this.#emptyRetries += 1;
     this.#totalRecoveries += 1;
@@ -67,6 +94,45 @@ export class TurnLoopState {
     return {
       repairRetries: this.#repairRetries,
       totalRecoveries: this.#totalRecoveries,
+    };
+  }
+
+  noteFormatRecovery(): {
+    formatRecoveries: number;
+    repairRetries: number;
+    totalRecoveries: number;
+  } {
+    this.#formatRecoveries += 1;
+    return { formatRecoveries: this.#formatRecoveries, ...this.noteRepairRecovery() };
+  }
+
+  noteFinalRecovery(): {
+    finalRecoveries: number;
+    repairRetries: number;
+    totalRecoveries: number;
+  } {
+    this.#finalRecoveries += 1;
+    return { finalRecoveries: this.#finalRecoveries, ...this.noteRepairRecovery() };
+  }
+
+  noteRepeatedCallRecovery(): {
+    repeatedCallRecoveries: number;
+    repairRetries: number;
+    totalRecoveries: number;
+  } {
+    this.#repeatedCallRecoveries += 1;
+    return { repeatedCallRecoveries: this.#repeatedCallRecoveries, ...this.noteRepairRecovery() };
+  }
+
+  recoveryDetails(): {
+    formatRecoveries: number;
+    finalRecoveries: number;
+    repeatedCallRecoveries: number;
+  } {
+    return {
+      formatRecoveries: this.#formatRecoveries,
+      finalRecoveries: this.#finalRecoveries,
+      repeatedCallRecoveries: this.#repeatedCallRecoveries,
     };
   }
 

@@ -18,9 +18,7 @@ import {
 } from "./protocol.ts";
 import { runProviderTurn } from "./provider-turn.ts";
 import {
-  buildChatCompletionPayload,
   loadRuntimeConfig,
-  resolveRequestTimeoutMs,
   type ProviderRuntimeConfig,
 } from "./runtime-config.ts";
 import { createLocalAssistantMessageEventStream } from "./stream.ts";
@@ -29,6 +27,7 @@ let runtimeConfig: ProviderRuntimeConfig | undefined;
 
 export {
   buildChatCompletionPayload,
+  resolveProviderRuntimePolicy,
   resolveMaxOutputTokens,
   resolveRequestTimeoutMs,
 } from "./runtime-config.ts";

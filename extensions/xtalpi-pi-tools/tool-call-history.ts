@@ -8,7 +8,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 export function latestToolCallWithResult(context: ContextLike): ToolCall | undefined {
   let latestCall: ToolCall | undefined;
-  let hasResultAfterLatestCall = false;
+  let latestCallHasMatchingResult = false;
 
   for (const message of context.messages) {
     if (message.role === "assistant" && Array.isArray(message.content)) {
@@ -20,15 +20,19 @@ export function latestToolCallWithResult(context: ContextLike): ToolCall | undef
             name: block.name,
             arguments: isObject(block.arguments) ? block.arguments : {},
           };
-          hasResultAfterLatestCall = false;
+          latestCallHasMatchingResult = false;
         }
       }
-    } else if (message.role === "toolResult" && latestCall) {
-      hasResultAfterLatestCall = true;
+    } else if (
+      message.role === "toolResult" &&
+      latestCall?.id &&
+      message.toolCallId === latestCall.id
+    ) {
+      latestCallHasMatchingResult = true;
     }
   }
 
-  return hasResultAfterLatestCall ? latestCall : undefined;
+  return latestCallHasMatchingResult ? latestCall : undefined;
 }
 
 export function makeToolCallId(name: string): string {

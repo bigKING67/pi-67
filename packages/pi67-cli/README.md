@@ -10,6 +10,7 @@ npm install -g @bigking67/pi-67
 pi-67 install --repair --yes
 pi-67 update
 pi-67 doctor
+pi-67 launch
 ```
 
 Windows PowerShell uses the same public commands:
@@ -26,7 +27,15 @@ npm install -g @bigking67/pi-67
 pi-67 install --repair --yes
 pi-67 update
 pi-67 doctor
+pi-67 launch
 ```
+
+On Windows, do not launch bare `pi` before the pi-67 install/repair step has
+verified Git. Upstream Pi installs git-based packages such as
+`git:github.com/justhil/pi-image-gen`; if the current PowerShell cannot find
+`git.exe`, bare `pi` fails with `spawn git ENOENT`. `pi-67 launch` starts
+upstream `pi` with the same Git-for-Windows PATH guard used by the installer,
+so the first successful run can happen without reopening PowerShell.
 
 ## Important update boundary
 

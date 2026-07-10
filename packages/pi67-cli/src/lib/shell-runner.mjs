@@ -47,6 +47,12 @@ export function commandCandidatesForPlatform(command, platform = process.platfor
   if (platform === "win32" && command === "npm") {
     return ["npm", "npm.cmd", "cmd.exe"];
   }
+  if (platform === "win32" && command === "npx") {
+    return ["npx", "npx.cmd", "cmd.exe"];
+  }
+  if (platform === "win32" && command === "pi") {
+    return ["pi", "pi.cmd", "cmd.exe"];
+  }
   if (platform === "win32" && command === "git") {
     return dedupe(["git", "git.exe", ...windowsGitExecutableCandidates(env)]);
   }
@@ -170,6 +176,20 @@ function commandInvocationsForPlatform(command, args, platform = process.platfor
       { command: "npm", args },
       { command: "npm.cmd", args },
       { command: env.ComSpec || "cmd.exe", args: ["/d", "/s", "/c", "npm.cmd", ...args] },
+    ];
+  }
+  if (platform === "win32" && command === "npx") {
+    return [
+      { command: "npx", args },
+      { command: "npx.cmd", args },
+      { command: env.ComSpec || "cmd.exe", args: ["/d", "/s", "/c", "npx.cmd", ...args] },
+    ];
+  }
+  if (platform === "win32" && command === "pi") {
+    return [
+      { command: "pi", args },
+      { command: "pi.cmd", args },
+      { command: env.ComSpec || "cmd.exe", args: ["/d", "/s", "/c", "pi.cmd", ...args] },
     ];
   }
   return commandCandidatesForPlatform(command, platform, env).map((candidate) => ({ command: candidate, args }));

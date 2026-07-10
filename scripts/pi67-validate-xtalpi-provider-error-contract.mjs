@@ -149,8 +149,14 @@ export function validateProviderErrorContract(contract, file = "(memory)") {
     if (typeof metadata.healthImmediateRetry !== "boolean") {
       errors.push(error("healthImmediateRetry must be boolean", { code }));
     }
+    if (!["never", "backoff", "retry_after"].includes(metadata.runtimeRetryPolicy)) {
+      errors.push(error("runtimeRetryPolicy must be never, backoff, or retry_after", { code }));
+    }
     if (metadata.healthImmediateRetry === true && metadata.retryable !== true) {
       errors.push(error("healthImmediateRetry=true requires retryable=true", { code }));
+    }
+    if (metadata.runtimeRetryPolicy !== "never" && metadata.retryable !== true) {
+      errors.push(error("runtime retry requires retryable=true", { code }));
     }
   }
 
@@ -159,9 +165,10 @@ export function validateProviderErrorContract(contract, file = "(memory)") {
     !isObject(rateLimit) ||
     rateLimit.category !== "rate_limit" ||
     rateLimit.retryable !== true ||
-    rateLimit.healthImmediateRetry !== false
+    rateLimit.healthImmediateRetry !== false ||
+    rateLimit.runtimeRetryPolicy !== "retry_after"
   ) {
-    errors.push(error("http_429 must be retryable without immediate health retry"));
+    errors.push(error("http_429 must use retry_after without immediate health retry"));
   }
 
   for (const [status, code] of Object.entries(contract.requiredHttpStatus)) {
@@ -308,6 +315,7 @@ export function runSelfTest(contractFile = defaultContractPath()) {
           category: "network",
           retryable: true,
           healthImmediateRetry: true,
+          runtimeRetryPolicy: "backoff",
         };
       },
       "contract has unrecognized error codes",
@@ -342,7 +350,7 @@ export function runSelfTest(contractFile = defaultContractPath()) {
       (contract) => {
         contract.errors.http_429.healthImmediateRetry = true;
       },
-      "http_429 must be retryable without immediate health retry",
+      "http_429 must use retry_after without immediate health retry",
     ),
     selfTestCase(
       "wrong_exact_http_status",

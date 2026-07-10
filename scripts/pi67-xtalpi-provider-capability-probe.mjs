@@ -340,7 +340,8 @@ function makeProbeDefinitions(model, skipNativeProbes) {
       payload: {
         model,
         stream: false,
-        max_tokens: 64,
+        max_tokens: 256,
+        temperature: 0,
         messages: [{ role: "user", content: "Reply exactly: PI_CAPABILITY_PLAIN_OK" }],
       },
     },
@@ -351,6 +352,7 @@ function makeProbeDefinitions(model, skipNativeProbes) {
         model,
         stream: false,
         max_tokens: 128,
+        temperature: 0,
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: "You are a helpful assistant designed to output JSON." },
@@ -365,6 +367,7 @@ function makeProbeDefinitions(model, skipNativeProbes) {
         model,
         stream: false,
         max_tokens: 128,
+        temperature: 0,
         response_format: {
           type: "json_schema",
           json_schema: {
@@ -395,6 +398,7 @@ function makeProbeDefinitions(model, skipNativeProbes) {
           model,
           stream: false,
           max_tokens: 128,
+          temperature: 0,
           tools: [
             {
               type: "function",
@@ -422,6 +426,7 @@ function makeProbeDefinitions(model, skipNativeProbes) {
           model,
           stream: false,
           max_tokens: 128,
+          temperature: 0,
           tools: [
             {
               type: "function",
@@ -450,6 +455,7 @@ function makeProbeDefinitions(model, skipNativeProbes) {
           model,
           stream: false,
           max_tokens: 128,
+          temperature: 0,
           messages: [
             { role: "user", content: "Use the previous tool result and reply marker only." },
             {
@@ -486,6 +492,7 @@ function makeJsonActionProbe(model, index) {
       model,
       stream: false,
       max_tokens: 512,
+      temperature: 0,
       response_format: { type: "json_object" },
       messages: [
         {
@@ -573,8 +580,14 @@ function summarize(results) {
       })),
     },
   };
+  const probeCompleted = results.length > 0 && results.every((result) => result.status !== "transport_error");
+  const runtimeReady = summary.plainChat?.ok === true &&
+    summary.jsonObject?.ok === true &&
+    summary.jsonAction.ok === true;
   return {
     ...summary,
+    probeCompleted,
+    runtimeReady,
     recommendedMode: recommendedMode(summary),
   };
 }
@@ -591,6 +604,8 @@ async function runLive(args) {
     timeoutMs: args.timeoutMs,
     jsonActionRunsConfigured: args.jsonActionRuns,
     nativeProbesSkipped: args.skipNativeProbes,
+    probeCompleted: false,
+    runtimeReady: false,
     ok: false,
     recommendedMode: "unknown",
     summary: {},
@@ -618,8 +633,10 @@ async function runLive(args) {
   }
 
   result.summary = summarize(result.probes);
+  result.probeCompleted = result.summary.probeCompleted;
+  result.runtimeReady = result.summary.runtimeReady;
   result.recommendedMode = result.summary.recommendedMode;
-  result.ok = result.summary.plainChat?.ok === true;
+  result.ok = result.runtimeReady;
   return result;
 }
 
@@ -679,10 +696,46 @@ function runSelfTest() {
   }) === "local_json_action_protocol", "targeted json action recommended mode failed");
   assert(recommendedMode({}) === "unsupported_json_action", "unsupported JSON action mode failed");
 
+  const definitions = makeProbeDefinitions("deepseek-v4-pro", false);
+  assert(definitions.every((probe) => probe.payload.temperature === 0), "all capability probes must be deterministic");
+  assert(definitions.find((probe) => probe.name === "plain_chat")?.payload.max_tokens === 256, "plain chat token budget failed");
+
+  const canonicalReady = summarize([
+    classifyPlainChat(fakeInput("plain_chat", 200, {
+      choices: [{ finish_reason: "stop", message: { role: "assistant", content: "PI_CAPABILITY_PLAIN_OK" } }],
+    })),
+    classifyJsonObject(fakeInput("json_object", 200, {
+      choices: [{ finish_reason: "stop", message: { role: "assistant", content: "{\"ok\":true,\"marker\":\"PI_CAPABILITY_JSON_OBJECT_OK\"}" } }],
+    })),
+    classifyNativeToolCall(fakeInput("native_tools_forced", 400, { error: { message: "unsupported" } })),
+    classifyRoleTool(fakeInput("role_tool_followup", 400, { error: { message: "unsupported" } })),
+    classifyJsonAction(fakeInput("json_action_1", 200, {
+      choices: [{ finish_reason: "stop", message: { role: "assistant", content: "{\"kind\":\"tool_call\",\"name\":\"read\",\"arguments\":{\"path\":\"package.json\"}}" } }],
+    })),
+  ]);
+  assert(canonicalReady.probeCompleted === true, "completed HTTP probes should be distinguished from transport failure");
+  assert(canonicalReady.runtimeReady === true, "native capability failures must not disable canonical runtime");
+
+  const canonicalNotReady = summarize([
+    { name: "plain_chat", status: 200, ok: true, supported: true },
+    { name: "json_object", status: 200, ok: false, supported: false },
+    { name: "json_action_1", status: 200, ok: true, supported: true },
+  ]);
+  assert(canonicalNotReady.probeCompleted === true, "unsupported capability still completed its probe");
+  assert(canonicalNotReady.runtimeReady === false, "json_object is required for canonical runtime");
+
+  const incomplete = summarize([
+    { name: "plain_chat", status: "transport_error", ok: false, supported: false },
+    { name: "json_object", status: 200, ok: true, supported: true },
+    { name: "json_action_1", status: 200, ok: true, supported: true },
+  ]);
+  assert(incomplete.probeCompleted === false, "transport failure must mark probe run incomplete");
+  assert(incomplete.runtimeReady === false, "transport failure must not report runtime ready");
+
   return {
     schema: "xtalpi-pi-tools.provider-capabilities-self-test.v1",
     ok: true,
-    cases: 10,
+    cases: 18,
   };
 }
 

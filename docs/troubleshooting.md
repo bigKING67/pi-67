@@ -117,6 +117,43 @@ Git for Windows by itself. Already-open PowerShell windows can keep their old
 process-local `$env:Path`; close and reopen PowerShell if `git --version`
 still fails in the old window.
 
+## Bare `pi` fails with `Error: spawn git ENOENT`
+
+This is the same root cause, but it happens inside upstream
+`@earendil-works/pi-coding-agent` instead of inside pi-67. A typical stack
+mentions a git package clone such as:
+
+```text
+Error: spawn git ENOENT
+spawnargs: [
+  'clone',
+  'https://github.com/justhil/pi-image-gen',
+  'C:\\Users\\...\\.pi\\agent\\git\\github.com\\justhil\\pi-image-gen'
+]
+```
+
+Upstream Pi is trying to install `git:github.com/justhil/pi-image-gen`, but the
+current PowerShell process cannot find `git.exe`. Repair with pi-67 first, then
+launch through the guarded entrypoint:
+
+```powershell
+npm install -g @bigking67/pi-67@latest
+pi-67 install --repair --yes
+pi-67 doctor
+pi-67 launch
+```
+
+If you want bare `pi` to work in every new PowerShell window, close and reopen
+PowerShell after the repair, then verify:
+
+```powershell
+git --version
+pi
+```
+
+For the already-open window, use `pi-67 launch`; a child process cannot
+permanently rewrite its parent PowerShell `$env:Path`.
+
 ## `node` or `npm` command not found
 
 Pi and several extensions require Node/npm. Install Node first, then rerun:

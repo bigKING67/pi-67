@@ -6,6 +6,44 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.10.26] - 2026-07-10
+
+### Added
+
+- Added `pi-67 launch`, a guarded upstream Pi launcher that checks Git before
+  starting `pi`, patches a discovered Git for Windows directory into the child
+  process PATH, and can persist that directory into Windows User PATH with
+  `--persist-git-path` / global `--yes`.
+- Added the `xtalpi-pi-tools` compatibility protocol v2 runtime with explicit
+  `legacy` / `shadow` / `v2` engines, reliability-oriented policy profiles,
+  canonical SHA-256 tool-call fingerprints, strictly paired call/result
+  receipts, and bounded recovery budgets.
+- Added focused `config/`, `protocol/`, `tools/`, `transport/`, and `turn/`
+  modules plus unit, transport, state-machine, integration, and replay tests so
+  the provider no longer concentrates protocol behavior in one parser file.
+- Added Windows PowerShell `read-enoent-recovery` live coverage and capability
+  CLI forwarding for `--json-action-runs`, `--skip-native-probes`, and
+  `--output-file`.
+
+### Fixed
+
+- Windows first-run docs now avoid launching bare `pi` before
+  `pi-67 install --repair --yes`; upstream Pi installs git-based packages such
+  as `git:github.com/justhil/pi-image-gen`, so a stale PowerShell PATH could
+  otherwise crash with `spawn git ENOENT`.
+- The pi-67 command runner now has Windows `.cmd` fallbacks for `pi` and `npx`,
+  matching the existing npm fallback behavior.
+- A deterministic tool failure such as `read` returning `ENOENT` no longer
+  permits the same fingerprint to execute again. The local runtime emits one
+  bounded `recovery.repeated_tool`, promotes path-discovery tools such as
+  `fffind`, and continues to a final answer instead of abandoning the task.
+- HTTP attempts, response-body reads, retry delays, and recovery loops now share
+  explicit per-attempt and total request deadlines, preventing the previous
+  `attempts x full timeout` worst-case latency path.
+- Tool selection now incorporates recent failure context while keeping
+  transient replay limited to explicitly read-only idempotent tools; shell,
+  edit, write, and unknown-side-effect calls are never automatically replayed.
+
 ## [0.10.25] - 2026-07-09
 
 ### Changed

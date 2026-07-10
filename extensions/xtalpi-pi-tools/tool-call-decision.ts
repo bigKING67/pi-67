@@ -12,6 +12,11 @@ import {
 } from "./retry.ts";
 import { validateShellCommandRequest } from "./shell-command-guard.ts";
 import type { ToolLike } from "./serializer.ts";
+import {
+  repeatPolicyForObservation,
+  type RepeatPolicyDecision,
+} from "./tools/repeat-policy.ts";
+import type { ToolExecutionObservation } from "./turn/tool-execution-ledger.ts";
 
 type ToolCallRequest = {
   name: string;
@@ -28,6 +33,7 @@ export type ToolCallDecision =
   | {
       kind: "accept";
       argumentValidationWarnings: ArgumentValidationWarning[];
+      repeatPolicyDecision?: RepeatPolicyDecision;
     }
   | {
       kind: "repair";
@@ -56,7 +62,10 @@ export function decideToolCallRequest(input: {
   selectedToolByName: ReadonlyMap<string, ToolLike>;
   toolSelectionPromptText?: string;
   lastCompletedCall?: ToolCallRequest;
+  lastObservation?: ToolExecutionObservation;
   canRepair: boolean;
+  canRecoverRepeated?: boolean;
+  discoveryToolNames?: readonly string[];
 }): ToolCallDecision {
   const {
     requestedCall,
@@ -144,8 +153,43 @@ export function decideToolCallRequest(input: {
     };
   }
 
+  if (input.lastObservation) {
+    const repeatDecision = repeatPolicyForObservation(input.lastObservation);
+    if (repeatDecision.allow) {
+      return {
+        kind: "accept",
+        argumentValidationWarnings: argumentValidation.warnings,
+        repeatPolicyDecision: repeatDecision,
+      };
+    }
+
+    if (input.canRecoverRepeated ?? canRepair) {
+      return {
+        kind: "repair",
+        event: "recovery.repeated_tool",
+        prompt: buildRepeatedToolRepairPrompt(requestedCall.name, {
+          status: input.lastObservation.status,
+          errorCode: input.lastObservation.errorCode,
+          reason: repeatDecision.reason,
+          discoveryToolNames: input.discoveryToolNames,
+        }),
+        toolName: requestedCall.name,
+      };
+    }
+
+    return {
+      kind: "final",
+      text:
+        `xtalpi-pi-tools 检测到模型重复请求同一个工具，并拒绝再次执行：${requestedCall.name}。\n\n` +
+        `上次状态：${input.lastObservation.status}` +
+        `${input.lastObservation.errorCode ? `（${input.lastObservation.errorCode}）` : ""}。` +
+        "该调用的重复策略为 same_call_forbidden。请使用已有结果、改用不同发现路径，或把任务拆小后重试。",
+      toolName: requestedCall.name,
+    };
+  }
+
   if (input.lastCompletedCall && sameToolCall(input.lastCompletedCall, requestedCall)) {
-    if (canRepair) {
+    if (input.canRecoverRepeated ?? canRepair) {
       return {
         kind: "repair",
         event: "recovery.repeated_tool",

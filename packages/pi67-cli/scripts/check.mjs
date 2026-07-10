@@ -124,6 +124,7 @@ function runCliHelpContractSelfTests() {
     ["publish-check", "--help"],
     ["manifest", "--help"],
     ["backups", "--help"],
+    ["launch", "--help"],
   ];
   const backupRoot = path.join(home, ".pi", "pi67", "backups");
   for (const command of commands) {
@@ -135,6 +136,40 @@ function runCliHelpContractSelfTests() {
     assert(result.status === 0, `help command failed: pi-67 ${command.join(" ")}\n${result.stderr || result.stdout}`);
     assert(!result.stderr.trim(), `help command wrote stderr: pi-67 ${command.join(" ")}\n${result.stderr}`);
     assert(result.stdout.includes("Usage:"), `help command must print Usage: pi-67 ${command.join(" ")}`);
+  }
+  const capabilityOutput = path.join(tmpRoot, "capability.json");
+  const capability = spawnSync(
+    process.execPath,
+    [
+      path.join(root, "bin", "pi-67.mjs"),
+      ...globalArgs,
+      "xtalpi",
+      "capability",
+      "--dry-run",
+      "--provider",
+      "test-provider",
+      "--model",
+      "test-model",
+      "--timeout-ms",
+      "30000",
+      "--json-action-runs",
+      "5",
+      "--skip-native-probes",
+      "--output-file",
+      capabilityOutput,
+    ],
+    { cwd: root, env, encoding: "utf8" },
+  );
+  assert(capability.status === 0, `xtalpi capability dry-run failed\n${capability.stderr || capability.stdout}`);
+  for (const expectedArg of [
+    "--provider test-provider",
+    "--model test-model",
+    "--timeout-ms 30000",
+    "--json-action-runs 5",
+    "--skip-native-probes",
+    `--output-file ${capabilityOutput}`,
+  ]) {
+    assert(capability.stdout.includes(expectedArg), `xtalpi capability must forward ${expectedArg}\n${capability.stdout}`);
   }
   assert(
     !fs.existsSync(backupRoot) || fs.readdirSync(backupRoot).length === 0,
@@ -422,6 +457,14 @@ function runShellRunnerSelfTests() {
   assert(
     JSON.stringify(commandCandidatesForPlatform("npm", "win32")) === JSON.stringify(["npm", "npm.cmd", "cmd.exe"]),
     "Windows npm execution must fall back through npm.cmd and cmd.exe",
+  );
+  assert(
+    JSON.stringify(commandCandidatesForPlatform("npx", "win32")) === JSON.stringify(["npx", "npx.cmd", "cmd.exe"]),
+    "Windows npx execution must fall back through npx.cmd and cmd.exe",
+  );
+  assert(
+    JSON.stringify(commandCandidatesForPlatform("pi", "win32")) === JSON.stringify(["pi", "pi.cmd", "cmd.exe"]),
+    "Windows pi execution must fall back through pi.cmd and cmd.exe",
   );
   try {
     assert(

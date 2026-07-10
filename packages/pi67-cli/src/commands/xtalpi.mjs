@@ -59,8 +59,8 @@ function smoke(ctx, argv) {
 
 function capability(ctx, argv) {
   const { options } = parseCommandOptions(argv, {
-    strings: ["model", "provider", "timeout-ms"],
-    bools: ["dry-run", "self-test", "json"],
+    strings: ["model", "provider", "timeout-ms", "json-action-runs", "output-file"],
+    bools: ["dry-run", "self-test", "skip-native-probes", "json"],
   });
   if (options.help) return printXtalpiHelp();
   const args = [scriptPath(ctx, "pi67-xtalpi-provider-capability-probe.mjs"), "--agent-dir", ctx.agentDir];
@@ -68,6 +68,9 @@ function capability(ctx, argv) {
   if (options.provider) args.push("--provider", options.provider);
   if (options.model) args.push("--model", options.model);
   if (options.timeoutMs) args.push("--timeout-ms", options.timeoutMs);
+  if (options.jsonActionRuns) args.push("--json-action-runs", options.jsonActionRuns);
+  if (options.skipNativeProbes) args.push("--skip-native-probes");
+  if (options.outputFile) args.push("--output-file", options.outputFile);
   runCommand("node", args, { cwd: ctx.repoRoot, dryRun: ctx.dryRun || options.dryRun });
 }
 
@@ -167,7 +170,8 @@ Usage:
   pi-67 xtalpi health [--provider ID] [--model NAME] [--timeout-ms N] [--attempts N]
   pi-67 xtalpi smoke [--quick|--extension-low-risk|--extension-expanded|--profile NAME]
   pi-67 xtalpi smoke --case NAME
-  pi-67 xtalpi capability [--self-test] [--provider ID] [--model NAME]
+  pi-67 xtalpi capability [--self-test] [--provider ID] [--model NAME] [--timeout-ms N]
+                           [--json-action-runs N] [--skip-native-probes] [--output-file FILE]
   pi-67 xtalpi trend [--limit N] [--profile NAME] [--json] [--out-dir DIR]
   pi-67 xtalpi drift [--limit N] [--run-kind LIST] [--json] [--out-dir DIR]
   pi-67 xtalpi stress --until-done

@@ -17,6 +17,7 @@ import { selfUpdateCommand } from "./commands/self-update.mjs";
 import { publishCheckCommand } from "./commands/publish-check.mjs";
 import { manifestCommand } from "./commands/manifest.mjs";
 import { backupsCommand } from "./commands/backups.mjs";
+import { launchCommand } from "./commands/launch.mjs";
 
 const COMMANDS = {
   install: installCommand,
@@ -35,6 +36,7 @@ const COMMANDS = {
   "publish-check": publishCheckCommand,
   manifest: manifestCommand,
   backups: backupsCommand,
+  launch: launchCommand,
 };
 
 export async function main(argv) {
@@ -90,6 +92,7 @@ Commands:
   publish-check        Verify npm publish readiness and trusted publishing
   manifest             Show managed package/config/theme ownership policy
   backups              list/inspect/restore/prune/archive runtime backups
+  launch               Start upstream pi with Windows Git PATH guard
 
 Examples:
   pi-67 install
@@ -102,6 +105,7 @@ Examples:
   pi-67 manifest --validate
   pi-67 backups list
   pi-67 backups prune --keep-last 10 --dry-run
+  pi-67 launch
   pi-67 extensions doctor
   pi-67 skills plan
   pi-67 xtalpi smoke --quick

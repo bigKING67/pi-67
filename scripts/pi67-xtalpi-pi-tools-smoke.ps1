@@ -35,13 +35,14 @@ pi67-xtalpi-pi-tools-smoke.ps1 runs low-risk xtalpi live smoke cases from
 PowerShell without Bash.
 
 Usage:
-  .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 [-Case "read-package,plan-mode-contract,plan-mode-accepted-continuation,fffind-package"]
+  .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 [-Case "read-package,read-enoent-recovery,plan-mode-contract,plan-mode-accepted-continuation,fffind-package"]
   .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-low-risk
   .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -ListCases
   .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest
 
 Supported cases:
   read-package
+  read-enoent-recovery
   plan-mode-contract
   plan-mode-accepted-continuation
   until-done-continuation
@@ -86,9 +87,11 @@ $RepoRoot = (Resolve-Path (Join-Path $ScriptDir "..")).Path
 $ArtifactCorePath = Join-Path $ScriptDir "pi67-xtalpi-smoke-artifact-core.cjs"
 $ProtocolBoundaryCorePath = Join-Path $ScriptDir "pi67-xtalpi-protocol-boundary-core.cjs"
 $ProviderHealthScript = Join-Path $ScriptDir "pi67-xtalpi-provider-health.mjs"
+$MissingReadPath = ".pi67-xtalpi-smoke-missing-{0}.json" -f ([Guid]::NewGuid().ToString("N"))
 
 $AvailableCases = @(
   "read-package",
+  "read-enoent-recovery",
   "plan-mode-contract",
   "plan-mode-accepted-continuation",
   "until-done-continuation",
@@ -103,6 +106,7 @@ $AvailableCases = @(
 )
 $DefaultCases = @(
   "read-package",
+  "read-enoent-recovery",
   "plan-mode-contract",
   "plan-mode-accepted-continuation",
   "until-done-continuation",
@@ -141,6 +145,16 @@ $CaseDefinitions = @{
     requiredFinalText = @("EXTENSION_SMOKE_READ_PACKAGE_OK", "pi-extensions")
     argCheck = "read-package"
     prompt = "This is targeted portability smoke. Use only the read tool to read the current workspace relative path package.json. The read path argument must be exactly `"package.json`"; do not use any absolute path. Do not call bash, web_fetch, fffind, ffgrep, or any other tool. Final answer must include EXTENSION_SMOKE_READ_PACKAGE_OK and pi-extensions."
+  }
+  "read-enoent-recovery" = [ordered]@{
+    tool = "read,fffind"
+    expectedTools = @("read", "fffind")
+    requiredFinalText = @("ENOENT_RECOVERY_SMOKE_OK", "pi-extensions")
+    argCheck = "read-enoent-recovery"
+    recoveryCheck = "enoent-repeated-read"
+    envKind = "fff"
+    missingPath = $MissingReadPath
+    prompt = "This is the xtalpi-pi-tools v2 repeated-tool portability smoke. Follow this exact sequence. First call read with workspace-relative path `"$MissingReadPath`"; it must return ENOENT. After ENOENT, your next response must deliberately request the exact same read with the exact same path once, so the local repeated-tool guard is exercised; do not skip this test step. After the repeated-tool repair prompt, never read the missing path again. Use fffind with pattern exactly `"package.json`" and limit at most 5, then use read with path exactly `"package.json`". Do not call bash, web_fetch, ffgrep, or any other tool. Final answer must contain ENOENT_RECOVERY_SMOKE_OK, pi-extensions, and the package.json version. Do not output Pi protocol markers or tool-call JSON."
   }
   "plan-mode-contract" = [ordered]@{
     tool = "read"
@@ -298,6 +312,7 @@ function Test-PackageVersionRequiredCase {
   param([string]$CaseName)
   return @(
     "read-package",
+    "read-enoent-recovery",
     "until-done-continuation"
   ) -contains $CaseName
 }
@@ -467,7 +482,7 @@ function Test-LimitAtMost {
 }
 
 function Test-CaseToolArgs {
-  param([string]$CaseName, [object[]]$ToolStarts)
+  param([string]$CaseName, [object[]]$ToolStarts, [object]$Definition = $null)
   $failures = New-Object System.Collections.Generic.List[string]
 
   switch ($CaseName) {
@@ -475,6 +490,34 @@ function Test-CaseToolArgs {
       $event = Get-ToolStartByName $ToolStarts "read"
       $path = Get-ObjectValue $event.args "path"
       if ($path -ne "package.json") { $failures.Add(("read.path must equal package.json, got {0}" -f ($path | ConvertTo-Json -Compress -Depth 4))) }
+    }
+    "read-enoent-recovery" {
+      $actualSequence = @($ToolStarts | ForEach-Object { [string]$_.toolName }) -join ","
+      if ($actualSequence -ne "read,fffind,read") {
+        $failures.Add(("executed tool sequence must equal read,fffind,read, got {0}" -f $actualSequence))
+      }
+      $readEvents = @($ToolStarts | Where-Object { $_.toolName -eq "read" })
+      if ($readEvents.Count -ne 2) {
+        $failures.Add(("expected exactly two executed read calls, got {0}" -f $readEvents.Count))
+      } else {
+        $expectedMissingPath = [string](Get-ObjectValue $Definition "missingPath")
+        $firstPath = [string](Get-ObjectValue $readEvents[0].args "path")
+        $secondPath = [string](Get-ObjectValue $readEvents[1].args "path")
+        if ($firstPath -ne $expectedMissingPath) {
+          $failures.Add(("first read.path must equal {0}, got {1}" -f $expectedMissingPath, $firstPath))
+        }
+        if ($secondPath -ne "package.json") {
+          $failures.Add(("recovery read.path must equal package.json, got {0}" -f $secondPath))
+        }
+      }
+      $findEvents = @($ToolStarts | Where-Object { $_.toolName -eq "fffind" })
+      if ($findEvents.Count -ne 1) {
+        $failures.Add(("expected exactly one executed fffind call, got {0}" -f $findEvents.Count))
+      } else {
+        $pattern = Get-ObjectValue $findEvents[0].args "pattern"
+        if ($pattern -ne "package.json") { $failures.Add(("fffind.pattern must equal package.json, got {0}" -f ($pattern | ConvertTo-Json -Compress -Depth 4))) }
+        Test-LimitAtMost $findEvents[0].args 5 "fffind" $failures
+      }
     }
     "fffind-package" {
       $event = Get-ToolStartByName $ToolStarts "fffind"
@@ -537,6 +580,59 @@ function Test-CaseToolArgs {
   }
 }
 
+function Test-RecoveryExpectation {
+  param([object]$Definition, [object[]]$DebugEvents)
+  $failures = New-Object System.Collections.Generic.List[string]
+  $check = [string](Get-ObjectValue $Definition "recoveryCheck")
+  $recoveryEvents = @($DebugEvents | Where-Object { $_.event_category -eq "recovery" })
+  $enoentLedgerObserved = $false
+  $repeatedReadRecoveryCount = 0
+
+  if ($check -eq "enoent-repeated-read") {
+    foreach ($event in @($DebugEvents | Where-Object { $_.event -eq "tool_ledger" })) {
+      $data = Get-ObjectValue $event "data"
+      $status = Get-ObjectValue $event "latest_tool_status"
+      if ($null -eq $status) { $status = Get-ObjectValue $data "latestToolStatus" }
+      $errorCode = Get-ObjectValue $event "latest_tool_error_code"
+      if ($null -eq $errorCode) { $errorCode = Get-ObjectValue $data "latestToolErrorCode" }
+      if ([string]$status -eq "deterministic_error" -and [string]$errorCode -eq "ENOENT") {
+        $enoentLedgerObserved = $true
+        break
+      }
+    }
+    if (-not $enoentLedgerObserved) {
+      $failures.Add("missing tool_ledger deterministic_error/ENOENT evidence")
+    }
+
+    $repeatedReadRecoveries = @(
+      $recoveryEvents | Where-Object { $_.event -eq "recovery.repeated_tool" -and $_.tool_name -eq "read" }
+    )
+    $repeatedReadRecoveryCount = $repeatedReadRecoveries.Count
+    if ($repeatedReadRecoveryCount -ne 1) {
+      $failures.Add(("expected exactly one recovery.repeated_tool for read, got {0}" -f $repeatedReadRecoveryCount))
+    }
+    if ($recoveryEvents.Count -gt 2) {
+      $failures.Add(("expected at most two total recoveries, got {0}" -f $recoveryEvents.Count))
+    }
+  }
+
+  return [ordered]@{
+    ok = $failures.Count -eq 0
+    failures = @($failures)
+    recoveries = $recoveryEvents.Count
+    enoentLedgerObserved = $enoentLedgerObserved
+    repeatedReadRecoveryCount = $repeatedReadRecoveryCount
+    events = @($recoveryEvents | ForEach-Object {
+      [ordered]@{
+        event = $_.event
+        eventKind = $_.event_kind
+        toolName = $_.tool_name
+        totalRecoveries = $_.total_recoveries
+      }
+    })
+  }
+}
+
 function Summarize-CaseArtifact {
   param(
     [string]$CaseName,
@@ -557,7 +653,8 @@ function Summarize-CaseArtifact {
   $expectedTools = @($Definition.expectedTools)
   $unexpectedTools = @($actualToolNames | Where-Object { $expectedTools -notcontains $_ } | Select-Object -Unique)
   $missingTools = @($expectedTools | Where-Object { $actualToolNames -notcontains $_ })
-  $argExpectation = Test-CaseToolArgs ([string]$Definition.argCheck) $toolStarts
+  $argExpectation = Test-CaseToolArgs ([string]$Definition.argCheck) $toolStarts $Definition
+  $recoveryExpectation = Test-RecoveryExpectation $Definition $debugEvents
   $finalText = Get-FinalAssistantText $events
   $requiredFinalText = New-Object System.Collections.Generic.List[string]
   foreach ($marker in @($Definition.requiredFinalText)) { $requiredFinalText.Add([string]$marker) }
@@ -586,6 +683,7 @@ function Summarize-CaseArtifact {
   foreach ($tool in $missingTools) { $failureReasons.Add(("missing_tool:{0}" -f $tool)) }
   foreach ($tool in $unexpectedTools) { $failureReasons.Add(("unexpected_tool:{0}" -f $tool)) }
   foreach ($failure in @($argExpectation.failures)) { $failureReasons.Add(("arg_expectation:{0}" -f $failure)) }
+  foreach ($failure in @($recoveryExpectation.failures)) { $failureReasons.Add(("recovery_expectation:{0}" -f $failure)) }
   if (-not $debugTelemetryOk) { $failureReasons.Add("debug_telemetry_missing_or_invalid") }
   foreach ($errorText in @($errors | ForEach-Object { if ($_.message.errorMessage) { $_.message.errorMessage } elseif ($_.error) { $_.error } else { $_.message } })) {
     $failureReasons.Add(("runtime_error:{0}" -f $errorText))
@@ -598,7 +696,7 @@ function Summarize-CaseArtifact {
   } else {
     foreach ($marker in $missingFinalText) { $failureReasons.Add(("missing_final_text:{0}" -f $marker)) }
   }
-  $ok = $ExitStatus -eq 0 -and -not $TimedOut -and $toolExpectationOk -and $argExpectation.ok -and $finalAnswerOk -and $errors.Count -eq 0 -and $debugTelemetryOk
+  $ok = $ExitStatus -eq 0 -and -not $TimedOut -and $toolExpectationOk -and $argExpectation.ok -and $recoveryExpectation.ok -and $finalAnswerOk -and $errors.Count -eq 0 -and $debugTelemetryOk
 
   return [ordered]@{
     schema = "xtalpi-pi-tools.powershell-case-summary.v1"
@@ -616,6 +714,12 @@ function Summarize-CaseArtifact {
     toolStarts = @($toolStarts | ForEach-Object { "{0}:{1}" -f $_.toolName, ($_.args | ConvertTo-Json -Compress -Depth 8) })
     argExpectationOk = $argExpectation.ok
     argExpectationFailures = @($argExpectation.failures)
+    recoveryExpectationOk = $recoveryExpectation.ok
+    recoveryExpectationFailures = @($recoveryExpectation.failures)
+    recoveries = $recoveryExpectation.recoveries
+    recoveryEvents = @($recoveryExpectation.events)
+    enoentLedgerObserved = $recoveryExpectation.enoentLedgerObserved
+    repeatedReadRecoveryCount = $recoveryExpectation.repeatedReadRecoveryCount
     debugTelemetryOk = $debugTelemetryOk
     debugEventCount = $debugEvents.Count
     requiredFinalText = @($requiredFinalText)
@@ -641,6 +745,7 @@ function Should-RetryCase {
   if ($Summary.exitStatus -ne 0 -or $Summary.timedOutByWatchdog -eq $true) { return $false }
   if ($Summary.debugTelemetryOk -ne $true) { return $false }
   if ($Summary.argExpectationOk -ne $true) { return $false }
+  if ($Summary.recoveryExpectationOk -ne $true) { return $false }
   if (@($Summary.errors).Count -gt 0) { return $false }
   if (@($Summary.missingTools).Count -gt 0 -or @($Summary.unexpectedTools).Count -gt 0) { return $false }
   if (@($Summary.failureReasons) -contains "missing_final_assistant_text") { return $true }
@@ -654,6 +759,7 @@ function Test-FinalComplianceRepairEligible {
   if ($Summary.exitStatus -ne 0 -or $Summary.timedOutByWatchdog -eq $true) { return $false }
   if ($Summary.debugTelemetryOk -ne $true) { return $false }
   if ($Summary.argExpectationOk -ne $true) { return $false }
+  if ($Summary.recoveryExpectationOk -ne $true) { return $false }
   if (@($Summary.errors).Count -gt 0) { return $false }
   if (@($Summary.missingTools).Count -gt 0 -or @($Summary.unexpectedTools).Count -gt 0) { return $false }
   if (@($Summary.forbiddenFinalText).Count -gt 0) { return $false }
@@ -1088,6 +1194,33 @@ function Run-SelfTest {
       if ($fixtureSummary.ok -ne $true) { throw ("expected fixture {0} to pass" -f $fixture.name) }
     }
 
+    $enoentEvents = @(
+      @{ type = "tool_execution_start"; toolName = "read"; args = @{ path = $MissingReadPath } },
+      @{ type = "tool_execution_start"; toolName = "fffind"; args = @{ pattern = "package.json"; limit = 5 } },
+      @{ type = "tool_execution_start"; toolName = "read"; args = @{ path = "package.json" } },
+      @{ type = "agent_end"; messages = @(@{ role = "assistant"; content = @(@{ type = "text"; text = ("ENOENT_RECOVERY_SMOKE_OK pi-extensions {0}" -f $Script:ExpectedPackageVersion) }) }) }
+    )
+    $enoentOut = Join-Path $tmp "read-enoent-recovery.jsonl"
+    $enoentEvents | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 12 } | Set-Content -LiteralPath $enoentOut -Encoding UTF8
+    $enoentDebug = Join-Path $tmp "read-enoent-recovery.debug.jsonl"
+    @(
+      @{ schema = "xtalpi-pi-tools.debug.v1"; event = "tool_ledger"; event_category = "protocol"; data = @{ latestToolStatus = "deterministic_error"; latestToolErrorCode = "ENOENT" } },
+      @{ schema = "xtalpi-pi-tools.debug.v1"; event = "recovery.repeated_tool"; event_category = "recovery"; event_kind = "repeated_tool"; tool_name = "read"; total_recoveries = 1 }
+    ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 12 } | Set-Content -LiteralPath $enoentDebug -Encoding UTF8
+    $enoentSummary = Summarize-CaseArtifact "read-enoent-recovery" $CaseDefinitions["read-enoent-recovery"] $enoentOut $err $enoentDebug 0 1 $false
+    if ($enoentSummary.ok -ne $true) { throw "expected read-enoent-recovery fixture to pass" }
+
+    $enoentMissingRepairDebug = Join-Path $tmp "read-enoent-recovery-missing-repair.debug.jsonl"
+    @{ schema = "xtalpi-pi-tools.debug.v1"; event = "tool_ledger"; event_category = "protocol"; data = @{ latestToolStatus = "deterministic_error"; latestToolErrorCode = "ENOENT" } } | ConvertTo-Json -Compress -Depth 12 | Set-Content -LiteralPath $enoentMissingRepairDebug -Encoding UTF8
+    $enoentMissingRepair = Summarize-CaseArtifact "read-enoent-recovery" $CaseDefinitions["read-enoent-recovery"] $enoentOut $err $enoentMissingRepairDebug 0 1 $false
+    if ($enoentMissingRepair.ok -eq $true) { throw "expected missing repeated-tool recovery fixture to fail" }
+    if (Should-RetryCase $enoentMissingRepair) { throw "recovery-contract failure must not be retried as a final-answer failure" }
+
+    $enoentDuplicateOut = Join-Path $tmp "read-enoent-recovery-duplicate-executed.jsonl"
+    @($enoentEvents[0], $enoentEvents[0], $enoentEvents[1], $enoentEvents[2], $enoentEvents[3]) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 12 } | Set-Content -LiteralPath $enoentDuplicateOut -Encoding UTF8
+    $enoentDuplicate = Summarize-CaseArtifact "read-enoent-recovery" $CaseDefinitions["read-enoent-recovery"] $enoentDuplicateOut $err $enoentDebug 0 1 $false
+    if ($enoentDuplicate.ok -eq $true) { throw "expected duplicate executed read fixture to fail" }
+
     $planOut = Join-Path $tmp "plan-mode-contract.jsonl"
     @(
       @{ type = "agent_end"; messages = @(@{ role = "assistant"; content = @(@{ type = "text"; text = "<proposed_plan>`n1. Inspect real state.`n2. Verify result.`n</proposed_plan>" }) }) }
@@ -1285,6 +1418,11 @@ if (-not (Test-Path -LiteralPath $ResolvedAgentDir -PathType Container)) {
 }
 if (-not (Test-Path -LiteralPath (Join-Path $ResolvedAgentDir "package.json") -PathType Leaf)) {
   [Console]::Error.WriteLine("package.json not found under AgentDir: $ResolvedAgentDir")
+  exit 2
+}
+$missingReadAbsolutePath = Join-Path $ResolvedAgentDir $MissingReadPath
+if (Test-Path -LiteralPath $missingReadAbsolutePath) {
+  [Console]::Error.WriteLine("ENOENT sentinel unexpectedly exists: $missingReadAbsolutePath")
   exit 2
 }
 $Script:ExpectedPackageVersion = Get-PackageVersion (Join-Path $ResolvedAgentDir "package.json")

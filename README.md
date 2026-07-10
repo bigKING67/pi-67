@@ -4,7 +4,7 @@
 
 > 我的 [@earendil-works/pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) full-stack 工作台发行版：默认安装完整 Pi 最佳配置，再用 doctor 判断哪些能力已经就绪。
 
-当前发行版版本：`0.10.25`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.10.26`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 这是什么
 
@@ -164,21 +164,25 @@ pi-67 install --repair --yes
 ```
 
 安装器会自动修复当前流程；修复完成后关闭并重新打开 PowerShell，再运行
-`git --version` 验证 User PATH 已生效。
+`git --version` 验证 User PATH 已生效。如果还没重开 PowerShell，也可以先用
+`pi-67 launch` 启动，它会把 Git 路径补进这一次 upstream `pi` 子进程。
 
 ```bash
 # 已安装 pi
 npm install -g @earendil-works/pi-coding-agent
 
-# 确认 pi 命令可用；如果它提前生成了普通 ~/.pi/agent，pi-67 会用 --repair --yes 安全接管
-pi --version
+# 不要在 pi-67 install/doctor 之前直接启动 bare pi。
+# upstream pi 首次运行会安装 git-based packages，当前 shell 找不到 git 时会报 spawn git ENOENT。
 ```
 
 PowerShell 等价命令：
 
 ```powershell
 npm install -g @earendil-works/pi-coding-agent
-pi --version
+npm install -g @bigking67/pi-67@latest
+pi-67 install --repair --yes
+pi-67 doctor
+pi-67 launch -- --version
 ```
 
 ### 首选：npm 管理器 `pi-67`
@@ -192,6 +196,7 @@ pi-67 install --repair --yes
 pi-67 update
 pi-67 doctor
 pi-67 smoke --quick
+pi-67 launch
 ```
 
 Windows PowerShell 使用同一套命令：
@@ -202,7 +207,14 @@ pi-67 install --repair --yes
 pi-67 update
 pi-67 doctor
 pi-67 smoke --quick
+pi-67 launch
 ```
+
+Windows 新机尤其建议用 `pi-67 launch` 完成第一次启动。原因是 upstream
+`pi` 会在启动时安装 `git:github.com/justhil/pi-image-gen` 这类 Git 包；
+如果当前 PowerShell 还没继承 Git for Windows 的 PATH，裸跑 `pi` 会直接报
+`spawn git ENOENT`。`pi-67 launch` 会先做 Git PATH guard，再把参数原样交给
+upstream `pi`。
 
 如果你看到 `agent dir exists but is not a git checkout`，说明
 `~/.pi/agent` 已经被 Pi 或手工安装创建成普通文件夹。`pi-67 install` 不会静默覆盖它；
@@ -743,12 +755,14 @@ targeted live runner 验证低风险 extension 工具链路：
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -ListCases
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-low-risk
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-expanded
-.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,plan-mode-contract,plan-mode-accepted-continuation,until-done-continuation,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
+.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,read-enoent-recovery,plan-mode-contract,plan-mode-accepted-continuation,until-done-continuation,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
 ```
 
-这个 PowerShell runner 覆盖 `read-package`、`plan-mode-contract`、`plan-mode-accepted-continuation`、`until-done-continuation`、`fffind-package`、
+这个 PowerShell runner 覆盖 `read-package`、`read-enoent-recovery`、`plan-mode-contract`、`plan-mode-accepted-continuation`、`until-done-continuation`、`fffind-package`、
 `ffgrep-package`、`batch-web-fetch-example`、`seq-thinking-status`、`mcp-status`、`subagent-list`
-和 `recall-not-found` 这些低风险 targeted case，并为 FFF / sequential-thinking
+和 `recall-not-found` 这些低风险 targeted case；其中 `read-enoent-recovery` 会验证
+`ENOENT -> recovery.repeated_tool -> fffind -> read(package.json)`，并确认相同缺失
+`read` 没有被第二次真实执行。runner 为 FFF / sequential-thinking
 使用临时隔离状态。PowerShell live runner 默认会对“工具调用、参数和 debug telemetry
 都已正确但最终 assistant 文本为空”的瞬时模型/turn 结束抖动重试 1 次；可用
 `-CaseRetries 0` 或 `XTALPI_PI_TOOLS_SMOKE_CASE_RETRIES=0` 关闭，不会重试
@@ -810,7 +824,7 @@ bash ./scripts/pi67-test-xtalpi-pi-tools.sh
 bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh
 ```
 
-真实冒烟覆盖 no-tool、bash、read、bash/read、web/read、`plan-mode-contract`、`plan-mode-accepted-continuation`、low-`maxTools` `tool-selection-clipping`、multi-turn `tool-selection-continuation`、`until-done-continuation`，以及 adversarial `tool-result-injection` 场景；可用 `--case plan-mode-contract` 单独复核 `<proposed_plan>` contract，用 `--case plan-mode-accepted-continuation` 单独复核“Plan mode 已关闭、执行已接受计划”不会递归生成 `<proposed_plan>` fallback，用 `--case tool-selection-clipping` 单独复核 selected-tool clipping telemetry，用 `--case tool-selection-continuation` 或 `--case until-done-continuation` 单独复核 continuation prompt source telemetry，也可用 `--case tool-result-injection` 单独复核工具结果注入边界与 canary confirmation gate。
+真实冒烟覆盖 no-tool、bash、read、bash/read、web/read、`plan-mode-contract`、`plan-mode-accepted-continuation`、`read-enoent-recovery`、low-`maxTools` `tool-selection-clipping`、multi-turn `tool-selection-continuation`、`until-done-continuation`，以及 adversarial `tool-result-injection` 场景；可用 `--case plan-mode-contract` 单独复核 `<proposed_plan>` contract，用 `--case plan-mode-accepted-continuation` 单独复核“Plan mode 已关闭、执行已接受计划”不会递归生成 `<proposed_plan>` fallback，用 `--case read-enoent-recovery` 单独复核 `ENOENT` 后的重复调用阻断和替代发现链路，用 `--case tool-selection-clipping` 单独复核 selected-tool clipping telemetry，用 `--case tool-selection-continuation` 或 `--case until-done-continuation` 单独复核 continuation prompt source telemetry，也可用 `--case tool-result-injection` 单独复核工具结果注入边界与 canary confirmation gate。
 
 targeted extension smoke 还覆盖 `fffind-package`、`ffgrep-package`、
 `batch-web-fetch-example`、`seq-thinking-status`、`mcp-status`、`subagent-list`
@@ -831,7 +845,7 @@ bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --profile extension-low-risk
 ```
 
 该 profile 等价于 `mcp-status,subagent-list,recall-not-found`。需要扩展覆盖时再用
-`--profile extension-expanded`；默认不传 profile 仍是 11-case full-suite。
+`--profile extension-expanded`；默认不传 profile 仍是 12-case full-suite。
 
 provider health 快速预检：
 

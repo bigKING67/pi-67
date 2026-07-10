@@ -17,9 +17,15 @@ import {
   type ToolLike,
   type ToolSelectionSummary,
 } from "./tool-selection.ts";
+import { serializeToolResultReceipt } from "./protocol/tool-result-receipt.ts";
+import type { ToolExecutionLedger } from "./turn/tool-execution-ledger.ts";
 import {
-  imageContentBlockToText,
-} from "./vision-bridge.ts";
+  contentToText,
+  type MessageLike,
+} from "./protocol/message-content.ts";
+
+export { contentToText } from "./protocol/message-content.ts";
+export type { MessageLike } from "./protocol/message-content.ts";
 
 export {
   availableToolNames,
@@ -34,16 +40,6 @@ export type {
   ToolSelectionSummary,
 } from "./tool-selection.ts";
 
-type ContentBlock = Record<string, unknown>;
-
-export type MessageLike = {
-  role: string;
-  content?: string | ContentBlock[];
-  toolCallId?: string;
-  toolName?: string;
-  isError?: boolean;
-};
-
 export type ContextLike = {
   systemPrompt?: string;
   messages: MessageLike[];
@@ -53,6 +49,10 @@ export type ContextLike = {
 export type SerializeOptions = {
   maxTools: number;
   maxToolResultChars: number;
+  maxToolHistoryChars?: number;
+  toolLedger?: ToolExecutionLedger;
+  useToolResultReceiptV2?: boolean;
+  recoveryToolNames?: readonly string[];
 };
 
 export type ToolSelectionPromptSource = "latest_user" | "recent_user_continuation";
@@ -66,6 +66,9 @@ export type SerializedXtalpiContext = {
   toolSelectionPromptSource: ToolSelectionPromptSource;
   toolSelectionPromptChars: number;
   toolSelectionUserMessageCount: number;
+  toolResultReceiptVersion: "legacy" | "v2";
+  toolHistoryChars: number;
+  toolHistoryOmittedCount: number;
 };
 
 const MAX_ASSISTANT_HISTORY_CHARS = 20000;
@@ -79,29 +82,6 @@ const RETRY_CONTINUATION_PATTERN = /(?:再试(?:一下|下)?|重试|重新试(?:
 const NEGATIVE_RETRY_CONTINUATION_PATTERN =
   /(?:不要|不用|无需|别|禁止|do\s+not|don't|dont|without|no).{0,16}(?:再试|重试|重新试|try\s+again|retry)/i;
 
-export function contentToText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-
-  return content
-    .map((block) => {
-      if (typeof block !== "object" || block === null) return "";
-      const item = block as ContentBlock;
-      if (item.type === "text" && typeof item.text === "string") return item.text;
-      if (item.type === "image") return imageContentBlockToText(item);
-      if (item.type === "thinking") return "";
-      if (item.type === "toolCall") {
-        // The following toolResult message carries the observable evidence.
-        // Re-sending local tool-call history as text made some providers copy it
-        // into final answers, so prior toolCall blocks are intentionally omitted.
-        return "";
-      }
-      return "";
-    })
-    .filter(Boolean)
-    .join("\n");
-}
-
 function latestUserText(messages: MessageLike[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
@@ -112,7 +92,7 @@ function latestUserText(messages: MessageLike[]): string {
   return "";
 }
 
-function isContinuationPrompt(value: string): boolean {
+export function isContinuationPrompt(value: string): boolean {
   const text = value.trim();
   if (CONTINUATION_PROMPT_PATTERN.test(text)) return true;
   if (NEGATIVE_RETRY_CONTINUATION_PATTERN.test(text)) return false;
@@ -175,7 +155,15 @@ export function serializeContextForXtalpi(
   options: SerializeOptions,
 ): SerializedXtalpiContext {
   const prompt = toolSelectionPrompt(context.messages);
-  const toolSelection = selectToolsWithSummary(context.tools, prompt.text, options.maxTools);
+  const toolSelection = selectToolsWithSummary(
+    context.tools,
+    prompt.text,
+    options.maxTools,
+    {
+      boostedToolNames: options.recoveryToolNames,
+      boostReasonCode: options.recoveryToolNames?.length ? "recovery_path_discovery" : undefined,
+    },
+  );
   const selectedTools = toolSelection.selectedTools;
   const selectedToolNames = toolSelection.selectedToolNames;
   const systemParts = [
@@ -185,8 +173,43 @@ export function serializeContextForXtalpi(
   ].filter(Boolean);
 
   const output: XtalpiChatMessage[] = [{ role: "system", content: systemParts.join("\n\n") }];
+  const useToolResultReceiptV2 = options.useToolResultReceiptV2 === true;
+  const observationsByResultIndex = new Map(
+    (options.toolLedger?.observations ?? []).map((observation) => [observation.resultMessageIndex, observation]),
+  );
+  const maxToolHistoryChars = Math.max(
+    0,
+    options.maxToolHistoryChars ?? Number.POSITIVE_INFINITY,
+  );
+  const serializedToolResults = new Map<number, string>();
+  let remainingToolHistoryChars = maxToolHistoryChars;
+  let toolHistoryOmittedCount = 0;
 
-  for (const message of context.messages) {
+  for (let index = context.messages.length - 1; index >= 0; index -= 1) {
+    const message = context.messages[index];
+    if (message.role !== "toolResult") continue;
+    const serialized = useToolResultReceiptV2
+      ? serializeToolResultReceipt({
+          message,
+          observation: observationsByResultIndex.get(index),
+          maxToolResultChars: Math.min(
+            options.maxToolResultChars,
+            Number.isFinite(maxToolHistoryChars) ? Math.max(0, maxToolHistoryChars - 1600) : options.maxToolResultChars,
+          ),
+        })
+      : serializeToolResultAsUserText(message, options.maxToolResultChars);
+    if (!Number.isFinite(remainingToolHistoryChars) || serialized.length <= remainingToolHistoryChars) {
+      serializedToolResults.set(index, serialized);
+      if (Number.isFinite(remainingToolHistoryChars)) remainingToolHistoryChars -= serialized.length;
+    } else {
+      toolHistoryOmittedCount += 1;
+    }
+  }
+
+  let toolHistoryNoticeEmitted = false;
+
+  for (let index = 0; index < context.messages.length; index += 1) {
+    const message = context.messages[index];
     if (message.role === "user") {
       const content = contentToText(message.content).trim();
       if (content) output.push({ role: "user", content });
@@ -202,12 +225,24 @@ export function serializeContextForXtalpi(
     }
 
     if (message.role === "toolResult") {
-      output.push({
-        role: "user",
-        content: serializeToolResultAsUserText(message, options.maxToolResultChars),
-      });
+      const serialized = serializedToolResults.get(index);
+      if (serialized) {
+        if (toolHistoryOmittedCount > 0 && !toolHistoryNoticeEmitted) {
+          output.push({
+            role: "user",
+            content:
+              `[xtalpi-pi-tools-tool-history-truncated] omitted ${toolHistoryOmittedCount} older tool result(s) ` +
+              "to keep this turn within the configured tool-history budget.",
+          });
+          toolHistoryNoticeEmitted = true;
+        }
+        output.push({ role: "user", content: serialized });
+      }
     }
   }
+
+  const toolHistoryChars = [...serializedToolResults.values()]
+    .reduce((total, value) => total + value.length, 0);
 
   return {
     messages: output,
@@ -218,6 +253,9 @@ export function serializeContextForXtalpi(
     toolSelectionPromptSource: prompt.source,
     toolSelectionPromptChars: prompt.text.length,
     toolSelectionUserMessageCount: prompt.userMessageCount,
+    toolResultReceiptVersion: useToolResultReceiptV2 ? "v2" : "legacy",
+    toolHistoryChars,
+    toolHistoryOmittedCount,
   };
 }
 

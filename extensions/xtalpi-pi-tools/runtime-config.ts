@@ -18,7 +18,13 @@ import {
 } from "./protocol.ts";
 import { jsonActionResponseFormat } from "./json-action-protocol.ts";
 import { readJsonFile as readCompatibleJsonFile } from "./json-file.ts";
+import { buildProviderError } from "./errors.ts";
 import { envInt } from "./retry.ts";
+import {
+  resolveRuntimePolicy,
+  RuntimePolicyConfigurationError,
+  type RuntimePolicy,
+} from "./config/runtime-policy.ts";
 
 export type ProviderRuntimeConfig = {
   baseUrl: string;
@@ -182,10 +188,32 @@ export function resolveRequestTimeoutMs(options?: Pick<SimpleStreamOptions, "tim
   return envInt("XTALPI_PI_TOOLS_TIMEOUT_MS", optionTimeoutMs, 1000);
 }
 
+export function resolveProviderRuntimePolicy(
+  options?: Pick<SimpleStreamOptions, "timeoutMs" | "maxTokens" | "temperature">,
+): RuntimePolicy {
+  try {
+    return resolveRuntimePolicy({ options });
+  } catch (error) {
+    if (error instanceof RuntimePolicyConfigurationError) {
+      throw buildProviderError("configuration_invalid", error.message, {
+        details: {
+          configurationVariable: error.variable,
+        },
+        cause: error,
+      });
+    }
+    throw error;
+  }
+}
+
 export function resolveMaxOutputTokens(
   model: Pick<Model<Api>, "maxTokens">,
   options?: Pick<SimpleStreamOptions, "maxTokens">,
+  policy?: Pick<RuntimePolicy, "maxOutputTokens"> | string,
 ): number {
+  if (typeof policy === "object" && typeof policy.maxOutputTokens === "number") {
+    return Math.min(policy.maxOutputTokens, model.maxTokens || 32768);
+  }
   const optionMaxTokens =
     typeof options?.maxTokens === "number" && Number.isFinite(options.maxTokens) && options.maxTokens >= 1
       ? Math.floor(options.maxTokens)
@@ -198,8 +226,9 @@ export function buildChatCompletionPayload(
   model: Pick<Model<Api>, "id" | "maxTokens">,
   messages: XtalpiChatMessage[],
   options?: Pick<SimpleStreamOptions, "temperature" | "maxTokens">,
+  policy?: Pick<RuntimePolicy, "maxOutputTokens" | "temperature"> | string,
 ): XtalpiChatPayload {
-  const maxTokens = resolveMaxOutputTokens(model, options);
+  const maxTokens = resolveMaxOutputTokens(model, options, policy);
   const payload: XtalpiChatPayload = {
     model: model.id,
     messages,
@@ -207,8 +236,9 @@ export function buildChatCompletionPayload(
     max_tokens: maxTokens,
   };
 
-  if (typeof options?.temperature === "number") {
-    payload.temperature = options.temperature;
+  const temperature = typeof policy === "object" ? policy.temperature : options?.temperature;
+  if (typeof temperature === "number") {
+    payload.temperature = temperature;
   }
 
   payload.response_format = jsonActionResponseFormat();

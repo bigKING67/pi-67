@@ -9,9 +9,10 @@ import {
   buildHttpError,
   buildProviderError,
   classifyTransportError,
-  providerHealthImmediateRetry,
+  providerRuntimeRetryPolicy,
   toErrorTelemetry,
 } from "./errors.ts";
+import type { RuntimePolicy } from "./config/runtime-policy.ts";
 import {
   PROVIDER_ID,
   type UsageSummary,
@@ -29,11 +30,14 @@ import {
   buildChatCompletionPayload,
   endpointFor,
   isPlaceholderKey,
-  resolveRequestTimeoutMs,
+  resolveProviderRuntimePolicy,
   type ProviderRuntimeConfig,
 } from "./runtime-config.ts";
-import { envInt } from "./retry.ts";
 import { safeBlockText } from "./text-safety.ts";
+import {
+  RequestBudget,
+  parseRetryAfterMs,
+} from "./transport/request-budget.ts";
 
 export type XtalpiChatResponse = {
   content: string;
@@ -45,19 +49,14 @@ export type XtalpiChatResponse = {
 type FetchTextResult = {
   response: Response;
   body: string;
+  bodyBytes: number;
 };
 
-type RequestRetryConfig = {
-  attempts: number;
-  retryDelayMs: number;
-  retryMaxDelayMs: number;
-  retryJitterMs: number;
+type RetryDelayDecision = {
+  delayMs: number;
+  source: "backoff" | "retry_after" | "retry_after_fallback";
+  retryAfterMs?: number;
 };
-
-const DEFAULT_REQUEST_ATTEMPTS = 3;
-const DEFAULT_REQUEST_RETRY_DELAY_MS = 1000;
-const DEFAULT_REQUEST_RETRY_MAX_DELAY_MS = 8000;
-const DEFAULT_REQUEST_RETRY_JITTER_MS = 250;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -74,30 +73,55 @@ function throwIfCallerAborted(signal: AbortSignal | undefined): void {
   });
 }
 
-function resolveRequestRetryConfig(): RequestRetryConfig {
-  return {
-    attempts: Math.min(envInt("XTALPI_PI_TOOLS_REQUEST_ATTEMPTS", DEFAULT_REQUEST_ATTEMPTS, 1), 8),
-    retryDelayMs: envInt("XTALPI_PI_TOOLS_RETRY_DELAY_MS", DEFAULT_REQUEST_RETRY_DELAY_MS, 0),
-    retryMaxDelayMs: envInt("XTALPI_PI_TOOLS_RETRY_MAX_DELAY_MS", DEFAULT_REQUEST_RETRY_MAX_DELAY_MS, 0),
-    retryJitterMs: envInt("XTALPI_PI_TOOLS_RETRY_JITTER_MS", DEFAULT_REQUEST_RETRY_JITTER_MS, 0),
-  };
-}
-
-function requestRetryDelayMs(config: RequestRetryConfig, failedAttempt: number): number {
-  const exponentialDelay = config.retryDelayMs * 2 ** Math.max(0, failedAttempt - 1);
-  const boundedDelay = config.retryMaxDelayMs > 0 ? Math.min(exponentialDelay, config.retryMaxDelayMs) : exponentialDelay;
-  const jitter = config.retryJitterMs > 0 ? Math.floor(Math.random() * (config.retryJitterMs + 1)) : 0;
+function requestRetryDelayMs(policy: RuntimePolicy, failedAttempt: number): number {
+  const exponentialDelay = policy.retryDelayMs * 2 ** Math.max(0, failedAttempt - 1);
+  const boundedDelay = policy.retryMaxDelayMs > 0
+    ? Math.min(exponentialDelay, policy.retryMaxDelayMs)
+    : exponentialDelay;
+  const jitter = policy.retryJitterMs > 0
+    ? Math.floor(Math.random() * (policy.retryJitterMs + 1))
+    : 0;
   return boundedDelay + jitter;
 }
 
-function retrySuppressedReason(error: XtalpiProviderError, attempt: number, attempts: number, signal?: AbortSignal): string | undefined {
+function retrySuppressedReason(
+  error: XtalpiProviderError,
+  attempt: number,
+  attempts: number,
+  signal?: AbortSignal,
+): string | undefined {
   if (signal?.aborted) return "caller_aborted";
   if (attempt >= attempts) return "attempts_exhausted";
   if (!error.retryable) return "non_retryable_error";
-  if (!providerHealthImmediateRetry(error.code)) {
-    return error.code === "http_429" ? "rate_limit_immediate_retry_disabled" : "provider_immediate_retry_disabled";
-  }
+  if (providerRuntimeRetryPolicy(error.code) === "never") return "runtime_retry_disabled";
   return undefined;
+}
+
+function retryDelayDecision(
+  error: XtalpiProviderError,
+  policy: RuntimePolicy,
+  failedAttempt: number,
+): RetryDelayDecision {
+  if (providerRuntimeRetryPolicy(error.code) === "retry_after") {
+    const retryAfterMs = typeof error.details?.retryAfterMs === "number"
+      ? Math.max(0, Math.floor(error.details.retryAfterMs))
+      : undefined;
+    if (retryAfterMs !== undefined) {
+      return {
+        delayMs: Math.min(retryAfterMs, policy.retryAfterMaxMs),
+        source: "retry_after",
+        retryAfterMs,
+      };
+    }
+    return {
+      delayMs: requestRetryDelayMs(policy, failedAttempt),
+      source: "retry_after_fallback",
+    };
+  }
+  return {
+    delayMs: requestRetryDelayMs(policy, failedAttempt),
+    source: "backoff",
+  };
 }
 
 async function sleepWithAbort(delayMs: number, signal?: AbortSignal): Promise<void> {
@@ -128,8 +152,25 @@ async function sleepWithAbort(delayMs: number, signal?: AbortSignal): Promise<vo
   }
 }
 
-async function readResponseTextWithAbort(response: Response, signal: AbortSignal): Promise<string> {
+async function readResponseTextWithAbort(
+  response: Response,
+  signal: AbortSignal,
+  maxResponseBytes: number,
+): Promise<{ body: string; bodyBytes: number }> {
   if (signal.aborted) throw abortReason(signal);
+
+  const responseLike = response as Response & {
+    headers?: { get?: (name: string) => string | null };
+    text?: () => Promise<string>;
+  };
+  const contentLength = Number(responseLike.headers?.get?.("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > maxResponseBytes) {
+    throw buildProviderError(
+      "response_too_large",
+      `xtalpi-pi-tools response exceeded ${maxResponseBytes} bytes`,
+      { details: { maxResponseBytes, bodyBytes: contentLength, source: "content_length" } },
+    );
+  }
 
   let removeAbortListener: (() => void) | undefined;
   const abortPromise = new Promise<never>((_resolve, reject) => {
@@ -139,7 +180,42 @@ async function readResponseTextWithAbort(response: Response, signal: AbortSignal
   });
 
   try {
-    return await Promise.race([response.text(), abortPromise]);
+    if (!response.body) {
+      if (typeof responseLike.text !== "function") return { body: "", bodyBytes: 0 };
+      const body = await Promise.race([responseLike.text(), abortPromise]);
+      const bodyBytes = new TextEncoder().encode(body).byteLength;
+      if (bodyBytes > maxResponseBytes) {
+        throw buildProviderError(
+          "response_too_large",
+          `xtalpi-pi-tools response exceeded ${maxResponseBytes} bytes`,
+          { details: { maxResponseBytes, bodyBytes, source: "fallback_text" } },
+        );
+      }
+      return { body, bodyBytes };
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+    let bodyBytes = 0;
+
+    while (true) {
+      const result = await Promise.race([reader.read(), abortPromise]);
+      if (result.done) break;
+      const chunk = result.value;
+      bodyBytes += chunk.byteLength;
+      if (bodyBytes > maxResponseBytes) {
+        await reader.cancel("response_too_large").catch(() => undefined);
+        throw buildProviderError(
+          "response_too_large",
+          `xtalpi-pi-tools response exceeded ${maxResponseBytes} bytes`,
+          { details: { maxResponseBytes, bodyBytes, source: "stream" } },
+        );
+      }
+      chunks.push(decoder.decode(chunk, { stream: true }));
+    }
+    chunks.push(decoder.decode());
+    return { body: chunks.join(""), bodyBytes };
   } finally {
     removeAbortListener?.();
   }
@@ -149,6 +225,7 @@ async function fetchTextWithTimeout(
   url: string,
   init: RequestInit,
   timeoutMs: number,
+  maxResponseBytes: number,
   signal?: AbortSignal,
 ): Promise<FetchTextResult> {
   throwIfCallerAborted(signal);
@@ -160,8 +237,12 @@ async function fetchTextWithTimeout(
 
   try {
     const response = await fetch(url, { ...init, signal: controller.signal });
-    const body = await readResponseTextWithAbort(response, controller.signal);
-    return { response, body };
+    const { body, bodyBytes } = await readResponseTextWithAbort(
+      response,
+      controller.signal,
+      maxResponseBytes,
+    );
+    return { response, body, bodyBytes };
   } finally {
     clearTimeout(timeout);
     if (signal) signal.removeEventListener("abort", abortHandler);
@@ -216,6 +297,7 @@ export async function callXtalpiChat(input: {
   messages: XtalpiChatMessage[];
   options?: SimpleStreamOptions;
   runtimeConfig?: Pick<ProviderRuntimeConfig, "apiKey" | "baseUrl">;
+  policy?: RuntimePolicy;
 }): Promise<XtalpiChatResponse> {
   const { model, messages, options, runtimeConfig } = input;
   throwIfCallerAborted(options?.signal);
@@ -228,9 +310,12 @@ export async function callXtalpiChat(input: {
     );
   }
 
-  const payload = buildChatCompletionPayload(model, messages, options);
-  const timeoutMs = resolveRequestTimeoutMs(options);
-  const retryConfig = resolveRequestRetryConfig();
+  const policy = input.policy ?? resolveProviderRuntimePolicy(options);
+  const payload = buildChatCompletionPayload(model, messages, options, policy);
+  const requestBudget = new RequestBudget({
+    perAttemptTimeoutMs: policy.perAttemptTimeoutMs,
+    totalRequestDeadlineMs: policy.totalRequestDeadlineMs,
+  });
   const endpoint = endpointFor(model, runtimeConfig);
   const init: RequestInit = {
     method: "POST",
@@ -244,8 +329,23 @@ export async function callXtalpiChat(input: {
     body: JSON.stringify(payload),
   };
 
-  for (let attempt = 1; attempt <= retryConfig.attempts; attempt += 1) {
+  for (let attempt = 1; attempt <= policy.requestAttempts; attempt += 1) {
     throwIfCallerAborted(options?.signal);
+    const remainingBeforeAttemptMs = requestBudget.remainingMs();
+    if (remainingBeforeAttemptMs <= 0) {
+      throw buildProviderError(
+        "request_deadline_exhausted",
+        `xtalpi-pi-tools request deadline exhausted after ${Math.round(requestBudget.elapsedMs())}ms`,
+        {
+          details: {
+            totalRequestDeadlineMs: policy.totalRequestDeadlineMs,
+            elapsedMs: Math.round(requestBudget.elapsedMs()),
+            remainingMs: 0,
+          },
+        },
+      );
+    }
+    const attemptTimeoutMs = Math.max(1, Math.floor(requestBudget.attemptTimeoutMs()));
     debugLog("request", {
       provider: PROVIDER_ID,
       model: model.id,
@@ -254,22 +354,34 @@ export async function callXtalpiChat(input: {
       nativeToolsPresent: false,
       actionProtocol: JSON_ACTION_PROTOCOL,
       responseFormat: jsonActionResponseFormat()?.type ?? null,
-      timeoutMs,
+      runtimeProfile: policy.profile,
+      runtimeEngine: policy.engine,
+      timeoutMs: attemptTimeoutMs,
+      perAttemptTimeoutMs: policy.perAttemptTimeoutMs,
+      totalRequestDeadlineMs: policy.totalRequestDeadlineMs,
+      elapsedMs: Math.round(requestBudget.elapsedMs()),
+      remainingMs: Math.round(remainingBeforeAttemptMs),
+      maxResponseBytes: policy.maxResponseBytes,
       attempt,
-      attemptCount: retryConfig.attempts,
+      attemptCount: policy.requestAttempts,
       retryCount: attempt - 1,
     });
 
     try {
-      const { response, body } = await fetchTextWithTimeout(
+      const { response, body, bodyBytes } = await fetchTextWithTimeout(
         endpoint,
         init,
-        timeoutMs,
+        attemptTimeoutMs,
+        policy.maxResponseBytes,
         options?.signal,
       );
 
       if (!response.ok) {
-        throw buildHttpError(response.status, body);
+        const retryAfterValue = typeof response.headers?.get === "function"
+          ? response.headers.get("retry-after")
+          : null;
+        const retryAfterMs = parseRetryAfterMs(retryAfterValue);
+        throw buildHttpError(response.status, body, { retryAfterMs });
       }
 
       const parsed = parseXtalpiChatResponse(body);
@@ -279,9 +391,12 @@ export async function callXtalpiChat(input: {
         responseModel: parsed.responseModel,
         finishReason: parsed.finishReason,
         contentChars: parsed.content.length,
+        bodyBytes,
         usage: parsed.usage,
+        elapsedMs: Math.round(requestBudget.elapsedMs()),
+        remainingMs: Math.round(requestBudget.remainingMs()),
         attempt,
-        attemptCount: retryConfig.attempts,
+        attemptCount: policy.requestAttempts,
         retryCount: attempt - 1,
       });
 
@@ -290,25 +405,81 @@ export async function callXtalpiChat(input: {
       const providerError =
         error instanceof XtalpiProviderError
           ? error
-          : classifyTransportError(error, timeoutMs, options?.signal?.aborted === true);
-      const suppressedReason = retrySuppressedReason(providerError, attempt, retryConfig.attempts, options?.signal);
+          : classifyTransportError(error, attemptTimeoutMs, options?.signal?.aborted === true);
+      if (!options?.signal?.aborted && requestBudget.remainingMs() <= 0) {
+        const deadlineError = buildProviderError(
+          "request_deadline_exhausted",
+          `xtalpi-pi-tools request deadline exhausted after ${Math.round(requestBudget.elapsedMs())}ms`,
+          {
+            details: {
+              totalRequestDeadlineMs: policy.totalRequestDeadlineMs,
+              elapsedMs: Math.round(requestBudget.elapsedMs()),
+              remainingMs: 0,
+              lastErrorCode: providerError.code,
+            },
+            cause: providerError,
+          },
+        );
+        debugLog("request.retry_suppressed", {
+          provider: PROVIDER_ID,
+          model: model.id,
+          attempt,
+          attemptCount: policy.requestAttempts,
+          retryCount: Math.max(0, attempt - 1),
+          retrySuppressedReason: "deadline_exhausted",
+          ...toErrorTelemetry(deadlineError),
+        });
+        throw deadlineError;
+      }
+      const suppressedReason = retrySuppressedReason(
+        providerError,
+        attempt,
+        policy.requestAttempts,
+        options?.signal,
+      );
       const telemetry = {
         provider: PROVIDER_ID,
         model: model.id,
         attempt,
-        attemptCount: retryConfig.attempts,
+        attemptCount: policy.requestAttempts,
         retryCount: Math.max(0, attempt - 1),
+        elapsedMs: Math.round(requestBudget.elapsedMs()),
+        remainingMs: Math.round(requestBudget.remainingMs()),
         ...toErrorTelemetry(providerError),
       };
 
       if (!suppressedReason) {
-        const retryDelayMs = requestRetryDelayMs(retryConfig, attempt);
+        const retryDelay = retryDelayDecision(providerError, policy, attempt);
+        if (!requestBudget.canWait(retryDelay.delayMs)) {
+          const deadlineError = buildProviderError(
+            "request_deadline_exhausted",
+            "xtalpi-pi-tools request deadline cannot accommodate the next retry",
+            {
+              details: {
+                totalRequestDeadlineMs: policy.totalRequestDeadlineMs,
+                elapsedMs: Math.round(requestBudget.elapsedMs()),
+                remainingMs: Math.round(requestBudget.remainingMs()),
+                requestedRetryDelayMs: retryDelay.delayMs,
+                lastErrorCode: providerError.code,
+              },
+              cause: providerError,
+            },
+          );
+          debugLog("request.retry_suppressed", {
+            ...telemetry,
+            retrySuppressedReason: "deadline_insufficient_for_retry",
+            requestedRetryDelayMs: retryDelay.delayMs,
+          });
+          throw deadlineError;
+        }
         debugLog("request.retry", {
           ...telemetry,
           retryCount: attempt,
-          retryDelayMs,
+          retryDelayMs: retryDelay.delayMs,
+          retryDelaySource: retryDelay.source,
+          retryAfterMs: retryDelay.retryAfterMs,
         });
-        await sleepWithAbort(retryDelayMs, options?.signal);
+        await sleepWithAbort(retryDelay.delayMs, options?.signal);
         continue;
       }
 

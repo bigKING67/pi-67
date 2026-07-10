@@ -766,6 +766,7 @@ const { pathToFileURL } = require("node:url");
           callChat: warningChat.callChat,
         });
         assert.equal(warningResult.kind, "tool_call");
+        await diagnostics.flushDebugLogs();
         const events = fs.readFileSync(warningDebugFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
         const warningEvent = events.find((event) => event.event === "tool_call");
         assert.ok(warningEvent);
@@ -1992,6 +1993,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
       maxRepairRetries: 2,
       maxTotalRecoveries: 4,
     });
+    await diagnostics.flushDebugLogs();
     const debugEvent = JSON.parse(fs.readFileSync(debugFile, "utf8").trim());
     assert.equal(debugEvent.schema, "xtalpi-pi-tools.debug.v1");
     assert.equal(debugEvent.protocol_version, jsonActionProtocol.JSON_ACTION_PROTOCOL_VERSION);
@@ -2029,6 +2031,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
       retryable: true,
       httpStatus: 429,
     });
+    await diagnostics.flushDebugLogs();
     const debugEvents = fs.readFileSync(debugFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
     const errorEvent = debugEvents.at(-1);
     assert.equal(errorEvent.event, "error.provider");
@@ -2052,6 +2055,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
         },
       ],
     });
+    await diagnostics.flushDebugLogs();
     const updatedDebugEvents = fs.readFileSync(debugFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
     const toolCallEvent = updatedDebugEvents.at(-1);
     assert.equal(toolCallEvent.event, "tool_call");
@@ -3328,6 +3332,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
     assert.equal(midFlightFinal.stopReason, "aborted");
     assert.match(midFlightFinal.errorMessage, /request aborted by caller/);
 
+    await diagnostics.flushDebugLogs();
     const abortDebugEvents = fs.readFileSync(abortDebugFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
     const abortErrorEvents = abortDebugEvents.filter((event) => event.event === "error.provider");
     assert.equal(abortErrorEvents.length, 2);
@@ -3394,6 +3399,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
     assert.match(bodyTimeoutFinal.errorMessage, /request timeout after 1000ms/);
     assert.ok(elapsedMs < 5000, `body read timeout took too long: ${elapsedMs}ms`);
 
+    await diagnostics.flushDebugLogs();
     const bodyTimeoutDebugEvents = fs.readFileSync(bodyTimeoutDebugFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
     const bodyTimeoutErrorEvent = bodyTimeoutDebugEvents.find((event) => event.event === "error.provider");
     assert.ok(bodyTimeoutErrorEvent);
@@ -3467,12 +3473,13 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
       {},
     );
     const http429Final = await http429Stream.result();
-    assert.equal(http429FetchCount, 1);
+    assert.equal(http429FetchCount, 3);
     assert.equal(http429Final.stopReason, "error");
     assert.match(http429Final.errorMessage, /HTTP 429/);
     assert.ok(!http429Final.errorMessage.includes("Bearer short"));
     assert.ok(http429Final.errorMessage.includes("Bearer [REDACTED]"));
 
+    await diagnostics.flushDebugLogs();
     const debugEvents = fs.readFileSync(providerErrorDebugFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
     const errorEvent = debugEvents.find((event) => event.event === "error.provider");
     assert.ok(errorEvent);
@@ -3480,10 +3487,13 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
     assert.equal(errorEvent.error_category, "rate_limit");
     assert.equal(errorEvent.retryable, true);
     assert.equal(errorEvent.http_status, 429);
+    const retryEvent = debugEvents.find((event) => event.event === "request.retry");
+    assert.ok(retryEvent);
+    assert.equal(retryEvent.data.retryDelaySource, "retry_after_fallback");
     const retrySuppressedEvent = debugEvents.find((event) => event.event === "request.retry_suppressed");
     assert.ok(retrySuppressedEvent);
     assert.equal(retrySuppressedEvent.error_code, "http_429");
-    assert.equal(retrySuppressedEvent.retry_suppressed_reason, "rate_limit_immediate_retry_disabled");
+    assert.equal(retrySuppressedEvent.retry_suppressed_reason, "attempts_exhausted");
     assert.ok(!JSON.stringify(errorEvent).includes("Bearer short"));
     assert.ok(JSON.stringify(errorEvent).includes("Bearer [REDACTED]"));
   } finally {
@@ -3567,6 +3577,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
       "runtime retry ok",
     );
 
+    await diagnostics.flushDebugLogs();
     const retryDebugEvents = fs.readFileSync(runtimeRetryDebugFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
     const retryEvent = retryDebugEvents.find((event) => event.event === "request.retry");
     assert.ok(retryEvent);
@@ -4078,7 +4089,7 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
       .filter((block) => block.type === "text")
       .map((block) => block.text)
       .join("\n");
-    assert.equal(fetchCount, 3);
+    assert.equal(fetchCount, 2);
     assert.equal(repeatedFinal.stopReason, "stop");
     assert.match(repeatedText, /重复请求同一个工具/);
     assert.ok(!repeatedFinal.content.some((block) => block.type === "toolCall"));
@@ -4092,6 +4103,13 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
   process.exit(1);
 });
 NODE
+
+node --no-warnings --test \
+  "$REPO_ROOT"/tests/xtalpi-pi-tools/unit/*.test.mjs \
+  "$REPO_ROOT"/tests/xtalpi-pi-tools/state-machine/*.test.mjs \
+  "$REPO_ROOT"/tests/xtalpi-pi-tools/transport/*.test.mjs \
+  "$REPO_ROOT"/tests/xtalpi-pi-tools/replay/*.test.mjs \
+  "$REPO_ROOT"/tests/xtalpi-pi-tools/integration/*.test.mjs
 
 node --no-warnings "$SCRIPT_DIR/pi67-fuzz-xtalpi-parser.mjs" "$REPO_ROOT"
 bash "$SCRIPT_DIR/pi67-xtalpi-pi-tools-smoke.sh" --self-test

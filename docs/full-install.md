@@ -141,8 +141,6 @@ Unix-like shell is available.
 
 ```powershell
 npm install -g @earendil-works/pi-coding-agent
-pi --version
-
 git --version
 # pi-67 0.10.19+ can auto-detect common Git for Windows install paths when
 # PowerShell PATH is stale. install --repair --yes also persists the discovered
@@ -152,11 +150,13 @@ git --version
 
 npm install -g @bigking67/pi-67@latest
 pi-67 install --repair --yes
+pi-67 doctor
+pi-67 launch -- --version
 pi-67 smoke
 ```
 
 `pi-67 install --repair --yes` is safe for first install and for the common
-case where `pi --version` or a manual setup already created
+case where bare `pi` or a manual setup already created
 `$env:USERPROFILE\.pi\agent` as a plain non-Git folder. In that case pi-67 moves
 the existing folder into
 `$env:USERPROFILE\.pi\pi67\backups\<timestamp>-non-git-agent-dir\agent`, then
@@ -167,6 +167,13 @@ Windows User PATH. It also broadcasts the Windows environment change so newly
 opened terminals can pick up the updated User PATH. Close and reopen
 PowerShell after the repair if an already-open window still cannot run the
 plain `git --version` command.
+
+Do not start bare `pi` before this repair/doctor step on a fresh Windows
+machine. Upstream Pi installs git-based packages such as
+`git:github.com/justhil/pi-image-gen`; if the current PowerShell cannot find
+`git.exe`, bare `pi` exits with `spawn git ENOENT`. `pi-67 launch` is the
+Windows-safe first-run entrypoint because it injects the discovered Git for
+Windows directory into the upstream `pi` child process PATH.
 
 `pi-67 smoke` dispatches to the PowerShell-native repository validation on
 Windows. It does not call Bash and it does not write local Pi config.

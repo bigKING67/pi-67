@@ -9,6 +9,7 @@ import {
   preferredVisionToolName,
   visionToolRouteForName,
 } from "./vision-bridge.ts";
+import { serializeToolParameters } from "./tools/schema-serializer.ts";
 
 export type ToolLike = {
   name: string;
@@ -41,6 +42,11 @@ export type ToolSelectionResult = {
   summary: ToolSelectionSummary;
 };
 
+export type ToolSelectionOptions = {
+  boostedToolNames?: readonly string[];
+  boostReasonCode?: string;
+};
+
 type ToolScore = {
   score: number;
   reasonCodes: string[];
@@ -56,6 +62,7 @@ type ToolSelectionBrowserState = ReturnType<typeof detectBrowserMcpTaskText>;
 
 const MAX_TOOL_SELECTION_SUMMARY_ITEMS = 12;
 const MAX_TOOL_SELECTION_REASON_CODES = 8;
+const MAX_SERIALIZED_TOOLS_CHARS = 18_000;
 const FORBIDDEN_TOOL_MENTION_PENALTY = -220;
 const IMAGE_PATH_READ_PENALTY = -260;
 
@@ -65,7 +72,9 @@ const CORE_TOOL_NAMES = new Set([
   "edit",
   "write",
   "grep",
+  "ffgrep",
   "find",
+  "fffind",
   "ls",
   "web_fetch",
   "web_search",
@@ -140,44 +149,12 @@ function hasForbiddenToolMention(toolName: string, prompt: string): boolean {
   return false;
 }
 
-function schemaType(value: unknown): string {
-  if (typeof value !== "object" || value === null) return "unknown";
-  const record = value as Record<string, unknown>;
-  if (typeof record.type === "string") return record.type;
-  if (Array.isArray(record.anyOf)) return "anyOf";
-  if (Array.isArray(record.oneOf)) return "oneOf";
-  return "object";
-}
-
-function summarizeParameters(parameters: unknown): string {
-  if (typeof parameters !== "object" || parameters === null) return "args: object";
-  const schema = parameters as Record<string, unknown>;
-  const required = Array.isArray(schema.required) ? new Set(schema.required.map(String)) : new Set<string>();
-  const properties = typeof schema.properties === "object" && schema.properties !== null
-    ? (schema.properties as Record<string, unknown>)
-    : {};
-  const entries = Object.entries(properties).slice(0, 12);
-  if (entries.length === 0) return "args: object";
-
-  return entries
-    .map(([name, prop]) => {
-      const marker = required.has(name) ? "required" : "optional";
-      const displayName = safeInlineText(name, 120);
-      const displayType = safeInlineText(schemaType(prop), 80);
-      let description = "";
-      if (typeof prop === "object" && prop !== null && typeof (prop as Record<string, unknown>).description === "string") {
-        description = ` - ${safeInlineText((prop as Record<string, unknown>).description, 120)}`;
-      }
-      return `${displayName}:${displayType} ${marker}${description}`;
-    })
-    .join("; ");
-}
-
 function scoreTool(
   tool: ToolLike,
   prompt: string,
   visionState: ToolSelectionVisionState,
   browserState: ToolSelectionBrowserState,
+  selectionOptions: ToolSelectionOptions,
 ): ToolScore {
   const description = typeof tool.description === "string" ? tool.description.slice(0, 1000) : "";
   const haystack = `${tool.name} ${description}`.toLowerCase();
@@ -189,10 +166,14 @@ function scoreTool(
     reasonCodes.add(reasonCode);
   };
 
+  const forbiddenMention = hasForbiddenToolMention(tool.name, prompt);
   if (CORE_TOOL_NAMES.has(tool.name)) addScore(25, "core_tool");
   if (hasExclusiveToolMention(tool.name, prompt)) addScore(160, "prompt_tool_exclusive");
   if (hasToolNameMention(tool.name, prompt)) addScore(100, "prompt_tool_name");
-  if (hasForbiddenToolMention(tool.name, prompt)) addScore(FORBIDDEN_TOOL_MENTION_PENALTY, "prompt_tool_forbidden");
+  if (forbiddenMention) addScore(FORBIDDEN_TOOL_MENTION_PENALTY, "prompt_tool_forbidden");
+  if (!forbiddenMention && selectionOptions.boostedToolNames?.includes(tool.name)) {
+    addScore(320, selectionOptions.boostReasonCode || "recovery_tool_boost");
+  }
 
   for (const token of promptLower.split(/[^a-z0-9_\-\u4e00-\u9fff/.]+/i)) {
     if (token.length < 2) continue;
@@ -271,13 +252,18 @@ export function selectToolsWithSummary(
   tools: ToolLike[] | undefined,
   prompt: string,
   maxTools: number,
+  selectionOptions: ToolSelectionOptions = {},
 ): ToolSelectionResult {
   const totalToolCount = tools?.length ?? 0;
   const limit = normalizeMaxTools(maxTools);
   const available = collectValidTools(tools);
   const visionState = detectVisionTaskText(prompt);
   const browserState = detectBrowserMcpTaskText(prompt);
-  const scored = available.map((tool, index) => ({ tool, index, ...scoreTool(tool, prompt, visionState, browserState) }));
+  const scored = available.map((tool, index) => ({
+    tool,
+    index,
+    ...scoreTool(tool, prompt, visionState, browserState, selectionOptions),
+  }));
   const preferredVisionName = visionState.isVisionTask && limit > 0 ? preferredVisionToolName(available) : undefined;
   const preferredBrowserMcpName = browserState.isBrowserMcpTask && limit > 0
     ? preferredBrowserMcpToolName(available)
@@ -331,14 +317,21 @@ export function serializeSelectedTools(selected: ToolLike[], totalToolCount: num
     return "No Pi tools are available in this turn. Answer normally without tool envelopes.";
   }
 
-  return [
-    `Available Pi tools (${selected.length}/${totalToolCount}; call only one at a time):`,
-    ...selected.map((tool) => {
-      const name = safeInlineText(tool.name, 160);
-      const description = safeInlineText(tool.description ?? "No description", 240);
-      return `- ${name}: ${description}\n  arguments: ${summarizeParameters(tool.parameters)}`;
-    }),
-  ].join("\n");
+  const header = `Available Pi tools (${selected.length}/${totalToolCount}; call only one at a time):`;
+  const perToolSchemaChars = Math.max(
+    240,
+    Math.min(1500, Math.floor((MAX_SERIALIZED_TOOLS_CHARS - header.length) / selected.length) - 300),
+  );
+  const entries = selected.map((tool) => {
+    const name = safeInlineText(tool.name, 160);
+    const description = safeInlineText(tool.description ?? "No description", 240);
+    const schema = serializeToolParameters(tool.parameters, { maxToolChars: perToolSchemaChars });
+    return `- ${name}: ${description}\n  arguments: ${schema}`;
+  });
+  const serialized = [header, ...entries].join("\n");
+  return serialized.length <= MAX_SERIALIZED_TOOLS_CHARS
+    ? serialized
+    : `${serialized.slice(0, MAX_SERIALIZED_TOOLS_CHARS - 20)}\n...[tools clipped]`;
 }
 
 export function serializeAvailableTools(tools: ToolLike[] | undefined, prompt: string, maxTools: number): string {
