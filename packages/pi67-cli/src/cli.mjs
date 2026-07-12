@@ -83,7 +83,7 @@ Commands:
   status               Read-only status summary
   report               Generate pi67-report.json
   version              Print manager and distro versions
-  xtalpi               xtalpi health/smoke/capability/trend/drift/stress helpers
+  xtalpi               Configure and verify the company xtalpi-pi-tools provider
   themes               current/list/doctor/set without update-time overwrite
   skills               inventory/plan/diff/sync/migrate shared skills
   extensions           list/doctor/inspect/plan extension ownership policy
@@ -107,6 +107,7 @@ Examples:
   pi-67 backups prune --keep-last 10 --dry-run
   pi-67 extensions doctor
   pi-67 skills plan
+  pi-67 xtalpi configure --verify
   pi-67 xtalpi smoke --quick
   pi-67 xtalpi trend
   pi-67 themes current

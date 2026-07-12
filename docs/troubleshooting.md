@@ -40,6 +40,114 @@ bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp
 bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp --mcp-timeout-ms 5000
 ```
 
+## Windows fresh-machine bootstrap failed
+
+The supported fresh Windows entrypoint is the GitHub Release asset
+`pi67-bootstrap.ps1`, documented in
+[`windows-fresh-install.md`](windows-fresh-install.md):
+
+```powershell
+$Bootstrap = Join-Path $env:TEMP "pi67-bootstrap.ps1"
+Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/bigKING67/pi-67/releases/latest/download/pi67-bootstrap.ps1" -OutFile $Bootstrap
+powershell -NoProfile -ExecutionPolicy Bypass -File $Bootstrap
+```
+
+Each run writes a summary and bounded stage logs under:
+
+```text
+%USERPROFILE%\.pi\pi67\logs\bootstrap-<timestamp>-<pid>\
+```
+
+Start with `bootstrap-summary.json`. Its `failedStage` distinguishes
+Administrator/UAC, WinGet repair, Windows Terminal, PowerShell 7, Notepad4
+integration, Git PATH, fnm/profile, Node.js, npm runtime, pi-67 workspace,
+xtalpi configuration, and full Windows acceptance failures. Do not send
+`models.json` or any API key when reporting a problem.
+
+Offline contract checks:
+
+```powershell
+.\scripts\pi67-bootstrap.ps1 -SelfTest
+.\scripts\pi67-bootstrap.ps1 -DryRun
+.\scripts\pi67-bootstrap.ps1 -DryRun -Minimal
+```
+
+`RESULT: READY_WITHOUT_XTALPI` is not a failed Pi install and is not a complete
+provider pass. It means `-NoXtalpiPrompt` was requested and no existing or
+environment-provided company key was available. Finish with:
+
+```powershell
+pi-67 xtalpi configure --verify
+Set-Location $env:USERPROFILE\.pi\agent
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\pi67-windows-acceptance.ps1 -ValidateWorkstation
+```
+
+### `failedStage = winget`
+
+Run the same repair contract manually from an Administrator Windows PowerShell
+only when diagnosing the bootstrap stage:
+
+```powershell
+$progressPreference = 'silentlyContinue'
+Install-PackageProvider -Name NuGet -Force | Out-Null
+Install-Module -Name Microsoft.WinGet.Client -Force -Repository PSGallery | Out-Null
+Import-Module Microsoft.WinGet.Client -Force
+Repair-WinGetPackageManager -AllUsers
+winget --version
+```
+
+If PowerShell Gallery is blocked by company policy, this is an IT/package-source
+problem. Do not continue to Terminal/Git/fnm stages without a working
+`winget --version`.
+
+### `failedStage = terminal-windows-powershell` or `terminal-powershell-7`
+
+The bootstrap backs up Windows Terminal `settings.json` before changing it.
+Check the summary fields `paths.windowsTerminalSettings` and
+`workstation.terminalSettingsBackups`. The final full-mode contract is:
+
+```text
+defaultProfile = {574e775e-4f2a-5b96-ac1e-a2962a402336}
+Windows PowerShell elevate = true
+PowerShell 7 elevate       = true
+```
+
+When `-NoTerminalAdmin` was explicitly used, both expected values are `false`.
+Do not delete the whole settings file; restore the recorded backup or rerun the
+idempotent bootstrap.
+
+### `failedStage = notepad4-integration`
+
+The integration stage writes only the documented Notepad4 context-menu and
+`notepad.exe` IFEO keys. Its pre-change `.reg` backups are stored in the current
+bootstrap log directory. Read-only checks:
+
+```powershell
+reg query "HKCR\*\shell\Notepad4" /s
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\notepad.exe" /s
+```
+
+### `failedStage = fnm-powershell-profile` or `node-lts-krypton`
+
+Open a new PowerShell 7 window and run:
+
+```powershell
+fnm --version
+fnm current
+fnm list
+node --version
+npm --version
+Get-Command node | Format-List Source
+Get-Content $PROFILE -Raw
+```
+
+Expected Node is major 24, `>=22.19.0`, and its source path belongs to fnm. The
+profile must contain exactly one official initialization line:
+
+```powershell
+fnm env --use-on-cd --shell powershell | Out-String | Invoke-Expression
+```
+
 ## `pi` command not found
 
 Install Pi:
@@ -184,7 +292,23 @@ uses this optional helper as the Pi runtime health check.
 
 ## `node` or `npm` command not found
 
-Pi and several extensions require Node/npm. Install Node first, then rerun:
+The current upstream Pi runtime requires Node.js `>=22.19.0`; the pi-67 fresh
+Windows contract uses fnm and requires Node.js 24 LTS through `lts/krypton`.
+It does not install a second unmanaged MSI Node through `OpenJS.NodeJS.LTS`.
+
+On a fresh Windows machine, rerun the bootstrap so it can repair fnm, the
+PowerShell profile, the default version, and the active Node.js source:
+
+```powershell
+$Bootstrap = Join-Path $env:TEMP "pi67-bootstrap.ps1"
+Invoke-WebRequest `
+  -UseBasicParsing `
+  -Uri "https://github.com/bigKING67/pi-67/releases/latest/download/pi67-bootstrap.ps1" `
+  -OutFile $Bootstrap
+powershell -NoProfile -ExecutionPolicy Bypass -File $Bootstrap
+```
+
+On macOS/Linux, install a supported Node first, then rerun:
 
 ```bash
 ./install.sh
@@ -195,6 +319,32 @@ If you only want to link assets and install npm dependencies later:
 ```bash
 ./install.sh --no-npm
 ```
+
+## npm works but GitHub or xtalpi still fails
+
+These are separate network paths. A successful npm install does not prove that
+GitHub clone traffic or the company API is reachable:
+
+1. npm registry: upstream Pi and `@bigking67/pi-67` packages;
+2. GitHub: bootstrap asset, pi-67 checkout, and Git URL packages;
+3. xtalpi endpoint: provider health and daily model requests;
+4. company proxy/VPN: may allow only part of the above.
+
+Run narrow checks instead of permanently changing every network setting:
+
+```powershell
+npm view @earendil-works/pi-coding-agent version
+npm view @bigking67/pi-67 version
+git ls-remote https://github.com/bigKING67/pi-67.git HEAD
+pi-67 xtalpi health
+```
+
+The bootstrap does not change npm registry by default, write a system proxy,
+disable TLS verification, or permanently change PowerShell ExecutionPolicy.
+Only explicit `-UseNpmMirror` runs
+`npm config set registry https://registry.npmmirror.com`. If the company
+network requires a proxy/VPN, apply the IT-managed configuration to the
+failing path only.
 
 ## Placeholder warnings in config files
 
@@ -209,6 +359,18 @@ Doctor may report placeholders in:
 This is expected after a fresh install. Replace `YOUR_...` placeholders with local keys before using the related provider or feature.
 
 Recommended helper:
+
+For the company provider, prefer the dedicated hidden-input command:
+
+```bash
+pi-67 xtalpi configure --verify
+```
+
+It preserves unrelated providers, repairs the canonical `xtalpi-pi-tools`
+public fields, and performs a real provider-health request without putting the
+key in shell history.
+
+For configuring the other local templates as well:
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-configure.sh --prompt-secrets

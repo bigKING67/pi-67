@@ -20,11 +20,38 @@ Missing API keys, local MCP repositories, or optional binaries are expected on a
 
 ## Install
 
-### Recommended npm manager path
+### Windows fresh-machine bootstrap (recommended)
 
-For normal users, install the pi-67 manager first. The manager owns the
-cross-platform public UX; internal Bash/PowerShell scripts stay available for
-CI, bootstrap, and advanced troubleshooting.
+For a Windows computer without Windows Terminal, PowerShell 7, Notepad4, Git,
+Node.js, upstream Pi, or pi-67, use the release bootstrap instead of asking the
+user to assemble prerequisites by hand:
+
+```powershell
+$Bootstrap = Join-Path $env:TEMP "pi67-bootstrap.ps1"
+Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/bigKING67/pi-67/releases/latest/download/pi67-bootstrap.ps1" -OutFile $Bootstrap
+powershell -NoProfile -ExecutionPolicy Bypass -File $Bootstrap
+```
+
+The bootstrap runs on Windows PowerShell 5.1+, requests one Administrator/UAC
+session, repairs a missing WinGet installation, installs and configures Windows
+Terminal, PowerShell 7 and Notepad4, persists Git PATH, and installs fnm. It
+then resolves `lts/krypton` to Node.js 24 LTS and verifies Node.js
+`>=22.19.0` from fnm. Only after every workstation prerequisite passes does it
+install the real upstream Pi package, followed by pi-67. It then configures
+`xtalpi-pi-tools`, runs the complete Windows acceptance gate, and leaves `pi`
+as the daily entrypoint.
+
+See [`windows-fresh-install.md`](windows-fresh-install.md) for checksum
+verification, WinGet repair, Terminal `defaultProfile` / `elevate`, Notepad4
+registry integration, Git PATH, fnm profile management, `-Minimal`,
+`-NoXtalpiPrompt`, logs, and network troubleshooting.
+
+### npm manager path for machines with Node/Git
+
+For machines that already satisfy the Git and Node runtime contracts, install
+the real upstream Pi runtime first, followed by the pi-67 manager. The manager
+owns the cross-platform workspace UX; internal Bash/PowerShell scripts stay
+available for CI, bootstrap, and advanced troubleshooting.
 
 Windows PowerShell:
 
@@ -32,7 +59,8 @@ Windows PowerShell:
 npm install -g @earendil-works/pi-coding-agent
 npm install -g @bigking67/pi-67
 pi --version
-pi-67 install
+pi-67 install --repair --yes
+pi-67 xtalpi configure --verify
 pi-67 update
 pi-67 doctor
 pi-67 smoke --quick
@@ -44,7 +72,8 @@ macOS/Linux:
 npm install -g @earendil-works/pi-coding-agent
 npm install -g @bigking67/pi-67
 pi --version
-pi-67 install
+pi-67 install --repair --yes
+pi-67 xtalpi configure --verify
 pi-67 update
 pi-67 doctor
 pi-67 smoke --quick
@@ -137,7 +166,10 @@ npx -y @bigking67/pi-67@latest update --repair
 ### Windows PowerShell first path
 
 On Windows, use PowerShell as the primary entrypoint. Do not assume an extra
-Unix-like shell is available.
+Unix-like shell is available. On a completely fresh machine, use
+`scripts/pi67-bootstrap.ps1` through the stable GitHub Release asset described
+above. The manual sequence below is for machines that already have a supported
+Node.js and Git installation.
 
 ```powershell
 npm install -g @earendil-works/pi-coding-agent
@@ -150,6 +182,7 @@ git --version
 
 npm install -g @bigking67/pi-67@latest
 pi-67 install --repair --yes
+pi-67 xtalpi configure --verify
 pi-67 doctor
 pi --version
 pi-67 smoke
@@ -227,53 +260,22 @@ it is temporarily cleared for fast-forward and restored after the merge.
 Already-up-to-date or non-overlapping updates keep it in place without writing
 a backup. Unrelated tracked edits still block.
 
-For a fresh in-place Windows laptop checkout, this is the minimal bootstrap
-equivalent of the Bash installer:
+The canonical fresh-machine orchestration lives in
+`scripts/pi67-bootstrap.ps1`; `docs/windows-fresh-install.md` is the canonical
+user-facing explanation of the same ordered stages. Release checks must keep
+the implementation and documentation synchronized. Maintainers can test the
+deterministic contract without changing a computer:
 
 ```powershell
-Set-Location $env:USERPROFILE\.pi\agent
-
-foreach ($name in "models", "mcp", "auth", "image-gen") {
-  $source = ".\$name.example.json"
-  $target = ".\$name.json"
-  if (-not (Test-Path -LiteralPath $target)) {
-    Copy-Item -LiteralPath $source -Destination $target
-  }
-}
-
-$skillsRoot = Join-Path $env:USERPROFILE ".agents\skills"
-New-Item -ItemType Directory -Force -Path $skillsRoot | Out-Null
-Get-ChildItem -LiteralPath ".\shared-skills" -Directory | ForEach-Object {
-  $target = Join-Path $skillsRoot $_.Name
-  if (-not (Test-Path -LiteralPath $target)) {
-    Copy-Item -LiteralPath $_.FullName -Destination $target -Recurse
-  }
-}
-
-New-Item -ItemType Directory -Force -Path ".\npm" | Out-Null
-Copy-Item -LiteralPath ".\package.json" -Destination ".\npm\package.json" -Force
-Push-Location ".\npm"
-npm install --ignore-scripts --no-audit --no-fund --prefer-offline
-Pop-Location
-
-.\scripts\pi67-patch-pi-until-done-runtime-queue.ps1 -Apply
-
-.\scripts\pi67-smoke.ps1 -Ci
-.\scripts\pi67-doctor.ps1
-.\scripts\pi67-report.ps1 -Operation manual
+.\scripts\pi67-bootstrap.ps1 -SelfTest
+.\scripts\pi67-bootstrap.ps1 -DryRun
+.\scripts\pi67-bootstrap.ps1 -DryRun -Minimal
 ```
 
-Then fill the local config files in `$env:USERPROFILE\.pi\agent`:
-
-```text
-models.json
-mcp.json
-auth.json
-image-gen.json
-```
-
-This keeps Windows usage on native PowerShell. The Bash installer remains the
-fuller macOS/Linux path and the path for linked/symlink installs.
+This keeps Windows usage on native PowerShell and prevents the README,
+full-install guide, CI, and actual bootstrap from drifting into different
+manual command sequences. The Bash installer remains the macOS/Linux path and
+the compatibility path for linked/symlink installs.
 
 ### macOS/Linux Bash path
 
@@ -578,8 +580,9 @@ For xtalpi tasks, pi-67 now uses `xtalpi-pi-tools`: Pi owns the tool protocol
 locally and sends only plain chat messages to the company proxy.
 Image/screenshot/OCR tasks are routed locally through `vision_read` from
 `extensions/pi-vision-bridge` before xtalpi sees text evidence, so the text-only
-provider is not asked to read PNG/JPG files directly. Use the stable launcher
-for important tasks:
+provider is not asked to read PNG/JPG files directly. Daily use still starts
+with bare `pi`. For diagnosis or an explicit provider/model override, the
+optional controlled launcher is:
 
 ```bash
 pi-67 xtalpi run
@@ -595,6 +598,7 @@ This launcher defaults `PI_OBSERVATIONAL_MEMORY_PASSIVE=true`, so background
 `pi-observational-memory` writes cannot keep the main task lifecycle open after
 the assistant final answer. Use `pi-67 xtalpi run --no-passive-observational-memory`
 only when you explicitly want automatic post-final observational-memory writes.
+It is not required for normal daily Pi usage.
 
 Lower-level Bash launcher:
 

@@ -12,6 +12,7 @@ configuration.
 npm install -g @earendil-works/pi-coding-agent
 npm install -g @bigking67/pi-67
 pi-67 install --repair --yes
+pi-67 xtalpi configure --verify
 pi-67 update
 pi-67 doctor
 pi --version
@@ -19,6 +20,25 @@ pi
 ```
 
 Windows PowerShell uses the same public commands:
+
+For a completely fresh Windows computer, prefer the checksum-verifiable
+single-file bootstrap published with each GitHub Release:
+
+```powershell
+$Bootstrap = Join-Path $env:TEMP "pi67-bootstrap.ps1"
+Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/bigKING67/pi-67/releases/latest/download/pi67-bootstrap.ps1" -OutFile $Bootstrap
+powershell -NoProfile -ExecutionPolicy Bypass -File $Bootstrap
+```
+
+It requests one Administrator/UAC session, repairs missing WinGet, installs and
+configures Windows Terminal, PowerShell 7 and Notepad4, persists Git PATH,
+installs fnm, and resolves `lts/krypton` to Node.js 24 LTS (minimum full-stack
+runtime `>=22.19.0`). Only then does it install the real upstream Pi runtime,
+this manager, and the team workspace before running the Windows acceptance
+gate. See the
+[Windows fresh-install guide](https://github.com/bigKING67/pi-67/blob/main/docs/windows-fresh-install.md).
+
+For machines that already have Node.js and Git:
 
 ```powershell
 git --version
@@ -31,6 +51,7 @@ git --version
 npm install -g @earendil-works/pi-coding-agent
 npm install -g @bigking67/pi-67
 pi-67 install --repair --yes
+pi-67 xtalpi configure --verify
 pi-67 update
 pi-67 doctor
 pi --version
@@ -49,6 +70,29 @@ adds the discovered Git directory to the upstream Pi child process and handles
 npm/Scoop `pi.cmd` shims through `cmd.exe`. It is not the standard startup
 command and is not used to decide whether the real Pi runtime is installed or
 working.
+
+## Configure the company provider
+
+The managed workspace uses `xtalpi-pi-tools + deepseek-v4-pro`. Each user keeps
+their own API key only in the ignored local `models.json`:
+
+```bash
+pi-67 xtalpi configure --verify
+```
+
+The command uses hidden TTY input, never accepts a plaintext `--api-key`
+argument, preserves other providers and extra local models, repairs canonical
+provider fields, normalizes supported Windows JSON encodings to UTF-8 without
+BOM, and runs a real provider-health request with `--verify`.
+
+For non-interactive secret injection, use one of these environment variables
+instead of a command-line value:
+
+```text
+PI67_XTALPI_PI_TOOLS_API_KEY
+PI67_XTALPI_TOOLS_API_KEY
+PI67_XTALPI_API_KEY
+```
 
 ## Important update boundary
 
@@ -199,6 +243,7 @@ pi-67 status
 pi-67 report
 pi-67 report --json
 pi-67 version
+pi-67 xtalpi configure --verify
 pi-67 xtalpi health
 pi-67 xtalpi smoke --quick
 pi-67 themes current

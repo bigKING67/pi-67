@@ -6,6 +6,74 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-07-12
+
+### Added
+
+- Added `scripts/pi67-bootstrap.ps1`, a Windows PowerShell 5.1+-compatible
+  fresh-machine bootstrap that repairs missing WinGet, installs/configures
+  Windows Terminal, PowerShell 7 and Notepad4, persists Git PATH, provisions
+  fnm + Node.js 24 LTS, and only then installs the real upstream Pi runtime,
+  the pi-67 manager, the managed workspace, the company provider, and the
+  complete Windows acceptance flow from one downloaded file.
+- Added `pi-67 xtalpi configure` with hidden key input, environment-secret
+  injection, dry-run/JSON modes, canonical provider repair, Windows JSON
+  encoding normalization, idempotent writes, and optional live provider-health
+  verification.
+- Added `docs/windows-fresh-install.md` with the supported beginner flow,
+  checksum verification, Node-manager policy, result semantics, logs, and
+  separated npm/GitHub/xtalpi/proxy troubleshooting.
+- GitHub Releases now upload `pi67-bootstrap.ps1` and
+  `pi67-bootstrap.ps1.sha256` so the documented `releases/latest/download/...`
+  URL remains stable and auditable.
+
+### Changed
+
+- New Windows installations use `Schniz.fnm` with `lts/krypton`, persist the
+  official PowerShell initialization block, set the fnm default, and enforce
+  both Node.js major 24 and the complete upstream runtime minimum of
+  `>=22.19.0`.
+- Full-mode Windows bootstrap now treats Windows Terminal, PowerShell 7 and
+  Notepad4 as explicit workstation stages: Terminal defaults to PowerShell 7,
+  both PowerShell profiles use `elevate=true` by default, and Notepad4 receives
+  verified Explorer/notepad.exe registry integration. `-Minimal` remains the
+  explicit opt-out for these desktop stages.
+- A normal bootstrap now performs one UAC Administrator relaunch, while
+  `-SelfTest` and `-DryRun` remain non-elevating and offline/read-only.
+- Windows Node 22/24 CI, PowerShell smoke, release-check, and release artifact
+  smoke now cover the bootstrap self-test and a fresh isolated
+  `xtalpi configure --dry-run --no-prompt --json` contract.
+- Fresh-install documentation now leads with the one-file bootstrap while
+  keeping `pi` as the only standard daily runtime entrypoint.
+- Windows download snippets use `Invoke-WebRequest -UseBasicParsing` for
+  Windows PowerShell 5.1 compatibility, and the GitHub Release command now
+  requires the exact npm manager version and the npm `latest` dist-tag to agree
+  before exposing the bootstrap asset. Actual release notes and bootstrap
+  assets are sourced from committed `HEAD`, even when unrelated dirty runtime
+  state is explicitly allowed.
+
+### Fixed
+
+- Provider configuration now preserves unrelated providers and extra local
+  models while repairing drifted public `xtalpi-pi-tools` fields from the
+  canonical template instead of directing users to a repair path that might
+  leave the drift unchanged.
+- Safe `models.json` replacement now handles Windows rename-over-existing
+  behavior with a rollback file, restores the previous target on failure, and
+  never deletes the old config before the replacement is ready.
+- Bootstrap completion no longer claims a full pass when the personal xtalpi
+  key was intentionally skipped; it reports `READY_WITHOUT_XTALPI` until the
+  provider is configured and verified.
+- `xtalpi configure` now rejects valid JSON with a non-object root or a
+  non-string existing API key without rewriting the file, and hidden prompts
+  use stderr so interactive `--json` keeps stdout machine-readable.
+- Common `xtalpi configure` failures now return concise CLI errors instead of a
+  Node stack trace, and secret-bearing atomic temp/rollback files are ignored if
+  a process is interrupted before cleanup.
+- Fresh-machine setup no longer installs standalone `OpenJS.NodeJS.LTS`, no
+  longer treats missing WinGet as a manual-only blocker, and no longer reports
+  Terminal/PowerShell installation failures as optional warnings in full mode.
+
 ## [0.10.29] - 2026-07-10
 
 ### Changed

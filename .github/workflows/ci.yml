@@ -59,6 +59,8 @@ jobs:
         shell: pwsh
         run: |
           $Repo = (Get-Location).Path
+          $TempAgent = Join-Path $env:RUNNER_TEMP "pi67-xtalpi-config-$([Guid]::NewGuid().ToString('N'))"
+          New-Item -ItemType Directory -Force -Path $TempAgent | Out-Null
           node packages/pi67-cli/bin/pi-67.mjs --help
           node packages/pi67-cli/bin/pi-67.mjs update --help
           node packages/pi67-cli/bin/pi-67.mjs skills --help
@@ -67,6 +69,16 @@ jobs:
           node packages/pi67-cli/bin/pi-67.mjs --agent-dir $Repo --repo-root $Repo update --check --json --no-remote
           node packages/pi67-cli/bin/pi-67.mjs --agent-dir $Repo --repo-root $Repo backups prune --keep-last 10 --dry-run --json
           node packages/pi67-cli/bin/pi-67.mjs --agent-dir $Repo --repo-root $Repo xtalpi smoke --self-test
+          $Configure = node packages/pi67-cli/bin/pi-67.mjs --agent-dir $TempAgent --repo-root $Repo xtalpi configure --dry-run --no-prompt --json | ConvertFrom-Json
+          if ($Configure.schema -ne "pi67-xtalpi-config/v1" -or $Configure.provider -ne "xtalpi-pi-tools" -or $Configure.model -ne "deepseek-v4-pro") {
+            throw "unexpected xtalpi configure dry-run contract"
+          }
+          if ($Configure.configured -eq $true -or $Configure.dryRun -ne $true) {
+            throw "fresh xtalpi configure dry-run must remain unconfigured"
+          }
+          .\scripts\pi67-bootstrap.ps1 -SelfTest
+          .\scripts\pi67-bootstrap.ps1 -DryRun
+          .\scripts\pi67-bootstrap.ps1 -DryRun -Minimal
           .\scripts\pi67-windows-acceptance.ps1 -SelfTest
 
       - name: Run upstream Pi runtime smoke
@@ -80,6 +92,14 @@ jobs:
             throw "bare pi --version returned empty output"
           }
           $Output
+
+      - name: Run Windows PowerShell 5.1 bootstrap contracts
+        shell: powershell
+        run: |
+          .\scripts\pi67-bootstrap.ps1 -SelfTest
+          .\scripts\pi67-bootstrap.ps1 -DryRun
+          .\scripts\pi67-bootstrap.ps1 -DryRun -Minimal
+          .\scripts\pi67-windows-acceptance.ps1 -SelfTest
 
       - name: Run optional launch-helper compatibility
         shell: pwsh

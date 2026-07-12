@@ -40,6 +40,11 @@ import {
   managerFreshnessBlockReason,
   managerFreshnessStatus,
 } from "../src/lib/manager-freshness.mjs";
+import {
+  configureXtalpiModels,
+  decodeJsonDocument,
+  replaceFileSafely,
+} from "../src/lib/xtalpi-config.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const files = [];
@@ -56,6 +61,7 @@ for (const file of files.filter((item) => item.endsWith(".json"))) {
 await runNpmRegistrySelfTests();
 runArgsSelfTests();
 runCliHelpContractSelfTests();
+runXtalpiConfigureSelfTests();
 runInstallNonGitAgentDirSelfTests();
 runVersionRecommendationSelfTests();
 runPublishTargetSelfTests();
@@ -149,6 +155,13 @@ function runCliHelpContractSelfTests() {
         "launch help must preserve the upstream Pi daily-entrypoint boundary",
       );
     }
+    if (command[0] === "xtalpi") {
+      assert(
+        result.stdout.includes("pi-67 xtalpi configure") &&
+          result.stdout.includes("never accepts a plaintext"),
+        "xtalpi help must document the safe configure command",
+      );
+    }
   }
   const capabilityOutput = path.join(tmpRoot, "capability.json");
   const capability = spawnSync(
@@ -189,6 +202,256 @@ function runCliHelpContractSelfTests() {
     "help commands must not create runtime backups",
   );
   fs.rmSync(tmpRoot, { recursive: true, force: true });
+}
+
+function runXtalpiConfigureSelfTests() {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-xtalpi-config-"));
+  const repoRoot = path.join(tmpRoot, "repo");
+  const agentDir = path.join(tmpRoot, "agent");
+  fs.mkdirSync(repoRoot, { recursive: true });
+  fs.mkdirSync(agentDir, { recursive: true });
+  const example = {
+    providers: {
+      "xtalpi-pi-tools": {
+        baseUrl: "https://sciencetoken-api.xtalpi.xyz/proxy/openai/v1",
+        api: "xtalpi-pi-tools",
+        apiKey: "YOUR_XTALPI_API_KEY",
+        models: [{ id: "deepseek-v4-pro", name: "DeepSeek V4 Pro" }],
+      },
+      codex: {
+        baseUrl: "http://127.0.0.1:8317/v1",
+        api: "openai-responses",
+        apiKey: "YOUR_CODEX_API_KEY",
+        models: [{ id: "gpt-test" }],
+      },
+    },
+  };
+  fs.writeFileSync(path.join(repoRoot, "models.example.json"), `${JSON.stringify(example, null, 2)}\n`);
+
+  try {
+    const existing = JSON.parse(JSON.stringify(example));
+    existing.providers.codex.localOnly = true;
+    const utf16 = Buffer.from(`${JSON.stringify(existing, null, 2)}\n`, "utf16le");
+    fs.writeFileSync(
+      path.join(agentDir, "models.json"),
+      Buffer.concat([Buffer.from([0xff, 0xfe]), utf16]),
+    );
+    const key = "xtalpi-self-test-secret-123456";
+    const configured = configureXtalpiModels({
+      agentDir,
+      repoRoot,
+      apiKey: key,
+      now: new Date("2026-07-12T00:00:00Z"),
+    });
+    assert(configured.changed, "xtalpi configure must report a changed UTF-16 config");
+    assert(configured.normalized, "xtalpi configure must normalize Windows JSON encodings");
+    assert(fs.existsSync(configured.backupPath), "xtalpi configure must preserve an encoding backup");
+    const writtenBytes = fs.readFileSync(path.join(agentDir, "models.json"));
+    assert(
+      !(writtenBytes[0] === 0xff && writtenBytes[1] === 0xfe) &&
+        !(writtenBytes[0] === 0xef && writtenBytes[1] === 0xbb && writtenBytes[2] === 0xbf),
+      "xtalpi configure must write UTF-8 without BOM",
+    );
+    const written = JSON.parse(writtenBytes.toString("utf8"));
+    assert(written.providers["xtalpi-pi-tools"].apiKey === key, "xtalpi configure must store the supplied key");
+    assert(written.providers.codex.localOnly === true, "xtalpi configure must preserve unrelated providers");
+
+    const unchanged = configureXtalpiModels({ agentDir, repoRoot, apiKey: key });
+    assert(!unchanged.changed, "repeating xtalpi configure with the same key must be idempotent");
+
+    const driftAgentDir = path.join(tmpRoot, "drift-agent");
+    fs.mkdirSync(driftAgentDir, { recursive: true });
+    const drifted = JSON.parse(JSON.stringify(example));
+    drifted.providers["xtalpi-pi-tools"].baseUrl = "https://wrong.invalid/v1";
+    drifted.providers["xtalpi-pi-tools"].api = "openai-completions";
+    drifted.providers["xtalpi-pi-tools"].models = [{ id: "private-extra-model", name: "Keep me" }];
+    drifted.providers["xtalpi-pi-tools"].apiKey = key;
+    fs.writeFileSync(path.join(driftAgentDir, "models.json"), `${JSON.stringify(drifted, null, 2)}\n`);
+    const repaired = configureXtalpiModels({ agentDir: driftAgentDir, repoRoot });
+    const repairedModels = JSON.parse(fs.readFileSync(path.join(driftAgentDir, "models.json"), "utf8"));
+    const repairedProvider = repairedModels.providers["xtalpi-pi-tools"];
+    assert(repaired.changed, "xtalpi configure must repair canonical provider drift");
+    assert(repairedProvider.baseUrl === example.providers["xtalpi-pi-tools"].baseUrl, "baseUrl drift was not repaired");
+    assert(repairedProvider.api === example.providers["xtalpi-pi-tools"].api, "API family drift was not repaired");
+    assert(
+      repairedProvider.models.some((model) => model.id === "deepseek-v4-pro") &&
+        repairedProvider.models.some((model) => model.id === "private-extra-model"),
+      "canonical model repair must preserve extra local models",
+    );
+
+    const invalidRootAgentDir = path.join(tmpRoot, "invalid-root-agent");
+    fs.mkdirSync(invalidRootAgentDir, { recursive: true });
+    const invalidRootFile = path.join(invalidRootAgentDir, "models.json");
+    fs.writeFileSync(invalidRootFile, "[]\n");
+    let invalidRootRejected = false;
+    try {
+      configureXtalpiModels({ agentDir: invalidRootAgentDir, repoRoot, apiKey: key });
+    } catch (error) {
+      invalidRootRejected = String(error?.message || error).includes("models JSON root must be an object");
+    }
+    assert(invalidRootRejected, "xtalpi configure must reject a non-object models.json root");
+    assert(fs.readFileSync(invalidRootFile, "utf8") === "[]\n", "invalid models.json must remain unchanged");
+
+    const invalidKeyAgentDir = path.join(tmpRoot, "invalid-key-agent");
+    fs.mkdirSync(invalidKeyAgentDir, { recursive: true });
+    const invalidKeyModels = JSON.parse(JSON.stringify(example));
+    invalidKeyModels.providers["xtalpi-pi-tools"].apiKey = { unexpected: true };
+    fs.writeFileSync(
+      path.join(invalidKeyAgentDir, "models.json"),
+      `${JSON.stringify(invalidKeyModels, null, 2)}\n`,
+    );
+    let invalidKeyRejected = false;
+    try {
+      configureXtalpiModels({ agentDir: invalidKeyAgentDir, repoRoot });
+    } catch (error) {
+      invalidKeyRejected = String(error?.message || error).includes("apiKey must be a string");
+    }
+    assert(invalidKeyRejected, "xtalpi configure must reject a non-string existing API key");
+
+    const replaceDir = path.join(tmpRoot, "replace-fallback");
+    fs.mkdirSync(replaceDir, { recursive: true });
+    const replaceSource = path.join(replaceDir, "source.tmp");
+    const replaceTarget = path.join(replaceDir, "target.json");
+    fs.writeFileSync(replaceSource, "new");
+    fs.writeFileSync(replaceTarget, "old");
+    let simulatedWindowsFailure = true;
+    const replaceResult = replaceFileSafely(replaceSource, replaceTarget, {
+      renameSync(source, target) {
+        if (simulatedWindowsFailure && source === replaceSource && target === replaceTarget) {
+          simulatedWindowsFailure = false;
+          const error = new Error("simulated Windows existing-target rename failure");
+          error.code = "EPERM";
+          throw error;
+        }
+        fs.renameSync(source, target);
+      },
+    });
+    assert(replaceResult.usedWindowsFallback, "safe replacement must exercise the Windows rollback fallback");
+    assert(fs.readFileSync(replaceTarget, "utf8") === "new", "safe replacement did not install the new file");
+    assert(!fs.existsSync(replaceSource), "safe replacement left the source temp file behind");
+
+    const decodedBe = decodeJsonDocument(
+      swapUtf16ForTest(Buffer.from('{"ok":true}', "utf16le"), true),
+      "utf16be-self-test.json",
+    );
+    assert(decodedBe.value.ok === true, "xtalpi JSON reader must support UTF-16BE with BOM");
+
+    const cliAgentDir = path.join(tmpRoot, "cli-agent");
+    fs.mkdirSync(cliAgentDir, { recursive: true });
+    fs.copyFileSync(path.join(repoRoot, "models.example.json"), path.join(cliAgentDir, "models.json"));
+    const cliSecret = "xtalpi-cli-secret-should-not-leak";
+    const cli = spawnSync(process.execPath, [
+      path.join(root, "bin", "pi-67.mjs"),
+      "--agent-dir",
+      cliAgentDir,
+      "--repo-root",
+      repoRoot,
+      "xtalpi",
+      "configure",
+      "--no-prompt",
+      "--json",
+    ], {
+      cwd: root,
+      env: { ...process.env, PI67_XTALPI_API_KEY: cliSecret },
+      encoding: "utf8",
+    });
+    assert(cli.status === 0, `xtalpi configure CLI failed\n${cli.stderr || cli.stdout}`);
+    assert(!`${cli.stdout}\n${cli.stderr}`.includes(cliSecret), "xtalpi configure must never print the API key");
+    const cliPayload = JSON.parse(cli.stdout);
+    assert(cliPayload.configured === true && cliPayload.changed === true, "xtalpi configure JSON result is incomplete");
+
+    const missingAgentDir = path.join(tmpRoot, "missing-agent");
+    fs.mkdirSync(missingAgentDir, { recursive: true });
+    const missing = spawnSync(process.execPath, [
+      path.join(root, "bin", "pi-67.mjs"),
+      "--agent-dir",
+      missingAgentDir,
+      "--repo-root",
+      repoRoot,
+      "xtalpi",
+      "configure",
+      "--no-prompt",
+    ], {
+      cwd: root,
+      env: {
+        ...process.env,
+        PI67_XTALPI_API_KEY: "",
+        PI67_XTALPI_PI_TOOLS_API_KEY: "",
+        PI67_XTALPI_TOOLS_API_KEY: "",
+      },
+      encoding: "utf8",
+    });
+    assert(missing.status !== 0, "non-interactive configure must fail when no key exists");
+    assert(
+      missing.stderr.includes("no usable xtalpi-pi-tools API key"),
+      `missing key failure must be actionable\n${missing.stderr}`,
+    );
+    assert(
+      !missing.stderr.includes("file://") && !missing.stderr.includes("\n    at "),
+      `expected a concise CLI error without a Node stack\n${missing.stderr}`,
+    );
+    assert(!fs.existsSync(path.join(missingAgentDir, "models.json")), "failed configure must not create models.json");
+
+    const forbiddenCliSecret = "xtalpi-cli-secret-must-not-appear";
+    const forbiddenOption = spawnSync(process.execPath, [
+      path.join(root, "bin", "pi-67.mjs"),
+      "--agent-dir",
+      missingAgentDir,
+      "--repo-root",
+      repoRoot,
+      "xtalpi",
+      "configure",
+      "--api-key",
+      forbiddenCliSecret,
+    ], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    assert(forbiddenOption.status === 2, "xtalpi configure must reject a plaintext --api-key option");
+    assert(
+      forbiddenOption.stderr.includes("unknown option: --api-key") &&
+        !`${forbiddenOption.stdout}\n${forbiddenOption.stderr}`.includes(forbiddenCliSecret),
+      "rejected plaintext key options must not echo their value",
+    );
+
+    const positionalSecret = "xtalpi-positional-secret-must-not-appear";
+    const forbiddenPositional = spawnSync(process.execPath, [
+      path.join(root, "bin", "pi-67.mjs"),
+      "--agent-dir",
+      missingAgentDir,
+      "--repo-root",
+      repoRoot,
+      "xtalpi",
+      "configure",
+      positionalSecret,
+    ], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    assert(forbiddenPositional.status === 2, "xtalpi configure must reject positional key values");
+    assert(
+      forbiddenPositional.stderr.includes("does not accept positional values") &&
+        !`${forbiddenPositional.stdout}\n${forbiddenPositional.stderr}`.includes(positionalSecret),
+      "rejected positional key values must not be echoed",
+    );
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+}
+
+function swapUtf16ForTest(buffer, includeBom = false) {
+  const swapped = Buffer.alloc(buffer.length + (includeBom ? 2 : 0));
+  let offset = 0;
+  if (includeBom) {
+    swapped[0] = 0xfe;
+    swapped[1] = 0xff;
+    offset = 2;
+  }
+  for (let index = 0; index < buffer.length; index += 2) {
+    swapped[offset + index] = buffer[index + 1];
+    swapped[offset + index + 1] = buffer[index];
+  }
+  return swapped;
 }
 
 function runInstallNonGitAgentDirSelfTests() {

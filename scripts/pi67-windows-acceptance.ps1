@@ -4,6 +4,10 @@
 [CmdletBinding()]
 param(
   [switch]$SkipUpdate,
+  [switch]$ValidateWorkstation,
+  [switch]$SkipDesktopPrerequisites,
+  [switch]$SkipNotepad4Integration,
+  [switch]$NoTerminalAdmin,
   [switch]$SelfTest,
   [string]$RepoRoot = "",
   [string]$AgentDir = "",
@@ -21,10 +25,21 @@ pi67-windows-acceptance.ps1 updates pi-67 and runs the Windows acceptance gate.
 Usage:
   .\scripts\pi67-windows-acceptance.ps1
   .\scripts\pi67-windows-acceptance.ps1 -SkipUpdate
+  .\scripts\pi67-windows-acceptance.ps1 -ValidateWorkstation
   .\scripts\pi67-windows-acceptance.ps1 -SelfTest
 
 Options:
   -SkipUpdate  Skip both manager and distro updates; validate the current install.
+  -ValidateWorkstation
+               Also validate WinGet, Terminal/PowerShell 7, Notepad4, Git,
+               fnm, the PowerShell profile, and the active Node.js source.
+  -SkipDesktopPrerequisites
+               With -ValidateWorkstation, skip Terminal, PowerShell 7, and
+               Notepad4 checks. Git, fnm, Node.js, Pi, and pi-67 remain required.
+  -SkipNotepad4Integration
+               Require Notepad4 but skip Explorer/Notepad registry checks.
+  -NoTerminalAdmin
+               Expect Terminal profiles to have elevate=false instead of true.
   -SelfTest    Run offline acceptance-contract tests without updating or calling APIs.
   -RepoRoot    Override the pi-67 checkout path. Defaults to this script's repo.
   -AgentDir    Override the Pi agent directory. Defaults to `$HOME\.pi\agent.
@@ -50,6 +65,11 @@ $ScriptDir = Split-Path -Parent $ScriptPath
 $ExpectedProvider = "xtalpi-pi-tools"
 $ExpectedModel = "deepseek-v4-pro"
 $ExpectedLiveCases = @("read-package", "read-enoent-recovery")
+$MinimumNodeVersion = [version]"22.19.0"
+$PreferredNodeMajor = 24
+$WindowsPowerShellProfileGuid = "{61c54bbd-c2c6-5271-96e7-009a87ff44bf}"
+$PowerShell7ProfileGuid = "{574e775e-4f2a-5b96-ac1e-a2962a402336}"
+$FnmProfileLine = "fnm env --use-on-cd --shell powershell | Out-String | Invoke-Expression"
 
 function Get-HomePath {
   if ($env:USERPROFILE) { return $env:USERPROFILE }
@@ -76,6 +96,232 @@ function Test-IsWindows {
 function Test-CommandExists {
   param([Parameter(Mandatory = $true)][string]$Name)
   return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
+}
+
+function Resolve-CommandPath {
+  param([Parameter(Mandatory = $true)][string[]]$Names)
+
+  foreach ($name in $Names) {
+    $command = Get-Command $name -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($command) {
+      if ($command.Source) { return [string]$command.Source }
+      if ($command.Path) { return [string]$command.Path }
+      return $name
+    }
+  }
+  return ""
+}
+
+function Get-NodeManagerNameForPath {
+  param([string]$Path)
+
+  $normalized = ([string]$Path).Replace("/", "\").ToLowerInvariant()
+  if ($normalized -match '\\fnm(?:_|\\)|\\\.fnm\\') { return "fnm" }
+  if ($normalized -match '\\nvm(?:\\|$)') { return "nvm" }
+  if ($normalized -match '\\volta\\|\\\.volta\\') { return "volta" }
+  if ($normalized -match '\\scoop\\') { return "scoop" }
+  return ""
+}
+
+function Test-PathListContains {
+  param(
+    [AllowEmptyString()][string]$PathValue,
+    [Parameter(Mandatory = $true)][string]$Directory
+  )
+
+  $expected = $Directory.Trim().TrimEnd('\')
+  foreach ($part in @([string]$PathValue -split ';')) {
+    if ([string]::Equals($part.Trim().TrimEnd('\'), $expected, [System.StringComparison]::OrdinalIgnoreCase)) {
+      return $true
+    }
+  }
+  return $false
+}
+
+function Test-PersistentPathContains {
+  param([Parameter(Mandatory = $true)][string]$Directory)
+
+  return (Test-PathListContains ([Environment]::GetEnvironmentVariable("Path", "User")) $Directory) -or
+    (Test-PathListContains ([Environment]::GetEnvironmentVariable("Path", "Machine")) $Directory)
+}
+
+function Find-Notepad4Executable {
+  $resolved = Resolve-CommandPath @("Notepad4.exe", "Notepad4")
+  if ($resolved) { return $resolved }
+  if ($env:LOCALAPPDATA) {
+    $link = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Links\Notepad4.exe"
+    if (Test-Path -LiteralPath $link -PathType Leaf) { return $link }
+  }
+  return ""
+}
+
+function Find-WindowsTerminalExecutable {
+  $resolved = Resolve-CommandPath @("wt.exe", "wt")
+  if ($resolved) { return $resolved }
+  if ($env:LOCALAPPDATA) {
+    $link = Join-Path $env:LOCALAPPDATA "Microsoft\WindowsApps\wt.exe"
+    if (Test-Path -LiteralPath $link -PathType Leaf) { return $link }
+  }
+  return ""
+}
+
+function Find-PowerShell7Executable {
+  $resolved = Resolve-CommandPath @("pwsh.exe", "pwsh")
+  if ($resolved) { return $resolved }
+  foreach ($root in @($env:ProgramW6432, $env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+    if (-not $root) { continue }
+    $candidate = Join-Path $root "PowerShell\7\pwsh.exe"
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+  }
+  return ""
+}
+
+function Get-WindowsTerminalSettingsPath {
+  if (-not $env:LOCALAPPDATA) { throw "LOCALAPPDATA is unavailable" }
+  foreach ($familyName in @(
+    "Microsoft.WindowsTerminal_8wekyb3d8bbwe",
+    "Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe"
+  )) {
+    $path = Join-Path (Join-Path (Join-Path (Join-Path $env:LOCALAPPDATA "Packages") $familyName) "LocalState") "settings.json"
+    if (Test-Path -LiteralPath $path -PathType Leaf) { return $path }
+  }
+  $unpackaged = Join-Path (Join-Path $env:LOCALAPPDATA "Microsoft\Windows Terminal") "settings.json"
+  if (Test-Path -LiteralPath $unpackaged -PathType Leaf) { return $unpackaged }
+  throw "Windows Terminal settings.json was not found"
+}
+
+function Get-PowerShellProfileCandidates {
+  $documents = [Environment]::GetFolderPath("MyDocuments")
+  if ([string]::IsNullOrWhiteSpace($documents)) {
+    $documents = Join-Path (Get-HomePath) "Documents"
+  }
+  return @(
+    (Join-Path (Join-Path $documents "PowerShell") "Microsoft.PowerShell_profile.ps1"),
+    (Join-Path (Join-Path $documents "WindowsPowerShell") "Microsoft.PowerShell_profile.ps1")
+  )
+}
+
+function Assert-TerminalProfileContract {
+  param(
+    [Parameter(Mandatory = $true)]$Settings,
+    [Parameter(Mandatory = $true)][string]$Guid,
+    [Parameter(Mandatory = $true)][bool]$Elevate,
+    [Parameter(Mandatory = $true)][bool]$MustBeDefault
+  )
+
+  $profiles = Get-JsonPropertyValue $Settings "profiles"
+  $items = if ($profiles -is [System.Array]) { @($profiles) } else { @((Get-JsonPropertyValue $profiles "list")) }
+  $target = $null
+  foreach ($item in $items) {
+    if ($null -eq $item) { continue }
+    if ([string]::Equals([string](Get-JsonPropertyValue $item "guid"), $Guid, [System.StringComparison]::OrdinalIgnoreCase)) {
+      $target = $item
+      break
+    }
+  }
+  if ($null -eq $target) { throw "Windows Terminal profile is missing: $Guid" }
+  if ([bool](Get-JsonPropertyValue $target "elevate") -ne $Elevate) {
+    throw "Windows Terminal profile elevate contract drifted: $Guid"
+  }
+  if ((Get-JsonPropertyValue $target "hidden") -eq $true) {
+    throw "Windows Terminal profile is hidden: $Guid"
+  }
+  if ($MustBeDefault -and -not [string]::Equals(
+    [string](Get-JsonPropertyValue $Settings "defaultProfile"),
+    $Guid,
+    [System.StringComparison]::OrdinalIgnoreCase
+  )) {
+    throw "Windows Terminal defaultProfile is not PowerShell 7"
+  }
+}
+
+function Assert-FnmPowerShellProfileContract {
+  $matchedPath = ""
+  foreach ($profilePath in @(Get-PowerShellProfileCandidates)) {
+    if (-not (Test-Path -LiteralPath $profilePath -PathType Leaf)) { continue }
+    $text = [System.IO.File]::ReadAllText($profilePath)
+    if ([regex]::Matches($text, [regex]::Escape($FnmProfileLine)).Count -eq 1) {
+      $matchedPath = $profilePath
+      break
+    }
+  }
+  if (-not $matchedPath) {
+    throw "fnm PowerShell initialization was not found exactly once in a supported profile"
+  }
+  return $matchedPath
+}
+
+function Assert-Notepad4IntegrationContract {
+  param([Parameter(Mandatory = $true)][string]$Notepad4Path)
+
+  $contextMenu = [Microsoft.Win32.Registry]::ClassesRoot.OpenSubKey("*\shell\Notepad4")
+  $contextCommand = [Microsoft.Win32.Registry]::ClassesRoot.OpenSubKey("*\shell\Notepad4\command")
+  $notepadIfeo = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\notepad.exe")
+  try {
+    if ($null -eq $contextMenu -or $contextMenu.GetValue("icon") -ne $Notepad4Path) {
+      throw "Notepad4 Explorer context-menu registry contract failed"
+    }
+    if ($null -eq $contextCommand -or $contextCommand.GetValue("") -ne ('"{0}" "%1"' -f $Notepad4Path)) {
+      throw "Notepad4 Explorer command registry contract failed"
+    }
+    if ($null -eq $notepadIfeo -or $notepadIfeo.GetValue("Debugger") -ne ('"{0}" /z' -f $Notepad4Path)) {
+      throw "Notepad4 notepad.exe replacement registry contract failed"
+    }
+    if ([int]$notepadIfeo.GetValue("UseFilter", -1) -ne 0) {
+      throw "Notepad4 UseFilter registry contract failed"
+    }
+  } finally {
+    if ($contextCommand) { $contextCommand.Dispose() }
+    if ($contextMenu) { $contextMenu.Dispose() }
+    if ($notepadIfeo) { $notepadIfeo.Dispose() }
+  }
+}
+
+function Assert-WorkstationContract {
+  foreach ($command in @("winget", "git", "fnm", "node", "npm")) {
+    if (-not (Test-CommandExists $command)) { throw "workstation command not found: $command" }
+  }
+
+  $gitPath = Resolve-CommandPath @("git.exe", "git")
+  $fnmPath = Resolve-CommandPath @("fnm.exe", "fnm")
+  $nodePath = Resolve-CommandPath @("node.exe", "node")
+  foreach ($entry in @(
+    @{ name = "Git"; path = $gitPath },
+    @{ name = "fnm"; path = $fnmPath }
+  )) {
+    $directory = Split-Path -Parent $entry.path
+    if (-not $directory -or -not (Test-PersistentPathContains $directory)) {
+      throw "$($entry.name) is not present in persistent User/Machine PATH"
+    }
+  }
+  if ((Get-NodeManagerNameForPath $nodePath) -ne "fnm") {
+    throw "active Node.js is not managed by fnm: $nodePath"
+  }
+  $nodeOutput = @(& $nodePath --version 2>&1)
+  if ($LASTEXITCODE -ne 0 -or $nodeOutput.Count -eq 0) { throw "node --version failed during workstation validation" }
+  $nodeVersion = Assert-NodeRuntimeContract ([string]$nodeOutput[0])
+  if ($nodeVersion.Major -ne $PreferredNodeMajor) {
+    throw "fresh-machine Node.js must resolve to major $PreferredNodeMajor through fnm"
+  }
+  $script:WorkstationNodePath = $nodePath
+  $script:FnmProfilePath = Assert-FnmPowerShellProfileContract
+
+  if ($SkipDesktopPrerequisites) { return }
+  if (-not (Find-WindowsTerminalExecutable)) { throw "desktop prerequisite command not found: wt.exe" }
+  if (-not (Find-PowerShell7Executable)) { throw "desktop prerequisite command not found: pwsh.exe" }
+  $notepad4 = Find-Notepad4Executable
+  if (-not $notepad4) { throw "desktop prerequisite command not found: Notepad4.exe" }
+
+  $settingsPath = Get-WindowsTerminalSettingsPath
+  $settings = Read-Pi67JsonFile $settingsPath
+  $elevate = -not [bool]$NoTerminalAdmin
+  Assert-TerminalProfileContract $settings $WindowsPowerShellProfileGuid $elevate $false
+  Assert-TerminalProfileContract $settings $PowerShell7ProfileGuid $elevate $true
+  if (-not $SkipNotepad4Integration) {
+    Assert-Notepad4IntegrationContract $notepad4
+  }
+  $script:TerminalSettingsPath = $settingsPath
+  $script:Notepad4Path = $notepad4
 }
 
 function Get-ChildPowerShell {
@@ -156,7 +402,10 @@ function Get-RecoverySuggestion {
 
   switch -Wildcard ($Stage) {
     "preflight" {
-      return "Install Node.js 20+, Git for Windows, upstream Pi, and @bigking67/pi-67; reopen PowerShell and retry."
+      return "Run the published pi67-bootstrap.ps1 to install WinGet readiness, Git, fnm/Node.js 24 LTS, upstream Pi, and pi-67; reopen PowerShell and retry."
+    }
+    "workstation-prerequisites" {
+      return "Rerun pi67-bootstrap.ps1. It repairs WinGet, Terminal/PowerShell 7, Notepad4, Git PATH, fnm, and the PowerShell profile before Pi acceptance."
     }
     "manager-self-update" {
       return "Run: npm install -g @bigking67/pi-67@latest"
@@ -189,6 +438,31 @@ function Get-RecoverySuggestion {
       return "Inspect the failed stage log in the acceptance artifact directory, fix the first failure, and rerun."
     }
   }
+}
+
+function ConvertTo-NodeVersion {
+  param([Parameter(Mandatory = $true)][string]$Value)
+
+  $normalized = $Value.Trim()
+  if ($normalized.StartsWith("v", [System.StringComparison]::OrdinalIgnoreCase)) {
+    $normalized = $normalized.Substring(1)
+  }
+  $normalized = ($normalized -split '[-+]')[0]
+  try {
+    return [version]$normalized
+  } catch {
+    throw "node --version returned an invalid version: $Value"
+  }
+}
+
+function Assert-NodeRuntimeContract {
+  param([Parameter(Mandatory = $true)][string]$VersionText)
+
+  $version = ConvertTo-NodeVersion $VersionText
+  if ($version -lt $MinimumNodeVersion) {
+    throw "Node.js $VersionText is unsupported; install Node.js 24 LTS (minimum 22.19.0)"
+  }
+  return $version
 }
 
 function Format-SkippedStageLine {
@@ -373,6 +647,17 @@ function Run-SelfTest {
     distro = [pscustomobject]@{ version = "1.2.3"; dirty = $false }
   }
   Assert-VersionContract $versionFixture "1.2.3"
+  Assert-NodeRuntimeContract "v22.19.0" | Out-Null
+  Assert-NodeRuntimeContract "v24.18.0" | Out-Null
+  $oldNodeRejected = $false
+  try {
+    Assert-NodeRuntimeContract "v22.18.9" | Out-Null
+  } catch {
+    $oldNodeRejected = $true
+  }
+  if (-not $oldNodeRejected) {
+    throw "acceptance must reject Node.js versions older than 22.19.0"
+  }
 
   $capabilityFixture = [pscustomobject]@{
     probeCompleted = $true
@@ -433,6 +718,36 @@ function Run-SelfTest {
   if ((Format-SkippedStageLine "manager-self-update" "requested by -SkipUpdate") -notmatch '-SkipUpdate') {
     throw "skipped-stage output must explain why the update was skipped"
   }
+  if ((Get-NodeManagerNameForPath "C:\Users\fixture\.fnm\node-versions\v24.18.0\installation\node.exe") -ne "fnm") {
+    throw "acceptance must recognize fnm-managed Node.js"
+  }
+  $terminalFixture = [pscustomobject]@{
+    defaultProfile = $PowerShell7ProfileGuid
+    profiles = [pscustomobject]@{
+      list = @(
+        [pscustomobject]@{ guid = $WindowsPowerShellProfileGuid; elevate = $true; hidden = $false },
+        [pscustomobject]@{ guid = $PowerShell7ProfileGuid; elevate = $true; hidden = $false }
+      )
+    }
+  }
+  Assert-TerminalProfileContract $terminalFixture $WindowsPowerShellProfileGuid $true $false
+  Assert-TerminalProfileContract $terminalFixture $PowerShell7ProfileGuid $true $true
+
+  $source = [System.IO.File]::ReadAllText($ScriptPath)
+  foreach ($required in @(
+    '[switch]$ValidateWorkstation',
+    '[switch]$SkipDesktopPrerequisites',
+    '[switch]$SkipNotepad4Integration',
+    '[switch]$NoTerminalAdmin',
+    'Assert-WorkstationContract',
+    $FnmProfileLine,
+    $PowerShell7ProfileGuid,
+    'Invoke-CommandStage "pi-runtime" "pi"'
+  )) {
+    if (-not $source.Contains($required)) {
+      throw "acceptance source is missing required workstation contract: $required"
+    }
+  }
 
   Write-Host "pi-67 Windows acceptance self-test passed" -ForegroundColor Green
 }
@@ -474,11 +789,16 @@ $script:Result = "FAIL"
 $script:ChildPowerShell = ""
 $script:VersionData = $null
 $script:PiRuntimeVersion = ""
+$script:NodeRuntimeVersion = ""
 $script:ConfigProvider = ""
 $script:ConfigModel = ""
 $script:HealthData = $null
 $script:CapabilityData = $null
 $script:XtalpiSmokeData = $null
+$script:WorkstationNodePath = ""
+$script:FnmProfilePath = ""
+$script:TerminalSettingsPath = ""
+$script:Notepad4Path = ""
 
 function Add-StageResult {
   param(
@@ -645,6 +965,16 @@ try {
         throw "required command not found: $command"
       }
     }
+    $nodeOutput = @(& node --version 2>&1)
+    $nodeExitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+    if ($nodeExitCode -ne 0 -or $nodeOutput.Count -eq 0) {
+      throw "node --version failed"
+    }
+    $script:NodeRuntimeVersion = ([string]$nodeOutput[0]).Trim()
+    $nodeVersion = Assert-NodeRuntimeContract $script:NodeRuntimeVersion
+    if ($nodeVersion.Major -ne $PreferredNodeMajor) {
+      Write-Host ("  WARN compatible Node.js {0} detected; Node.js 24 LTS is preferred" -f $script:NodeRuntimeVersion) -ForegroundColor Yellow
+    }
     Initialize-Pi67GitPath | Out-Null
     if (-not (Test-CommandExists "git")) {
       throw "required command not found: git"
@@ -670,6 +1000,12 @@ try {
       throw "no child PowerShell executable found"
     }
   } | Out-Null
+
+  if ($ValidateWorkstation) {
+    Invoke-CheckStage "workstation-prerequisites" {
+      Assert-WorkstationContract
+    } | Out-Null
+  }
 
   if ($SkipUpdate) {
     Add-SkippedStage "manager-self-update" "requested by -SkipUpdate; validating current install only"
@@ -807,13 +1143,19 @@ if ($null -ne $script:XtalpiSmokeData) {
 }
 
 $summary = [pscustomobject][ordered]@{
-  schema = "pi67.windows-acceptance.v1"
+  schema = "pi67.windows-acceptance.v2"
   createdAt = (Get-Date).ToUniversalTime().ToString("o")
   result = $script:Result
   failedStage = $script:FailedStage
   failureMessage = $script:FailureMessage
   recoverySuggestion = if ($script:Result -eq "FAIL") { Get-RecoverySuggestion $script:FailedStage } else { "" }
   updateSkipped = [bool]$SkipUpdate
+  options = [pscustomobject][ordered]@{
+    validateWorkstation = [bool]$ValidateWorkstation
+    skipDesktopPrerequisites = [bool]$SkipDesktopPrerequisites
+    skipNotepad4Integration = [bool]$SkipNotepad4Integration
+    terminalProfilesElevated = -not [bool]$NoTerminalAdmin
+  }
   paths = [pscustomobject][ordered]@{
     repoRoot = $RepoRoot
     agentDir = $AgentDir
@@ -821,9 +1163,17 @@ $summary = [pscustomobject][ordered]@{
     summary = $SummaryPath
   }
   versions = [pscustomobject][ordered]@{
+    node = $script:NodeRuntimeVersion
     manager = $managerVersion
     distro = $distroVersion
     piRuntime = $script:PiRuntimeVersion
+  }
+  workstation = [pscustomobject][ordered]@{
+    validated = [bool]$ValidateWorkstation
+    nodePath = $script:WorkstationNodePath
+    fnmPowerShellProfile = $script:FnmProfilePath
+    windowsTerminalSettings = $script:TerminalSettingsPath
+    notepad4 = $script:Notepad4Path
   }
   config = [pscustomobject][ordered]@{
     defaultProvider = $script:ConfigProvider
@@ -858,6 +1208,9 @@ if ($script:Result -eq "PASS" -and $exitCode -eq 0) {
   Write-Host "RESULT: PASS" -ForegroundColor Green
   Write-Host ("Version: {0}" -f $distroVersion)
   Write-Host ("Pi runtime: {0}" -f $script:PiRuntimeVersion)
+  if ($ValidateWorkstation) {
+    Write-Host ("Workstation: validated (Node via fnm: {0})" -f $script:WorkstationNodePath)
+  }
   Write-Host ("xtalpi: health=true runtimeReady=true mode={0}" -f $recommendedMode)
 } else {
   Write-Host "RESULT: FAIL" -ForegroundColor Red

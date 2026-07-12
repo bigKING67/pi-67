@@ -46,6 +46,7 @@ PI67_CLI_DIR="$REPO_ROOT/packages/pi67-cli"
 PI67_CLI_PACKAGE_JSON="$PI67_CLI_DIR/package.json"
 PI67_CLI_BIN="$PI67_CLI_DIR/bin/pi-67.mjs"
 RELEASE_DOC="$REPO_ROOT/docs/release.md"
+WINDOWS_FRESH_INSTALL_DOC="$REPO_ROOT/docs/windows-fresh-install.md"
 NPM_PUBLISH_WORKFLOW="$REPO_ROOT/.github/workflows/npm-publish.yml"
 REPORT_SCHEMA_DOC="$REPO_ROOT/docs/report-schema.md"
 DOCTOR_SCHEMA_DOC="$REPO_ROOT/docs/doctor-schema.md"
@@ -60,6 +61,7 @@ SKILL_GOVERNANCE_TEST="$REPO_ROOT/scripts/pi67-test-skill-governance.sh"
 EXTERNAL_SKILLS_CHECK="$REPO_ROOT/scripts/pi67-check-external-skills.sh"
 COMMERCE_GROWTH_SYNC="$REPO_ROOT/scripts/pi67-sync-commerce-growth-os.sh"
 RELEASE_ARTIFACT_SMOKE="$REPO_ROOT/scripts/pi67-release-artifact-smoke.sh"
+RELEASE_SCRIPT="$REPO_ROOT/scripts/pi67-release.sh"
 XTALPI_PI_TOOLS_SCRIPT="$REPO_ROOT/scripts/pi67-xtalpi-pi-tools.sh"
 XTALPI_PI_TOOLS_SCRIPT_PS="$REPO_ROOT/scripts/pi67-xtalpi-pi-tools.ps1"
 XTALPI_PI_TOOLS_TEST="$REPO_ROOT/scripts/pi67-test-xtalpi-pi-tools.sh"
@@ -81,6 +83,7 @@ JSON_UTIL_CJS="$REPO_ROOT/scripts/pi67-json-utils.cjs"
 JSON_UTIL_PS="$REPO_ROOT/scripts/pi67-json-utils.ps1"
 MCP_CONFIG_UTIL_CJS="$REPO_ROOT/scripts/pi67-mcp-config-utils.cjs"
 POWERSHELL_SMOKE="$REPO_ROOT/scripts/pi67-smoke.ps1"
+POWERSHELL_BOOTSTRAP="$REPO_ROOT/scripts/pi67-bootstrap.ps1"
 POWERSHELL_UPDATE="$REPO_ROOT/scripts/pi67-update.ps1"
 POWERSHELL_ACCEPTANCE="$REPO_ROOT/scripts/pi67-windows-acceptance.ps1"
 POWERSHELL_DOCTOR="$REPO_ROOT/scripts/pi67-doctor.ps1"
@@ -88,6 +91,7 @@ POWERSHELL_REPORT="$REPO_ROOT/scripts/pi67-report.ps1"
 UNTIL_DONE_QUEUE_PATCH_MJS="$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.mjs"
 UNTIL_DONE_QUEUE_PATCH_SH="$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.sh"
 UNTIL_DONE_QUEUE_PATCH_PS="$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.ps1"
+XTALPI_CONFIG_LIB="$REPO_ROOT/packages/pi67-cli/src/lib/xtalpi-config.mjs"
 
 if [ -f "$VERSION_FILE" ]; then
   VERSION="$(tr -d '[:space:]' < "$VERSION_FILE")"
@@ -159,6 +163,42 @@ NODE
   node "$PI67_CLI_BIN" --agent-dir "$REPO_ROOT" --repo-root "$REPO_ROOT" backups list --json >/dev/null
   node "$PI67_CLI_BIN" --dry-run self-update >/dev/null
   pass "pi-67 npm CLI smoke commands passed"
+
+  if node - "$REPO_ROOT" "$PI67_CLI_BIN" <<'NODE'
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const { spawnSync } = require("child_process");
+
+const [repoRoot, cli] = process.argv.slice(2);
+const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-xtalpi-config-"));
+try {
+  const result = spawnSync(process.execPath, [
+    cli,
+    "--agent-dir", agentDir,
+    "--repo-root", repoRoot,
+    "xtalpi", "configure", "--dry-run", "--no-prompt", "--json",
+  ], { cwd: repoRoot, encoding: "utf8" });
+  if (result.status !== 0 || result.error) {
+    throw new Error(result.stderr || result.error?.message || `configure exited ${result.status}`);
+  }
+  const payload = JSON.parse(result.stdout);
+  if (payload.schema !== "pi67-xtalpi-config/v1") throw new Error("unexpected configure schema");
+  if (payload.provider !== "xtalpi-pi-tools" || payload.model !== "deepseek-v4-pro") {
+    throw new Error("unexpected configure provider/model");
+  }
+  if (payload.configured !== false || payload.dryRun !== true) {
+    throw new Error("fresh configure dry-run must remain unconfigured");
+  }
+} finally {
+  fs.rmSync(agentDir, { recursive: true, force: true });
+}
+NODE
+  then
+    pass "pi-67 xtalpi configure dry-run contract passed"
+  else
+    fail "pi-67 xtalpi configure dry-run contract failed"
+  fi
 else
   warn "node not found; skipped pi-67 npm CLI checks"
 fi
@@ -177,6 +217,8 @@ if [ -f "$NPM_PUBLISH_WORKFLOW" ]; then
     && grep -q 'npm_version="$(npm --version)"' "$NPM_PUBLISH_WORKFLOW" \
     && grep -q "require >= 11.5.1" "$NPM_PUBLISH_WORKFLOW" \
     && grep -q "Validate npm publish target" "$NPM_PUBLISH_WORKFLOW" \
+    && grep -q "Verify published npm version and requested dist-tag" "$NPM_PUBLISH_WORKFLOW" \
+    && grep -q 'npm view "${package_name}@${NPM_TAG}" version' "$NPM_PUBLISH_WORKFLOW" \
     && grep -q "first_publish_confirm" "$NPM_PUBLISH_WORKFLOW" \
     && grep -q "publish-check --strict --no-pack" "$NPM_PUBLISH_WORKFLOW" \
     && grep -q -- "--allow-first-publish" "$NPM_PUBLISH_WORKFLOW" \
@@ -229,21 +271,67 @@ else
   fail "pi-67 npm CLI install/update/theme/publish docs are missing"
 fi
 
-if [ -f "$POWERSHELL_SMOKE" ] && [ -f "$POWERSHELL_UPDATE" ] && [ -f "$POWERSHELL_ACCEPTANCE" ] && [ -f "$POWERSHELL_DOCTOR" ] && [ -f "$POWERSHELL_REPORT" ] && [ -f "$JSON_UTIL_PS" ] && [ -f "$JSON_UTIL_CJS" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_PS" ] && grep -q "pi67-smoke.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-smoke.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-smoke.ps1" "$RELEASE_DOC" && grep -q "pi67-update.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-update.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-update.ps1" "$RELEASE_DOC" && grep -q "pi67-windows-acceptance.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-windows-acceptance.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-windows-acceptance.ps1" "$RELEASE_DOC" && grep -q "pi67-windows-acceptance.ps1" "$TROUBLESHOOTING_DOC" && grep -q "pi67-doctor.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-doctor.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-doctor.ps1" "$RELEASE_DOC" && grep -q "pi67-report.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-report.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-report.ps1" "$RELEASE_DOC" && grep -q "pi67-xtalpi-pi-tools-smoke.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-xtalpi-pi-tools-smoke.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-xtalpi-pi-tools-smoke.ps1" "$RELEASE_DOC" && grep -q "PowerShell" "$XTALPI_PI_TOOLS_DOC"; then
+if [ -f "$POWERSHELL_SMOKE" ] && [ -f "$POWERSHELL_BOOTSTRAP" ] && [ -f "$POWERSHELL_UPDATE" ] && [ -f "$POWERSHELL_ACCEPTANCE" ] && [ -f "$POWERSHELL_DOCTOR" ] && [ -f "$POWERSHELL_REPORT" ] && [ -f "$JSON_UTIL_PS" ] && [ -f "$JSON_UTIL_CJS" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_PS" ] && [ -f "$WINDOWS_FRESH_INSTALL_DOC" ] && [ -f "$XTALPI_CONFIG_LIB" ] && grep -q "pi67-bootstrap.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-bootstrap.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-bootstrap.ps1" "$RELEASE_DOC" && grep -q "pi67-bootstrap.ps1" "$TROUBLESHOOTING_DOC" && grep -q "pi67-bootstrap.ps1" "$WINDOWS_FRESH_INSTALL_DOC" && grep -q "pi67-smoke.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-smoke.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-smoke.ps1" "$RELEASE_DOC" && grep -q "pi67-update.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-update.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-update.ps1" "$RELEASE_DOC" && grep -q "pi67-windows-acceptance.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-windows-acceptance.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-windows-acceptance.ps1" "$RELEASE_DOC" && grep -q "pi67-windows-acceptance.ps1" "$TROUBLESHOOTING_DOC" && grep -q "pi67-doctor.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-doctor.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-doctor.ps1" "$RELEASE_DOC" && grep -q "pi67-report.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-report.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-report.ps1" "$RELEASE_DOC" && grep -q "pi67-xtalpi-pi-tools-smoke.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-xtalpi-pi-tools-smoke.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-xtalpi-pi-tools-smoke.ps1" "$RELEASE_DOC" && grep -q "PowerShell" "$XTALPI_PI_TOOLS_DOC"; then
   pass "Windows PowerShell update/acceptance/doctor/report/smoke entrypoints are documented"
 else
   fail "Windows PowerShell update/acceptance/doctor/report/smoke entrypoints are missing or not documented"
 fi
 
+if grep -q '\[switch\]\$SelfTest' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q 'Node.js 24 LTS' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q '22.19.0' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q 'Repair-WinGetPackageManager -AllUsers' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q 'Microsoft.WindowsTerminal' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q 'Microsoft.PowerShell' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q 'zufuliu.notepad4' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q 'Git.Git' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q 'Schniz.fnm' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q 'lts/krypton' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q 'fnm env --use-on-cd --shell powershell' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q 'defaultProfile' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q 'Notepad4SystemIntegration' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q 'Start-Process.*-Verb RunAs' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q 'xtalpi", "configure", "--verify"' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q 'pi67.windows-bootstrap.v2' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q 'RESULT: PASS' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q 'READY_WITHOUT_XTALPI' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -q 'OpenJS.NodeJS.LTS' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -Fq 'pi-67 launch' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -q -- '-SkipUpdate' "$POWERSHELL_BOOTSTRAP"; then
+  pass "Windows fresh-machine bootstrap contract is complete"
+else
+  fail "Windows fresh-machine bootstrap contract is incomplete"
+fi
+
+if grep -q 'Node.js 24 LTS' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q '22.19.0' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'Repair-WinGetPackageManager -AllUsers' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'Windows Terminal' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'PowerShell 7' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'zufuliu.notepad4' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'Schniz.fnm' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'lts/krypton' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'pi-67 xtalpi configure --verify' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'Invoke-WebRequest' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'UseBasicParsing' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && ! grep -Fq 'irm | iex' "$WINDOWS_FRESH_INSTALL_DOC"; then
+  pass "Windows fresh-install documentation preserves the runtime and security contract"
+else
+  fail "Windows fresh-install documentation contract is incomplete"
+fi
+
 if grep -q '\[switch\]\$SkipUpdate' "$POWERSHELL_ACCEPTANCE" \
   && grep -q '\[switch\]\$SelfTest' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q '\[switch\]\$ValidateWorkstation' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q 'Assert-WorkstationContract' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q 'fnm env --use-on-cd --shell powershell' "$POWERSHELL_ACCEPTANCE" \
   && grep -q 'Arguments = @("self-update")' "$POWERSHELL_ACCEPTANCE" \
   && grep -q '"update", "--repair", "--yes"' "$POWERSHELL_ACCEPTANCE" \
   && grep -Fq 'Invoke-CommandStage "pi-runtime" "pi" @("--version")' "$POWERSHELL_ACCEPTANCE" \
   && ! grep -Fq 'Invoke-CommandStage "launch"' "$POWERSHELL_ACCEPTANCE" \
   && grep -q '"read-package", "read-enoent-recovery"' "$POWERSHELL_ACCEPTANCE" \
   && grep -q 'read,fffind,read' "$POWERSHELL_ACCEPTANCE" \
-  && grep -q 'pi67.windows-acceptance.v1' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q 'pi67.windows-acceptance.v2' "$POWERSHELL_ACCEPTANCE" \
   && grep -q 'RESULT: PASS' "$POWERSHELL_ACCEPTANCE"; then
   pass "Windows one-command acceptance validates the real Pi runtime"
 else
@@ -617,6 +705,20 @@ else
   fail "release automation is not documented in README.md and docs/release.md"
 fi
 
+if grep -q 'pi67-bootstrap.ps1.sha256' "$RELEASE_SCRIPT" \
+  && grep -q 'gh release create' "$RELEASE_SCRIPT" \
+  && grep -q 'check_npm_manager_release_prerequisite' "$RELEASE_SCRIPT" \
+  && grep -q 'npm view "\$exact_target" version' "$RELEASE_SCRIPT" \
+  && grep -q 'npm view "\$latest_target" version' "$RELEASE_SCRIPT" \
+  && grep -q 'check_release_head_contract' "$RELEASE_SCRIPT" \
+  && grep -q 'HEAD:scripts/pi67-bootstrap.ps1' "$RELEASE_SCRIPT" \
+  && grep -Eqi 'latest.*dist-tag' "$RELEASE_DOC" \
+  && grep -q 'pi67-bootstrap.ps1.sha256' "$RELEASE_DOC"; then
+  pass "GitHub Release uses committed bootstrap assets after exact/latest npm prerequisites"
+else
+  fail "GitHub Release committed-asset or npm exact/latest prerequisite contract is incomplete"
+fi
+
 if command_exists git && git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   if git -C "$REPO_ROOT" diff --check >/dev/null; then
     pass "git diff --check passed"
@@ -624,7 +726,7 @@ if command_exists git && git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/d
     fail "git diff --check failed"
   fi
 
-  if git -C "$REPO_ROOT" ls-files --error-unmatch .gitattributes VERSION CHANGELOG.md .github/workflows/ci.yml .github/workflows/npm-publish.yml docs/release.md docs/report-schema.md docs/doctor-schema.md docs/status.md docs/skill-migration-schema.md docs/external-skill-sync-schema.md docs/skill-governance.md docs/troubleshooting.md docs/xtalpi-pi-tools.md packages/pi67-cli/package.json packages/pi67-cli/README.md packages/pi67-cli/CHANGELOG.md packages/pi67-cli/bin/pi-67.mjs packages/pi67-cli/scripts/check.mjs packages/pi67-cli/src/cli.mjs packages/pi67-cli/src/commands/backups.mjs packages/pi67-cli/src/commands/extensions.mjs packages/pi67-cli/src/commands/manifest.mjs packages/pi67-cli/src/commands/publish-check.mjs packages/pi67-cli/src/commands/self-update.mjs packages/pi67-cli/src/commands/xtalpi.mjs packages/pi67-cli/src/data/distro-manifest.json packages/pi67-cli/src/data/extension-registry.json packages/pi67-cli/src/lib/distro-manifest.mjs packages/pi67-cli/src/lib/extension-registry.mjs packages/pi67-cli/src/lib/npm-registry.mjs packages/pi67-cli/src/lib/settings-runtime-clean.mjs packages/pi67-cli/src/lib/settings-runtime-state.mjs packages/pi67-cli/src/lib/update-safety.mjs packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs packages/pi67-cli/schemas/pi67-distro-manifest.schema.json packages/pi67-cli/schemas/pi67-extension-registry.schema.json packages/pi67-cli/schemas/pi67-publish-check.schema.json packages/pi67-cli/schemas/pi67-state.schema.json packages/pi67-cli/schemas/pi67-update-plan.schema.json scripts/pi67-check-external-skills.sh scripts/pi67-doctor.sh scripts/pi67-doctor.ps1 scripts/pi67-json-utils.cjs scripts/pi67-json-utils.ps1 scripts/pi67-mcp-config-utils.cjs scripts/pi67-migrate-skills.sh scripts/pi67-release-artifact-smoke.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-report.ps1 scripts/pi67-status.sh scripts/pi67-shared-skills-inventory.sh scripts/pi67-sync-commerce-growth-os.sh scripts/pi67-sync-external-skills.sh scripts/pi67-test-skill-governance.sh scripts/pi67-update.sh scripts/pi67-update.ps1 scripts/pi67-windows-acceptance.ps1 scripts/pi67-smoke.ps1 scripts/pi67-xtalpi-pi-tools.sh scripts/pi67-xtalpi-pi-tools.ps1 scripts/pi67-test-xtalpi-pi-tools.sh scripts/pi67-fuzz-xtalpi-parser.mjs scripts/pi67-patch-pi-until-done-runtime-queue.mjs scripts/pi67-patch-pi-until-done-runtime-queue.sh scripts/pi67-patch-pi-until-done-runtime-queue.ps1 scripts/pi67-xtalpi-pi-tools-smoke.sh scripts/pi67-xtalpi-pi-tools-smoke.ps1 scripts/pi67-xtalpi-pi-tools-debug-summary.sh scripts/pi67-xtalpi-tool-coverage-audit.sh scripts/pi67-xtalpi-smoke-status-core.cjs scripts/pi67-xtalpi-smoke-plan.mjs scripts/pi67-xtalpi-provider-health.mjs scripts/pi67-xtalpi-provider-capability-probe.mjs scripts/pi67-validate-xtalpi-provider-error-contract.mjs extensions/xtalpi-pi-tools/json-file.ts extensions/xtalpi-pi-tools/json-action-protocol.ts extensions/xtalpi-pi-tools/vision-bridge.ts extensions/xtalpi-pi-tools/browser-bridge.ts extensions/pi-vision-bridge/index.ts extensions/xtalpi-pi-tools/fixtures/replay-cases.json extensions/xtalpi-pi-tools/provider-error-contract.json >/dev/null 2>&1; then
+  if git -C "$REPO_ROOT" ls-files --error-unmatch .gitattributes VERSION CHANGELOG.md .github/workflows/ci.yml .github/workflows/npm-publish.yml docs/release.md docs/windows-fresh-install.md docs/report-schema.md docs/doctor-schema.md docs/status.md docs/skill-migration-schema.md docs/external-skill-sync-schema.md docs/skill-governance.md docs/troubleshooting.md docs/xtalpi-pi-tools.md packages/pi67-cli/package.json packages/pi67-cli/README.md packages/pi67-cli/CHANGELOG.md packages/pi67-cli/bin/pi-67.mjs packages/pi67-cli/scripts/check.mjs packages/pi67-cli/src/cli.mjs packages/pi67-cli/src/commands/backups.mjs packages/pi67-cli/src/commands/extensions.mjs packages/pi67-cli/src/commands/manifest.mjs packages/pi67-cli/src/commands/publish-check.mjs packages/pi67-cli/src/commands/self-update.mjs packages/pi67-cli/src/commands/xtalpi.mjs packages/pi67-cli/src/data/distro-manifest.json packages/pi67-cli/src/data/extension-registry.json packages/pi67-cli/src/lib/distro-manifest.mjs packages/pi67-cli/src/lib/extension-registry.mjs packages/pi67-cli/src/lib/npm-registry.mjs packages/pi67-cli/src/lib/settings-runtime-clean.mjs packages/pi67-cli/src/lib/settings-runtime-state.mjs packages/pi67-cli/src/lib/update-safety.mjs packages/pi67-cli/src/lib/xtalpi-config.mjs packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs packages/pi67-cli/schemas/pi67-distro-manifest.schema.json packages/pi67-cli/schemas/pi67-extension-registry.schema.json packages/pi67-cli/schemas/pi67-publish-check.schema.json packages/pi67-cli/schemas/pi67-state.schema.json packages/pi67-cli/schemas/pi67-update-plan.schema.json scripts/pi67-bootstrap.ps1 scripts/pi67-check-external-skills.sh scripts/pi67-doctor.sh scripts/pi67-doctor.ps1 scripts/pi67-json-utils.cjs scripts/pi67-json-utils.ps1 scripts/pi67-mcp-config-utils.cjs scripts/pi67-migrate-skills.sh scripts/pi67-release-artifact-smoke.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-report.ps1 scripts/pi67-status.sh scripts/pi67-shared-skills-inventory.sh scripts/pi67-sync-commerce-growth-os.sh scripts/pi67-sync-external-skills.sh scripts/pi67-test-skill-governance.sh scripts/pi67-update.sh scripts/pi67-update.ps1 scripts/pi67-windows-acceptance.ps1 scripts/pi67-smoke.ps1 scripts/pi67-xtalpi-pi-tools.sh scripts/pi67-xtalpi-pi-tools.ps1 scripts/pi67-test-xtalpi-pi-tools.sh scripts/pi67-fuzz-xtalpi-parser.mjs scripts/pi67-patch-pi-until-done-runtime-queue.mjs scripts/pi67-patch-pi-until-done-runtime-queue.sh scripts/pi67-patch-pi-until-done-runtime-queue.ps1 scripts/pi67-xtalpi-pi-tools-smoke.sh scripts/pi67-xtalpi-pi-tools-smoke.ps1 scripts/pi67-xtalpi-pi-tools-debug-summary.sh scripts/pi67-xtalpi-tool-coverage-audit.sh scripts/pi67-xtalpi-smoke-status-core.cjs scripts/pi67-xtalpi-smoke-plan.mjs scripts/pi67-xtalpi-provider-health.mjs scripts/pi67-xtalpi-provider-capability-probe.mjs scripts/pi67-validate-xtalpi-provider-error-contract.mjs extensions/xtalpi-pi-tools/json-file.ts extensions/xtalpi-pi-tools/json-action-protocol.ts extensions/xtalpi-pi-tools/vision-bridge.ts extensions/xtalpi-pi-tools/browser-bridge.ts extensions/pi-vision-bridge/index.ts extensions/xtalpi-pi-tools/fixtures/replay-cases.json extensions/xtalpi-pi-tools/provider-error-contract.json >/dev/null 2>&1; then
     pass "release metadata files are tracked or staged"
   else
     warn "release metadata files are not all tracked yet; expected before final commit"

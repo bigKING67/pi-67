@@ -19,6 +19,9 @@ Before tagging or publishing release notes:
 PowerShell smoke for Windows-facing changes:
 
 ```powershell
+.\scripts\pi67-bootstrap.ps1 -SelfTest
+.\scripts\pi67-bootstrap.ps1 -DryRun
+.\scripts\pi67-bootstrap.ps1 -DryRun -Minimal
 .\scripts\pi67-smoke.ps1 -Ci
 .\scripts\pi67-doctor.ps1 -Json
 .\scripts\pi67-report.ps1 -Operation manual
@@ -58,9 +61,15 @@ Expected result:
 
 - release metadata is internally consistent
 - Windows PowerShell smoke passes on a PowerShell runtime when Windows-facing files changed
+- Windows fresh-machine bootstrap self-test and dry-run pass without changing
+  the host
+- bootstrap source and Windows CI cover WinGet repair, Terminal profile
+  mutation, Notepad4 integration, Git persistent PATH, fnm profile idempotency,
+  and the rule that upstream Pi installs only after every prerequisite stage
 - Windows PowerShell doctor/report run on a PowerShell runtime when Windows install/update diagnostics changed
 - Windows one-command acceptance self-test passes; a credentialed Windows host
-  passes `pi67-windows-acceptance.ps1 -SkipUpdate` before release
+  passes `pi67-windows-acceptance.ps1 -ValidateWorkstation -SkipUpdate` before
+  release when the workstation bootstrap contract changed
 - PowerShell xtalpi targeted smoke self-test passes; live targeted smoke covers
   read, deterministic `ENOENT` repeated-call recovery, FFF, batch fetch,
   sequential-thinking status, MCP, subagent, and recall when xtalpi credentials
@@ -70,7 +79,12 @@ Expected result:
 - smoke test passes locally
 - clean artifact smoke passes for the current worktree candidate
 - npm manager package packs as `@bigking67/pi-67`
+- the exact npm manager version is published and the npm `latest` dist-tag
+  points to it before a GitHub Release exposes the bootstrap asset that installs
+  `@bigking67/pi-67@latest`
 - release notes preview is generated from `CHANGELOG.md`
+- GitHub Release plan includes `pi67-bootstrap.ps1` and
+  `pi67-bootstrap.ps1.sha256`
 - worktree is clean except the intentional release commit before committing
 - GitHub Actions passes after push
 - optional user-machine MCP check passes when MCP behavior changed: `bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp`
@@ -94,11 +108,16 @@ Expected result:
    - `docs/external-skill-sync-schema.md` if `scripts/pi67-sync-external-skills.sh --json` behavior changed
    - `docs/skill-governance.md` if skill registry, migration, or external sync behavior changed
    - update workflow docs if `scripts/pi67-update.sh` or `scripts/pi67-update.ps1` changed
+   - `docs/windows-fresh-install.md` if `scripts/pi67-bootstrap.ps1` or the
+     Node/runtime prerequisite contract changed
    - Windows acceptance docs if `scripts/pi67-windows-acceptance.ps1` changed
    - release artifact docs if `scripts/pi67-release-artifact-smoke.sh` changed
 6. Run:
 
 ```powershell
+.\scripts\pi67-bootstrap.ps1 -SelfTest
+.\scripts\pi67-bootstrap.ps1 -DryRun
+.\scripts\pi67-bootstrap.ps1 -DryRun -Minimal
 .\scripts\pi67-smoke.ps1 -Ci
 .\scripts\pi67-doctor.ps1 -Json
 .\scripts\pi67-report.ps1 -Operation manual
@@ -129,9 +148,40 @@ git push
 gh run list --limit 3 --branch main
 ```
 
+9. Publish the exact npm manager version, then verify both the exact version and
+   the `latest` dist-tag before exposing the Windows bootstrap through GitHub
+   Releases:
+
+```bash
+VERSION="$(tr -d '[:space:]' < VERSION)"
+gh workflow run npm-publish.yml \
+  -f version="$VERSION" \
+  -f tag=latest \
+  -f dry_run=false \
+  -f auth_mode=trusted
+npm view "@bigking67/pi-67@$VERSION" version
+npm view "@bigking67/pi-67@latest" version
+```
+
+Both commands must print the value from `VERSION`. If the exact version exists
+but `latest` points elsewhere, repair the dist-tag before continuing:
+
+```bash
+npm dist-tag add "@bigking67/pi-67@$VERSION" latest
+```
+
+This order is mandatory for bootstrap-bearing releases. The standalone
+`pi67-bootstrap.ps1` installs `@bigking67/pi-67@latest`; publishing the GitHub
+asset first would create a window where a new machine downloads the new
+bootstrap but npm still serves an older manager without the required commands.
+The real release command blocks before creating a tag when the exact npm
+version is unavailable or the `latest` dist-tag does not resolve to that
+version. `--dry-run` only reports the missing prerequisites.
+
 ## Automated tagging and GitHub Release
 
-After the release commit is pushed and CI passes, create the tag and GitHub Release:
+After the release commit is pushed, CI passes, and both the exact npm manager
+version and `@latest` resolve to `VERSION`, create the tag and GitHub Release:
 
 ```bash
 bash scripts/pi67-release.sh --yes
@@ -143,14 +193,26 @@ The script:
 2. Extracts the matching `CHANGELOG.md` entry.
 3. Runs `scripts/pi67-release-check.sh`.
 4. Runs `scripts/pi67-smoke.sh --ci` unless `--no-smoke` is passed.
-5. Creates annotated tag `vX.Y.Z`.
-6. Pushes the tag.
-7. Creates a GitHub Release through `gh release create`.
+5. Verifies the exact npm version and the npm `latest` dist-tag.
+6. Verifies that release metadata and `scripts/pi67-bootstrap.ps1` exist in
+   committed `HEAD`; `--allow-dirty` cannot publish an uncommitted candidate.
+7. Stages the bootstrap from committed `HEAD` and generates
+   `pi67-bootstrap.ps1.sha256`.
+8. Creates and pushes annotated tag `vX.Y.Z`.
+9. Creates a GitHub Release through `gh release create` and uploads both
+   Windows bootstrap assets.
 
 Preview without writing:
 
 ```bash
 bash scripts/pi67-release.sh --dry-run
+```
+
+The dry-run output must include both asset paths. The published stable URLs are:
+
+```text
+https://github.com/bigKING67/pi-67/releases/latest/download/pi67-bootstrap.ps1
+https://github.com/bigKING67/pi-67/releases/latest/download/pi67-bootstrap.ps1.sha256
 ```
 
 ## npm manager package
@@ -471,9 +533,9 @@ Fresh install:
 Windows PowerShell:
 
 ```powershell
-git clone https://github.com/bigKING67/pi-67.git $env:USERPROFILE\.pi\agent
-Set-Location $env:USERPROFILE\.pi\agent
-.\scripts\pi67-smoke.ps1 -Ci
+$Bootstrap = Join-Path $env:TEMP "pi67-bootstrap.ps1"
+Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/bigKING67/pi-67/releases/latest/download/pi67-bootstrap.ps1" -OutFile $Bootstrap
+powershell -NoProfile -ExecutionPolicy Bypass -File $Bootstrap
 ```
 
 macOS/Linux:
@@ -511,14 +573,19 @@ bash ~/.pi/agent/scripts/pi67-configure.sh --prompt-secrets
 
 ### Verification
 
+- `.\scripts\pi67-bootstrap.ps1 -SelfTest` on Windows PowerShell / PowerShell Core
+- `.\scripts\pi67-bootstrap.ps1 -DryRun` on Windows PowerShell / PowerShell Core
 - `.\scripts\pi67-smoke.ps1 -Ci` on Windows PowerShell / PowerShell Core
 - `.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest` on Windows PowerShell / PowerShell Core
 - `.\scripts\pi67-windows-acceptance.ps1 -SelfTest` on Windows PowerShell / PowerShell Core
+- `.\scripts\pi67-windows-acceptance.ps1 -ValidateWorkstation -SkipUpdate` on a credentialed Windows workstation when bootstrap behavior changed
 - `bash scripts/pi67-smoke.sh --ci`
 - GitHub Actions CI: passed
 
 ### Notes
 
 - pi-67 remains full-install by default.
+- Fresh Windows machines use fnm `lts/krypton`; acceptance requires Node.js 24
+  LTS, `>=22.19.0`, and an active fnm-managed `node.exe`.
 - Missing API keys, local MCP paths, or optional binaries are reported by doctor as readiness warnings.
 ````

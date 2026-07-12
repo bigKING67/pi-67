@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.11.0]
+
+- Adds `pi-67 xtalpi configure` with hidden interactive key input, secret
+  environment variables, `--dry-run`, `--no-prompt`, `--json`, and `--verify`.
+- Repairs the canonical `xtalpi-pi-tools + deepseek-v4-pro` public provider
+  contract while preserving unrelated providers, extra local models, and the
+  user's existing key.
+- Normalizes parseable UTF-16/UTF-8-BOM Windows `models.json` files to UTF-8
+  without BOM after creating an encoding backup, and fails closed on malformed
+  JSON, non-object roots, and non-string existing API keys.
+- Uses rollback-safe replacement when Windows does not allow rename-over an
+  existing target, with contract tests that ensure keys never appear in CLI
+  stdout or stderr.
+- Keeps hidden interactive prompts on stderr so `--json` stdout remains a
+  machine-readable document.
+- Documents and supports the new Windows fresh-machine bootstrap while
+  preserving upstream `pi` as the only standard daily runtime entrypoint.
+- Expands that bootstrap into a full workstation contract: missing WinGet
+  repair, Windows Terminal/PowerShell 7 default elevated profiles, Notepad4
+  system integration, Git persistent PATH, fnm `lts/krypton`, and workstation
+  acceptance all complete before upstream Pi and the manager are installed.
+
 ## [0.10.29]
 
 - Restores the runtime/manager boundary: daily work starts with upstream `pi`;

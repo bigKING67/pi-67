@@ -148,7 +148,7 @@ function Read-JsonFile {
 }
 
 function Join-ByteArrays {
-  param([byte[][]]$Parts)
+  param([object[]]$Parts)
   $length = 0
   foreach ($part in $Parts) {
     $length += $part.Length
@@ -261,7 +261,9 @@ $RequiredFiles = @(
   "docs/full-install.md",
   "docs/release.md",
   "docs/troubleshooting.md",
+  "docs/windows-fresh-install.md",
   "docs/xtalpi-pi-tools.md",
+  "scripts/pi67-bootstrap.ps1",
   "scripts/pi67-doctor.ps1",
   "scripts/pi67-report.ps1",
   "scripts/pi67-smoke.ps1",
@@ -298,6 +300,7 @@ $RequiredFiles = @(
   "packages/pi67-cli/src/lib/npm-registry.mjs",
   "packages/pi67-cli/src/lib/settings-runtime-clean.mjs",
   "packages/pi67-cli/src/lib/settings-runtime-state.mjs",
+  "packages/pi67-cli/src/lib/xtalpi-config.mjs",
   "packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs",
   "packages/pi67-cli/schemas/pi67-distro-manifest.schema.json",
   "packages/pi67-cli/schemas/pi67-extension-registry.schema.json",
@@ -429,7 +432,8 @@ if ($NodeAvailable) {
     "packages/pi67-cli/src/lib/distro-manifest.mjs",
     "packages/pi67-cli/src/lib/extension-registry.mjs",
     "packages/pi67-cli/src/lib/update-safety.mjs",
-    "packages/pi67-cli/src/lib/npm-registry.mjs"
+    "packages/pi67-cli/src/lib/npm-registry.mjs",
+    "packages/pi67-cli/src/lib/xtalpi-config.mjs"
   )
   foreach ($file in $NodeCheckFiles) {
     Run-Check ("node --check: {0}" -f $file) {
@@ -460,6 +464,25 @@ if ($NodeAvailable) {
       "Bypass",
       "-File",
       (RepoPath "scripts/pi67-windows-acceptance.ps1"),
+      "-SelfTest"
+    ) | Out-Null
+  }
+
+  Run-Check "Windows fresh-machine bootstrap self-test passed" {
+    $psExe = ""
+    if (Test-CommandExists "pwsh") {
+      $psExe = "pwsh"
+    } elseif (Test-CommandExists "powershell") {
+      $psExe = "powershell"
+    } else {
+      throw "no child PowerShell executable found"
+    }
+    Invoke-External $psExe @(
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      (RepoPath "scripts/pi67-bootstrap.ps1"),
       "-SelfTest"
     ) | Out-Null
   }
@@ -544,6 +567,30 @@ if (String(tmwd.args?.[0] || "").includes(browser67Root) || String(jsReverse.arg
     Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--agent-dir", $RepoRoot, "--repo-root", $RepoRoot, "themes", "current", "--json") | Out-Null
     Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--agent-dir", $RepoRoot, "--repo-root", $RepoRoot, "backups", "list", "--json") | Out-Null
     Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--dry-run", "self-update") | Out-Null
+  }
+
+  Run-Check "pi-67 xtalpi configure dry-run passed" {
+    $tmpAgent = Join-Path ([System.IO.Path]::GetTempPath()) ("pi67-xtalpi-config-{0}-{1}" -f $PID, [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force -Path $tmpAgent | Out-Null
+    try {
+      $raw = Invoke-External "node" @(
+        (RepoPath "packages/pi67-cli/bin/pi-67.mjs"),
+        "--agent-dir", $tmpAgent,
+        "--repo-root", $RepoRoot,
+        "xtalpi", "configure", "--dry-run", "--no-prompt", "--json"
+      )
+      $payload = (($raw -join "`n") | ConvertFrom-Json)
+      if ($payload.schema -ne "pi67-xtalpi-config/v1" -or $payload.provider -ne "xtalpi-pi-tools" -or $payload.model -ne "deepseek-v4-pro") {
+        throw "unexpected xtalpi configure dry-run contract"
+      }
+      if ($payload.configured -eq $true -or $payload.dryRun -ne $true) {
+        throw "fresh dry-run must remain unconfigured and report dryRun=true"
+      }
+    } finally {
+      if (Test-Path -LiteralPath $tmpAgent) {
+        Remove-Item -LiteralPath $tmpAgent -Recurse -Force
+      }
+    }
   }
 
   Run-Check "PowerShell updater final settings runtime marker cleanup passed" {
@@ -764,6 +811,11 @@ Run-Check "xtalpi-pi-tools endpoint contract uses chat/completions" {
 
 Section "PowerShell documentation"
 Run-Check "PowerShell update/doctor/report/smoke entrypoints are documented" {
+  Assert-ContentContains (RepoPath "README.md") "pi67-bootstrap.ps1"
+  Assert-ContentContains (RepoPath "docs/full-install.md") "pi67-bootstrap.ps1"
+  Assert-ContentContains (RepoPath "docs/release.md") "pi67-bootstrap.ps1"
+  Assert-ContentContains (RepoPath "docs/troubleshooting.md") "pi67-bootstrap.ps1"
+  Assert-ContentContains (RepoPath "docs/windows-fresh-install.md") "pi67-bootstrap.ps1"
   Assert-ContentContains (RepoPath "README.md") "pi67-smoke.ps1"
   Assert-ContentContains (RepoPath "docs/full-install.md") "pi67-smoke.ps1"
   Assert-ContentContains (RepoPath "docs/release.md") "pi67-smoke.ps1"
@@ -791,6 +843,26 @@ Run-Check "PowerShell update/doctor/report/smoke entrypoints are documented" {
   Assert-ContentContains (RepoPath "docs/skill-governance.md") "pi67-shared-skills-inventory.sh"
 }
 
+Run-Check "Windows fresh-install product contract is documented" {
+  $freshInstall = RepoPath "docs/windows-fresh-install.md"
+  Assert-ContentContains $freshInstall "Node.js 24 LTS"
+  Assert-ContentContains $freshInstall "22.19.0"
+  Assert-ContentContains $freshInstall "Repair-WinGetPackageManager -AllUsers"
+  Assert-ContentContains $freshInstall "Microsoft.WindowsTerminal"
+  Assert-ContentContains $freshInstall "Microsoft.PowerShell"
+  Assert-ContentContains $freshInstall "zufuliu.notepad4"
+  Assert-ContentContains $freshInstall "Git.Git"
+  Assert-ContentContains $freshInstall "Schniz.fnm"
+  Assert-ContentContains $freshInstall "lts/krypton"
+  Assert-ContentContains $freshInstall "defaultProfile"
+  Assert-ContentContains $freshInstall '"elevate": true'
+  Assert-ContentContains $freshInstall "pi-67 xtalpi configure --verify"
+  Assert-ContentContains $freshInstall "READY_WITHOUT_XTALPI"
+  Assert-ContentContains $freshInstall "Invoke-WebRequest"
+  Assert-ContentContains $freshInstall "UseBasicParsing"
+  Assert-ContentNotContains $freshInstall "irm | iex"
+}
+
 Run-Check "PowerShell xtalpi targeted smoke expanded cases are documented" {
   $expandedCaseSet = "read-package,read-enoent-recovery,plan-mode-contract,plan-mode-accepted-continuation,until-done-continuation,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
   Assert-ContentContains (RepoPath "scripts/pi67-xtalpi-pi-tools-smoke.ps1") "read-package"
@@ -810,7 +882,7 @@ if ($GitAvailable) {
 
   Run-Check "no personal machine paths in tracked content" {
     $personalPattern = ("/Use" + "rs/" + "gao" + "qian") + "|Documents/" + ("six" + "seven") + "|" + ("gao" + "qian")
-    $output = & git -C $RepoRoot grep -n -E $personalPattern -- . 2>&1
+    $output = & git -C $RepoRoot grep -n -E $personalPattern "--" "." 2>&1
     $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
     if ($exitCode -eq 0) {
       throw (($output | Select-Object -First 20) -join "`n")
@@ -827,7 +899,9 @@ if ($GitAvailable) {
     "docs/full-install.md",
     "docs/release.md",
     "docs/troubleshooting.md",
+    "docs/windows-fresh-install.md",
     "docs/xtalpi-pi-tools.md",
+    "scripts/pi67-bootstrap.ps1",
     "scripts/pi67-doctor.ps1",
     "scripts/pi67-report.ps1",
     "scripts/pi67-smoke.ps1",
@@ -845,6 +919,7 @@ if ($GitAvailable) {
     "packages/pi67-cli/src/lib/npm-registry.mjs",
     "packages/pi67-cli/src/lib/settings-runtime-clean.mjs",
     "packages/pi67-cli/src/lib/settings-runtime-state.mjs",
+    "packages/pi67-cli/src/lib/xtalpi-config.mjs",
     "packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs",
     "packages/pi67-cli/schemas/pi67-state.schema.json",
     "packages/pi67-cli/schemas/pi67-update-plan.schema.json",

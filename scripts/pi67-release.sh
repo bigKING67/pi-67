@@ -21,6 +21,7 @@ CREATE_GITHUB_RELEASE=true
 REPLACE_EXISTING=false
 REMOTE="origin"
 GH_REPO=""
+NPM_MANAGER_PACKAGE="@bigking67/pi-67"
 
 usage() {
   cat <<'USAGE'
@@ -145,12 +146,16 @@ version() {
 
 make_notes() {
   local notes_file="$1"
-  node - "$REPO_ROOT" "$VERSION" > "$notes_file" <<'NODE'
+  PI67_RELEASE_FROM_HEAD="$([ "$DRY_RUN" = true ] && printf '0' || printf '1')" \
+    node - "$REPO_ROOT" "$VERSION" > "$notes_file" <<'NODE'
+const { execFileSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
 const [, , repoRoot, version] = process.argv;
-const changelog = fs.readFileSync(path.join(repoRoot, "CHANGELOG.md"), "utf8");
+const changelog = process.env.PI67_RELEASE_FROM_HEAD === "1"
+  ? execFileSync("git", ["-C", repoRoot, "show", "HEAD:CHANGELOG.md"], { encoding: "utf8" })
+  : fs.readFileSync(path.join(repoRoot, "CHANGELOG.md"), "utf8");
 const lines = changelog.split(/\r?\n/);
 const start = lines.findIndex((line) => line.startsWith(`## [${version}]`));
 if (start < 0) {
@@ -173,6 +178,16 @@ console.log("");
 console.log(body || "- See CHANGELOG.md.");
 console.log("");
 console.log("## Install");
+console.log("");
+console.log("Windows fresh machine:");
+console.log("");
+console.log("```powershell");
+console.log('$Bootstrap = Join-Path $env:TEMP "pi67-bootstrap.ps1"');
+console.log('Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/bigKING67/pi-67/releases/latest/download/pi67-bootstrap.ps1" -OutFile $Bootstrap');
+console.log('powershell -NoProfile -ExecutionPolicy Bypass -File $Bootstrap');
+console.log("```");
+console.log("");
+console.log("macOS/Linux:");
 console.log("");
 console.log("```bash");
 console.log("git clone https://github.com/bigKING67/pi-67.git");
@@ -202,6 +217,105 @@ console.log("- `bash scripts/pi67-release-check.sh`");
 console.log("- `bash scripts/pi67-smoke.sh --ci`");
 console.log("- GitHub Actions CI should pass on the release commit.");
 NODE
+}
+
+make_bootstrap_assets() {
+  local asset_file="$1"
+  local checksum_file="$2"
+  local source_file="$REPO_ROOT/scripts/pi67-bootstrap.ps1"
+
+  if [ "$DRY_RUN" = true ]; then
+    if [ ! -f "$source_file" ]; then
+      fail "Windows bootstrap source is missing: $source_file"
+    fi
+    cp "$source_file" "$asset_file"
+  elif ! git -C "$REPO_ROOT" show "HEAD:scripts/pi67-bootstrap.ps1" > "$asset_file"; then
+    fail "Windows bootstrap is not present in the release commit"
+  fi
+  node - "$asset_file" "$checksum_file" <<'NODE'
+const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
+
+const [assetFile, checksumFile] = process.argv.slice(2);
+const digest = crypto.createHash("sha256").update(fs.readFileSync(assetFile)).digest("hex");
+fs.writeFileSync(checksumFile, `${digest}  ${path.basename(assetFile)}\n`, "utf8");
+NODE
+}
+
+check_npm_manager_release_prerequisite() {
+  local exact_target="${NPM_MANAGER_PACKAGE}@${VERSION}"
+  local latest_target="${NPM_MANAGER_PACKAGE}@latest"
+  local exact_published=""
+  local latest_published=""
+
+  if command_exists npm; then
+    exact_published="$(npm view "$exact_target" version --json 2>/dev/null || true)"
+    exact_published="$(printf '%s' "$exact_published" | tr -d '[:space:]"')"
+    latest_published="$(npm view "$latest_target" version --json 2>/dev/null || true)"
+    latest_published="$(printf '%s' "$latest_published" | tr -d '[:space:]"')"
+  fi
+
+  if [ "$exact_published" = "$VERSION" ] && [ "$latest_published" = "$VERSION" ]; then
+    pass "npm manager is published and latest points to it: $exact_target"
+    return
+  fi
+
+  if [ "$DRY_RUN" = true ]; then
+    if [ "$exact_published" != "$VERSION" ]; then
+      warn "$exact_target is not published yet; an actual GitHub Release will stop before creating a tag"
+    fi
+    if [ "$latest_published" != "$VERSION" ]; then
+      warn "$latest_target resolves to ${latest_published:-unavailable}, expected $VERSION; the bootstrap installs @latest"
+    fi
+    return
+  fi
+
+  if [ "$exact_published" != "$VERSION" ]; then
+    fail "publish $exact_target with .github/workflows/npm-publish.yml before creating the GitHub Release"
+  fi
+  fail "point the npm latest dist-tag at $exact_target before creating the GitHub Release"
+}
+
+check_release_head_contract() {
+  if [ "$DRY_RUN" = true ]; then
+    return
+  fi
+
+  if node - "$REPO_ROOT" "$VERSION" <<'NODE'
+const { execFileSync } = require("child_process");
+
+const [repoRoot, expectedVersion] = process.argv.slice(2);
+const show = (file) => execFileSync("git", ["-C", repoRoot, "show", `HEAD:${file}`], { encoding: "utf8" });
+const errors = [];
+
+let version = "";
+let rootPackage = {};
+let managerPackage = {};
+let changelog = "";
+try { version = show("VERSION").trim(); } catch { errors.push("VERSION is missing from HEAD"); }
+try { rootPackage = JSON.parse(show("package.json")); } catch { errors.push("package.json is missing or invalid in HEAD"); }
+try { managerPackage = JSON.parse(show("packages/pi67-cli/package.json")); } catch { errors.push("manager package.json is missing or invalid in HEAD"); }
+try { changelog = show("CHANGELOG.md"); } catch { errors.push("CHANGELOG.md is missing from HEAD"); }
+try { show("scripts/pi67-bootstrap.ps1"); } catch { errors.push("scripts/pi67-bootstrap.ps1 is missing from HEAD"); }
+
+if (version && version !== expectedVersion) errors.push(`HEAD VERSION is ${version}, expected ${expectedVersion}`);
+if (rootPackage.version !== expectedVersion) errors.push(`HEAD root package version is ${rootPackage.version || "missing"}`);
+if (managerPackage.version !== expectedVersion) errors.push(`HEAD manager package version is ${managerPackage.version || "missing"}`);
+if (changelog && !changelog.split(/\r?\n/).some((line) => line.startsWith(`## [${expectedVersion}]`))) {
+  errors.push(`HEAD CHANGELOG.md is missing ${expectedVersion}`);
+}
+
+if (errors.length > 0) {
+  process.stderr.write(`${errors.join("\n")}\n`);
+  process.exit(1);
+}
+NODE
+  then
+    pass "release metadata and bootstrap are committed in HEAD"
+  else
+    fail "release metadata must be committed before tagging; --allow-dirty does not release uncommitted candidate files"
+  fi
 }
 
 delete_existing_same_version() {
@@ -256,11 +370,13 @@ VERSION="$(version)"
 TAG="v$VERSION"
 NOTES_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pi67-release-notes.XXXXXX")"
 NOTES_FILE="$NOTES_DIR/release-notes.md"
+BOOTSTRAP_ASSET="$NOTES_DIR/pi67-bootstrap.ps1"
+BOOTSTRAP_CHECKSUM="$NOTES_DIR/pi67-bootstrap.ps1.sha256"
 trap 'rm -rf "$NOTES_DIR"' EXIT
-make_notes "$NOTES_FILE"
 
 say "Version    : ${GREEN}$VERSION${NC}"
 say "Tag        : ${GREEN}$TAG${NC}"
+say "Assets     : pi67-bootstrap.ps1, pi67-bootstrap.ps1.sha256"
 if [ "$DRY_RUN" = true ]; then
   say "Dry run    : ${YELLOW}yes${NC}"
 fi
@@ -276,6 +392,9 @@ if [ -n "$dirty" ] && [ "$DRY_RUN" != true ]; then
   warn "worktree is dirty; proceeding because --allow-dirty was provided"
 fi
 
+check_release_head_contract
+make_notes "$NOTES_FILE"
+
 say ""
 say "${CYAN}--- release checks ---${NC}"
 bash "$REPO_ROOT/scripts/pi67-release-check.sh"
@@ -287,6 +406,14 @@ if [ "$RUN_SMOKE" = true ]; then
 else
   warn "smoke check skipped by --no-smoke"
 fi
+
+if [ "$CREATE_GITHUB_RELEASE" = true ]; then
+  say ""
+  say "${CYAN}--- npm bootstrap prerequisite ---${NC}"
+  check_npm_manager_release_prerequisite
+fi
+
+make_bootstrap_assets "$BOOTSTRAP_ASSET" "$BOOTSTRAP_CHECKSUM"
 
 local_tag_exists=false
 remote_tag_exists=false
@@ -324,7 +451,7 @@ if [ "$DRY_RUN" = true ]; then
     say "  ${CYAN}DRY-RUN${NC} git push $REMOTE $TAG"
   fi
   if [ "$CREATE_GITHUB_RELEASE" = true ]; then
-    say "  ${CYAN}DRY-RUN${NC} gh release create $TAG --title \"pi-67 $TAG\" --notes-file $NOTES_FILE"
+    say "  ${CYAN}DRY-RUN${NC} gh release create $TAG $BOOTSTRAP_ASSET $BOOTSTRAP_CHECKSUM --title \"pi-67 $TAG\" --notes-file $NOTES_FILE"
   fi
   say ""
   pass "dry-run completed"
@@ -348,8 +475,8 @@ else
 fi
 
 if [ "$CREATE_GITHUB_RELEASE" = true ]; then
-  gh release create "$TAG" --title "pi-67 $TAG" --notes-file "$NOTES_FILE" $(gh_args)
-  pass "GitHub Release created: $TAG"
+  gh release create "$TAG" "$BOOTSTRAP_ASSET" "$BOOTSTRAP_CHECKSUM" --title "pi-67 $TAG" --notes-file "$NOTES_FILE" $(gh_args)
+  pass "GitHub Release created with Windows bootstrap assets: $TAG"
 else
   warn "GitHub Release creation skipped by --no-github-release"
 fi

@@ -1,5 +1,7 @@
 # 用户实际配置文件（由 install.sh 从 .example 复制生成）
 models.json
+.models.json.*.tmp
+.models.json.*.replace-backup*
 mcp.json
 auth.json
 image-gen.json

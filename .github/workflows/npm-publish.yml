@@ -204,3 +204,27 @@ jobs:
             # GitHub Actions OIDC via the workflow id-token permission.
             npm publish ./packages/pi67-cli --access public --tag "$NPM_TAG"
           fi
+
+      - name: Verify published npm version and requested dist-tag
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+          NPM_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          package_name="@bigking67/pi-67"
+          exact_version=""
+          tagged_version=""
+          for attempt in {1..12}; do
+            exact_version="$(npm view "${package_name}@${REQUESTED_VERSION}" version --json 2>/dev/null | tr -d '[:space:]"' || true)"
+            tagged_version="$(npm view "${package_name}@${NPM_TAG}" version --json 2>/dev/null | tr -d '[:space:]"' || true)"
+            if [ "$exact_version" = "$REQUESTED_VERSION" ] && [ "$tagged_version" = "$REQUESTED_VERSION" ]; then
+              echo "Verified ${package_name}@${REQUESTED_VERSION} and dist-tag ${NPM_TAG}."
+              exit 0
+            fi
+            echo "Registry propagation attempt ${attempt}/12: exact=${exact_version:-unavailable}, ${NPM_TAG}=${tagged_version:-unavailable}"
+            sleep 10
+          done
+          echo "npm verification failed: expected exact version and dist-tag ${NPM_TAG} to resolve to ${REQUESTED_VERSION}" >&2
+          exit 1
