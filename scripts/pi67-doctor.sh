@@ -483,10 +483,33 @@ NODE
 }
 
 check_provider_model() {
+  local checker="$REPO_ROOT/scripts/pi67-provider-status.mjs"
+  if [ ! -f "$checker" ]; then
+    fail "provider status checker missing: $checker"
+    return
+  fi
+  if ! command_exists node; then
+    fail "node is required for provider readiness checks"
+    return
+  fi
+
+  while IFS='|' read -r level message; do
+    case "$level" in
+      PASS) pass "$message" ;;
+      WARN) warn "$message" ;;
+      FAIL) fail "$message" ;;
+      "") ;;
+      *) warn "$level|$message" ;;
+    esac
+  done < <(node "$checker" --repo-root "$REPO_ROOT" --agent-dir "$PI_AGENT_DIR")
+
+  check_vision_provider
+}
+
+check_vision_provider() {
   local tmp
   tmp="$(mktemp)"
   cat > "$tmp" <<'NODE'
-const fs = require("fs");
 const path = require("path");
 const [, , repoRoot, agentDir] = process.argv;
 const { readJsonFile } = require(path.join(repoRoot, "scripts", "pi67-json-utils.cjs"));
@@ -495,60 +518,28 @@ function emit(level, message) {
   console.log(`${level}|${message}`);
 }
 
-function readJson(file) {
-  try {
-    return readJsonFile(file);
-  } catch (error) {
-    emit("FAIL", `cannot read JSON ${file}: ${error.message}`);
-    return null;
-  }
-}
-
-const settings = readJson(path.join(agentDir, "settings.json"));
-const models = readJson(path.join(agentDir, "models.json"));
-if (!settings || !models) process.exit(0);
-
-const providerId = settings.defaultProvider;
-const modelId = settings.defaultModel;
-
-if (!providerId) emit("FAIL", "settings.json missing defaultProvider");
-if (!modelId) emit("FAIL", "settings.json missing defaultModel");
-
-const provider = models.providers?.[providerId];
-if (!provider) {
-  emit("FAIL", `defaultProvider ${providerId} not found in models.json`);
-} else {
-  emit("PASS", `defaultProvider exists: ${providerId}`);
-  const model = Array.isArray(provider.models) ? provider.models.find((item) => item.id === modelId) : null;
-  if (model) {
-    emit("PASS", `defaultModel exists under ${providerId}: ${modelId}`);
-  } else {
-    emit("FAIL", `defaultModel ${modelId} not found under provider ${providerId}`);
-  }
-
-  if (String(provider.apiKey || "").includes("YOUR_")) {
-    emit("WARN", `provider ${providerId} still uses placeholder apiKey`);
-  } else if (provider.apiKey) {
-    emit("PASS", `provider ${providerId} apiKey is configured`);
-  }
+let models;
+try {
+  models = readJsonFile(path.join(agentDir, "models.json"));
+} catch (error) {
+  emit("FAIL", `cannot inspect vision provider: ${error.message}`);
+  process.exit(0);
 }
 
 const codexProvider = models.providers?.codex;
 if (!codexProvider) {
   emit("WARN", "vision_read default provider codex is missing from models.json");
+  process.exit(0);
+}
+const codexModels = Array.isArray(codexProvider.models) ? codexProvider.models : [];
+const imageModel = codexModels.find((item) => Array.isArray(item.input) && item.input.map(String).includes("image"));
+if (imageModel?.id) emit("PASS", `vision_read default image model exists under codex: ${imageModel.id}`);
+else emit("WARN", "vision_read default provider codex has no image-input model");
+const apiKey = String(codexProvider.apiKey || "");
+if (!apiKey || /YOUR_|REPLACE_|placeholder|changeme/i.test(apiKey)) {
+  emit("WARN", "vision_read codex apiKey is missing or placeholder");
 } else {
-  const codexModels = Array.isArray(codexProvider.models) ? codexProvider.models : [];
-  const imageModel = codexModels.find((item) => Array.isArray(item.input) && item.input.map(String).includes("image"));
-  if (imageModel?.id) {
-    emit("PASS", `vision_read default image model exists under codex: ${imageModel.id}`);
-  } else {
-    emit("WARN", "vision_read default provider codex has no image-input model");
-  }
-  if (String(codexProvider.apiKey || "").includes("YOUR_") || !codexProvider.apiKey) {
-    emit("WARN", "vision_read codex apiKey is missing or placeholder");
-  } else {
-    emit("PASS", "vision_read codex apiKey is configured");
-  }
+  emit("PASS", "vision_read codex apiKey is configured");
 }
 NODE
   run_node_report "$tmp"

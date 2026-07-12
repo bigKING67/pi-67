@@ -45,6 +45,8 @@ PACKAGE_JSON="$REPO_ROOT/package.json"
 PI67_CLI_DIR="$REPO_ROOT/packages/pi67-cli"
 PI67_CLI_PACKAGE_JSON="$PI67_CLI_DIR/package.json"
 PI67_CLI_BIN="$PI67_CLI_DIR/bin/pi-67.mjs"
+PI67_CLI_SOURCE="$PI67_CLI_DIR/src/cli.mjs"
+PI67_XTALPI_COMMAND="$PI67_CLI_DIR/src/commands/xtalpi.mjs"
 RELEASE_DOC="$REPO_ROOT/docs/release.md"
 WINDOWS_FRESH_INSTALL_DOC="$REPO_ROOT/docs/windows-fresh-install.md"
 NPM_PUBLISH_WORKFLOW="$REPO_ROOT/.github/workflows/npm-publish.yml"
@@ -92,6 +94,7 @@ UNTIL_DONE_QUEUE_PATCH_MJS="$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-
 UNTIL_DONE_QUEUE_PATCH_SH="$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.sh"
 UNTIL_DONE_QUEUE_PATCH_PS="$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.ps1"
 XTALPI_CONFIG_LIB="$REPO_ROOT/packages/pi67-cli/src/lib/xtalpi-config.mjs"
+PROVIDER_STATUS_SCRIPT="$REPO_ROOT/scripts/pi67-provider-status.mjs"
 
 if [ -f "$VERSION_FILE" ]; then
   VERSION="$(tr -d '[:space:]' < "$VERSION_FILE")"
@@ -187,17 +190,35 @@ try {
   if (payload.provider !== "xtalpi-pi-tools" || payload.model !== "deepseek-v4-pro") {
     throw new Error("unexpected configure provider/model");
   }
-  if (payload.configured !== false || payload.dryRun !== true) {
-    throw new Error("fresh configure dry-run must remain unconfigured");
+  if (payload.configured !== false || payload.changed !== false || payload.skipped !== true || payload.dryRun !== true) {
+    throw new Error("fresh configure dry-run must be a skipped no-op");
+  }
+  for (const file of ["models.json", "settings.json", "auth.json"]) {
+    if (fs.existsSync(path.join(agentDir, file))) {
+      throw new Error(`missing-key xtalpi dry-run created ${file}`);
+    }
+  }
+
+  const genericConfigure = spawnSync(process.execPath, [
+    cli,
+    "--agent-dir", agentDir,
+    "--repo-root", repoRoot,
+    "configure", "--provider", "deepseek", "--no-prompt", "--json",
+  ], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  if (genericConfigure.status !== 2 || !genericConfigure.stderr.includes("unknown command: configure")) {
+    throw new Error("generic pi-67 configure must remain unavailable");
   }
 } finally {
   fs.rmSync(agentDir, { recursive: true, force: true });
 }
 NODE
   then
-    pass "pi-67 xtalpi configure dry-run contract passed"
+    pass "optional xtalpi configure and upstream provider ownership contracts passed"
   else
-    fail "pi-67 xtalpi configure dry-run contract failed"
+    fail "optional xtalpi configure or upstream provider ownership contract failed"
   fi
 else
   warn "node not found; skipped pi-67 npm CLI checks"
@@ -271,7 +292,7 @@ else
   fail "pi-67 npm CLI install/update/theme/publish docs are missing"
 fi
 
-if [ -f "$POWERSHELL_SMOKE" ] && [ -f "$POWERSHELL_BOOTSTRAP" ] && [ -f "$POWERSHELL_UPDATE" ] && [ -f "$POWERSHELL_ACCEPTANCE" ] && [ -f "$POWERSHELL_DOCTOR" ] && [ -f "$POWERSHELL_REPORT" ] && [ -f "$JSON_UTIL_PS" ] && [ -f "$JSON_UTIL_CJS" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_PS" ] && [ -f "$WINDOWS_FRESH_INSTALL_DOC" ] && [ -f "$XTALPI_CONFIG_LIB" ] && grep -q "pi67-bootstrap.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-bootstrap.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-bootstrap.ps1" "$RELEASE_DOC" && grep -q "pi67-bootstrap.ps1" "$TROUBLESHOOTING_DOC" && grep -q "pi67-bootstrap.ps1" "$WINDOWS_FRESH_INSTALL_DOC" && grep -q "pi67-smoke.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-smoke.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-smoke.ps1" "$RELEASE_DOC" && grep -q "pi67-update.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-update.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-update.ps1" "$RELEASE_DOC" && grep -q "pi67-windows-acceptance.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-windows-acceptance.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-windows-acceptance.ps1" "$RELEASE_DOC" && grep -q "pi67-windows-acceptance.ps1" "$TROUBLESHOOTING_DOC" && grep -q "pi67-doctor.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-doctor.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-doctor.ps1" "$RELEASE_DOC" && grep -q "pi67-report.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-report.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-report.ps1" "$RELEASE_DOC" && grep -q "pi67-xtalpi-pi-tools-smoke.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-xtalpi-pi-tools-smoke.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-xtalpi-pi-tools-smoke.ps1" "$RELEASE_DOC" && grep -q "PowerShell" "$XTALPI_PI_TOOLS_DOC"; then
+if [ -f "$POWERSHELL_SMOKE" ] && [ -f "$POWERSHELL_BOOTSTRAP" ] && [ -f "$POWERSHELL_UPDATE" ] && [ -f "$POWERSHELL_ACCEPTANCE" ] && [ -f "$POWERSHELL_DOCTOR" ] && [ -f "$POWERSHELL_REPORT" ] && [ -f "$JSON_UTIL_PS" ] && [ -f "$JSON_UTIL_CJS" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_PS" ] && [ -f "$WINDOWS_FRESH_INSTALL_DOC" ] && [ -f "$XTALPI_CONFIG_LIB" ] && [ -f "$PROVIDER_STATUS_SCRIPT" ] && [ -f "$PI67_XTALPI_COMMAND" ] && grep -q "pi67-bootstrap.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-bootstrap.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-bootstrap.ps1" "$RELEASE_DOC" && grep -q "pi67-bootstrap.ps1" "$TROUBLESHOOTING_DOC" && grep -q "pi67-bootstrap.ps1" "$WINDOWS_FRESH_INSTALL_DOC" && grep -q "pi67-smoke.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-smoke.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-smoke.ps1" "$RELEASE_DOC" && grep -q "pi67-update.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-update.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-update.ps1" "$RELEASE_DOC" && grep -q "pi67-windows-acceptance.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-windows-acceptance.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-windows-acceptance.ps1" "$RELEASE_DOC" && grep -q "pi67-windows-acceptance.ps1" "$TROUBLESHOOTING_DOC" && grep -q "pi67-doctor.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-doctor.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-doctor.ps1" "$RELEASE_DOC" && grep -q "pi67-report.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-report.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-report.ps1" "$RELEASE_DOC" && grep -q "pi67-xtalpi-pi-tools-smoke.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-xtalpi-pi-tools-smoke.ps1" "$FULL_INSTALL_DOC" && grep -q "pi67-xtalpi-pi-tools-smoke.ps1" "$RELEASE_DOC" && grep -q "PowerShell" "$XTALPI_PI_TOOLS_DOC"; then
   pass "Windows PowerShell update/acceptance/doctor/report/smoke entrypoints are documented"
 else
   fail "Windows PowerShell update/acceptance/doctor/report/smoke entrypoints are missing or not documented"
@@ -291,10 +312,15 @@ if grep -q '\[switch\]\$SelfTest' "$POWERSHELL_BOOTSTRAP" \
   && grep -q 'defaultProfile' "$POWERSHELL_BOOTSTRAP" \
   && grep -q 'Notepad4SystemIntegration' "$POWERSHELL_BOOTSTRAP" \
   && grep -q 'Start-Process.*-Verb RunAs' "$POWERSHELL_BOOTSTRAP" \
-  && grep -q 'xtalpi", "configure", "--verify"' "$POWERSHELL_BOOTSTRAP" \
-  && grep -q 'pi67.windows-bootstrap.v2' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q '\[switch\]\$NoXtalpiPrompt' "$POWERSHELL_BOOTSTRAP" \
+  && grep -Fq '"xtalpi", "configure", "--verify"' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q 'pi67.windows-bootstrap.v4' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q 'selectionManagedByPi67 = \$false' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q 'persistenceOwner = "upstream-pi"' "$POWERSHELL_BOOTSTRAP" \
   && grep -q 'RESULT: PASS' "$POWERSHELL_BOOTSTRAP" \
-  && grep -q 'READY_WITHOUT_XTALPI' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -q 'READY_WITHOUT_PROVIDER' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -q 'READY_WITHOUT_XTALPI' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -q '"configure", "--provider"' "$POWERSHELL_BOOTSTRAP" \
   && ! grep -q 'OpenJS.NodeJS.LTS' "$POWERSHELL_BOOTSTRAP" \
   && ! grep -Fq 'pi-67 launch' "$POWERSHELL_BOOTSTRAP" \
   && ! grep -q -- '-SkipUpdate' "$POWERSHELL_BOOTSTRAP"; then
@@ -311,7 +337,14 @@ if grep -q 'Node.js 24 LTS' "$WINDOWS_FRESH_INSTALL_DOC" \
   && grep -q 'zufuliu.notepad4' "$WINDOWS_FRESH_INSTALL_DOC" \
   && grep -q 'Schniz.fnm' "$WINDOWS_FRESH_INSTALL_DOC" \
   && grep -q 'lts/krypton' "$WINDOWS_FRESH_INSTALL_DOC" \
-  && grep -q 'pi-67 xtalpi configure --verify' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -Fq 'pi-67 xtalpi configure --verify' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q '/login' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q '/model' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'RESULT: PASS' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && ! grep -q 'pi-67 configure --verify' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && ! grep -q 'pi-67 configure --provider' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && ! grep -q 'READY_WITHOUT_PROVIDER' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && ! grep -q 'READY_WITHOUT_XTALPI' "$WINDOWS_FRESH_INSTALL_DOC" \
   && grep -q 'Invoke-WebRequest' "$WINDOWS_FRESH_INSTALL_DOC" \
   && grep -q 'UseBasicParsing' "$WINDOWS_FRESH_INSTALL_DOC" \
   && ! grep -Fq 'irm | iex' "$WINDOWS_FRESH_INSTALL_DOC"; then
@@ -323,15 +356,24 @@ fi
 if grep -q '\[switch\]\$SkipUpdate' "$POWERSHELL_ACCEPTANCE" \
   && grep -q '\[switch\]\$SelfTest' "$POWERSHELL_ACCEPTANCE" \
   && grep -q '\[switch\]\$ValidateWorkstation' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q '\[string\]\$ProviderProfile = "auto"' "$POWERSHELL_ACCEPTANCE" \
   && grep -q 'Assert-WorkstationContract' "$POWERSHELL_ACCEPTANCE" \
   && grep -q 'fnm env --use-on-cd --shell powershell' "$POWERSHELL_ACCEPTANCE" \
   && grep -q 'Arguments = @("self-update")' "$POWERSHELL_ACCEPTANCE" \
   && grep -q '"update", "--repair", "--yes"' "$POWERSHELL_ACCEPTANCE" \
   && grep -Fq 'Invoke-CommandStage "pi-runtime" "pi" @("--version")' "$POWERSHELL_ACCEPTANCE" \
+  && grep -Fq 'Invoke-CommandStage "pi-extension-load" "pi"' "$POWERSHELL_ACCEPTANCE" \
   && ! grep -Fq 'Invoke-CommandStage "launch"' "$POWERSHELL_ACCEPTANCE" \
   && grep -q '"read-package", "read-enoent-recovery"' "$POWERSHELL_ACCEPTANCE" \
   && grep -q 'read,fffind,read' "$POWERSHELL_ACCEPTANCE" \
-  && grep -q 'pi67.windows-acceptance.v2' "$POWERSHELL_ACCEPTANCE" \
+  && grep -Fq 'Invoke-CommandStage "daily-pi-live" "pi"' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q 'piStartupReady' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q 'modelRequestReady' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q 'pi67-provider-status.mjs' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q 'upstream-pi-default-request' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q 'pi67.windows-acceptance.v4' "$POWERSHELL_ACCEPTANCE" \
+  && ! grep -q 'READY_WITHOUT_PROVIDER' "$POWERSHELL_ACCEPTANCE" \
+  && ! grep -q 'READY_WITHOUT_XTALPI' "$POWERSHELL_ACCEPTANCE" \
   && grep -q 'RESULT: PASS' "$POWERSHELL_ACCEPTANCE"; then
   pass "Windows one-command acceptance validates the real Pi runtime"
 else
@@ -344,10 +386,29 @@ else
   fail "PowerShell xtalpi targeted smoke expanded cases are missing or not documented"
 fi
 
-if grep -q "pi67-update.sh" "$REPO_ROOT/README.md" && grep -q "pi67-update.sh" "$REPO_ROOT/docs/full-install.md" && grep -q "pi67-update.ps1" "$REPO_ROOT/README.md" && grep -q "pi67-update.ps1" "$REPO_ROOT/docs/full-install.md"; then
-  pass "update workflow is documented"
+if grep -q "pi67-update.sh" "$REPO_ROOT/README.md" \
+  && grep -q "pi67-update.sh" "$REPO_ROOT/docs/full-install.md" \
+  && grep -q "pi67-update.ps1" "$REPO_ROOT/README.md" \
+  && grep -q "pi67-update.ps1" "$REPO_ROOT/docs/full-install.md" \
+  && ! grep -q 'Invoke-ProviderSelectionMigration' "$POWERSHELL_UPDATE" \
+  && ! grep -q '"configure", "--provider", "auto"' "$POWERSHELL_UPDATE"; then
+  pass "update workflow is documented and preserves upstream provider/model ownership"
 else
-  fail "update workflow is not documented in README.md and docs/full-install.md"
+  fail "update workflow documentation or upstream provider ownership contract is incomplete"
+fi
+
+if [ -f "$PI67_CLI_SOURCE" ] \
+  && [ -f "$PI67_XTALPI_COMMAND" ] \
+  && ! grep -q '^  configure:' "$PI67_CLI_SOURCE" \
+  && grep -q 'if (sub === "configure")' "$PI67_XTALPI_COMMAND" \
+  && grep -q 'use /login and /model inside Pi' "$PI67_XTALPI_COMMAND" \
+  && ! grep -q 'pi-67 configure --provider' "$REPO_ROOT/README.md" \
+  && ! grep -q 'pi-67 configure --provider' "$FULL_INSTALL_DOC" \
+  && ! grep -q 'pi-67 configure --provider' "$TROUBLESHOOTING_DOC" \
+  && ! grep -q 'pi-67 configure --provider' "$WINDOWS_FRESH_INSTALL_DOC"; then
+  pass "pi-67 keeps only the optional xtalpi configure helper and leaves provider selection to upstream Pi"
+else
+  fail "generic pi-67 provider selection or stale documentation is still present"
 fi
 
 if grep -q "UTF-8 without BOM" "$REPO_ROOT/README.md" && grep -q "UTF-8 without BOM" "$FULL_INSTALL_DOC" && grep -q "models.json.bak-" "$TROUBLESHOOTING_DOC" && grep -q "UTF-8 without BOM" "$XTALPI_PI_TOOLS_DOC"; then
@@ -589,10 +650,10 @@ else
   fail "xtalpi-pi-tools dynamic MCP direct-tool round-trip or adapter registration regression is missing or not documented"
 fi
 
-if grep -q '"defaultProvider": "xtalpi-pi-tools"' "$REPO_ROOT/settings.json" && grep -q '"xtalpi-pi-tools"' "$REPO_ROOT/models.example.json" && ! grep -q '"xtalpi-tools"' "$REPO_ROOT/models.example.json"; then
-  pass "xtalpi-pi-tools is the only xtalpi provider template"
+if grep -q '"xtalpi-pi-tools"' "$REPO_ROOT/models.example.json" && ! grep -q '"xtalpi-tools"' "$REPO_ROOT/models.example.json"; then
+  pass "xtalpi-pi-tools is the only xtalpi provider template; active selection remains upstream-owned"
 else
-  fail "xtalpi-pi-tools provider template/default is not clean"
+  fail "xtalpi-pi-tools provider template is not clean"
 fi
 
 if command_exists node; then

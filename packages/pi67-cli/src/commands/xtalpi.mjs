@@ -48,22 +48,28 @@ async function configure(ctx, argv) {
     let apiKey = envKey.value;
     let keySource = envKey.source;
     if (!apiKey && !preview.configured && !dryRun && !options.noPrompt) {
-      apiKey = await readSecret(
-        "xtalpi API key for xtalpi-pi-tools (input hidden): ",
-      );
+      apiKey = await readSecret("xtalpi API key for xtalpi-pi-tools (input hidden, blank to skip): ");
       keySource = apiKey ? "interactive prompt" : "";
     }
 
-    const result = configureXtalpiModels({
-      agentDir: ctx.agentDir,
-      repoRoot: ctx.repoRoot,
-      apiKey,
-      dryRun,
-      allowMissingKey: dryRun,
-    });
+    const skipped = !apiKey && !preview.configured;
+    const result = skipped
+      ? {
+          ...preview,
+          backupPath: "",
+          changed: false,
+          changes: [],
+        }
+      : configureXtalpiModels({
+          agentDir: ctx.agentDir,
+          repoRoot: ctx.repoRoot,
+          apiKey,
+          dryRun,
+          allowMissingKey: dryRun || !apiKey,
+        });
 
     let verification = null;
-    if (options.verify && !dryRun) {
+    if (options.verify && !dryRun && result.configured) {
       verification = verifyXtalpiConfiguration(ctx);
     }
 
@@ -80,6 +86,7 @@ async function configure(ctx, argv) {
         changes: result.changes,
         keySource: keySource || (result.configured ? "existing local config" : "not configured"),
         dryRun,
+        skipped,
         verification,
       });
       return;
@@ -87,8 +94,9 @@ async function configure(ctx, argv) {
 
     section("Xtalpi configuration");
     pass("xtalpi-pi-tools provider contract is canonical");
-    if (dryRun && !apiKey && !preview.configured) {
-      info("DRY-RUN would request the personal xtalpi API key through a hidden prompt.");
+    if (skipped) {
+      const prefix = dryRun ? "DRY-RUN: " : "";
+      warn(`${prefix}No xtalpi API key was configured, so no provider configuration was written. Upstream Pi can still start; use /login and /model inside Pi.`);
     }
     if (keySource) info(`API key source: ${keySource}`);
     for (const change of result.changes) {
@@ -97,7 +105,9 @@ async function configure(ctx, argv) {
     if (result.backupPath) {
       warn(`Preserved the pre-normalization file at: ${result.backupPath}`);
     }
-    if (result.changed) {
+    if (skipped) {
+      pass("xtalpi configuration skipped without changing upstream Pi state");
+    } else if (result.changed) {
       pass(`${dryRun ? "configuration plan is valid for" : "updated"} ${result.modelsFile}`);
     } else {
       pass(`unchanged: ${result.modelsFile}`);
@@ -177,7 +187,7 @@ function xtalpiKeyFromEnv() {
 function readSecret(prompt) {
   if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== "function") {
     throw new CliError(
-      "interactive secret input requires a TTY; set PI67_XTALPI_API_KEY or rerun without --no-prompt",
+      "interactive secret input requires a TTY; set PI67_XTALPI_API_KEY or rerun with --no-prompt",
     );
   }
   return new Promise((resolve, reject) => {
@@ -398,9 +408,14 @@ Usage:
   pi-67 xtalpi run [--provider ID] [--model NAME] [--no-passive-observational-memory] [-- <pi args>]
 
 Notes:
-  xtalpi configure writes the personal key only to ignored local models.json.
-  It accepts PI67_XTALPI_API_KEY for automation and never accepts a plaintext
-  key as a command-line option. Use --verify for a live provider health check.
+  xtalpi configure is an optional company-provider convenience. Blank input or
+  --no-prompt without a key succeeds without writing provider/model state.
+  When a key is supplied, it is written only to ignored local models.json.
+  The command accepts PI67_XTALPI_API_KEY for automation. It never accepts a plaintext
+  key as a command-line option. Use --verify for a live provider
+  health check after a key is configured.
+  Pi startup, /login, /model, authentication persistence, and selected-model
+  restoration remain owned by upstream Pi.
   xtalpi-pi-tools treats xtalpi as plain chat-completions transport. Pi local
   code owns tool protocol parsing, validation, repair, retry classification,
   tool execution, and smoke gates.

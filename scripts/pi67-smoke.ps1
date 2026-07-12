@@ -197,6 +197,7 @@ if (-not $Json) {
 
 $NodeAvailable = Test-CommandExists "node"
 $GitAvailable = Test-CommandExists "git"
+$PiAvailable = Test-CommandExists "pi"
 
 Section "Required tools"
 if ($NodeAvailable) {
@@ -218,6 +219,12 @@ if ($GitAvailable) {
   }
 } else {
   Warn "git not found; skipped Git-only checks" "install Git for Windows with: winget install --id Git.Git -e --source winget"
+}
+
+if ($PiAvailable) {
+  Pass "upstream pi found"
+} else {
+  Warn "upstream pi not found; skipped real extension-load check" "install with: npm install -g @earendil-works/pi-coding-agent"
 }
 
 Section "Release metadata"
@@ -272,6 +279,7 @@ $RequiredFiles = @(
   "scripts/pi67-json-utils.ps1",
   "scripts/pi67-json-utils.cjs",
   "scripts/pi67-mcp-config-utils.cjs",
+  "scripts/pi67-provider-status.mjs",
   "scripts/pi67-release-check.sh",
   "scripts/pi67-xtalpi-pi-tools.ps1",
   "scripts/pi67-xtalpi-pi-tools-smoke.ps1",
@@ -396,6 +404,66 @@ Run-Check "settings.json git attributes pin LF and runtime clean filter" {
   if ($attributeLines -notcontains "settings.json text eol=lf filter=pi67-settings-runtime-state") {
     throw "settings.json must declare text eol=lf and pi67-settings-runtime-state filter"
   }
+}
+
+Section "Zero-credential Pi extension load"
+if ($PiAvailable) {
+  Run-Check "real Pi loads xtalpi-pi-tools with no provider key" {
+    $tmpAgent = Join-Path ([System.IO.Path]::GetTempPath()) ("pi67-zero-key-{0}" -f [Guid]::NewGuid().ToString("N"))
+    $environmentNames = @(
+      "PI_CODING_AGENT_DIR",
+      "PI_AGENT_DIR",
+      "PI_OFFLINE",
+      "XTALPI_PI_TOOLS_API_KEY",
+      "XTALPI_API_KEY",
+      "PI67_XTALPI_PI_TOOLS_API_KEY",
+      "PI67_XTALPI_API_KEY"
+    )
+    $previousEnvironment = @{}
+    foreach ($name in $environmentNames) {
+      $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+    }
+    try {
+      New-Item -ItemType Directory -Force -Path (Join-Path $tmpAgent "extensions") | Out-Null
+      Copy-Item (RepoPath "extensions" "xtalpi-pi-tools") (Join-Path $tmpAgent "extensions\xtalpi-pi-tools") -Recurse -Force
+      Copy-Item (RepoPath "models.example.json") (Join-Path $tmpAgent "models.json") -Force
+      $settings = Read-JsonFile (RepoPath "settings.json")
+      $settings.defaultProvider = "xtalpi-pi-tools"
+      $settings.defaultModel = "deepseek-v4-pro"
+      $settings.packages = @()
+      Save-Pi67JsonFileUtf8NoBom (Join-Path $tmpAgent "settings.json") $settings
+      Save-Pi67JsonFileUtf8NoBom (Join-Path $tmpAgent "auth.json") ([pscustomobject]@{})
+
+      $env:PI_CODING_AGENT_DIR = $tmpAgent
+      $env:PI_AGENT_DIR = $tmpAgent
+      $env:PI_OFFLINE = "1"
+      $env:XTALPI_PI_TOOLS_API_KEY = ""
+      $env:XTALPI_API_KEY = ""
+      $env:PI67_XTALPI_PI_TOOLS_API_KEY = ""
+      $env:PI67_XTALPI_API_KEY = ""
+      $output = (Invoke-External "pi" @("--offline", "--list-models", "xtalpi-pi-tools")) -join "`n"
+      if ($output -notmatch '(?m)^xtalpi-pi-tools\s+deepseek-v4-pro\s+') {
+        throw "xtalpi-pi-tools model list was not returned"
+      }
+      if ($output.Contains('"apiKey" or "oauth" is required when defining models')) {
+        throw "provider registration still requires an xtalpi key"
+      }
+    } finally {
+      foreach ($name in $environmentNames) {
+        $previous = $previousEnvironment[$name]
+        if ($null -eq $previous) {
+          Remove-Item "Env:$name" -ErrorAction SilentlyContinue
+        } else {
+          Set-Item "Env:$name" $previous
+        }
+      }
+      if (Test-Path -LiteralPath $tmpAgent) {
+        Remove-Item -LiteralPath $tmpAgent -Recurse -Force
+      }
+    }
+  }
+} else {
+  Warn "zero-credential Pi extension-load check skipped" "upstream pi is not installed"
 }
 
 Section "Node helpers"
@@ -583,8 +651,13 @@ if (String(tmwd.args?.[0] || "").includes(browser67Root) || String(jsReverse.arg
       if ($payload.schema -ne "pi67-xtalpi-config/v1" -or $payload.provider -ne "xtalpi-pi-tools" -or $payload.model -ne "deepseek-v4-pro") {
         throw "unexpected xtalpi configure dry-run contract"
       }
-      if ($payload.configured -eq $true -or $payload.dryRun -ne $true) {
-        throw "fresh dry-run must remain unconfigured and report dryRun=true"
+      if ($payload.configured -eq $true -or $payload.changed -eq $true -or $payload.skipped -ne $true -or $payload.dryRun -ne $true) {
+        throw "fresh dry-run must be an unconfigured, skipped no-op and report dryRun=true"
+      }
+      foreach ($file in @("models.json", "settings.json", "auth.json")) {
+        if (Test-Path -LiteralPath (Join-Path $tmpAgent $file)) {
+          throw "fresh missing-key dry-run must not create $file"
+        }
       }
     } finally {
       if (Test-Path -LiteralPath $tmpAgent) {
@@ -857,7 +930,10 @@ Run-Check "Windows fresh-install product contract is documented" {
   Assert-ContentContains $freshInstall "defaultProfile"
   Assert-ContentContains $freshInstall '"elevate": true'
   Assert-ContentContains $freshInstall "pi-67 xtalpi configure --verify"
-  Assert-ContentContains $freshInstall "READY_WITHOUT_XTALPI"
+  Assert-ContentContains $freshInstall "/login"
+  Assert-ContentContains $freshInstall "/model"
+  Assert-ContentNotContains $freshInstall "READY_WITHOUT_PROVIDER"
+  Assert-ContentNotContains $freshInstall "READY_WITHOUT_XTALPI"
   Assert-ContentContains $freshInstall "Invoke-WebRequest"
   Assert-ContentContains $freshInstall "UseBasicParsing"
   Assert-ContentNotContains $freshInstall "irm | iex"

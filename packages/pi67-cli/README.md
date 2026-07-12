@@ -4,7 +4,8 @@
 diagnosing, and repairing the pi-67 Pi workspace distribution. It does not
 replace the upstream Pi runtime: users start Pi with `pi` and use `pi-67` to
 manage the surrounding workspace, extensions, Skills, rules, and provider
-configuration.
+templates. Upstream Pi owns provider login, model selection, persistence, and
+restoration on the next launch.
 
 ## Install and run
 
@@ -12,7 +13,6 @@ configuration.
 npm install -g @earendil-works/pi-coding-agent
 npm install -g @bigking67/pi-67
 pi-67 install --repair --yes
-pi-67 xtalpi configure --verify
 pi-67 update
 pi-67 doctor
 pi --version
@@ -51,7 +51,6 @@ git --version
 npm install -g @earendil-works/pi-coding-agent
 npm install -g @bigking67/pi-67
 pi-67 install --repair --yes
-pi-67 xtalpi configure --verify
 pi-67 update
 pi-67 doctor
 pi --version
@@ -71,10 +70,30 @@ npm/Scoop `pi.cmd` shims through `cmd.exe`. It is not the standard startup
 command and is not used to decide whether the real Pi runtime is installed or
 working.
 
-## Configure the company provider
+## Log in and select a model
 
-The managed workspace uses `xtalpi-pi-tools + deepseek-v4-pro`. Each user keeps
-their own API key only in the ignored local `models.json`:
+Start the real upstream runtime even when no API key is configured:
+
+```text
+pi
+/login
+/model
+```
+
+`/login`, `/model`, authentication persistence, selected-model persistence,
+and next-launch restoration are upstream Pi contracts. pi-67 does not provide
+a generic provider selector, does not write DeepSeek authentication, and does
+not auto-switch provider/model state during install or update.
+
+DeepSeek, Anthropic, OpenAI, Google, and other upstream providers all use the
+native Pi flow above. Built-in providers must not be duplicated in
+`models.json` merely to satisfy a pi-67 check.
+
+### Company xtalpi provider
+
+The managed workspace recommends `xtalpi-pi-tools + deepseek-v4-pro` for
+company users. The optional helper below can preconfigure only that company
+provider before the first Pi launch:
 
 ```bash
 pi-67 xtalpi configure --verify
@@ -83,7 +102,10 @@ pi-67 xtalpi configure --verify
 The command uses hidden TTY input, never accepts a plaintext `--api-key`
 argument, preserves other providers and extra local models, repairs canonical
 provider fields, normalizes supported Windows JSON encodings to UTF-8 without
-BOM, and runs a real provider-health request with `--verify`.
+BOM, and runs a real provider-health request with `--verify` after a key is
+configured. Blank input, or `--no-prompt` without a key, succeeds without
+writing provider/model state. The command is not required for `pi` startup and
+does not replace `/login` or `/model`.
 
 For non-interactive secret injection, use one of these environment variables
 instead of a command-line value:

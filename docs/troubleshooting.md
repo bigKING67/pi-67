@@ -61,7 +61,7 @@ Each run writes a summary and bounded stage logs under:
 Start with `bootstrap-summary.json`. Its `failedStage` distinguishes
 Administrator/UAC, WinGet repair, Windows Terminal, PowerShell 7, Notepad4
 integration, Git PATH, fnm/profile, Node.js, npm runtime, pi-67 workspace,
-xtalpi configuration, and full Windows acceptance failures. Do not send
+optional xtalpi configuration, and full Windows acceptance failures. Do not send
 `models.json` or any API key when reporting a problem.
 
 Offline contract checks:
@@ -72,15 +72,24 @@ Offline contract checks:
 .\scripts\pi67-bootstrap.ps1 -DryRun -Minimal
 ```
 
-`RESULT: READY_WITHOUT_XTALPI` is not a failed Pi install and is not a complete
-provider pass. It means `-NoXtalpiPrompt` was requested and no existing or
-environment-provided company key was available. Finish with:
+No provider key is required for bootstrap success. With `-NoXtalpiPrompt`, or
+when the hidden xtalpi prompt is left blank, Windows acceptance must still end
+with:
+
+```text
+RESULT: PASS
+```
+
+After installation, start upstream Pi and configure any provider through its
+native flow:
 
 ```powershell
-pi-67 xtalpi configure --verify
-Set-Location $env:USERPROFILE\.pi\agent
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\pi67-windows-acceptance.ps1 -ValidateWorkstation
+pi
 ```
+
+Inside Pi, use `/login`, then `/model`. Upstream Pi owns authentication and
+selected-model persistence. pi-67 does not switch the provider based on which
+key happens to exist.
 
 ### `failedStage = winget`
 
@@ -356,11 +365,23 @@ Doctor may report placeholders in:
 ~/.pi/agent/image-gen.json
 ```
 
-This is expected after a fresh install. Replace `YOUR_...` placeholders with local keys before using the related provider or feature.
+This is expected after a fresh install. Placeholders affect only the related
+provider or feature request; they must not prevent `pi` from entering its
+interactive interface.
 
-Recommended helper:
+For normal provider authentication and model selection, run `pi`, then use:
 
-For the company provider, prefer the dedicated hidden-input command:
+```text
+/login
+/model
+```
+
+Upstream Pi saves both states and restores the selected model on the next
+launch. Do not manually edit `settings.json` or `auth.json` merely to satisfy a
+pi-67 readiness check.
+
+For company-provider-specific repair and diagnostics, the dedicated command
+remains available:
 
 ```bash
 pi-67 xtalpi configure --verify
@@ -370,7 +391,8 @@ It preserves unrelated providers, repairs the canonical `xtalpi-pi-tools`
 public fields, and performs a real provider-health request without putting the
 key in shell history.
 
-For configuring the other local templates as well:
+For advanced local MCP/image/provider-template setup outside the normal Pi
+login/model flow:
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-configure.sh --prompt-secrets
@@ -381,7 +403,6 @@ For automation, pass secrets through environment variables instead of CLI flags:
 ```bash
 PI67_XTALPI_API_KEY="..." \
 PI67_CODEX_API_KEY="..." \
-PI67_DEEPSEEK_API_KEY="..." \
 PI67_IMAGE_GEN_API_KEY="..." \
 bash ~/.pi/agent/scripts/pi67-configure.sh --no-prompt
 ```
@@ -412,23 +433,64 @@ detected encoding, and first bytes only; it does not print API keys.
 
 ## `defaultProvider` or `defaultModel` fails
 
-Check:
+For diagnosis, the relevant upstream Pi state is stored under:
 
 ```bash
 ~/.pi/agent/settings.json
 ~/.pi/agent/models.json
+~/.pi/agent/auth.json
 ```
 
-The pair in `settings.json` must exist inside `models.json`:
+Do not start by editing these files. First run:
 
-```json
-{
-  "defaultProvider": "xtalpi-pi-tools",
-  "defaultModel": "deepseek-v4-pro"
-}
+```text
+pi
+/login
+/model
 ```
 
-If you do not use xtalpi, change both fields to a provider/model that exists in `models.json`.
+If `pi` enters the interface, choose the intended provider/model with `/model`;
+upstream Pi persists it. Custom providers such as `xtalpi-pi-tools` must still
+have their public model definition in `models.json`, but a missing key is not a
+startup error. Pi built-in providers such as DeepSeek must not be duplicated in
+`models.json`; authenticate them with `/login` or their upstream-supported
+environment variable.
+
+### `pi` fails when only a DeepSeek official key is configured
+
+The old startup failure was not caused by DeepSeek itself. `xtalpi-pi-tools`
+registered its models with an empty provider-level `apiKey`, so upstream Pi
+failed provider schema validation before the interactive interface appeared:
+
+```text
+Provider xtalpi-pi-tools: "apiKey" or "oauth" is required when defining models.
+```
+
+Current `xtalpi-pi-tools` registration uses a deferred environment reference,
+so missing company credentials no longer block Pi startup. Verify the fixed
+startup path first:
+
+```powershell
+pi --list-models xtalpi-pi-tools
+pi
+```
+
+Then, inside Pi:
+
+```text
+/login
+/model
+```
+
+Choose DeepSeek or any other provider there. Exit and run `pi` again to verify
+that upstream Pi restores the selection. pi-67 intentionally does not switch
+`settings.json` or rewrite `auth.json` for this flow.
+
+Run doctor only as an additional workspace check:
+
+```powershell
+pi-67 doctor
+```
 
 ## xtalpi-pi-tools still returns empty or gets stuck
 
@@ -497,13 +559,16 @@ XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES=2
 XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES=4
 ```
 
-If you upgraded from old `xtalpi-tools`, migrate local config once:
+If you upgraded from old `xtalpi-tools` and explicitly want the legacy provider
+entries migrated, run the advanced helper once:
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-configure.sh --provider xtalpi-pi-tools --model deepseek-v4-pro --prompt-secrets
+bash ~/.pi/agent/scripts/pi67-configure.sh --prompt-secrets
 ```
 
 This copies any existing `xtalpi` / `xtalpi-tools` key into `xtalpi-pi-tools` and removes the old provider entries by default.
+It is not part of install/update and does not replace selecting the model with
+upstream Pi's `/model` command.
 
 For a live smoke test:
 
@@ -856,7 +921,7 @@ Codex often uses a separate MCP config with absolute paths.
 Fix it with the normalizer:
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-configure.sh --no-prompt --no-doctor
+bash ~/.pi/agent/scripts/pi67-configure.sh --workspace-only --no-doctor
 bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp --mcp-timeout-ms 5000
 ```
 
@@ -1322,7 +1387,11 @@ bash ~/.pi/agent/scripts/pi67-update.sh --check-only
 
 This reports remote head status, dirty worktree state, missing local config templates, npm sync status, and whether `~/.pi/agent/pi67-report.json` is stale.
 
-Normal updates also run a no-prompt local config migration step. This keeps existing secrets, but can migrate old `xtalpi` / `xtalpi-tools` entries into `xtalpi-pi-tools` after a release upgrade:
+Normal updates only perform deterministic workspace maintenance: create newly
+introduced templates when missing, normalize supported JSON encodings on
+Windows, and normalize MCP runtime paths. They do not consume provider-key
+environment variables, write `auth.json`, or switch the provider/model selected
+by upstream Pi:
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-update.sh
@@ -1365,7 +1434,8 @@ To write the report but skip embedded doctor collection:
 .\scripts\pi67-update.ps1 -NoDoctor
 ```
 
-If you intentionally do not want local config migration in that run:
+If you intentionally want to skip workspace template and normalization work in
+that run:
 
 ```powershell
 .\scripts\pi67-update.ps1 -NoConfigure

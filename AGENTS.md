@@ -17,7 +17,11 @@
 - 用户日常启动入口始终是 `pi`。不得把 pi-67 设计成平行聊天运行时、upstream Pi fork、强制启动器或 Pi 是否可用的唯一裁判。
 - `pi-67 launch` 若保留，只能是 Windows 当前终端 PATH 尚未刷新时的可选兼容工具；不得在 README、安装流程或验收中提升为标准日常入口。
 - 验收必须以真实 `pi`、真实配置加载和真实工具执行为准；wrapper、mock、临时 `pi.cmd` 只能验证局部兼容性，不能代替端到端 Pi 可用性结论。
-- 公司默认使用 `xtalpi-pi-tools`；pi-67 统一发布 provider 结构、公共配置和本地工具协议，每位用户只在本机维护自己的 API key，任何真实凭据都不得进入仓库。
+- 公司推荐默认使用 `xtalpi-pi-tools`；pi-67 统一发布 provider 结构、公共配置和本地工具协议，每位用户只在本机维护自己的 API key，任何真实凭据都不得进入仓库。
+- 没有配置晶泰 key、DeepSeek key 或任何其他 provider key 时，upstream `pi` 仍必须进入交互界面；缺少 key 只能影响对应模型请求，不能成为启动、安装或验收失败条件。
+- `/login`、`/model`、认证保存、模型选择和下次启动恢复属于 upstream Pi 的原生持久化合同。pi-67 不得重新实现、代理、自动协调或在 install/update 时重写这些状态。
+- `xtalpi-pi-tools` 不是 upstream `pi` 的硬依赖。DeepSeek、Anthropic、OpenAI、Google 等 provider 继续按 Pi 原生流程使用；内置 provider 不得为了通过本地校验而重复写入 `models.json`。
+- `pi-67 xtalpi configure` 只能作为提前配置公司晶泰 key 的可选便利工具，不得成为运行 `pi` 的前置步骤。
 - 后续新增或升级 extensions、Skills、rules、prompts、MCP 模板和诊断能力时，应继续服务于“让团队更高效便捷地使用 Pi”，不得侵入 upstream Pi 已负责的运行时职责。
 - 涉及 CLI 定位、安装入口、启动方式或验收合同的改动，实施前必须核对根 `README.md` 本节对应的产品边界，实施后同步更新文档和测试。
 

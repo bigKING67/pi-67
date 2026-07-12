@@ -421,7 +421,7 @@ Failed to connect to "tmwd_browser": MCP error -32000: Connection closed
 用以下命令归一化并做真实 stdio probe：
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-configure.sh --no-prompt --no-doctor
+bash ~/.pi/agent/scripts/pi67-configure.sh --workspace-only --no-doctor
 bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp --mcp-timeout-ms 5000
 ```
 
@@ -1213,7 +1213,10 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh \
 - `pi67-xtalpi-safe.sh`
 - `xtalpi-tool-smoke.sh`
 
-`pi67-configure.sh` 会把旧 `xtalpi` / `xtalpi-tools` 的 key 和 baseUrl 迁移到 `xtalpi-pi-tools`，并默认移除旧 provider。
+只有显式运行高级 `pi67-configure.sh` 时，才会迁移旧 `xtalpi` /
+`xtalpi-tools` 的 key 和 baseUrl，并默认移除旧 provider。install/update
+不会自动执行这项 provider 迁移；当前选择仍应在 upstream Pi 内通过
+`/model` 完成并由 Pi 持久化。
 
 如果你确实要临时保留旧 provider，可以设置：
 

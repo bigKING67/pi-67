@@ -62,6 +62,7 @@ await runNpmRegistrySelfTests();
 runArgsSelfTests();
 runCliHelpContractSelfTests();
 runXtalpiConfigureSelfTests();
+runProviderStatusSelfTests();
 runInstallNonGitAgentDirSelfTests();
 runVersionRecommendationSelfTests();
 runPublishTargetSelfTests();
@@ -371,6 +372,7 @@ function runXtalpiConfigureSelfTests() {
       "xtalpi",
       "configure",
       "--no-prompt",
+      "--json",
     ], {
       cwd: root,
       env: {
@@ -381,16 +383,49 @@ function runXtalpiConfigureSelfTests() {
       },
       encoding: "utf8",
     });
-    assert(missing.status !== 0, "non-interactive configure must fail when no key exists");
+    assert(missing.status === 0, `non-interactive configure must allow a missing key\n${missing.stderr}`);
+    const missingPayload = JSON.parse(missing.stdout);
     assert(
-      missing.stderr.includes("no usable xtalpi-pi-tools API key"),
-      `missing key failure must be actionable\n${missing.stderr}`,
+      missingPayload.configured === false &&
+        missingPayload.changed === false &&
+        missingPayload.skipped === true &&
+        missingPayload.verification === null,
+      `missing-key configure must report a successful no-op\n${missing.stdout}`,
     );
+    for (const file of ["models.json", "settings.json", "auth.json"]) {
+      assert(!fs.existsSync(path.join(missingAgentDir, file)), `missing-key configure must not create ${file}`);
+    }
+
+    const missingDryRun = spawnSync(process.execPath, [
+      path.join(root, "bin", "pi-67.mjs"),
+      "--agent-dir",
+      missingAgentDir,
+      "--repo-root",
+      repoRoot,
+      "xtalpi",
+      "configure",
+      "--dry-run",
+      "--no-prompt",
+      "--json",
+    ], {
+      cwd: root,
+      env: {
+        ...process.env,
+        PI67_XTALPI_API_KEY: "",
+        PI67_XTALPI_PI_TOOLS_API_KEY: "",
+        PI67_XTALPI_TOOLS_API_KEY: "",
+      },
+      encoding: "utf8",
+    });
+    assert(missingDryRun.status === 0, `missing-key dry-run failed\n${missingDryRun.stderr}`);
+    const missingDryRunPayload = JSON.parse(missingDryRun.stdout);
     assert(
-      !missing.stderr.includes("file://") && !missing.stderr.includes("\n    at "),
-      `expected a concise CLI error without a Node stack\n${missing.stderr}`,
+      missingDryRunPayload.configured === false &&
+        missingDryRunPayload.changed === false &&
+        missingDryRunPayload.skipped === true &&
+        missingDryRunPayload.dryRun === true,
+      `missing-key dry-run contract is incomplete\n${missingDryRun.stdout}`,
     );
-    assert(!fs.existsSync(path.join(missingAgentDir, "models.json")), "failed configure must not create models.json");
 
     const forbiddenCliSecret = "xtalpi-cli-secret-must-not-appear";
     const forbiddenOption = spawnSync(process.execPath, [
@@ -433,6 +468,97 @@ function runXtalpiConfigureSelfTests() {
       forbiddenPositional.stderr.includes("does not accept positional values") &&
         !`${forbiddenPositional.stdout}\n${forbiddenPositional.stderr}`.includes(positionalSecret),
       "rejected positional key values must not be echoed",
+    );
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+}
+
+function runProviderStatusSelfTests() {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-provider-status-"));
+  const repoRoot = path.resolve(root, "../..");
+  const script = path.join(repoRoot, "scripts", "pi67-provider-status.mjs");
+  const baseModels = JSON.parse(fs.readFileSync(path.join(repoRoot, "models.example.json"), "utf8"));
+
+  const runFixture = ({ name, provider, model, auth = {}, env = {} }) => {
+    const agentDir = path.join(tmpRoot, name);
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(agentDir, "settings.json"),
+      `${JSON.stringify({ defaultProvider: provider, defaultModel: model }, null, 2)}\n`,
+    );
+    fs.writeFileSync(path.join(agentDir, "models.json"), `${JSON.stringify(baseModels, null, 2)}\n`);
+    if (auth !== null) {
+      fs.writeFileSync(path.join(agentDir, "auth.json"), `${JSON.stringify(auth, null, 2)}\n`);
+    }
+    const result = spawnSync(process.execPath, [
+      script,
+      "--agent-dir",
+      agentDir,
+      "--repo-root",
+      repoRoot,
+      "--json",
+    ], {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        XTALPI_PI_TOOLS_API_KEY: "",
+        XTALPI_API_KEY: "",
+        DEEPSEEK_API_KEY: "",
+        ...env,
+      },
+      encoding: "utf8",
+    });
+    assert(result.status === 0, `${name} provider status failed\n${result.stderr || result.stdout}`);
+    return JSON.parse(result.stdout);
+  };
+
+  try {
+    const zeroKey = runFixture({
+      name: "xtalpi-zero-key",
+      provider: "xtalpi-pi-tools",
+      model: "deepseek-v4-pro",
+      auth: null,
+    });
+    assert(zeroKey.piStartupReady === true, "missing xtalpi key must not block Pi startup readiness");
+    assert(zeroKey.modelRequestReady === false, "missing xtalpi key must keep model request readiness false");
+    assert(zeroKey.persistenceOwner === "upstream-pi", "provider status must preserve upstream persistence ownership");
+
+    const xtalpiAuth = runFixture({
+      name: "xtalpi-auth",
+      provider: "xtalpi-pi-tools",
+      model: "deepseek-v4-pro",
+      auth: { "xtalpi-pi-tools": { type: "api_key", key: "fixture-xtalpi-key" } },
+    });
+    assert(
+      xtalpiAuth.modelRequestReady === true && xtalpiAuth.credentialSource === "auth.json",
+      "upstream /login auth must make xtalpi request-ready without pi-67 persistence",
+    );
+
+    const deepseekAuth = runFixture({
+      name: "deepseek-auth",
+      provider: "deepseek",
+      model: "deepseek-v4-pro",
+      auth: { deepseek: { type: "api_key", key: "fixture-deepseek-key" } },
+    });
+    assert(
+      deepseekAuth.kind === "builtin" &&
+        deepseekAuth.modelRequestReady === true &&
+        deepseekAuth.persistenceOwner === "upstream-pi",
+      "DeepSeek readiness must remain an upstream Pi-owned contract",
+    );
+
+    const upstream = runFixture({
+      name: "other-upstream",
+      provider: "anthropic",
+      model: "claude-fixture",
+      auth: {},
+    });
+    assert(
+      upstream.piStartupReady === true &&
+        upstream.kind === "upstream" &&
+        upstream.modelRequestReady === false,
+      "uninspected upstream providers must not become a Pi startup failure",
     );
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });

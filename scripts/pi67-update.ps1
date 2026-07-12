@@ -44,7 +44,7 @@ Options:
   -CheckOnly          Inspect update status without pulling or writing files.
   -NoNpm              Skip npm dependency sync.
   -ForceNpm           Run npm install even when package.json did not change.
-  -NoConfigure        Skip local config template sync and xtalpi migration.
+  -NoConfigure        Skip workspace template sync and config normalization.
   -NoSmoke            Skip PowerShell smoke after update.
   -NoReport           Skip pi67-report.json generation.
   -NoDoctor           Do not embed PowerShell doctor output in the report.
@@ -67,6 +67,8 @@ auth.json, mcp.json, or image-gen.json. Missing files are copied from examples.
 If an existing local JSON file uses a Windows-unfriendly encoding such as
 UTF-16, UTF-8 BOM, or leading NUL bytes, the updater backs it up and rewrites it
 as UTF-8 without BOM before Pi starts.
+Provider authentication, model selection, and their persistence remain owned by
+upstream Pi and are not changed by this updater.
 "@
 }
 
@@ -341,89 +343,6 @@ function Read-JsonFile {
   return Read-Pi67JsonFile $Path
 }
 
-function Save-JsonFile {
-  param(
-    [string]$Path,
-    [object]$Data
-  )
-  if ($DryRun) {
-    Write-Host ("  DRY-RUN write JSON {0}" -f $Path) -ForegroundColor Cyan
-    return
-  }
-  Save-Pi67JsonFileUtf8NoBom $Path $Data
-}
-
-function Test-JsonProperty {
-  param([object]$Object, [string]$Name)
-  if ($null -eq $Object) {
-    return $false
-  }
-  return [bool]($Object.PSObject.Properties[$Name])
-}
-
-function Get-JsonPropertyValue {
-  param([object]$Object, [string]$Name)
-  if ($null -eq $Object) {
-    return $null
-  }
-  $prop = $Object.PSObject.Properties[$Name]
-  if ($prop) {
-    return $prop.Value
-  }
-  return $null
-}
-
-function Set-JsonPropertyValue {
-  param([object]$Object, [string]$Name, [object]$Value)
-  if ($null -eq $Object) {
-    throw "cannot set JSON property on null object: $Name"
-  }
-  $prop = $Object.PSObject.Properties[$Name]
-  if ($prop) {
-    $prop.Value = $Value
-  } else {
-    $Object | Add-Member -NotePropertyName $Name -NotePropertyValue $Value
-  }
-}
-
-function Remove-JsonProperty {
-  param([object]$Object, [string]$Name)
-  if ($null -eq $Object) {
-    return
-  }
-  if ($Object.PSObject.Properties[$Name]) {
-    $Object.PSObject.Properties.Remove($Name)
-  }
-}
-
-function Copy-JsonObject {
-  param([object]$Value)
-  return ($Value | ConvertTo-Json -Depth 80 | ConvertFrom-Json)
-}
-
-function Test-PlaceholderApiKey {
-  param([object]$Value)
-  if ($null -eq $Value) {
-    return $true
-  }
-  $text = [string]$Value
-  return ($text -eq "" -or $text.Contains("YOUR_") -or $text.Contains("REPLACE_") -or $text -eq "changeme")
-}
-
-function Get-FirstRealProviderKey {
-  param([object]$Providers, [string[]]$ProviderIds)
-  foreach ($providerId in $ProviderIds) {
-    $provider = Get-JsonPropertyValue $Providers $providerId
-    if ($provider) {
-      $key = Get-JsonPropertyValue $provider "apiKey"
-      if (-not (Test-PlaceholderApiKey $key)) {
-        return $key
-      }
-    }
-  }
-  return ""
-}
-
 function Sync-LocalConfigTemplates {
   Write-Section "local config templates"
   Copy-FileIfMissing (Join-Path $RepoRoot "models.example.json") (Join-Path $AgentDir "models.json") "models.json"
@@ -458,120 +377,13 @@ function Repair-LocalConfigJsonEncoding {
   }
 }
 
-function Invoke-LocalConfigMigration {
+function Invoke-WorkspaceConfigNormalization {
   if ($NoConfigure) {
-    Write-Warn "local config migration skipped by -NoConfigure"
+    Write-Warn "workspace config normalization skipped by -NoConfigure"
     return
   }
 
-  Write-Section "local config migration"
-
-  $settingsPath = Join-Path $AgentDir "settings.json"
-  $modelsPath = Join-Path $AgentDir "models.json"
-  $modelsExamplePath = Join-Path $RepoRoot "models.example.json"
-
-  if (-not (Test-Path -LiteralPath $settingsPath -PathType Leaf)) {
-    Write-Warn "settings.json missing; skipped settings migration"
-  }
-
-  if (-not (Test-Path -LiteralPath $modelsPath -PathType Leaf)) {
-    Write-Warn "models.json missing; skipped model provider migration"
-    return
-  }
-
-  if (-not (Test-Path -LiteralPath $modelsExamplePath -PathType Leaf)) {
-    Write-Warn "models.example.json missing; skipped model provider migration"
-    return
-  }
-
-  $changedModels = $false
-  $changedSettings = $false
-  $models = Read-JsonFile $modelsPath
-  $examples = Read-JsonFile $modelsExamplePath
-
-  if (-not (Test-JsonProperty $models "providers")) {
-    Set-JsonPropertyValue $models "providers" ([pscustomobject]@{})
-    $changedModels = $true
-  }
-
-  $providers = $models.providers
-  $exampleProviders = $examples.providers
-  $xtalpiProvider = Get-JsonPropertyValue $providers "xtalpi-pi-tools"
-
-  if (-not $xtalpiProvider) {
-    $exampleProvider = Get-JsonPropertyValue $exampleProviders "xtalpi-pi-tools"
-    if ($exampleProvider) {
-      $xtalpiProvider = Copy-JsonObject $exampleProvider
-      Set-JsonPropertyValue $providers "xtalpi-pi-tools" $xtalpiProvider
-      $changedModels = $true
-      Write-Pass "added provider xtalpi-pi-tools from models.example.json"
-    } else {
-      Write-Warn "models.example.json missing provider xtalpi-pi-tools"
-    }
-  }
-
-  if ($xtalpiProvider) {
-    $migratedKey = Get-FirstRealProviderKey $providers @("xtalpi-pi-tools", "xtalpi-tools", "xtalpi")
-    $currentKey = Get-JsonPropertyValue $xtalpiProvider "apiKey"
-    if ((Test-PlaceholderApiKey $currentKey) -and $migratedKey) {
-      Set-JsonPropertyValue $xtalpiProvider "apiKey" $migratedKey
-      $changedModels = $true
-      Write-Pass "migrated xtalpi API key to provider xtalpi-pi-tools"
-    }
-
-    $legacyTools = Get-JsonPropertyValue $providers "xtalpi-tools"
-    $legacyXtalpi = Get-JsonPropertyValue $providers "xtalpi"
-    $legacyBaseUrl = ""
-    if ($legacyTools) {
-      $legacyBaseUrl = Get-JsonPropertyValue $legacyTools "baseUrl"
-    }
-    if (-not $legacyBaseUrl -and $legacyXtalpi) {
-      $legacyBaseUrl = Get-JsonPropertyValue $legacyXtalpi "baseUrl"
-    }
-    if ($legacyBaseUrl -and (Get-JsonPropertyValue $xtalpiProvider "baseUrl") -ne $legacyBaseUrl) {
-      Set-JsonPropertyValue $xtalpiProvider "baseUrl" $legacyBaseUrl
-      $changedModels = $true
-      Write-Pass "migrated xtalpi baseUrl to provider xtalpi-pi-tools"
-    }
-
-    if ($env:PI67_KEEP_LEGACY_XTALPI_PROVIDERS -ne "1") {
-      if (Get-JsonPropertyValue $providers "xtalpi-tools") {
-        Remove-JsonProperty $providers "xtalpi-tools"
-        $changedModels = $true
-        Write-Pass "removed legacy provider xtalpi-tools"
-      }
-      if (Get-JsonPropertyValue $providers "xtalpi") {
-        Remove-JsonProperty $providers "xtalpi"
-        $changedModels = $true
-        Write-Pass "removed legacy provider xtalpi"
-      }
-    }
-  }
-
-  if ($settingsPath -and (Test-Path -LiteralPath $settingsPath -PathType Leaf)) {
-    $settings = Read-JsonFile $settingsPath
-    if ($settings.defaultProvider -eq "xtalpi-tools" -or $settings.defaultProvider -eq "xtalpi") {
-      Set-JsonPropertyValue $settings "defaultProvider" "xtalpi-pi-tools"
-      if (-not $settings.defaultModel) {
-        Set-JsonPropertyValue $settings "defaultModel" "deepseek-v4-pro"
-      }
-      Set-JsonPropertyValue $settings "defaultThinkingLevel" "off"
-      $changedSettings = $true
-      Write-Pass "migrated default provider to xtalpi-pi-tools"
-    }
-    if ($changedSettings) {
-      Save-JsonFile $settingsPath $settings
-    } else {
-      Write-Pass "settings.json unchanged"
-    }
-  }
-
-  if ($changedModels) {
-    Save-JsonFile $modelsPath $models
-  } else {
-    Write-Pass "models.json unchanged"
-  }
-
+  Write-Section "deterministic workspace normalization"
   Invoke-McpConfigNormalization
 }
 
@@ -1225,9 +1037,9 @@ function Show-CheckOnly {
   }
 
   if ($NoConfigure) {
-    Write-Warn "local config template/config migration would be skipped"
+    Write-Warn "workspace template/config normalization would be skipped"
   } else {
-    Write-Pass "local config templates, JSON encoding normalization, and xtalpi migration would be checked"
+    Write-Pass "workspace templates, JSON encoding, and MCP runtime paths would be checked without changing upstream Pi provider/model state"
   }
   Write-Pass "settings.json lastChangelogVersion would be migrated into ignored state and normalized"
 
@@ -1371,7 +1183,7 @@ try {
   } else {
     Sync-LocalConfigTemplates
     Repair-LocalConfigJsonEncoding
-    Invoke-LocalConfigMigration
+    Invoke-WorkspaceConfigNormalization
   }
   Invoke-SettingsRuntimeStateMigration "preflight"
   Sync-SharedSkills

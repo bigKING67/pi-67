@@ -436,6 +436,7 @@ $requiredFiles = @(
   "scripts/pi67-json-utils.ps1",
   "scripts/pi67-json-utils.cjs",
   "scripts/pi67-mcp-config-utils.cjs",
+  "scripts/pi67-provider-status.mjs",
   "scripts/pi67-xtalpi-pi-tools-smoke.ps1",
   "extensions/xtalpi-pi-tools/json-file.ts",
   "extensions/xtalpi-pi-tools/runtime-config.ts",
@@ -482,6 +483,42 @@ if ((Test-Path -LiteralPath $mcpNormalizer -PathType Leaf) -and (Test-Path -Lite
   Warn "skipped mcp.json runtime path compatibility check"
 }
 
+$settingsPath = AgentPath "settings.json"
+$activeProvider = ""
+if (Test-Path -LiteralPath $settingsPath -PathType Leaf) {
+  try {
+    $settings = Read-JsonFile $settingsPath
+    $activeProvider = [string](Get-JsonPropertyValue $settings "defaultProvider")
+  } catch {
+    Fail ("could not inspect settings.json: {0}" -f $_.Exception.Message)
+  }
+}
+
+$providerStatusScript = RepoPath "scripts/pi67-provider-status.mjs"
+if ((Test-Path -LiteralPath $providerStatusScript -PathType Leaf) -and (Test-CommandExists "node")) {
+  try {
+    $providerStatusOutput = Invoke-External "node" @(
+      $providerStatusScript,
+      "--repo-root", $RepoRoot,
+      "--agent-dir", $AgentDir,
+      "--json"
+    )
+    $providerStatus = ($providerStatusOutput -join "`n") | ConvertFrom-Json
+    foreach ($check in @($providerStatus.checks)) {
+      switch ([string]$check.level) {
+        "PASS" { Pass ([string]$check.message) }
+        "WARN" { Warn ([string]$check.message) }
+        "FAIL" { Fail ([string]$check.message) }
+        default { Warn ("provider status returned unknown level {0}: {1}" -f $check.level, $check.message) }
+      }
+    }
+  } catch {
+    Fail ("could not inspect active provider readiness: {0}" -f $_.Exception.Message)
+  }
+} else {
+  Fail "provider status checker or node is missing"
+}
+
 $modelsPath = AgentPath "models.json"
 if (Test-Path -LiteralPath $modelsPath -PathType Leaf) {
   try {
@@ -501,14 +538,15 @@ if (Test-Path -LiteralPath $modelsPath -PathType Leaf) {
       } else {
         Warn ("xtalpi-pi-tools baseUrl differs: {0}" -f $baseUrl)
       }
-      $apiKey = Get-JsonPropertyValue $xtalpiProvider "apiKey"
-      if (Test-Placeholder $apiKey) {
-        Warn "xtalpi-pi-tools apiKey is missing or placeholder"
-      } else {
-        Pass "xtalpi-pi-tools apiKey is configured"
-      }
+      # Credential readiness is reported by pi67-provider-status.mjs above,
+      # which also understands auth.json and environment-based credentials.
+      # A missing xtalpi key must never be treated as a Pi startup failure.
     } else {
-      Fail "models.json missing provider xtalpi-pi-tools"
+      if ($activeProvider -eq "xtalpi-pi-tools") {
+        Fail "models.json missing active provider xtalpi-pi-tools"
+      } else {
+        Warn "models.json missing optional provider xtalpi-pi-tools"
+      }
     }
 
     $codexProvider = Get-JsonPropertyValue $models.providers "codex"
@@ -543,18 +581,8 @@ if (Test-Path -LiteralPath $modelsPath -PathType Leaf) {
   }
 }
 
-$settingsPath = AgentPath "settings.json"
-if (Test-Path -LiteralPath $settingsPath -PathType Leaf) {
-  try {
-    $settings = Read-JsonFile $settingsPath
-    if ($settings.defaultProvider -eq "xtalpi-pi-tools") {
-      Pass "defaultProvider is xtalpi-pi-tools"
-    } else {
-      Warn ("defaultProvider is {0}; expected xtalpi-pi-tools" -f $settings.defaultProvider)
-    }
-  } catch {
-    Fail ("could not inspect settings.json: {0}" -f $_.Exception.Message)
-  }
+if ($activeProvider) {
+  Pass ("settings.json active provider: {0}" -f $activeProvider)
 }
 
 Section "npm sync"

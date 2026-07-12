@@ -177,6 +177,7 @@ command_exists bash || fail "bash not found"
 pass "bash found"
 command_exists node || fail "node is required"
 pass "node found: $(node -v 2>/dev/null || echo unknown)"
+REAL_PI="$(command -v pi 2>/dev/null || true)"
 
 section "Shell syntax"
 bash -n "$REPO_ROOT/install.sh"
@@ -242,6 +243,7 @@ fi
 if [ -f "$REPO_ROOT/scripts/pi67-json-utils.cjs" ]; then
   node --check "$REPO_ROOT/scripts/pi67-json-utils.cjs" >/dev/null
 fi
+node --check "$REPO_ROOT/scripts/pi67-provider-status.mjs" >/dev/null
 if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-smoke-plan.mjs" ]; then
   node --check "$REPO_ROOT/scripts/pi67-xtalpi-smoke-plan.mjs" >/dev/null
 fi
@@ -413,6 +415,45 @@ section "Temp full install"
 TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/pi67-smoke.XXXXXX")"
 FAKE_BIN="$TMP_ROOT/bin"
 AGENT_DIR="$TMP_ROOT/agent"
+
+section "Zero-credential Pi startup"
+if [ -n "$REAL_PI" ] && command_exists expect; then
+  ZERO_KEY_AGENT="$TMP_ROOT/zero-key-agent"
+  ZERO_KEY_LOG="$TMP_ROOT/zero-key-pi.log"
+  mkdir -p "$ZERO_KEY_AGENT/extensions"
+  cp -R "$REPO_ROOT/extensions/xtalpi-pi-tools" "$ZERO_KEY_AGENT/extensions/xtalpi-pi-tools"
+  cp "$REPO_ROOT/models.example.json" "$ZERO_KEY_AGENT/models.json"
+  node - "$REPO_ROOT/settings.json" "$ZERO_KEY_AGENT/settings.json" "$ZERO_KEY_AGENT/auth.json" <<'NODE'
+const fs = require("fs");
+const settings = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+settings.defaultProvider = "xtalpi-pi-tools";
+settings.defaultModel = "deepseek-v4-pro";
+settings.packages = [];
+fs.writeFileSync(process.argv[3], `${JSON.stringify(settings, null, 2)}\n`);
+fs.writeFileSync(process.argv[4], "{}\n");
+NODE
+  if PI67_REAL_PI="$REAL_PI" PI67_ZERO_KEY_AGENT="$ZERO_KEY_AGENT" PI67_ZERO_KEY_LOG="$ZERO_KEY_LOG" expect <<'EXPECT'
+log_user 0
+log_file -noappend $env(PI67_ZERO_KEY_LOG)
+set timeout 30
+spawn env PI_CODING_AGENT_DIR=$env(PI67_ZERO_KEY_AGENT) PI_AGENT_DIR=$env(PI67_ZERO_KEY_AGENT) PI_OFFLINE=1 PI_STARTUP_BENCHMARK=1 XTALPI_PI_TOOLS_API_KEY= XTALPI_API_KEY= PI67_XTALPI_PI_TOOLS_API_KEY= PI67_XTALPI_API_KEY= $env(PI67_REAL_PI) --offline
+expect eof
+set result [wait]
+exit [lindex $result 3]
+EXPECT
+  then
+    if grep -Fq '"apiKey" or "oauth" is required when defining models' "$ZERO_KEY_LOG"; then
+      fail "zero-credential Pi startup still hit the provider registration gate"
+    fi
+    pass "real Pi entered and exited interactive startup with no provider key"
+  else
+    tail -n 80 "$ZERO_KEY_LOG" >&2 || true
+    fail "real Pi zero-credential startup failed"
+  fi
+else
+  warn "real Pi PTY startup skipped (requires installed pi and expect); extension registration unit coverage still runs"
+fi
+
 FIRST_SHARED_SKILL_DIR="$(find "$REPO_ROOT/shared-skills" -mindepth 1 -maxdepth 1 -type d -print | sort | head -n 1)"
 FIRST_SHARED_SKILL_NAME="$(basename "$FIRST_SHARED_SKILL_DIR")"
 mkdir -p "$FAKE_BIN"
@@ -1020,6 +1061,61 @@ if (!["READY", "READY_WITH_WARNINGS"].includes(data.result)) throw new Error(`un
 ' /tmp/pi67-smoke-inplace-status-json.log
 pass "in-place status JSON accepted"
 
+section "Workspace-only configure boundary"
+WORKSPACE_ONLY_AGENT="$TMP_ROOT/workspace-only-agent"
+WORKSPACE_ONLY_SNAPSHOT="$TMP_ROOT/workspace-only-before.json"
+cp -Rp "$INPLACE_AGENT" "$WORKSPACE_ONLY_AGENT"
+node - "$WORKSPACE_ONLY_AGENT" "$WORKSPACE_ONLY_SNAPSHOT" <<'NODE'
+const fs = require("fs");
+const path = require("path");
+
+const agentDir = process.argv[2];
+const snapshotPath = process.argv[3];
+const fixtures = {
+  "settings.json": '{"defaultProvider":"anthropic","defaultModel":"claude-fixture","custom":"preserve-settings-bytes"}\n',
+  "models.json": '{"providers":{"fixture":{"apiKey":"preserve-models-bytes"}}}\n',
+  "auth.json": '{"anthropic":{"type":"api_key","key":"preserve-auth-bytes"}}\n',
+  "image-gen.json": '{"provider":"fixture","apiKey":"preserve-image-config-bytes"}\n',
+};
+
+for (const [name, content] of Object.entries(fixtures)) {
+  fs.writeFileSync(path.join(agentDir, name), content);
+}
+const snapshot = Object.fromEntries(
+  Object.keys(fixtures).map((name) => [name, fs.readFileSync(path.join(agentDir, name)).toString("base64")]),
+);
+fs.writeFileSync(snapshotPath, JSON.stringify(snapshot));
+NODE
+
+PATH="$FAKE_BIN:$PATH" \
+PI67_PROVIDER="xtalpi-pi-tools" \
+PI67_MODEL="deepseek-v4-pro" \
+PI67_XTALPI_API_KEY="ignored-workspace-only-xtalpi" \
+PI67_CODEX_API_KEY="ignored-workspace-only-codex" \
+PI67_DEEPSEEK_API_KEY="ignored-workspace-only-deepseek" \
+PI67_IMAGE_GEN_API_KEY="ignored-workspace-only-image" \
+"$REPO_ROOT/scripts/pi67-configure.sh" \
+  --repo-root "$REPO_ROOT" \
+  --agent-dir "$WORKSPACE_ONLY_AGENT" \
+  --workspace-only \
+  --no-doctor >/tmp/pi67-smoke-workspace-only.log
+
+node - "$WORKSPACE_ONLY_AGENT" "$WORKSPACE_ONLY_SNAPSHOT" <<'NODE'
+const fs = require("fs");
+const path = require("path");
+
+const agentDir = process.argv[2];
+const snapshot = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+for (const [name, expected] of Object.entries(snapshot)) {
+  const actual = fs.readFileSync(path.join(agentDir, name)).toString("base64");
+  if (actual !== expected) {
+    throw new Error(`--workspace-only changed upstream-owned state: ${name}`);
+  }
+}
+JSON.parse(fs.readFileSync(path.join(agentDir, "mcp.json"), "utf8"));
+NODE
+pass "workspace-only configure preserves provider/model/auth state byte-for-byte"
+
 section "Configure helper"
 mkdir -p "$TMP_ROOT/browser67/src/mcp/browser" "$TMP_ROOT/browser67/src/mcp/js-reverse"
 printf 'console.log("smoke tmwd server")\n' > "$TMP_ROOT/browser67/src/mcp/browser/server.mjs"
@@ -1104,6 +1200,86 @@ if ! grep -q 'Result: READY' /tmp/pi67-smoke-doctor-configured.log; then
   fail "doctor did not report READY after configure"
 fi
 pass "doctor reports READY after configure"
+
+DEEPSEEK_AGENT="$TMP_ROOT/deepseek-only-agent"
+cp -Rp "$AGENT_DIR" "$DEEPSEEK_AGENT"
+node - "$DEEPSEEK_AGENT" <<'NODE'
+const fs = require("fs");
+const path = require("path");
+
+const agentDir = process.argv[2];
+const settingsPath = path.join(agentDir, "settings.json");
+const modelsPath = path.join(agentDir, "models.json");
+const authPath = path.join(agentDir, "auth.json");
+const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+const models = JSON.parse(fs.readFileSync(modelsPath, "utf8"));
+const auth = JSON.parse(fs.readFileSync(authPath, "utf8"));
+
+settings.defaultProvider = "deepseek";
+settings.defaultModel = "deepseek-v4-pro";
+models.providers["xtalpi-pi-tools"].apiKey = "YOUR_XTALPI_API_KEY";
+delete models.providers.deepseek;
+auth.deepseek = { type: "api_key", key: "smoke-deepseek-upstream-auth" };
+
+fs.writeFileSync(settingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+fs.writeFileSync(modelsPath, `${JSON.stringify(models, null, 2)}\n`);
+fs.writeFileSync(authPath, `${JSON.stringify(auth, null, 2)}\n`);
+NODE
+
+node - "$DEEPSEEK_AGENT" <<'NODE'
+const fs = require("fs");
+const path = require("path");
+
+const agentDir = process.argv[2];
+const settings = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
+const models = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
+const auth = JSON.parse(fs.readFileSync(path.join(agentDir, "auth.json"), "utf8"));
+if (settings.defaultProvider !== "deepseek" || settings.defaultModel !== "deepseek-v4-pro") {
+  throw new Error("DeepSeek-only configure did not select the built-in provider");
+}
+if (models.providers?.deepseek) {
+  throw new Error("DeepSeek built-in provider must not be duplicated in models.json");
+}
+if (!auth.deepseek?.key || /YOUR_|REPLACE_|placeholder|changeme/i.test(auth.deepseek.key)) {
+  throw new Error("upstream DeepSeek auth fixture is invalid");
+}
+NODE
+
+node "$REPO_ROOT/scripts/pi67-provider-status.mjs" \
+  --repo-root "$REPO_ROOT" \
+  --agent-dir "$DEEPSEEK_AGENT" \
+  --json >/tmp/pi67-smoke-deepseek-provider-status.json
+node -e '
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (data.provider !== "deepseek" || data.model !== "deepseek-v4-pro" || data.ready !== true) {
+  throw new Error("DeepSeek-only provider status is not ready");
+}
+if (data.checks.some((item) => item.level === "FAIL")) {
+  throw new Error(`DeepSeek-only provider status reported failures: ${JSON.stringify(data.checks)}`);
+}
+' /tmp/pi67-smoke-deepseek-provider-status.json
+
+PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
+  --repo-root "$REPO_ROOT" \
+  --skills-dir "$TMP_ROOT/shared-skills" \
+  --agent-dir "$DEEPSEEK_AGENT" \
+  --json >/tmp/pi67-smoke-deepseek-doctor.json
+node -e '
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (data.counts?.fail !== 0) {
+  throw new Error(`DeepSeek-only doctor reported failures: ${JSON.stringify(data.checks)}`);
+}
+const messages = data.checks.map((item) => `${item.level}|${item.message}`).join("\n");
+if (!messages.includes("PASS|upstream Pi owns the selected provider/model: deepseek/deepseek-v4-pro")) {
+  throw new Error("doctor did not preserve the upstream DeepSeek selection boundary");
+}
+if (!messages.includes("PASS|provider deepseek credential is available via auth.json")) {
+  throw new Error("doctor did not recognize upstream Pi auth.json readiness");
+}
+' /tmp/pi67-smoke-deepseek-doctor.json
+pass "read-only DeepSeek provider status and doctor contracts passed"
 
 PI67_SMOKE_PI_SKILL_WARNING=1 PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
   --repo-root "$REPO_ROOT" \
@@ -1264,7 +1440,9 @@ section "Update helper"
 UPDATE_REPO="$TMP_ROOT/update-repo"
 git clone "$REPO_ROOT" "$UPDATE_REPO" >/tmp/pi67-smoke-update-clone.log 2>&1
 cp "$REPO_ROOT/scripts/pi67-report.sh" "$UPDATE_REPO/scripts/pi67-report.sh"
+cp "$REPO_ROOT/scripts/pi67-configure.sh" "$UPDATE_REPO/scripts/pi67-configure.sh"
 chmod +x "$UPDATE_REPO/scripts/pi67-report.sh"
+chmod +x "$UPDATE_REPO/scripts/pi67-configure.sh"
 if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-smoke-status-core.cjs" ]; then
   cp "$REPO_ROOT/scripts/pi67-xtalpi-smoke-status-core.cjs" "$UPDATE_REPO/scripts/pi67-xtalpi-smoke-status-core.cjs"
 fi
@@ -1323,7 +1501,7 @@ do
 done
 git -C "$UPDATE_REPO" config user.email pi67-smoke@example.invalid
 git -C "$UPDATE_REPO" config user.name pi67-smoke
-git -C "$UPDATE_REPO" add .gitattributes settings.json packages/pi67-cli/src/lib/settings-runtime-clean.mjs packages/pi67-cli/src/lib/settings-runtime-state.mjs packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs
+git -C "$UPDATE_REPO" add .gitattributes settings.json scripts/pi67-configure.sh packages/pi67-cli/src/lib/settings-runtime-clean.mjs packages/pi67-cli/src/lib/settings-runtime-state.mjs packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs
 if ! git -C "$UPDATE_REPO" diff --cached --quiet; then
   git -C "$UPDATE_REPO" commit -q -m "smoke runtime-state baseline"
 fi
@@ -1334,14 +1512,17 @@ const data = JSON.parse(fs.readFileSync(file, "utf8"));
 data.lastChangelogVersion = "pi67-smoke-runtime-marker";
 fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
 ' "$UPDATE_REPO/settings.json"
-HOME="$UPDATE_HOME" "$REPO_ROOT/scripts/pi67-update.sh" \
+if ! HOME="$UPDATE_HOME" "$REPO_ROOT/scripts/pi67-update.sh" \
   --repo-root "$UPDATE_REPO" \
   --agent-dir "$UPDATE_REPO" \
   --skills-dir "$TMP_ROOT/shared-skills" \
   --no-npm \
   --no-configure \
   --no-doctor \
-  --no-report >/tmp/pi67-smoke-update-runtime-no-backup.log 2>&1
+  --no-report >/tmp/pi67-smoke-update-runtime-no-backup.log 2>&1; then
+  cat /tmp/pi67-smoke-update-runtime-no-backup.log >&2
+  fail "up-to-date dirty runtime update failed"
+fi
 backup_count_after="$(count_backup_dirs "$UPDATE_BACKUP_ROOT")"
 if [ "$backup_count_after" != "$backup_count_before" ]; then
   cat /tmp/pi67-smoke-update-runtime-no-backup.log >&2
@@ -1419,13 +1600,16 @@ if ! git -C "$UPDATE_REPO" diff --cached --quiet; then
   git -C "$UPDATE_REPO" commit -q -m "smoke final-marker report fixture"
 fi
 
-HOME="$UPDATE_HOME" "$REPO_ROOT/scripts/pi67-update.sh" \
+if ! HOME="$UPDATE_HOME" "$REPO_ROOT/scripts/pi67-update.sh" \
   --repo-root "$UPDATE_REPO" \
   --agent-dir "$UPDATE_REPO" \
   --skills-dir "$TMP_ROOT/shared-skills" \
   --no-npm \
   --no-configure \
-  --no-doctor >/tmp/pi67-smoke-update-runtime-final.log 2>&1
+  --no-doctor >/tmp/pi67-smoke-update-runtime-final.log 2>&1; then
+  cat /tmp/pi67-smoke-update-runtime-final.log >&2
+  fail "update helper final runtime migration failed"
+fi
 if ! grep -q 'settings runtime state (final)' /tmp/pi67-smoke-update-runtime-final.log; then
   cat /tmp/pi67-smoke-update-runtime-final.log >&2
   fail "update helper did not run final settings runtime migration"

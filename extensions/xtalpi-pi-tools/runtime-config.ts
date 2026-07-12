@@ -32,6 +32,11 @@ export type ProviderRuntimeConfig = {
   models: ProviderModelConfig[];
 };
 
+// A deferred reference satisfies Pi's provider schema without pretending that
+// an API key is configured. Pi resolves it only when the environment variable
+// exists, while /login credentials continue to take precedence.
+export const XTALPI_API_KEY_REFERENCE = "$XTALPI_PI_TOOLS_API_KEY";
+
 const DEFAULT_MODELS: ProviderModelConfig[] = [
   {
     id: "deepseek-v4-flash",
@@ -81,6 +86,11 @@ function isConfigObject(value: unknown): value is Record<string, unknown> {
 
 export function isPlaceholderKey(value: string | undefined): boolean {
   return !value || value.includes("YOUR_") || value.includes("REPLACE_") || value === "changeme";
+}
+
+function isDeferredConfigValue(value: string | undefined): boolean {
+  const normalized = String(value || "").trim();
+  return normalized.startsWith("$") || normalized.startsWith("!");
 }
 
 function extensionAgentDir(): string {
@@ -160,7 +170,9 @@ export function loadRuntimeConfig(): ProviderRuntimeConfig {
   const apiKey =
     process.env.XTALPI_PI_TOOLS_API_KEY ||
     process.env.XTALPI_API_KEY ||
-    [stringField(primary, "apiKey")].find((value) => !isPlaceholderKey(value)) ||
+    [stringField(primary, "apiKey")].find(
+      (value) => !isPlaceholderKey(value) && !isDeferredConfigValue(value),
+    ) ||
     "";
   const modelsFromConfig = providerModels(primary);
 

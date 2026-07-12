@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.11.1]
+
+- Keeps upstream Pi in full control of `/login`, `/model`, authentication
+  persistence, selected-model persistence, and next-launch restoration.
+- Makes `pi-67 xtalpi configure` optional: blank input or non-interactive use
+  without a key exits successfully without writing provider, model, or auth
+  state.
+- Stops install and update flows from auto-selecting or rewriting the active
+  upstream provider/model based on whichever API key happens to be present.
+- Allows the managed `xtalpi-pi-tools` provider to register when no API key is
+  configured, so bare `pi` can still enter its interactive interface; missing
+  credentials affect only requests to that provider.
+- Separates Windows Pi startup readiness from optional provider request
+  readiness and skips credentialed live checks unless the selected provider
+  already has usable credentials.
+
 ## [0.11.0]
 
 - Adds `pi-67 xtalpi configure` with hidden interactive key input, secret

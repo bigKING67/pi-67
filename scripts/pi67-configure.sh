@@ -19,6 +19,7 @@ YES=false
 DRY_RUN=false
 RUN_DOCTOR=true
 PROMPT_SECRETS=auto
+WORKSPACE_ONLY=false
 
 REQUESTED_PROVIDER="${PI67_PROVIDER:-}"
 REQUESTED_MODEL="${PI67_MODEL:-}"
@@ -47,6 +48,8 @@ Options:
       --image-gen-model ID     Set image-gen.json model.
       --prompt-secrets         Ask for missing keys with hidden input.
       --no-prompt              Never ask for secrets or paths; use env/CLI only.
+      --workspace-only         Normalize deterministic workspace templates only.
+                               Ignore provider/model/key environment state.
       --dry-run                Print planned changes without writing.
       --no-doctor              Skip pi67-doctor after writing.
   -y, --yes                    Non-interactive; same as --no-prompt.
@@ -116,6 +119,11 @@ while [ "$#" -gt 0 ]; do
       shift
       ;;
     --no-prompt)
+      PROMPT_SECRETS=false
+      shift
+      ;;
+    --workspace-only)
+      WORKSPACE_ONLY=true
       PROMPT_SECRETS=false
       shift
       ;;
@@ -219,13 +227,17 @@ export PI67_TMWD_BROWSER_MCP_REPO="$REQUESTED_TMWD_REPO"
 export PI67_AGENT_MEMORY_BIN="$REQUESTED_AGENT_MEMORY_BIN"
 export PI67_IMAGE_GEN_BASE_URL="$REQUESTED_IMAGE_GEN_BASE_URL"
 export PI67_IMAGE_GEN_MODEL="$REQUESTED_IMAGE_GEN_MODEL"
+export PI67_WORKSPACE_ONLY="$WORKSPACE_ONLY"
 
 say ""
-say "${CYAN}pi-67 configure${NC}"
+say "${CYAN}pi-67 local workspace configure${NC}"
 say "Repository : $REPO_ROOT"
 say "Agent dir  : $PI_AGENT_DIR"
 if [ "$DRY_RUN" = true ]; then
   say "Dry run    : ${YELLOW}yes${NC}"
+fi
+if [ "$WORKSPACE_ONLY" = true ]; then
+  say "State mode : deterministic workspace normalization only"
 fi
 say ""
 
@@ -247,6 +259,7 @@ const path = require("path");
 const [, , repoRoot, agentDir, dryRunValue] = process.argv;
 const { normalizeMcpConfig, absolutePath } = require(path.join(repoRoot, "scripts", "pi67-mcp-config-utils.cjs"));
 const dryRun = dryRunValue === "true";
+const workspaceOnly = process.env.PI67_WORKSPACE_ONLY === "true";
 const home = process.env.HOME || "";
 let failed = false;
 let changed = 0;
@@ -455,6 +468,27 @@ const examples = {
   auth: path.join(repoRoot, "auth.example.json"),
   imageGen: path.join(repoRoot, "image-gen.example.json"),
 };
+
+if (workspaceOnly) {
+  const mcpState = readJson(files.mcp, examples.mcp);
+  if (!mcpState) {
+    process.exit(1);
+  }
+
+  const mcpNormalization = normalizeMcpConfig(mcpState.data, { home, agentDir });
+  for (const change of mcpNormalization.changes) {
+    noteChange(`normalize MCP runtime path: ${change}`);
+  }
+  saveJson(files.mcp, mcpState, { mode: 0o600 });
+
+  if (changed === 0) {
+    emit("PASS", "no workspace config changes needed");
+  }
+  if (failed) {
+    process.exit(1);
+  }
+  process.exit(0);
+}
 
 const settingsState = readJson(files.settings, examples.settings);
 const modelsState = readJson(files.models, examples.models);

@@ -8,6 +8,8 @@ param(
   [switch]$SkipDesktopPrerequisites,
   [switch]$SkipNotepad4Integration,
   [switch]$NoTerminalAdmin,
+  [ValidateSet("auto", "unconfigured", "xtalpi-pi-tools", "deepseek")]
+  [string]$ProviderProfile = "auto",
   [switch]$SelfTest,
   [string]$RepoRoot = "",
   [string]$AgentDir = "",
@@ -26,6 +28,8 @@ Usage:
   .\scripts\pi67-windows-acceptance.ps1
   .\scripts\pi67-windows-acceptance.ps1 -SkipUpdate
   .\scripts\pi67-windows-acceptance.ps1 -ValidateWorkstation
+  .\scripts\pi67-windows-acceptance.ps1 -ProviderProfile unconfigured
+  .\scripts\pi67-windows-acceptance.ps1 -ProviderProfile deepseek
   .\scripts\pi67-windows-acceptance.ps1 -SelfTest
 
 Options:
@@ -40,6 +44,11 @@ Options:
                Require Notepad4 but skip Explorer/Notepad registry checks.
   -NoTerminalAdmin
                Expect Terminal profiles to have elevate=false instead of true.
+  -ProviderProfile
+               Validate auto, unconfigured, xtalpi-pi-tools, or DeepSeek
+               official. Auto observes the provider selected by upstream Pi
+               without changing settings.json, auth.json, or model state.
+               Unconfigured validates zero-credential Pi startup explicitly.
   -SelfTest    Run offline acceptance-contract tests without updating or calling APIs.
   -RepoRoot    Override the pi-67 checkout path. Defaults to this script's repo.
   -AgentDir    Override the Pi agent directory. Defaults to `$HOME\.pi\agent.
@@ -49,7 +58,7 @@ Options:
 Default update order:
   1. pi-67 self-update
   2. pi-67 update --repair --yes
-  3. Bare pi runtime, pi-67 workspace, and xtalpi-pi-tools acceptance checks
+  3. Bare pi runtime, pi-67 workspace, and selected-provider acceptance checks
 "@
 }
 
@@ -62,8 +71,9 @@ $ScriptPath = if ($PSCommandPath) { $PSCommandPath } else { $MyInvocation.MyComm
 $ScriptDir = Split-Path -Parent $ScriptPath
 . (Join-Path $ScriptDir "pi67-json-utils.ps1")
 
-$ExpectedProvider = "xtalpi-pi-tools"
-$ExpectedModel = "deepseek-v4-pro"
+$XtalpiProvider = "xtalpi-pi-tools"
+$DeepSeekProvider = "deepseek"
+$DefaultProviderModel = "deepseek-v4-pro"
 $ExpectedLiveCases = @("read-package", "read-enoent-recovery")
 $MinimumNodeVersion = [version]"22.19.0"
 $PreferredNodeMajor = 24
@@ -414,10 +424,16 @@ function Get-RecoverySuggestion {
       return "Run: pi-67 update --check; resolve the reported blocker; then run pi-67 update --repair --yes"
     }
     "version-and-config" {
-      return "Run: pi-67 update --repair --yes"
+      return "Inspect settings.json/models.json syntax, then run pi. Provider credentials are optional for startup and can be added later with /login."
+    }
+    "provider-status" {
+      return "Run node scripts/pi67-provider-status.mjs --json. Fix invalid JSON, but do not add a provider key merely to make Pi start."
     }
     "pi-runtime" {
       return "Run: pi --version. If pi is missing, run npm install -g @earendil-works/pi-coding-agent. If Pi reports spawn git ENOENT, run pi-67 install --repair --yes, reopen PowerShell, and retry pi."
+    }
+    "pi-extension-load" {
+      return "Run: pi --list-models xtalpi-pi-tools. This must load the extension even when no xtalpi key is configured."
     }
     "xtalpi-health" {
       return "Run: pi-67 xtalpi health; verify the xtalpi-pi-tools API key outside source control."
@@ -430,6 +446,12 @@ function Get-RecoverySuggestion {
     }
     "xtalpi-summary-contract" {
       return "Inspect the xtalpi smoke summary JSON and its per-case failureReasons."
+    }
+    "deepseek-model-registry" {
+      return "Run: pi --list-models deepseek; update upstream Pi if the configured model is absent."
+    }
+    "daily-pi-live" {
+      return "Run pi, use /login for the selected provider, then use /model and retry the model request."
     }
     "worktree-clean" {
       return "Run: git status --short; keep user runtime secrets out of commits and resolve only intentional tracked edits."
@@ -505,27 +527,38 @@ function Assert-VersionContract {
 function Assert-ConfigContract {
   param(
     [Parameter(Mandatory = $true)][object]$Settings,
-    [Parameter(Mandatory = $true)][object]$Models
+    [Parameter(Mandatory = $true)][object]$Models,
+    [Parameter(Mandatory = $true)][object]$Auth,
+    [Parameter(Mandatory = $true)][string]$RequestedProfile
   )
 
   $defaultProvider = [string](Get-JsonPropertyValue $Settings "defaultProvider")
   $defaultModel = [string](Get-JsonPropertyValue $Settings "defaultModel")
-  if ($defaultProvider -ne $ExpectedProvider) {
-    throw "settings.json defaultProvider must be $ExpectedProvider, got $defaultProvider"
-  }
-  if ($defaultModel -ne $ExpectedModel) {
-    throw "settings.json defaultModel must be $ExpectedModel, got $defaultModel"
+  if ($RequestedProfile -in @($XtalpiProvider, $DeepSeekProvider) -and $defaultProvider -ne $RequestedProfile) {
+    throw "settings.json defaultProvider must be $RequestedProfile, got $defaultProvider"
   }
 
   $providers = Get-JsonPropertyValue $Models "providers"
-  $provider = Get-JsonPropertyValue $providers $ExpectedProvider
+  $provider = Get-JsonPropertyValue $providers $XtalpiProvider
   if ($null -eq $provider) {
-    throw "models.json is missing providers.$ExpectedProvider"
+    throw "models.json is missing the pi-67 optional provider definition: providers.$XtalpiProvider"
   }
-  $apiKey = [string](Get-JsonPropertyValue $provider "apiKey")
-  if ([string]::IsNullOrWhiteSpace($apiKey)) {
-    throw "models.json providers.$ExpectedProvider.apiKey is not configured"
+  if ([string](Get-JsonPropertyValue $provider "api") -ne $XtalpiProvider) {
+    throw "models.json providers.$XtalpiProvider.api must be $XtalpiProvider"
   }
+  $modelIds = @((Get-JsonPropertyValue $provider "models") | ForEach-Object {
+    [string](Get-JsonPropertyValue $_ "id")
+  } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+  if ($modelIds.Count -eq 0) {
+    throw "models.json providers.$XtalpiProvider.models must contain at least one model"
+  }
+  if ($defaultProvider -eq $XtalpiProvider -and -not [string]::IsNullOrWhiteSpace($defaultModel) -and $defaultModel -notin $modelIds) {
+    throw "settings.json defaultModel $defaultModel is not declared under $XtalpiProvider"
+  }
+
+  # Credentials belong to upstream Pi's auth flow. Placeholder or missing keys
+  # affect model requests only and must never invalidate Pi startup acceptance.
+  $null = $Auth
 }
 
 function Assert-HealthContract {
@@ -534,10 +567,10 @@ function Assert-HealthContract {
   if ((Get-JsonPropertyValue $Health "ok") -ne $true) {
     throw "xtalpi provider health did not return ok=true"
   }
-  if ([string](Get-JsonPropertyValue $Health "provider") -ne $ExpectedProvider) {
+  if ([string](Get-JsonPropertyValue $Health "provider") -ne $XtalpiProvider) {
     throw "xtalpi health returned an unexpected provider"
   }
-  if ([string](Get-JsonPropertyValue $Health "model") -ne $ExpectedModel) {
+  if ([string](Get-JsonPropertyValue $Health "model") -ne $script:ConfigModel) {
     throw "xtalpi health returned an unexpected model"
   }
 }
@@ -647,6 +680,34 @@ function Run-SelfTest {
     distro = [pscustomobject]@{ version = "1.2.3"; dirty = $false }
   }
   Assert-VersionContract $versionFixture "1.2.3"
+  $modelsFixture = [pscustomobject]@{
+    providers = [pscustomobject]@{
+      "xtalpi-pi-tools" = [pscustomobject]@{
+        api = "xtalpi-pi-tools"
+        apiKey = "YOUR_XTALPI_API_KEY"
+        models = @([pscustomobject]@{ id = "deepseek-v4-pro" })
+      }
+    }
+  }
+  $authFixture = [pscustomobject]@{
+    deepseek = [pscustomobject]@{ type = "api_key"; key = "deepseek-self-test-key" }
+  }
+  Assert-ConfigContract ([pscustomobject]@{
+    defaultProvider = "xtalpi-pi-tools"
+    defaultModel = "deepseek-v4-pro"
+  }) $modelsFixture $authFixture "xtalpi-pi-tools"
+  Assert-ConfigContract ([pscustomobject]@{
+    defaultProvider = "deepseek"
+    defaultModel = "deepseek-v4-pro"
+  }) $modelsFixture $authFixture "deepseek"
+  Assert-ConfigContract ([pscustomobject]@{
+    defaultProvider = "xtalpi-pi-tools"
+    defaultModel = "deepseek-v4-pro"
+  }) $modelsFixture ([pscustomobject]@{}) "unconfigured"
+  Assert-ConfigContract ([pscustomobject]@{
+    defaultProvider = "anthropic"
+    defaultModel = "claude-self-test"
+  }) $modelsFixture ([pscustomobject]@{}) "auto"
   Assert-NodeRuntimeContract "v22.19.0" | Out-Null
   Assert-NodeRuntimeContract "v24.18.0" | Out-Null
   $oldNodeRejected = $false
@@ -739,13 +800,28 @@ function Run-SelfTest {
     '[switch]$SkipDesktopPrerequisites',
     '[switch]$SkipNotepad4Integration',
     '[switch]$NoTerminalAdmin',
+    '[string]$ProviderProfile = "auto"',
+    'ValidateSet("auto", "unconfigured", "xtalpi-pi-tools", "deepseek")',
     'Assert-WorkstationContract',
     $FnmProfileLine,
     $PowerShell7ProfileGuid,
-    'Invoke-CommandStage "pi-runtime" "pi"'
+    'Invoke-CommandStage "pi-runtime" "pi"',
+    'Invoke-CommandStage "pi-extension-load" "pi"',
+    'Invoke-CommandStage "daily-pi-live" "pi"',
+    'pi67-provider-status.mjs',
+    'upstream-pi-default-request',
+    'pi67.windows-acceptance.v4'
   )) {
     if (-not $source.Contains($required)) {
       throw "acceptance source is missing required workstation contract: $required"
+    }
+  }
+  foreach ($forbidden in @(
+    ("pi67.windows-acceptance." + "v2"),
+    ("READY_WITHOUT_" + "XTALPI")
+  )) {
+    if ($source.Contains($forbidden)) {
+      throw "acceptance source contains a retired provider contract: $forbidden"
     }
   }
 
@@ -775,6 +851,8 @@ if ([string]::IsNullOrWhiteSpace($OutDir)) {
   $OutDir = Get-AbsolutePath $OutDir (Get-Location).Path
 }
 
+$env:PI_CODING_AGENT_DIR = $AgentDir
+
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $SummaryPath = Join-Path $OutDir "acceptance-summary.json"
 $CapabilityPath = Join-Path $OutDir "xtalpi-capability.json"
@@ -792,9 +870,14 @@ $script:PiRuntimeVersion = ""
 $script:NodeRuntimeVersion = ""
 $script:ConfigProvider = ""
 $script:ConfigModel = ""
+$script:ProviderStatusData = $null
+$script:PiStartupReady = $false
+$script:ModelRequestReady = $false
+$script:CredentialSource = "not configured"
 $script:HealthData = $null
 $script:CapabilityData = $null
 $script:XtalpiSmokeData = $null
+$script:ProviderVerificationData = $null
 $script:WorkstationNodePath = ""
 $script:FnmProfilePath = ""
 $script:TerminalSettingsPath = ""
@@ -989,6 +1072,7 @@ try {
       (Join-Path $RepoRoot "VERSION"),
       (Join-Path $AgentDir "settings.json"),
       (Join-Path $AgentDir "models.json"),
+      (Join-Path $RepoRoot "scripts\pi67-provider-status.mjs"),
       (Join-Path $ScriptDir "pi67-xtalpi-pi-tools-smoke.ps1")
     )) {
       if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
@@ -1024,9 +1108,31 @@ try {
     Assert-VersionContract $script:VersionData $expectedVersion
     $settings = Read-Pi67JsonFile (Join-Path $AgentDir "settings.json")
     $models = Read-Pi67JsonFile (Join-Path $AgentDir "models.json")
-    Assert-ConfigContract $settings $models
+    $authPath = Join-Path $AgentDir "auth.json"
+    $auth = if (Test-Path -LiteralPath $authPath -PathType Leaf) {
+      Read-Pi67JsonFile $authPath
+    } else {
+      [pscustomobject]@{}
+    }
+    Assert-ConfigContract $settings $models $auth $ProviderProfile
     $script:ConfigProvider = [string](Get-JsonPropertyValue $settings "defaultProvider")
     $script:ConfigModel = [string](Get-JsonPropertyValue $settings "defaultModel")
+  } | Out-Null
+
+  Invoke-CommandStage "provider-status" "node" @(
+    (Join-Path $RepoRoot "scripts\pi67-provider-status.mjs"),
+    "--agent-dir", $AgentDir,
+    "--repo-root", $RepoRoot,
+    "--json"
+  ) {
+    param($commandResult)
+    $script:ProviderStatusData = ConvertFrom-JsonText $commandResult.text "pi67-provider-status.mjs --json"
+    $script:PiStartupReady = (Get-JsonPropertyValue $script:ProviderStatusData "piStartupReady") -eq $true
+    $script:ModelRequestReady = (Get-JsonPropertyValue $script:ProviderStatusData "modelRequestReady") -eq $true
+    $script:CredentialSource = [string](Get-JsonPropertyValue $script:ProviderStatusData "credentialSource")
+    if (-not $script:PiStartupReady) {
+      throw "provider status reported piStartupReady=false"
+    }
   } | Out-Null
 
   Invoke-CommandStage "doctor" "pi-67" ($contextArgs + @("doctor")) | Out-Null
@@ -1039,61 +1145,133 @@ try {
     }
   } | Out-Null
 
-  Invoke-CommandStage "xtalpi-health" "pi-67" ($contextArgs + @(
-    "xtalpi", "health",
-    "--provider", $ExpectedProvider,
-    "--model", $ExpectedModel,
-    "--timeout-ms", "30000",
-    "--attempts", "2"
-  )) {
+  Invoke-CommandStage "pi-extension-load" "pi" @("--list-models", $XtalpiProvider) {
     param($commandResult)
-    $script:HealthData = ConvertFrom-JsonText $commandResult.text "pi-67 xtalpi health"
-    Assert-HealthContract $script:HealthData
-  } | Out-Null
-
-  Invoke-CommandStage "xtalpi-capability" "pi-67" ($contextArgs + @(
-    "xtalpi", "capability",
-    "--provider", $ExpectedProvider,
-    "--model", $ExpectedModel,
-    "--timeout-ms", "30000",
-    "--json-action-runs", "5",
-    "--skip-native-probes",
-    "--output-file", $CapabilityPath
-  )) {
-    param($commandResult)
-    $script:CapabilityData = ConvertFrom-JsonText $commandResult.text "pi-67 xtalpi capability"
-    Assert-CapabilityContract $script:CapabilityData
-    if (-not (Test-Path -LiteralPath $CapabilityPath -PathType Leaf)) {
-      throw "capability JSON artifact was not written"
+    if ($commandResult.text -notmatch "(?m)^$([regex]::Escape($XtalpiProvider))\s+") {
+      throw "Pi loaded without listing the pi-67 xtalpi-pi-tools extension models"
     }
   } | Out-Null
 
-  $xtalpiSmokeScript = Join-Path $ScriptDir "pi67-xtalpi-pi-tools-smoke.ps1"
-  Invoke-CommandStage "xtalpi-smoke-self-test" $script:ChildPowerShell @(
-    "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $xtalpiSmokeScript, "-SelfTest"
-  ) | Out-Null
+  if ($script:ModelRequestReady -and $script:ConfigProvider -eq $XtalpiProvider) {
+    Invoke-CommandStage "xtalpi-health" "pi-67" ($contextArgs + @(
+      "xtalpi", "health",
+      "--provider", $XtalpiProvider,
+      "--model", $script:ConfigModel,
+      "--timeout-ms", "30000",
+      "--attempts", "2"
+    )) {
+      param($commandResult)
+      $script:HealthData = ConvertFrom-JsonText $commandResult.text "pi-67 xtalpi health"
+      Assert-HealthContract $script:HealthData
+    } | Out-Null
 
-  Invoke-CommandStage "xtalpi-live-smoke" $script:ChildPowerShell @(
-    "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $xtalpiSmokeScript,
-    "-AgentDir", $AgentDir,
-    "-Provider", $ExpectedProvider,
-    "-Model", $ExpectedModel,
-    "-Case", ($ExpectedLiveCases -join ","),
-    "-NoPreflight",
-    "-CaseTimeoutSeconds", "180",
-    "-CaseRetries", "1",
-    "-RequestTimeoutMs", "120000",
-    "-OutDir", $XtalpiSmokeOutDir,
-    "-SummaryFile", $XtalpiSmokeSummaryPath
-  ) | Out-Null
+    Invoke-CommandStage "xtalpi-capability" "pi-67" ($contextArgs + @(
+      "xtalpi", "capability",
+      "--provider", $XtalpiProvider,
+      "--model", $script:ConfigModel,
+      "--timeout-ms", "30000",
+      "--json-action-runs", "5",
+      "--skip-native-probes",
+      "--output-file", $CapabilityPath
+    )) {
+      param($commandResult)
+      $script:CapabilityData = ConvertFrom-JsonText $commandResult.text "pi-67 xtalpi capability"
+      Assert-CapabilityContract $script:CapabilityData
+      if (-not (Test-Path -LiteralPath $CapabilityPath -PathType Leaf)) {
+        throw "capability JSON artifact was not written"
+      }
+    } | Out-Null
 
-  Invoke-CheckStage "xtalpi-summary-contract" {
-    if (-not (Test-Path -LiteralPath $XtalpiSmokeSummaryPath -PathType Leaf)) {
-      throw "xtalpi smoke summary was not written: $XtalpiSmokeSummaryPath"
+    $xtalpiSmokeScript = Join-Path $ScriptDir "pi67-xtalpi-pi-tools-smoke.ps1"
+    Invoke-CommandStage "xtalpi-smoke-self-test" $script:ChildPowerShell @(
+      "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $xtalpiSmokeScript, "-SelfTest"
+    ) | Out-Null
+
+    Invoke-CommandStage "xtalpi-live-smoke" $script:ChildPowerShell @(
+      "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $xtalpiSmokeScript,
+      "-AgentDir", $AgentDir,
+      "-Provider", $XtalpiProvider,
+      "-Model", $script:ConfigModel,
+      "-Case", ($ExpectedLiveCases -join ","),
+      "-NoPreflight",
+      "-CaseTimeoutSeconds", "180",
+      "-CaseRetries", "1",
+      "-RequestTimeoutMs", "120000",
+      "-OutDir", $XtalpiSmokeOutDir,
+      "-SummaryFile", $XtalpiSmokeSummaryPath
+    ) | Out-Null
+
+    Invoke-CheckStage "xtalpi-summary-contract" {
+      if (-not (Test-Path -LiteralPath $XtalpiSmokeSummaryPath -PathType Leaf)) {
+        throw "xtalpi smoke summary was not written: $XtalpiSmokeSummaryPath"
+      }
+      $script:XtalpiSmokeData = Read-Pi67JsonFile $XtalpiSmokeSummaryPath
+      Assert-XtalpiSmokeSummary $script:XtalpiSmokeData
+    } | Out-Null
+
+    Add-SkippedStage "deepseek-model-registry" "active provider is xtalpi-pi-tools"
+    Add-SkippedStage "daily-pi-live" "xtalpi requests are covered by health, capability, and smoke stages"
+  } elseif ($script:ModelRequestReady -and $script:ConfigProvider -eq $DeepSeekProvider) {
+    Invoke-CommandStage "deepseek-model-registry" "pi" @("--list-models", $DeepSeekProvider) {
+      param($commandResult)
+      if ($commandResult.text -notmatch "(?m)^deepseek\s+$([regex]::Escape($script:ConfigModel))\s+") {
+        throw "upstream Pi model registry does not list deepseek/$($script:ConfigModel)"
+      }
+    } | Out-Null
+
+    Invoke-CommandStage "daily-pi-live" "pi" @(
+      "--thinking", "off",
+      "--no-tools",
+      "--no-extensions",
+      "--no-skills",
+      "--no-prompt-templates",
+      "--no-themes",
+      "--no-context-files",
+      "--no-session",
+      "--print",
+      "Reply exactly with PI67_PROVIDER_OK."
+    ) {
+      param($commandResult)
+      if ($commandResult.text -notmatch "PI67_PROVIDER_OK") {
+        throw "bare Pi default-provider verification did not return PI67_PROVIDER_OK"
+      }
+      $script:ProviderVerificationData = [pscustomobject]@{
+        ok = $true
+        kind = "upstream-pi-default-request"
+        provider = $DeepSeekProvider
+        model = $script:ConfigModel
+      }
+    } | Out-Null
+
+    Add-SkippedStage "xtalpi-health" "active provider is DeepSeek official"
+    Add-SkippedStage "xtalpi-capability" "active provider is DeepSeek official"
+    Add-SkippedStage "xtalpi-smoke-self-test" "active provider is DeepSeek official"
+    Add-SkippedStage "xtalpi-live-smoke" "active provider is DeepSeek official"
+    Add-SkippedStage "xtalpi-summary-contract" "active provider is DeepSeek official"
+  } else {
+    $skipReason = if ($script:ModelRequestReady) {
+      "active provider $($script:ConfigProvider) is outside the optional pi-67 provider live-smoke scope"
+    } else {
+      "no provider credential is configured; Pi startup remains valid and /login can configure one later"
     }
-    $script:XtalpiSmokeData = Read-Pi67JsonFile $XtalpiSmokeSummaryPath
-    Assert-XtalpiSmokeSummary $script:XtalpiSmokeData
-  } | Out-Null
+    Add-SkippedStage "xtalpi-health" $skipReason
+    Add-SkippedStage "xtalpi-capability" $skipReason
+    Add-SkippedStage "xtalpi-smoke-self-test" $skipReason
+    Add-SkippedStage "xtalpi-live-smoke" $skipReason
+    Add-SkippedStage "xtalpi-summary-contract" $skipReason
+
+    if ($script:ConfigProvider -eq $DeepSeekProvider -and -not [string]::IsNullOrWhiteSpace($script:ConfigModel)) {
+      Invoke-CommandStage "deepseek-model-registry" "pi" @("--list-models", $DeepSeekProvider) {
+        param($commandResult)
+        if ($commandResult.text -notmatch "(?m)^deepseek\s+$([regex]::Escape($script:ConfigModel))\s+") {
+          throw "upstream Pi model registry does not list deepseek/$($script:ConfigModel)"
+        }
+      } | Out-Null
+    } else {
+      Add-SkippedStage "deepseek-model-registry" "active provider is not DeepSeek official"
+    }
+    Add-SkippedStage "daily-pi-live" $skipReason
+  }
 
   Invoke-CommandStage "worktree-clean" "git" @(
     "-C", $RepoRoot, "status", "--porcelain=v1", "--untracked-files=no"
@@ -1129,6 +1307,23 @@ if ($null -ne $script:CapabilityData) {
   $capabilityReady = (Get-JsonPropertyValue $script:CapabilityData "runtimeReady") -eq $true
   $recommendedMode = [string](Get-JsonPropertyValue $script:CapabilityData "recommendedMode")
 }
+$providerVerificationOk = $false
+$providerVerificationKind = ""
+if ($script:ConfigProvider -eq $XtalpiProvider) {
+  if ($script:ModelRequestReady) {
+    $providerVerificationOk = $healthOk -and $capabilityReady
+    $providerVerificationKind = "xtalpi-health-capability-smoke"
+  } else {
+    $providerVerificationKind = "not-configured-not-required-for-startup"
+  }
+} elseif ($null -ne $script:ProviderVerificationData) {
+  $providerVerificationOk = (Get-JsonPropertyValue $script:ProviderVerificationData "ok") -eq $true
+  $providerVerificationKind = [string](Get-JsonPropertyValue $script:ProviderVerificationData "kind")
+} elseif (-not $script:ModelRequestReady) {
+  $providerVerificationKind = "not-configured-not-required-for-startup"
+} else {
+  $providerVerificationKind = "outside-pi67-live-smoke-scope"
+}
 
 $readTools = @()
 $enoentTools = @()
@@ -1143,7 +1338,7 @@ if ($null -ne $script:XtalpiSmokeData) {
 }
 
 $summary = [pscustomobject][ordered]@{
-  schema = "pi67.windows-acceptance.v2"
+  schema = "pi67.windows-acceptance.v4"
   createdAt = (Get-Date).ToUniversalTime().ToString("o")
   result = $script:Result
   failedStage = $script:FailedStage
@@ -1151,6 +1346,7 @@ $summary = [pscustomobject][ordered]@{
   recoverySuggestion = if ($script:Result -eq "FAIL") { Get-RecoverySuggestion $script:FailedStage } else { "" }
   updateSkipped = [bool]$SkipUpdate
   options = [pscustomobject][ordered]@{
+    providerProfile = $ProviderProfile
     validateWorkstation = [bool]$ValidateWorkstation
     skipDesktopPrerequisites = [bool]$SkipDesktopPrerequisites
     skipNotepad4Integration = [bool]$SkipNotepad4Integration
@@ -1179,6 +1375,15 @@ $summary = [pscustomobject][ordered]@{
     defaultProvider = $script:ConfigProvider
     defaultModel = $script:ConfigModel
   }
+  provider = [pscustomobject][ordered]@{
+    id = $script:ConfigProvider
+    model = $script:ConfigModel
+    piStartupReady = $script:PiStartupReady
+    modelRequestReady = $script:ModelRequestReady
+    credentialSource = $script:CredentialSource
+    verificationOk = $providerVerificationOk
+    verificationKind = $providerVerificationKind
+  }
   xtalpi = [pscustomobject][ordered]@{
     healthOk = $healthOk
     runtimeReady = $capabilityReady
@@ -1187,8 +1392,8 @@ $summary = [pscustomobject][ordered]@{
     enoentRecoveryActualTools = $enoentTools
   }
   artifacts = [pscustomobject][ordered]@{
-    capability = $CapabilityPath
-    xtalpiSmokeSummary = $XtalpiSmokeSummaryPath
+    capability = if ($script:ModelRequestReady -and $script:ConfigProvider -eq $XtalpiProvider) { $CapabilityPath } else { "" }
+    xtalpiSmokeSummary = if ($script:ModelRequestReady -and $script:ConfigProvider -eq $XtalpiProvider) { $XtalpiSmokeSummaryPath } else { "" }
     stageLogs = $OutDir
   }
   stages = @($script:Stages)
@@ -1211,7 +1416,12 @@ if ($script:Result -eq "PASS" -and $exitCode -eq 0) {
   if ($ValidateWorkstation) {
     Write-Host ("Workstation: validated (Node via fnm: {0})" -f $script:WorkstationNodePath)
   }
-  Write-Host ("xtalpi: health=true runtimeReady=true mode={0}" -f $recommendedMode)
+  Write-Host "Pi startup: verified, including xtalpi-pi-tools extension loading"
+  if ($script:ModelRequestReady) {
+    Write-Host ("Model request: {0}/{1} verified via {2}" -f $script:ConfigProvider, $script:ConfigModel, $providerVerificationKind)
+  } else {
+    Write-Host "Model request: not configured (optional; run pi, then use /login and /model)" -ForegroundColor Yellow
+  }
 } else {
   Write-Host "RESULT: FAIL" -ForegroundColor Red
   Write-Host ("Failed stage: {0}" -f $script:FailedStage)

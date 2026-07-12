@@ -25,8 +25,8 @@ $NodeLtsAlias = "lts/krypton"
 $NpmMirrorRegistry = "https://registry.npmmirror.com"
 $UpstreamPiPackage = "@earendil-works/pi-coding-agent@latest"
 $Pi67Package = "@bigking67/pi-67@latest"
-$ExpectedProvider = "xtalpi-pi-tools"
-$ExpectedModel = "deepseek-v4-pro"
+$XtalpiProvider = "xtalpi-pi-tools"
+$DefaultProviderModel = "deepseek-v4-pro"
 $WindowsPowerShellProfileGuid = "{61c54bbd-c2c6-5271-96e7-009a87ff44bf}"
 $PowerShell7ProfileGuid = "{574e775e-4f2a-5b96-ac1e-a2962a402336}"
 $FnmProfileLine = "fnm env --use-on-cd --shell powershell | Out-String | Invoke-Expression"
@@ -46,15 +46,15 @@ Usage:
 Options:
   -DryRun          Print the installation plan without changing the computer.
   -Minimal         Skip Windows Terminal, PowerShell 7, and Notepad4 desktop setup.
-                   Git, fnm, Node.js, Pi, pi-67, and provider setup still run.
+                   Git, fnm, Node.js, Pi, pi-67, the optional xtalpi prompt,
+                   and startup acceptance still run.
   -SkipNotepad4Integration
                    Install Notepad4 without changing Explorer or Notepad registry integration.
   -NoTerminalAdmin Configure the Terminal profiles without automatic elevation.
   -UseNpmMirror    Persist https://registry.npmmirror.com for this user's npm config.
                    The default does not change the user's npm registry.
-  -NoXtalpiPrompt  Do not request a personal xtalpi key. If no existing key or
-                   PI67_XTALPI_API_KEY is available, finish as
-                   READY_WITHOUT_XTALPI instead of claiming a full pass.
+  -NoXtalpiPrompt  Skip the optional company xtalpi key prompt. Pi installation
+                   and startup acceptance still pass without any provider key.
   -SelfTest        Run deterministic offline contract tests only.
   -AgentDir        Override the managed workspace path. Default: `$HOME\.pi\agent.
   -LogDir          Override the log root. Default: `$HOME\.pi\pi67\logs.
@@ -210,14 +210,8 @@ function Get-NodeManagerNameForPath {
 }
 
 function Get-FinalBootstrapResult {
-  param(
-    [bool]$XtalpiReady,
-    [bool]$AcceptancePassed,
-    [bool]$PromptDisabled
-  )
-
-  if ($XtalpiReady -and $AcceptancePassed) { return "PASS" }
-  if (-not $XtalpiReady -and $PromptDisabled) { return "READY_WITHOUT_XTALPI" }
+  param([bool]$AcceptancePassed)
+  if ($AcceptancePassed) { return "PASS" }
   return "FAIL"
 }
 
@@ -243,11 +237,11 @@ function Run-SelfTest {
   if ((Get-NodeManagerNameForPath "C:\Users\fixture\.volta\bin\node.exe") -ne "volta") {
     throw "Volta-managed Node path was not detected"
   }
-  if ((Get-FinalBootstrapResult $true $true $false) -ne "PASS") {
+  if ((Get-FinalBootstrapResult $true) -ne "PASS") {
     throw "complete bootstrap must return PASS"
   }
-  if ((Get-FinalBootstrapResult $false $false $true) -ne "READY_WITHOUT_XTALPI") {
-    throw "prompt-disabled bootstrap must not claim PASS without xtalpi"
+  if ((Get-FinalBootstrapResult $false) -ne "FAIL") {
+    throw "bootstrap must fail when Windows acceptance fails"
   }
 
   $flow = @(Get-BootstrapFlow)
@@ -278,7 +272,7 @@ function Run-SelfTest {
     throw "upstream Pi must be installed before the pi-67 manager"
   }
   if ($configureIndex -lt 0 -or $acceptanceIndex -le $configureIndex) {
-    throw "full acceptance must run after xtalpi configuration"
+    throw "full acceptance must run after optional xtalpi configuration"
   }
   if ($flow -contains "pi-67-launch") {
     throw "bootstrap must validate and expose bare pi, not a launch wrapper"
@@ -328,7 +322,9 @@ function Run-SelfTest {
     ("pi-67 " + "launch"),
     ("OpenJS." + "NodeJS.LTS"),
     ("--api" + "-key"),
-    ("irm" + " | iex")
+    ("irm" + " | iex"),
+    ("READY_WITHOUT_" + "XTALPI"),
+    ("READY_WITHOUT_" + "PROVIDER")
   )) {
     if ($source.Contains($forbidden)) {
       throw "bootstrap contains forbidden persistent or unsafe shortcut: $forbidden"
@@ -352,7 +348,8 @@ function Run-SelfTest {
     "defaultProfile",
     "notepad.exe",
     '"default", $NodeLtsAlias',
-    'Invoke-LoggedNative "pi-runtime-final"'
+    '"xtalpi", "configure"',
+    'pi67.windows-bootstrap.v4'
   )) {
     if (-not $source.Contains($required)) {
       throw "bootstrap source is missing required workstation contract: $required"
@@ -1518,15 +1515,15 @@ function Configure-Xtalpi {
   $script:XtalpiPreview = $null
   Invoke-Stage "xtalpi-readiness" {
     $script:XtalpiPreview = Get-XtalpiConfigurationPreview
-    if ([string]$script:XtalpiPreview.provider -ne $ExpectedProvider -or [string]$script:XtalpiPreview.model -ne $ExpectedModel) {
+    if ([string]$script:XtalpiPreview.provider -ne $XtalpiProvider -or [string]$script:XtalpiPreview.model -ne $DefaultProviderModel) {
       throw "xtalpi configure preview returned an unexpected provider/model contract"
     }
   }
   $preview = $script:XtalpiPreview
 
   if ($NoXtalpiPrompt -and $preview.configured -ne $true) {
-    Add-NotApplicableStage "xtalpi-configure" "no existing or environment-provided personal key; prompt disabled"
-    return $false
+    Add-NotApplicableStage "xtalpi-configure" "optional company key prompt disabled; Pi startup does not require it"
+    return $preview
   }
 
   $needsPrompt = $preview.configured -ne $true
@@ -1539,7 +1536,7 @@ function Configure-Xtalpi {
     if ($NoXtalpiPrompt) { $arguments += "--no-prompt" }
     Invoke-LoggedNative "xtalpi-configure-verify" $script:Pi67Command $arguments -Interactive:$needsPrompt | Out-Null
   }
-  return $true
+  return Get-XtalpiConfigurationPreview
 }
 
 function Invoke-FullAcceptance {
@@ -1556,32 +1553,13 @@ function Invoke-FullAcceptance {
       "-RepoRoot", $script:AgentDir,
       "-AgentDir", $script:AgentDir,
       "-OutDir", (Join-Path $script:RunLogDir "acceptance"),
+      "-ProviderProfile", "auto",
       "-ValidateWorkstation"
     )
     if ($Minimal) { $arguments += "-SkipDesktopPrerequisites" }
     if ($SkipNotepad4Integration) { $arguments += "-SkipNotepad4Integration" }
     if ($NoTerminalAdmin) { $arguments += "-NoTerminalAdmin" }
     Invoke-LoggedNative "windows-acceptance" $childPowerShell $arguments | Out-Null
-  }
-}
-
-function Invoke-BaseReadinessWithoutXtalpi {
-  $context = @("--agent-dir", $script:AgentDir, "--repo-root", $script:AgentDir)
-  Invoke-Stage "pi-67-version" {
-    Invoke-LoggedNative "pi-67-version" $script:Pi67Command ($context + @("version", "--json")) | Out-Null
-  }
-  Invoke-Stage "pi-67-doctor" {
-    Invoke-LoggedNative "pi-67-doctor" $script:Pi67Command ($context + @("doctor")) | Out-Null
-  }
-  Invoke-Stage "repository-smoke" {
-    Invoke-LoggedNative "repository-smoke" $script:Pi67Command ($context + @("smoke", "--quick")) | Out-Null
-  }
-  Invoke-Stage "pi-runtime-final" {
-    if (-not $script:PiCommand) {
-      $script:PiCommand = Resolve-CommandPath @("pi.cmd", "pi")
-    }
-    if (-not $script:PiCommand) { throw "bare pi command is unavailable" }
-    Invoke-LoggedNative "pi-runtime-final" $script:PiCommand @("--version") | Out-Null
   }
 }
 
@@ -1608,6 +1586,7 @@ function Show-DryRunPlan {
   Write-Host "Required Node contract: fnm $NodeLtsAlias -> Node.js 24 LTS, minimum >=$MinimumNodeVersion"
   Write-Host "Runtime package: $UpstreamPiPackage"
   Write-Host "Workspace manager: $Pi67Package"
+  Write-Host "Optional xtalpi prompt disabled: $([bool]$NoXtalpiPrompt)"
   Write-Host "Administrator: one UAC-approved bootstrap session"
   Write-Host "Terminal automatic elevation: $(-not [bool]$NoTerminalAdmin)"
   Write-Host "Persistent npm mirror: $([bool]$UseNpmMirror)"
@@ -1682,6 +1661,7 @@ $script:NpmVersion = ""
 $script:NpmRegistryChanged = $false
 $script:PiCommand = ""
 $script:Pi67Command = ""
+$script:XtalpiPreview = $null
 $script:Result = "FAIL"
 $script:FailureMessage = ""
 
@@ -1692,7 +1672,8 @@ Write-Host "Logs: $script:RunLogDir"
 Write-Host "Administrator: confirmed for this bootstrap session"
 
 $exitCode = 0
-$xtalpiReady = $false
+$xtalpiConfigured = $false
+$xtalpiData = $null
 $acceptancePassed = $false
 try {
   Invoke-Stage "preflight" {
@@ -1715,14 +1696,11 @@ try {
   Ensure-NodeThroughFnm
   Install-NpmTooling
   Install-Pi67Workspace
-  $xtalpiReady = Configure-Xtalpi
-  if ($xtalpiReady) {
-    Invoke-FullAcceptance
-    $acceptancePassed = $true
-  } else {
-    Invoke-BaseReadinessWithoutXtalpi
-  }
-  $script:Result = Get-FinalBootstrapResult $xtalpiReady $acceptancePassed ([bool]$NoXtalpiPrompt)
+  $xtalpiData = Configure-Xtalpi
+  $xtalpiConfigured = $xtalpiData.configured -eq $true
+  Invoke-FullAcceptance
+  $acceptancePassed = $true
+  $script:Result = Get-FinalBootstrapResult $acceptancePassed
 } catch {
   $exitCode = 1
   $script:Result = "FAIL"
@@ -1731,7 +1709,7 @@ try {
 }
 
 $summary = [pscustomobject][ordered]@{
-  schema = "pi67.windows-bootstrap.v2"
+  schema = "pi67.windows-bootstrap.v4"
   createdAt = (Get-Date).ToUniversalTime().ToString("o")
   result = $script:Result
   failedStage = if ($script:Result -eq "FAIL") { $script:CurrentStage } else { "" }
@@ -1776,10 +1754,14 @@ $summary = [pscustomobject][ordered]@{
     fnmProfileBackup = $script:FnmProfileBackup
     npmRegistryChanged = [bool]$script:NpmRegistryChanged
   }
-  xtalpi = [pscustomobject][ordered]@{
-    provider = $ExpectedProvider
-    model = $ExpectedModel
-    configuredAndVerified = [bool]$xtalpiReady
+  provider = [pscustomobject][ordered]@{
+    optionalXtalpiProvider = $XtalpiProvider
+    optionalXtalpiModel = $DefaultProviderModel
+    optionalXtalpiConfigured = [bool]$xtalpiConfigured
+    acceptanceProfile = "auto"
+    piStartupReady = [bool]$acceptancePassed
+    persistenceOwner = "upstream-pi"
+    selectionManagedByPi67 = $false
   }
   stages = @($script:Stages)
 }
@@ -1789,14 +1771,11 @@ Write-Host ""
 switch ($script:Result) {
   "PASS" {
     Write-Host "RESULT: PASS" -ForegroundColor Green
-    Write-Host "Pi and the pi-67 workspace passed the complete Windows acceptance gate."
-    Write-Host "Close and reopen PowerShell, then use: pi"
-  }
-  "READY_WITHOUT_XTALPI" {
-    Write-Host "RESULT: READY_WITHOUT_XTALPI" -ForegroundColor Yellow
-    Write-Host "Pi and the pi-67 workspace are installed, but the company API is not configured."
-    Write-Host "Finish later with: pi-67 xtalpi configure --verify"
-    Write-Host "Then rerun: powershell -NoProfile -ExecutionPolicy Bypass -File `"$script:AgentDir\scripts\pi67-windows-acceptance.ps1`""
+    Write-Host "Pi and the pi-67 workspace passed the Windows startup and extension acceptance gate."
+    Write-Host "Close and reopen PowerShell, then run: pi"
+    if (-not $xtalpiConfigured) {
+      Write-Host "No company xtalpi key was configured. This does not block Pi; inside Pi use /login, then /model." -ForegroundColor Yellow
+    }
   }
   default {
     Write-Host "RESULT: FAIL" -ForegroundColor Red

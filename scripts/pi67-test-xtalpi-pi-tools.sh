@@ -1669,6 +1669,50 @@ arguments: {"path":"D:\codeproject\data-etl\main.py", "offset":1, "limit":30}
   assert.equal(runtimeConfig.isPlaceholderKey("REPLACE_ME"), true);
   assert.equal(runtimeConfig.isPlaceholderKey("changeme"), true);
   assert.equal(runtimeConfig.isPlaceholderKey("realistic-test-key"), false);
+  assert.equal(runtimeConfig.XTALPI_API_KEY_REFERENCE, "$XTALPI_PI_TOOLS_API_KEY");
+
+  const zeroKeyAgentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-zero-key-extension-"));
+  const previousPiAgentDir = process.env.PI_AGENT_DIR;
+  const previousXtalpiPiToolsKey = process.env.XTALPI_PI_TOOLS_API_KEY;
+  const previousXtalpiKey = process.env.XTALPI_API_KEY;
+  try {
+    fs.writeFileSync(
+      path.join(zeroKeyAgentDir, "models.json"),
+      JSON.stringify({
+        providers: {
+          "xtalpi-pi-tools": {
+            baseUrl: protocol.DEFAULT_BASE_URL,
+            api: "xtalpi-pi-tools",
+            apiKey: "YOUR_XTALPI_API_KEY",
+            models: [{ id: "deepseek-v4-pro" }],
+          },
+        },
+      }),
+    );
+    process.env.PI_AGENT_DIR = zeroKeyAgentDir;
+    delete process.env.XTALPI_PI_TOOLS_API_KEY;
+    delete process.env.XTALPI_API_KEY;
+
+    let zeroKeyRegistration;
+    provider.default({
+      registerProvider(id, config) {
+        assert.equal(id, "xtalpi-pi-tools");
+        zeroKeyRegistration = config;
+      },
+    });
+    assert.equal(zeroKeyRegistration?.apiKey, runtimeConfig.XTALPI_API_KEY_REFERENCE);
+    assert.ok(Array.isArray(zeroKeyRegistration?.models));
+    assert.ok(zeroKeyRegistration.models.length > 0);
+  } finally {
+    if (previousPiAgentDir === undefined) delete process.env.PI_AGENT_DIR;
+    else process.env.PI_AGENT_DIR = previousPiAgentDir;
+    if (previousXtalpiPiToolsKey === undefined) delete process.env.XTALPI_PI_TOOLS_API_KEY;
+    else process.env.XTALPI_PI_TOOLS_API_KEY = previousXtalpiPiToolsKey;
+    if (previousXtalpiKey === undefined) delete process.env.XTALPI_API_KEY;
+    else process.env.XTALPI_API_KEY = previousXtalpiKey;
+    fs.rmSync(zeroKeyAgentDir, { recursive: true, force: true });
+  }
+
   assert.equal(runtimeConfig.normalizeBaseUrl("https://example.invalid/v1///"), "https://example.invalid/v1");
   assert.equal(
     runtimeConfig.endpointFor(

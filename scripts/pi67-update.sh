@@ -77,7 +77,7 @@ Options:
       --check-only      Inspect update/report status without pulling or writing files.
       --no-npm          Skip npm dependency sync.
       --force-npm       Run npm install even when package.json did not change.
-      --no-configure    Skip local config migration/normalization after update.
+      --no-configure    Skip workspace template/normalization work after update.
       --no-doctor       Skip doctor after update.
       --no-report       Skip ~/.pi/agent/pi67-report.json generation.
       --allow-dirty     Allow git update with a dirty worktree. Default is to stop.
@@ -856,7 +856,7 @@ check_local_config_templates() {
 
 run_configure() {
   if [ "$RUN_CONFIGURE" != true ]; then
-    warn "local config migration skipped by --no-configure"
+    warn "workspace config normalization skipped by --no-configure"
     return
   fi
 
@@ -867,13 +867,13 @@ run_configure() {
   fi
 
   say ""
-  say "${CYAN}--- local config migration ---${NC}"
+  say "${CYAN}--- deterministic workspace normalization ---${NC}"
   if [ "$DRY_RUN" = true ]; then
-    say "  ${CYAN}DRY-RUN${NC} $configure --repo-root $REPO_ROOT --agent-dir $PI_AGENT_DIR --no-prompt --no-doctor"
+    say "  ${CYAN}DRY-RUN${NC} $configure --repo-root $REPO_ROOT --agent-dir $PI_AGENT_DIR --workspace-only --no-doctor"
     return
   fi
 
-  bash "$configure" --repo-root "$REPO_ROOT" --agent-dir "$PI_AGENT_DIR" --no-prompt --no-doctor
+  bash "$configure" --repo-root "$REPO_ROOT" --agent-dir "$PI_AGENT_DIR" --workspace-only --no-doctor
 }
 
 migrate_settings_runtime_state() {
@@ -1006,9 +1006,9 @@ check_update_plan() {
   say "  git -C $REPO_ROOT pull --ff-only $REMOTE $BRANCH"
   say "  sync missing local config templates"
   if [ "$RUN_CONFIGURE" = true ]; then
-    say "  migrate/normalize local config with pi67-configure.sh --no-prompt --no-doctor"
+    say "  normalize deterministic workspace templates with pi67-configure.sh --workspace-only --no-doctor"
   else
-    say "  skip local config migration (--no-configure)"
+    say "  skip workspace config normalization (--no-configure)"
   fi
   say "  migrate settings.json lastChangelogVersion into ~/.pi/pi67/state.json before local update side effects"
   say "  sync shared skills into $SHARED_SKILLS_DIR"

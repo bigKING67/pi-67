@@ -20,6 +20,7 @@ import { runProviderTurn } from "./provider-turn.ts";
 import {
   loadRuntimeConfig,
   type ProviderRuntimeConfig,
+  XTALPI_API_KEY_REFERENCE,
 } from "./runtime-config.ts";
 import { createLocalAssistantMessageEventStream } from "./stream.ts";
 
@@ -70,7 +71,7 @@ export default function xtalpiPiTools(pi: ExtensionAPI) {
   pi.registerProvider(PROVIDER_ID, {
     name: PROVIDER_NAME,
     baseUrl: runtimeConfig.baseUrl,
-    apiKey: runtimeConfig.apiKey,
+    apiKey: runtimeConfig.apiKey || XTALPI_API_KEY_REFERENCE,
     api: API_ID,
     models: runtimeConfig.models,
     streamSimple: streamXtalpiPiTools,

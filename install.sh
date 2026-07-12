@@ -628,12 +628,12 @@ copy_example_if_missing "image-gen.example.json" "image-gen.json"
 
 if [ -f "$REPO_ROOT/scripts/pi67-configure.sh" ]; then
   if [ "$DRY_RUN" = true ]; then
-    say "  ${CYAN}DRY-RUN${NC} bash $REPO_ROOT/scripts/pi67-configure.sh --repo-root $REPO_ROOT --agent-dir $PI_AGENT_DIR --no-prompt --no-doctor --dry-run"
+    say "  ${CYAN}DRY-RUN${NC} bash $REPO_ROOT/scripts/pi67-configure.sh --repo-root $REPO_ROOT --agent-dir $PI_AGENT_DIR --workspace-only --no-doctor --dry-run"
   else
     bash "$REPO_ROOT/scripts/pi67-configure.sh" \
       --repo-root "$REPO_ROOT" \
       --agent-dir "$PI_AGENT_DIR" \
-      --no-prompt \
+      --workspace-only \
       --no-doctor
   fi
 else
@@ -654,12 +654,12 @@ say "${GREEN}║        pi-67 install finished           ║${NC}"
 say "${GREEN}╚══════════════════════════════════════════╝${NC}"
 say ""
 say "Next:"
-say "  1. Configure local keys/paths: ${CYAN}bash ~/.pi/agent/scripts/pi67-configure.sh --prompt-secrets${NC}"
-say "  2. Or manually edit ~/.pi/agent/models.json, mcp.json, auth.json, image-gen.json."
-say "  3. Run: ${CYAN}bash ~/.pi/agent/scripts/pi67-doctor.sh${NC}"
-say "  4. Status: ${CYAN}bash ~/.pi/agent/scripts/pi67-status.sh${NC}"
-say "  5. Report: ${CYAN}~/.pi/agent/pi67-report.json${NC}"
-say "  6. Start Pi: ${CYAN}pi${NC}"
+say "  1. Start upstream Pi: ${CYAN}pi${NC}"
+say "  2. Inside Pi, authenticate/select with: ${CYAN}/login${NC} and ${CYAN}/model${NC}"
+say "  3. Optional workspace paths/company templates: ${CYAN}bash ~/.pi/agent/scripts/pi67-configure.sh --prompt-secrets${NC}"
+say "  4. Run: ${CYAN}bash ~/.pi/agent/scripts/pi67-doctor.sh${NC}"
+say "  5. Status: ${CYAN}bash ~/.pi/agent/scripts/pi67-status.sh${NC}"
+say "  6. Report: ${CYAN}~/.pi/agent/pi67-report.json${NC}"
 if [ "$BACKUP_CREATED" = true ]; then
   say ""
   if [ "$DRY_RUN" = true ]; then

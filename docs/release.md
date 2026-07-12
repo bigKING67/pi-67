@@ -30,6 +30,17 @@ PowerShell smoke for Windows-facing changes:
 .\scripts\pi67-windows-acceptance.ps1 -SelfTest
 ```
 
+The offline Windows/CLI gates must cover these separate contracts:
+
+- upstream `pi` starts and loads the `xtalpi-pi-tools` extension with no API
+  key at all;
+- missing credentials produce `piStartupReady=true` and
+  `modelRequestReady=false`, not an installation or startup failure;
+- company `xtalpi-pi-tools` authentication can come from upstream `/login`, a
+  supported environment reference, or the optional `pi-67 xtalpi configure`;
+- DeepSeek official remains an upstream Pi built-in provider and is never
+  duplicated in `models.json` by pi-67.
+
 If xtalpi targeted tool calling changed and a live xtalpi key is available on
 Windows, also run:
 
@@ -37,6 +48,24 @@ Windows, also run:
 .\scripts\pi67-windows-acceptance.ps1 -SkipUpdate
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,read-enoent-recovery,plan-mode-contract,plan-mode-accepted-continuation,until-done-continuation,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
 ```
+
+If upstream provider persistence or DeepSeek behavior changed and a live
+DeepSeek official key is available on Windows, perform the native Pi flow:
+
+```powershell
+pi
+```
+
+Inside Pi, use `/login`, then `/model` to select DeepSeek. Exit normally, run
+`pi` again, and confirm upstream Pi restores the selection. Then run the
+read-only acceptance assertion:
+
+```powershell
+.\scripts\pi67-windows-acceptance.ps1 -ProviderProfile deepseek -SkipUpdate
+```
+
+Do not add a pi-67 provider selector or write `auth.json` directly for this
+test.
 
 If the release changes MCP/browser67 startup behavior and the machine has a
 configured browser67 checkout/package, additionally run:
@@ -70,6 +99,12 @@ Expected result:
 - Windows one-command acceptance self-test passes; a credentialed Windows host
   passes `pi67-windows-acceptance.ps1 -ValidateWorkstation -SkipUpdate` before
   release when the workstation bootstrap contract changed
+- zero-key startup passes real `pi --version` plus
+  `pi --list-models xtalpi-pi-tools`; missing credentials affect only request
+  readiness
+- DeepSeek persistence changes pass the native `/login` + `/model` + restart
+  flow and the read-only `pi67-windows-acceptance.ps1 -ProviderProfile
+  deepseek -SkipUpdate` assertion; xtalpi-only stages are `SKIP`, not failures
 - PowerShell xtalpi targeted smoke self-test passes; live targeted smoke covers
   read, deterministic `ENOENT` repeated-call recovery, FFF, batch fetch,
   sequential-thinking status, MCP, subagent, and recall when xtalpi credentials

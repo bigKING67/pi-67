@@ -6,6 +6,28 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-07-12
+
+### Changed
+
+- Restored upstream Pi ownership of `/login`, `/model`, authentication
+  persistence, selected-model persistence, and next-launch restoration.
+- Windows acceptance now reports Pi startup readiness separately from optional
+  model-request readiness. Provider-specific live checks run only when the
+  currently selected provider already has usable credentials.
+- `pi-67 xtalpi configure --verify` remains an optional company-provider
+  convenience. Blank input or `--no-prompt` without a key succeeds without
+  writing provider/model state.
+- Install and update flows no longer auto-select, reconcile, or rewrite the
+  upstream Pi provider/model selection based on available keys.
+
+### Fixed
+
+- Fixed `xtalpi-pi-tools` provider registration so upstream Pi can enter its
+  interactive interface without any configured API key.
+- Missing credentials now affect only the corresponding model request; they no
+  longer fail bootstrap, doctor, smoke, or Windows startup acceptance gates.
+
 ## [0.11.0] - 2026-07-12
 
 ### Added

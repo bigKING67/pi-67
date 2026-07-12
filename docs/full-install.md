@@ -37,9 +37,9 @@ session, repairs a missing WinGet installation, installs and configures Windows
 Terminal, PowerShell 7 and Notepad4, persists Git PATH, and installs fnm. It
 then resolves `lts/krypton` to Node.js 24 LTS and verifies Node.js
 `>=22.19.0` from fnm. Only after every workstation prerequisite passes does it
-install the real upstream Pi package, followed by pi-67. It then configures
-`xtalpi-pi-tools`, runs the complete Windows acceptance gate, and leaves `pi`
-as the daily entrypoint.
+install the real upstream Pi package, followed by pi-67. The company
+`xtalpi-pi-tools` key prompt is optional; leaving it blank does not block the
+complete Windows acceptance gate. `pi` remains the daily entrypoint.
 
 See [`windows-fresh-install.md`](windows-fresh-install.md) for checksum
 verification, WinGet repair, Terminal `defaultProfile` / `elevate`, Notepad4
@@ -60,7 +60,6 @@ npm install -g @earendil-works/pi-coding-agent
 npm install -g @bigking67/pi-67
 pi --version
 pi-67 install --repair --yes
-pi-67 xtalpi configure --verify
 pi-67 update
 pi-67 doctor
 pi-67 smoke --quick
@@ -73,11 +72,24 @@ npm install -g @earendil-works/pi-coding-agent
 npm install -g @bigking67/pi-67
 pi --version
 pi-67 install --repair --yes
-pi-67 xtalpi configure --verify
 pi-67 update
 pi-67 doctor
 pi-67 smoke --quick
 ```
+
+Start the upstream runtime even when no API key has been configured:
+
+```text
+pi
+/login
+/model
+```
+
+Upstream Pi owns `/login`, `/model`, authentication persistence, the selected
+model, and restoration on the next `pi` launch. pi-67 does not rewrite or
+automatically reconcile that state. Company users may optionally preconfigure
+only the xtalpi key with `pi-67 xtalpi configure --verify`; it is not required
+for Pi startup.
 
 Update boundary:
 
@@ -182,7 +194,6 @@ git --version
 
 npm install -g @bigking67/pi-67@latest
 pi-67 install --repair --yes
-pi-67 xtalpi configure --verify
 pi-67 doctor
 pi --version
 pi-67 smoke
@@ -237,10 +248,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\pi67-windows-accep
 
 The acceptance entrypoint runs `pi-67 self-update` first, then
 `pi-67 update --repair --yes`, and finally validates manager/distro version
-parity, the canonical `xtalpi-pi-tools + deepseek-v4-pro` config, doctor,
-repository smoke, the real `pi --version` runtime entrypoint, provider health,
-the canonical JSON-action capability, and the targeted
-`read-package,read-enoent-recovery` live tool chain. Long output is kept in a
+parity, doctor, repository smoke, the real `pi --version` runtime entrypoint,
+and zero-credential `xtalpi-pi-tools` extension loading. If the current
+upstream Pi selection is an already authenticated `xtalpi-pi-tools` model, the
+gate also runs provider health, JSON-action capability, and the targeted
+`read-package,read-enoent-recovery` live tool chain. Otherwise those
+provider-specific stages are `SKIP`; this does not fail Pi startup acceptance.
+Long output is kept in a
 repo-external temporary artifact directory. Successful runs keep the console
 compact; failed runs print the
 last 40 lines from the failed stage plus its full log and summary paths. Use
@@ -526,7 +540,10 @@ auth.example.json
 image-gen.example.json
 ```
 
-Fill API keys and local paths after installation. Existing local config files are preserved.
+Existing local config files are preserved. For normal provider authentication
+and model selection, do not hand-edit these files: run `pi`, then use `/login`
+and `/model`. Custom workspace features such as MCP paths, image generation, or
+the optional company xtalpi template may still require explicit local setup.
 
 `mcp.json` must be runnable by `pi-mcp-adapter` directly. Do not put `$HOME`,
 `${HOME}`, `%USERPROFILE%`, or `~` inside MCP `command` or `args`; those fields
@@ -534,9 +551,12 @@ are not shell-expanded by the adapter. pi-67 writes adapter-compatible config by
 using either absolute paths or, preferably, a machine-local absolute `cwd` plus
 relative `args`.
 
-## Configure local readiness
+## Advanced local template and MCP setup
 
-Use `pi67-configure.sh` after installation to safely turn copied templates into usable local config:
+The normal model flow is always `pi` -> `/login` -> `/model`. Use
+`pi67-configure.sh` only when you explicitly need to configure workspace-owned
+templates such as MCP paths, image generation, Codex local-provider settings,
+or the company xtalpi template:
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-configure.sh --prompt-secrets
@@ -548,7 +568,8 @@ The helper:
 2. Writes API keys through hidden prompts or env vars.
 3. Updates and normalizes `tmwd_browser`, `js-reverse`, and `agent_memory` MCP
    paths into adapter-runnable form.
-4. Optionally switches `settings.defaultProvider` / `settings.defaultModel`.
+4. Supports an explicit legacy provider/model override for controlled local
+   migrations; ordinary users should use Pi's `/model` instead.
 5. Runs doctor after writing unless `--no-doctor` is passed.
 
 Non-interactive example:
@@ -556,7 +577,6 @@ Non-interactive example:
 ```bash
 PI67_XTALPI_API_KEY="..." \
 PI67_CODEX_API_KEY="..." \
-PI67_DEEPSEEK_API_KEY="..." \
 PI67_IMAGE_GEN_API_KEY="..." \
 bash ~/.pi/agent/scripts/pi67-configure.sh \
   --no-prompt \
@@ -570,10 +590,13 @@ Preview without writing:
 bash ~/.pi/agent/scripts/pi67-configure.sh --dry-run --no-prompt
 ```
 
-To switch provider/model:
+To select or change the daily provider/model, do not use this workspace helper.
+Run upstream Pi:
 
-```bash
-bash ~/.pi/agent/scripts/pi67-configure.sh --provider codex --model gpt-5.4 --prompt-secrets
+```text
+pi
+/login
+/model
 ```
 
 For xtalpi tasks, pi-67 now uses `xtalpi-pi-tools`: Pi owns the tool protocol
@@ -663,7 +686,10 @@ pi-67 distinguishes between installed and ready:
 | Rules | Yes | 9 rule files exist and `pi-rules-loader` is installed |
 | Prompts | Yes | Prompt files exist and do not use legacy double-brace placeholders |
 | Skills | Yes | `pi skill list` succeeds |
-| xtalpi-pi-tools provider | Yes | `models.json` has a real xtalpi API key under `xtalpi-pi-tools` |
+| Pi interactive startup | Yes | `pi` enters its interface even with no provider key |
+| Active model request | Upstream Pi | The selected provider is authenticated through `/login` or its supported environment/config source |
+| Model persistence | Upstream Pi | `/model` selection is restored on the next `pi` launch |
+| xtalpi-pi-tools profile | Yes | Extension loads without a key; requests become ready after the user authenticates the company provider |
 | vision bridge | Yes | `extensions/pi-vision-bridge` is installed and `vision_read` can use a configured image-input provider |
 | Codex provider | Yes | local Codex proxy and API key are configured |
 | tmwd_browser MCP | Yes | browser67 package clone or local browser67 checkout path exists |
@@ -725,7 +751,7 @@ The normal doctor only checks MCP commands and local paths. `--deep-mcp` briefly
 If Codex can use `tmwd_browser` but Pi reports `Connection closed`, run:
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-configure.sh --no-prompt --no-doctor
+bash ~/.pi/agent/scripts/pi67-configure.sh --workspace-only --no-doctor
 bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp --mcp-timeout-ms 5000
 ```
 
@@ -782,7 +808,7 @@ The PowerShell updater:
 2. Keeps local runtime config files.
 3. Creates newly introduced local config files from `.example` templates only when missing.
 4. Backs up and rewrites parseable local JSON files as UTF-8 without BOM when PowerShell/Windows saved them as UTF-16, UTF-8 BOM, or with leading NUL bytes.
-5. Applies the safe non-interactive `xtalpi` / `xtalpi-tools` to `xtalpi-pi-tools` local config migration directly in PowerShell.
+5. Leaves upstream Pi authentication and provider/model selection unchanged.
 6. Normalizes `mcp.json` so MCP `command` / `args` do not depend on shell-only
    `$HOME` expansion.
 7. Syncs npm dependencies when `package.json` differs from `~/.pi/agent/npm/package.json`.
@@ -819,7 +845,7 @@ If you want the report but not the embedded doctor result:
 .\scripts\pi67-update.ps1 -NoDoctor
 ```
 
-If you need to skip local config migration for one update:
+If you need to skip workspace template and normalization work for one update:
 
 ```powershell
 .\scripts\pi67-update.ps1 -NoConfigure
