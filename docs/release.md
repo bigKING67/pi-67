@@ -99,9 +99,11 @@ Expected result:
 - Windows one-command acceptance self-test passes; a credentialed Windows host
   passes `pi67-windows-acceptance.ps1 -ValidateWorkstation -SkipUpdate` before
   release when the workstation bootstrap contract changed
-- zero-key startup passes real `pi --version` plus
-  `pi --list-models xtalpi-pi-tools`; missing credentials affect only request
-  readiness
+- upstream runtime registration passes `pi --version` plus discovery-only
+  `--list-models` checks with non-secret fixture credentials; zero-key startup
+  independently passes `pi67-zero-key-startup-smoke.ps1` and reaches real
+  `session_start`. Upstream Pi 0.80.6 may hide a provider's models from
+  `--list-models` until that provider has a credential
 - DeepSeek persistence changes pass the native `/login` + `/model` + restart
   flow and the read-only `pi67-windows-acceptance.ps1 -ProviderProfile
   deepseek -SkipUpdate` assertion; xtalpi-only stages are `SKIP`, not failures

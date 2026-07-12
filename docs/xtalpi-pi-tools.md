@@ -686,7 +686,10 @@ runtime 文件时，才会在 `$env:USERPROFILE\.pi\pi67\backups\pre-update-runt
 UTF-8 without BOM；这一步只重新序列化已能解析的 JSON，不打印真实 API key。
 
 `pi67-smoke.ps1` 验证 repo metadata、JSON、Node helpers、PowerShell portability 和 xtalpi
-`/chat/completions` endpoint contract，不调用真实模型，也不需要 Bash。
+`/chat/completions` endpoint contract，不调用真实模型，也不需要 Bash。Windows 的
+`pi67-zero-key-startup-smoke.ps1` 会先用非敏感临时 key 只验证模型注册，再清空凭据并
+验证真实 Pi 到达 `session_start`；不能把无 key 时 `--list-models` 隐藏模型误判成
+Pi 无法启动。
 安装或更新 extension 后，先用 smoke plan 生成当前覆盖面：
 
 ```powershell

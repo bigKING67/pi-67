@@ -15,6 +15,9 @@
 - Separates Windows Pi startup readiness from optional provider request
   readiness and skips credentialed live checks unless the selected provider
   already has usable credentials.
+- Separates credential-gated `--list-models` discovery from a real zero-key
+  `session_start` probe for upstream Pi 0.80.6 compatibility on Windows Node
+  22 and 24.
 
 ## [0.11.0]
 

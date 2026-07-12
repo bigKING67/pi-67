@@ -249,7 +249,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\pi67-windows-accep
 The acceptance entrypoint runs `pi-67 self-update` first, then
 `pi-67 update --repair --yes`, and finally validates manager/distro version
 parity, doctor, repository smoke, the real `pi --version` runtime entrypoint,
-and zero-credential `xtalpi-pi-tools` extension loading. If the current
+discovery-only `xtalpi-pi-tools` model registration, and a separate real
+zero-credential Pi `session_start` probe. If the current
 upstream Pi selection is an already authenticated `xtalpi-pi-tools` model, the
 gate also runs provider health, JSON-action capability, and the targeted
 `read-package,read-enoent-recovery` live tool chain. Otherwise those

@@ -281,6 +281,8 @@ $RequiredFiles = @(
   "scripts/pi67-mcp-config-utils.cjs",
   "scripts/pi67-provider-status.mjs",
   "scripts/pi67-release-check.sh",
+  "scripts/pi67-zero-key-startup-probe.ts",
+  "scripts/pi67-zero-key-startup-smoke.ps1",
   "scripts/pi67-xtalpi-pi-tools.ps1",
   "scripts/pi67-xtalpi-pi-tools-smoke.ps1",
   "scripts/pi67-xtalpi-smoke-status-core.cjs",
@@ -406,64 +408,23 @@ Run-Check "settings.json git attributes pin LF and runtime clean filter" {
   }
 }
 
-Section "Zero-credential Pi extension load"
+Section "Zero-credential Pi startup"
 if ($PiAvailable) {
-  Run-Check "real Pi loads xtalpi-pi-tools with no provider key" {
-    $tmpAgent = Join-Path ([System.IO.Path]::GetTempPath()) ("pi67-zero-key-{0}" -f [Guid]::NewGuid().ToString("N"))
-    $environmentNames = @(
-      "PI_CODING_AGENT_DIR",
-      "PI_AGENT_DIR",
-      "PI_OFFLINE",
-      "XTALPI_PI_TOOLS_API_KEY",
-      "XTALPI_API_KEY",
-      "PI67_XTALPI_PI_TOOLS_API_KEY",
-      "PI67_XTALPI_API_KEY"
-    )
-    $previousEnvironment = @{}
-    foreach ($name in $environmentNames) {
-      $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
-    }
-    try {
-      New-Item -ItemType Directory -Force -Path (Join-Path $tmpAgent "extensions") | Out-Null
-      Copy-Item (RepoPath "extensions" "xtalpi-pi-tools") (Join-Path $tmpAgent "extensions\xtalpi-pi-tools") -Recurse -Force
-      Copy-Item (RepoPath "models.example.json") (Join-Path $tmpAgent "models.json") -Force
-      $settings = Read-JsonFile (RepoPath "settings.json")
-      $settings.defaultProvider = "xtalpi-pi-tools"
-      $settings.defaultModel = "deepseek-v4-pro"
-      $settings.packages = @()
-      Save-Pi67JsonFileUtf8NoBom (Join-Path $tmpAgent "settings.json") $settings
-      Save-Pi67JsonFileUtf8NoBom (Join-Path $tmpAgent "auth.json") ([pscustomobject]@{})
-
-      $env:PI_CODING_AGENT_DIR = $tmpAgent
-      $env:PI_AGENT_DIR = $tmpAgent
-      $env:PI_OFFLINE = "1"
-      $env:XTALPI_PI_TOOLS_API_KEY = ""
-      $env:XTALPI_API_KEY = ""
-      $env:PI67_XTALPI_PI_TOOLS_API_KEY = ""
-      $env:PI67_XTALPI_API_KEY = ""
-      $output = (Invoke-External "pi" @("--offline", "--list-models", "xtalpi-pi-tools")) -join "`n"
-      if ($output -notmatch '(?m)^xtalpi-pi-tools\s+deepseek-v4-pro\s+') {
-        throw "xtalpi-pi-tools model list was not returned"
-      }
-      if ($output.Contains('"apiKey" or "oauth" is required when defining models')) {
-        throw "provider registration still requires an xtalpi key"
-      }
-    } finally {
-      foreach ($name in $environmentNames) {
-        $previous = $previousEnvironment[$name]
-        if ($null -eq $previous) {
-          Remove-Item "Env:$name" -ErrorAction SilentlyContinue
-        } else {
-          Set-Item "Env:$name" $previous
-        }
-      }
-      if (Test-Path -LiteralPath $tmpAgent) {
-        Remove-Item -LiteralPath $tmpAgent -Recurse -Force
-      }
+  Run-Check "real Pi registers xtalpi-pi-tools and starts with no provider key" {
+    $raw = @(& (RepoPath "scripts" "pi67-zero-key-startup-smoke.ps1") -RepoRoot $RepoRoot -PiBin "pi" -Json)
+    $payload = ($raw -join "`n") | ConvertFrom-Json
+    if (
+      $payload.schema -ne "pi67-zero-key-startup-smoke/v1" -or
+      $payload.providerRegistrationReady -ne $true -or
+      $payload.zeroCredentialStartupReady -ne $true -or
+      $payload.sessionReason -ne "startup" -or
+      $payload.ok -ne $true
+    ) {
+      throw "unexpected zero-key startup smoke contract"
     }
   }
 } else {
-  Warn "zero-credential Pi extension-load check skipped" "upstream pi is not installed"
+  Warn "zero-credential Pi startup check skipped" "upstream pi is not installed"
 }
 
 Section "Node helpers"
@@ -986,6 +947,8 @@ if ($GitAvailable) {
     "scripts/pi67-json-utils.ps1",
     "scripts/pi67-json-utils.cjs",
     "scripts/pi67-release-check.sh",
+    "scripts/pi67-zero-key-startup-probe.ts",
+    "scripts/pi67-zero-key-startup-smoke.ps1",
     "packages/pi67-cli/package.json",
     "packages/pi67-cli/README.md",
     "packages/pi67-cli/CHANGELOG.md",

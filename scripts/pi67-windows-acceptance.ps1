@@ -433,7 +433,7 @@ function Get-RecoverySuggestion {
       return "Run: pi --version. If pi is missing, run npm install -g @earendil-works/pi-coding-agent. If Pi reports spawn git ENOENT, run pi-67 install --repair --yes, reopen PowerShell, and retry pi."
     }
     "pi-extension-load" {
-      return "Run: pi --list-models xtalpi-pi-tools. This must load the extension even when no xtalpi key is configured."
+      return ".\scripts\pi67-zero-key-startup-smoke.ps1 separates fixture-key model registration from real zero-key Pi session startup; rerun it and inspect the first failure."
     }
     "xtalpi-health" {
       return "Run: pi-67 xtalpi health; verify the xtalpi-pi-tools API key outside source control."
@@ -806,9 +806,10 @@ function Run-SelfTest {
     $FnmProfileLine,
     $PowerShell7ProfileGuid,
     'Invoke-CommandStage "pi-runtime" "pi"',
-    'Invoke-CommandStage "pi-extension-load" "pi"',
+    'Invoke-CommandStage "pi-extension-load" $script:ChildPowerShell',
     'Invoke-CommandStage "daily-pi-live" "pi"',
     'pi67-provider-status.mjs',
+    'pi67-zero-key-startup-smoke.ps1',
     'upstream-pi-default-request',
     'pi67.windows-acceptance.v4'
   )) {
@@ -872,6 +873,7 @@ $script:ConfigProvider = ""
 $script:ConfigModel = ""
 $script:ProviderStatusData = $null
 $script:PiStartupReady = $false
+$script:ZeroCredentialStartupReady = $false
 $script:ModelRequestReady = $false
 $script:CredentialSource = "not configured"
 $script:HealthData = $null
@@ -1073,6 +1075,8 @@ try {
       (Join-Path $AgentDir "settings.json"),
       (Join-Path $AgentDir "models.json"),
       (Join-Path $RepoRoot "scripts\pi67-provider-status.mjs"),
+      (Join-Path $ScriptDir "pi67-zero-key-startup-probe.ts"),
+      (Join-Path $ScriptDir "pi67-zero-key-startup-smoke.ps1"),
       (Join-Path $ScriptDir "pi67-xtalpi-pi-tools-smoke.ps1")
     )) {
       if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
@@ -1145,11 +1149,25 @@ try {
     }
   } | Out-Null
 
-  Invoke-CommandStage "pi-extension-load" "pi" @("--list-models", $XtalpiProvider) {
+  $zeroKeyStartupScript = Join-Path $ScriptDir "pi67-zero-key-startup-smoke.ps1"
+  Invoke-CommandStage "pi-extension-load" $script:ChildPowerShell @(
+    "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $zeroKeyStartupScript,
+    "-RepoRoot", $RepoRoot,
+    "-PiBin", "pi",
+    "-Json"
+  ) {
     param($commandResult)
-    if ($commandResult.text -notmatch "(?m)^$([regex]::Escape($XtalpiProvider))\s+") {
-      throw "Pi loaded without listing the pi-67 xtalpi-pi-tools extension models"
+    $payload = ConvertFrom-JsonText $commandResult.text "pi67-zero-key-startup-smoke.ps1 -Json"
+    if (
+      $payload.schema -ne "pi67-zero-key-startup-smoke/v1" -or
+      $payload.providerRegistrationReady -ne $true -or
+      $payload.zeroCredentialStartupReady -ne $true -or
+      $payload.sessionReason -ne "startup" -or
+      $payload.ok -ne $true
+    ) {
+      throw "unexpected zero-key Pi startup smoke contract"
     }
+    $script:ZeroCredentialStartupReady = $true
   } | Out-Null
 
   if ($script:ModelRequestReady -and $script:ConfigProvider -eq $XtalpiProvider) {
@@ -1379,6 +1397,7 @@ $summary = [pscustomobject][ordered]@{
     id = $script:ConfigProvider
     model = $script:ConfigModel
     piStartupReady = $script:PiStartupReady
+    zeroCredentialStartupReady = $script:ZeroCredentialStartupReady
     modelRequestReady = $script:ModelRequestReady
     credentialSource = $script:CredentialSource
     verificationOk = $providerVerificationOk
@@ -1416,7 +1435,7 @@ if ($script:Result -eq "PASS" -and $exitCode -eq 0) {
   if ($ValidateWorkstation) {
     Write-Host ("Workstation: validated (Node via fnm: {0})" -f $script:WorkstationNodePath)
   }
-  Write-Host "Pi startup: verified, including xtalpi-pi-tools extension loading"
+  Write-Host "Pi startup: verified with no provider credential, including xtalpi-pi-tools registration"
   if ($script:ModelRequestReady) {
     Write-Host ("Model request: {0}/{1} verified via {2}" -f $script:ConfigProvider, $script:ConfigModel, $providerVerificationKind)
   } else {

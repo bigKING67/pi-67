@@ -471,8 +471,17 @@ so missing company credentials no longer block Pi startup. Verify the fixed
 startup path first:
 
 ```powershell
-pi --list-models xtalpi-pi-tools
 pi
+```
+
+Upstream Pi 0.80.6 may print `No models available` for
+`pi --list-models xtalpi-pi-tools` until xtalpi has a credential. That output is
+model-discovery filtering, not proof that Pi cannot start. Maintainers can run
+the isolated contract that checks fixture-key registration and zero-key
+`session_start` separately:
+
+```powershell
+.\scripts\pi67-zero-key-startup-smoke.ps1
 ```
 
 Then, inside Pi:

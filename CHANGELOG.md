@@ -15,6 +15,10 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - Windows acceptance now reports Pi startup readiness separately from optional
   model-request readiness. Provider-specific live checks run only when the
   currently selected provider already has usable credentials.
+- Windows Node 22/24 CI now verifies `xtalpi-pi-tools` model registration with
+  a non-secret discovery-only fixture, then independently proves that real Pi
+  reaches `session_start` with no provider credentials. This matches upstream
+  Pi 0.80.6, which hides credential-gated models from `--list-models`.
 - `pi-67 xtalpi configure --verify` remains an optional company-provider
   convenience. Blank input or `--no-prompt` without a key succeeds without
   writing provider/model state.

@@ -32,6 +32,7 @@ jobs:
 
   windows-powershell-smoke:
     runs-on: windows-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -83,6 +84,7 @@ jobs:
 
       - name: Run upstream Pi runtime smoke
         shell: pwsh
+        timeout-minutes: 2
         run: |
           $Output = @(& pi --version 2>&1)
           if ($LASTEXITCODE -ne 0) {
@@ -105,25 +107,7 @@ jobs:
           }
           $Models
           $Repo = (Get-Location).Path
-          $ZeroKeyAgent = Join-Path $env:RUNNER_TEMP "pi67-zero-key-$([Guid]::NewGuid().ToString('N'))"
-          New-Item -ItemType Directory -Force -Path (Join-Path $ZeroKeyAgent "extensions") | Out-Null
-          Copy-Item (Join-Path $Repo "extensions\xtalpi-pi-tools") (Join-Path $ZeroKeyAgent "extensions\xtalpi-pi-tools") -Recurse -Force
-          Copy-Item (Join-Path $Repo "models.example.json") (Join-Path $ZeroKeyAgent "models.json") -Force
-          @{ defaultProvider = "xtalpi-pi-tools"; defaultModel = "deepseek-v4-pro"; packages = @() } |
-            ConvertTo-Json -Depth 10 |
-            Set-Content (Join-Path $ZeroKeyAgent "settings.json") -Encoding utf8
-          @{} | ConvertTo-Json | Set-Content (Join-Path $ZeroKeyAgent "auth.json") -Encoding utf8
-          foreach ($Name in @("DEEPSEEK_API_KEY", "XTALPI_PI_TOOLS_API_KEY", "XTALPI_API_KEY", "PI67_XTALPI_PI_TOOLS_API_KEY", "PI67_XTALPI_API_KEY")) {
-            Remove-Item "Env:$Name" -ErrorAction SilentlyContinue
-          }
-          $env:PI_CODING_AGENT_DIR = $ZeroKeyAgent
-          $env:PI_AGENT_DIR = $ZeroKeyAgent
-          $env:PI_OFFLINE = "1"
-          $XtalpiModels = (@(& pi --offline --list-models xtalpi-pi-tools 2>&1) -join "`n")
-          if ($LASTEXITCODE -ne 0 -or $XtalpiModels -notmatch '(?m)^xtalpi-pi-tools\s+deepseek-v4-pro\s+') {
-            throw "zero-key xtalpi extension load failed: $XtalpiModels"
-          }
-          $XtalpiModels
+          .\scripts\pi67-zero-key-startup-smoke.ps1 -RepoRoot $Repo -PiBin "pi"
 
       - name: Run Windows PowerShell 5.1 bootstrap contracts
         shell: powershell
