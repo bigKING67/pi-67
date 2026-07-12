@@ -92,9 +92,16 @@ jobs:
             throw "bare pi --version returned empty output"
           }
           $Output
-          $Models = (@(& pi --list-models deepseek 2>&1) -join "`n")
-          if ($LASTEXITCODE -ne 0 -or $Models -notmatch '(?m)^deepseek\s+deepseek-v4-pro\s+') {
-            throw "upstream Pi does not expose deepseek/deepseek-v4-pro: $Models"
+          # Upstream Pi hides built-in models until that provider has a credential.
+          # A non-secret fixture key proves registration without making a request.
+          $env:DEEPSEEK_API_KEY = "pi67-ci-model-discovery-only"
+          try {
+            $Models = (@(& pi --list-models deepseek 2>&1) -join "`n")
+            if ($LASTEXITCODE -ne 0 -or $Models -notmatch '(?m)^deepseek\s+deepseek-v4-pro\s+') {
+              throw "upstream Pi does not expose deepseek/deepseek-v4-pro: $Models"
+            }
+          } finally {
+            Remove-Item "Env:DEEPSEEK_API_KEY" -ErrorAction SilentlyContinue
           }
           $Models
           $Repo = (Get-Location).Path
@@ -106,7 +113,7 @@ jobs:
             ConvertTo-Json -Depth 10 |
             Set-Content (Join-Path $ZeroKeyAgent "settings.json") -Encoding utf8
           @{} | ConvertTo-Json | Set-Content (Join-Path $ZeroKeyAgent "auth.json") -Encoding utf8
-          foreach ($Name in @("XTALPI_PI_TOOLS_API_KEY", "XTALPI_API_KEY", "PI67_XTALPI_PI_TOOLS_API_KEY", "PI67_XTALPI_API_KEY")) {
+          foreach ($Name in @("DEEPSEEK_API_KEY", "XTALPI_PI_TOOLS_API_KEY", "XTALPI_API_KEY", "PI67_XTALPI_PI_TOOLS_API_KEY", "PI67_XTALPI_API_KEY")) {
             Remove-Item "Env:$Name" -ErrorAction SilentlyContinue
           }
           $env:PI_CODING_AGENT_DIR = $ZeroKeyAgent
