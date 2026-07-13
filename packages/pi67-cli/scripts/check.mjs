@@ -191,8 +191,9 @@ function runPackedArtifactSelfTests() {
     const pack = spawnSync(npm, ["pack", root, "--ignore-scripts", "--json", "--pack-destination", tmpRoot], {
       cwd: tmpRoot,
       encoding: "utf8",
+      shell: process.platform === "win32",
     });
-    assert(pack.status === 0, `packed artifact creation failed: ${pack.stderr || pack.stdout}`);
+    assert(pack.status === 0, `packed artifact creation failed: ${pack.error?.message || pack.stderr || pack.stdout}`);
     const packed = JSON.parse(pack.stdout);
     const tarball = path.join(tmpRoot, packed[0]?.filename || "");
     assert(fs.existsSync(tarball), "packed artifact tarball was not created");
@@ -209,8 +210,9 @@ function runPackedArtifactSelfTests() {
     ], {
       cwd: tmpRoot,
       encoding: "utf8",
+      shell: process.platform === "win32",
     });
-    assert(install.status === 0, `packed artifact install failed: ${install.stderr || install.stdout}`);
+    assert(install.status === 0, `packed artifact install failed: ${install.error?.message || install.stderr || install.stdout}`);
 
     const bin = path.join(tmpRoot, "node_modules", "@bigking67", "pi-67", "bin", "pi-67.mjs");
     const help = spawnSync(process.execPath, [bin, "external", "--help"], {
