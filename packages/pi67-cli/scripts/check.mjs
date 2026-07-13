@@ -70,6 +70,7 @@ for (const file of files.filter((item) => item.endsWith(".json"))) {
 await runNpmRegistrySelfTests();
 await runUpstreamPiRuntimeSelfTests();
 runBrowser67RuntimeSelfTests();
+runPackedArtifactSelfTests();
 runArgsSelfTests();
 runCliHelpContractSelfTests();
 runXtalpiConfigureSelfTests();
@@ -181,6 +182,49 @@ function runBrowser67RuntimeSelfTests() {
   assert(repaired.changed && repaired.backup && fs.existsSync(repaired.backup), "browser67 MCP repair must create a backup");
 
   fs.rmSync(tmpRoot, { recursive: true, force: true });
+}
+
+function runPackedArtifactSelfTests() {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-packed-artifact-"));
+  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+  try {
+    const pack = spawnSync(npm, ["pack", root, "--ignore-scripts", "--json", "--pack-destination", tmpRoot], {
+      cwd: tmpRoot,
+      encoding: "utf8",
+    });
+    assert(pack.status === 0, `packed artifact creation failed: ${pack.stderr || pack.stdout}`);
+    const packed = JSON.parse(pack.stdout);
+    const tarball = path.join(tmpRoot, packed[0]?.filename || "");
+    assert(fs.existsSync(tarball), "packed artifact tarball was not created");
+
+    fs.writeFileSync(path.join(tmpRoot, "package.json"), '{"private":true}\n', "utf8");
+    const install = spawnSync(npm, [
+      "install",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund",
+      "--no-package-lock",
+      "--no-save",
+      tarball,
+    ], {
+      cwd: tmpRoot,
+      encoding: "utf8",
+    });
+    assert(install.status === 0, `packed artifact install failed: ${install.stderr || install.stdout}`);
+
+    const bin = path.join(tmpRoot, "node_modules", "@bigking67", "pi-67", "bin", "pi-67.mjs");
+    const help = spawnSync(process.execPath, [bin, "external", "--help"], {
+      cwd: tmpRoot,
+      encoding: "utf8",
+    });
+    assert(help.status === 0, `packed artifact CLI failed to start: ${help.stderr || help.stdout}`);
+    assert(
+      help.stdout.includes("external setup browser67") && help.stdout.includes("external doctor <browser67|design-craft> [--deep]"),
+      "packed artifact external help is missing browser67 setup/deep doctor",
+    );
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
 }
 
 function runCliHelpContractSelfTests() {

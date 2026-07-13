@@ -6,6 +6,17 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.11.3] - 2026-07-13
+
+### Fixed
+
+- Made the published npm manager artifact self-contained by removing the
+  browser67 runtime dependency on a repository-root script that is not shipped
+  inside `@bigking67/pi-67`.
+- Added a packed-artifact regression gate that installs the generated tarball
+  in an isolated directory and executes `pi-67 external --help`, preventing
+  source-worktree checks from masking missing npm package files.
+
 ## [0.11.2] - 2026-07-13
 
 ### Added

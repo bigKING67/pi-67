@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [0.11.3]
+
+- Removes the browser67 runtime dependency on a repository-root MCP utility
+  that is not included in the published npm package.
+- Adds an isolated packed-tarball install and CLI startup regression check.
+
 ## [0.11.2]
 
 - Adds structured upstream Pi runtime compatibility metadata to `version` and

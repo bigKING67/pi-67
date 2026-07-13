@@ -1,12 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createRequire } from "node:module";
 import { captureCommand, runCommand } from "./shell-runner.mjs";
 import { replaceFileSafely } from "./xtalpi-config.mjs";
-
-const require = createRequire(import.meta.url);
-const { normalizeMcpConfig } = require("../../../../scripts/pi67-mcp-config-utils.cjs");
 
 const REQUIRED_SKILLS = ["browser67", "js-reverse"];
 const BROWSER_ENTRYPOINT = "src/mcp/browser/server.mjs";
@@ -96,10 +92,7 @@ export function configureBrowser67Mcp(ctx, root, options = {}) {
   const file = path.join(ctx.agentDir, "mcp.json");
   const existed = fs.existsSync(file);
   const config = existed ? readJson(file) : { mcpServers: {} };
-  const normalized = normalizeMcpConfig(config, {
-    agentDir: ctx.agentDir,
-    browser67Root: root,
-  });
+  const normalized = normalizeBrowser67McpConfig(config, root);
 
   if (!normalized.changed) {
     return { file, changed: false, changes: [], backup: "", created: false };
@@ -123,6 +116,38 @@ export function configureBrowser67Mcp(ctx, root, options = {}) {
   }
   writeJsonAtomic(file, normalized.config);
   return { file, changed: true, changes: normalized.changes, backup, created: !existed };
+}
+
+function normalizeBrowser67McpConfig(config, root) {
+  const changes = [];
+  if (!config.mcpServers || typeof config.mcpServers !== "object" || Array.isArray(config.mcpServers)) {
+    config.mcpServers = {};
+    changes.push("mcpServers: created object");
+  }
+
+  const definitions = [
+    ["tmwd_browser", BROWSER_ENTRYPOINT],
+    ["js-reverse", JS_REVERSE_ENTRYPOINT],
+  ];
+  for (const [name, entrypoint] of definitions) {
+    let server = config.mcpServers[name];
+    if (!server || typeof server !== "object" || Array.isArray(server)) {
+      server = {};
+      config.mcpServers[name] = server;
+      changes.push(`${name}: created server config`);
+    }
+    if (!server.command) setMcpValue(server, "command", "node", `${name}.command`, changes);
+    setMcpValue(server, "cwd", path.resolve(root), `${name}.cwd`, changes);
+    setMcpValue(server, "args", [entrypoint], `${name}.args`, changes);
+  }
+
+  return { config, changed: changes.length > 0, changes };
+}
+
+function setMcpValue(target, key, value, label, changes) {
+  if (JSON.stringify(target[key]) === JSON.stringify(value)) return;
+  target[key] = value;
+  changes.push(`${label}: updated`);
 }
 
 export function resolveBrowser67Home(options = {}) {
