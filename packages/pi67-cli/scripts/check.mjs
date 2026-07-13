@@ -142,6 +142,16 @@ function runSkillPackPolicySelfTests() {
   fs.writeFileSync(path.join(repoRoot, "shared-skills", "pack-a", "SKILL.md"), "source-a\n");
   fs.writeFileSync(path.join(repoRoot, "shared-skills", "pack-b", "SKILL.md"), "source-b\n");
   fs.writeFileSync(path.join(skillsDir, "pack-a", "SKILL.md"), "old-a\n");
+  const crlfSkill = path.join(tmpRoot, "crlf-skill");
+  const lfSkill = path.join(tmpRoot, "lf-skill");
+  fs.mkdirSync(crlfSkill);
+  fs.mkdirSync(lfSkill);
+  fs.writeFileSync(path.join(crlfSkill, "SKILL.md"), "line-one\r\nline-two\r\n");
+  fs.writeFileSync(path.join(lfSkill, "SKILL.md"), "line-one\nline-two\n");
+  assert(
+    hashDirectory(crlfSkill) === hashDirectory(lfSkill),
+    "Skill Pack hashes must be stable across CRLF and LF checkouts",
+  );
   fs.writeFileSync(path.join(repoRoot, "shared-skill-packs.json"), `${JSON.stringify({
     schema: "pi67.shared-skill-packs.v1",
     packs: [{
