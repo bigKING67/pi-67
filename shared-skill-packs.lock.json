@@ -1,0 +1,47 @@
+{
+  "schema": "pi67.shared-skill-packs-lock.v1",
+  "packs": [
+    {
+      "name": "consumer-brand-commerce-marketing-suite",
+      "version": "2.0.0",
+      "upstream": "https://github.com/bigKING67/commerce-growth-os",
+      "source_commit": "83186cb008f415965c50eca4a70dfa9471799095",
+      "manifest_sha256": "ceb9c244d7eedfe5ec7c4b619531f571258050a2ebfd64b60e130b2ae9fe7c74",
+      "bundle_sha256": "c1a115a23ba401487717e93d8245ebe74a277e08201a09e8da511ab04cec74d7",
+      "skills": [
+        {
+          "name": "commerce-growth-os",
+          "sha256": "ff9a35e4a09330b064af3af2d77ccc0033ce9cae4c063b5582826d21ef4d6ac5"
+        },
+        {
+          "name": "commerce-commercial-strategy",
+          "sha256": "c42d7a8de5d00b89c82f2a0d8fed485e92fba1efeeeb5236d2a44e58bedc7257"
+        },
+        {
+          "name": "commerce-operations",
+          "sha256": "53b43aba2e1dbadf0888ff72a37a47162cef7ea6d1f2cb666a16cf36ebf42430"
+        },
+        {
+          "name": "commerce-analytics",
+          "sha256": "17d4a165f03f75e4bf0fae1c2e4f1d08be46d7a93caf7fc15dcd46bb5b887196"
+        },
+        {
+          "name": "consumer-marketing-os",
+          "sha256": "e14c2c1b09f21c084712989f2129b279ccd091ac42ccf5a759704b1e5ab68582"
+        },
+        {
+          "name": "brand-strategy-communications",
+          "sha256": "1a563dbbc60f87b35a8395cb251e1912c5d9b79295feef6d403dc9ad4c432903"
+        },
+        {
+          "name": "content-creative-social-marketing",
+          "sha256": "048f41eb882b5fb72120d8be93f685c8c7c0a62b955b5d2739c57ae88ba73394"
+        },
+        {
+          "name": "growth-performance-lifecycle-marketing",
+          "sha256": "180008270b06bfcdc730526c938391bc4d129b010bf7d37e00aafa7578030d2a"
+        }
+      ]
+    }
+  ]
+}

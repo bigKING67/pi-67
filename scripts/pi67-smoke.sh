@@ -227,7 +227,7 @@ fi
 pass "shell scripts parse"
 
 section "JSON"
-for file in settings.json auth.example.json image-gen.example.json models.example.json mcp.example.json package.json shared-skill-packs.json packages/pi67-cli/package.json; do
+for file in settings.json auth.example.json image-gen.example.json models.example.json mcp.example.json package.json shared-skill-packs.json shared-skill-packs.lock.json packages/pi67-cli/package.json; do
   json_valid "$REPO_ROOT/$file"
   pass "valid JSON: $file"
 done
@@ -597,6 +597,7 @@ const fs = require("fs");
 const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
 if (data.schemaId !== "pi67-shared-skill-packs-status/v1") throw new Error(`unexpected schemaId: ${data.schemaId}`);
 if (!data.registry?.valid) throw new Error(`registry should remain valid: ${(data.errors || []).join("; ")}`);
+if (!data.lock?.valid) throw new Error(`provenance lock should remain valid: ${(data.errors || []).join("; ")}`);
 if (data.summary?.attention !== 1) throw new Error(`expected one inconsistent pack: ${JSON.stringify(data.summary)}`);
 if (!data.packs?.[0]?.conflictSkills?.includes(process.argv[2])) throw new Error("pack conflict skill name missing");
 if (!data.packs?.[0]?.commands?.preview?.endsWith("--dry-run")) throw new Error("pack preview command must be non-writing");

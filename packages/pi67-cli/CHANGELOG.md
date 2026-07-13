@@ -9,6 +9,10 @@
 - Adds versioned shared Skill Pack inventory and explicit backed-up Pack sync
   commands for keeping multi-Skill distributions consistent across machines.
 
+- Adds immutable Skill Pack provenance validation, including a locked upstream
+  Commit and SHA-256 fingerprints for the Manifest, complete Pack, and each
+  vendored Skill.
+
 ## [0.11.3]
 
 - Removes the browser67 runtime dependency on a repository-root MCP utility

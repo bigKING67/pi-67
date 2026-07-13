@@ -178,6 +178,8 @@ echo "Repository: $REPO_ROOT"
 [ -f "$REPO_ROOT/scripts/pi67-sync-commerce-skill-pack.sh" ] || fail "missing scripts/pi67-sync-commerce-skill-pack.sh"
 [ -f "$REPO_ROOT/scripts/pi67-sync-commerce-skill-pack.mjs" ] || fail "missing scripts/pi67-sync-commerce-skill-pack.mjs"
 [ -f "$REPO_ROOT/shared-skill-packs.json" ] || fail "missing shared-skill-packs.json"
+[ -f "$REPO_ROOT/shared-skill-packs.lock.json" ] || fail "missing shared-skill-packs.lock.json"
+[ -f "$REPO_ROOT/packages/pi67-cli/src/lib/skill-pack-integrity.mjs" ] || fail "missing Skill Pack integrity library"
 command_exists node || fail "node is required"
 pass "required helpers found"
 
@@ -332,7 +334,8 @@ section "Commerce and Marketing Skill Pack vendored sync helper"
 COMMERCE_SOURCE="$TMP_ROOT/commerce-source"
 COMMERCE_DEST_ROOT="$TMP_ROOT/commerce-dest/shared-skills"
 COMMERCE_PACK_REGISTRY="$TMP_ROOT/commerce-dest/shared-skill-packs.json"
-mkdir -p "$COMMERCE_SOURCE/.git" "$COMMERCE_SOURCE/eval/answers" "$COMMERCE_SOURCE/scripts" "$COMMERCE_SOURCE/bundles"
+COMMERCE_PACK_LOCK="$TMP_ROOT/commerce-dest/shared-skill-packs.lock.json"
+mkdir -p "$COMMERCE_SOURCE/eval/answers" "$COMMERCE_SOURCE/scripts" "$COMMERCE_SOURCE/bundles"
 cat > "$COMMERCE_SOURCE/skill-pack.json" <<'EOF'
 {
   "schema_version": 2,
@@ -386,22 +389,27 @@ done
 mkdir -p "$OUTPUT"
 cp -R "$ROOT/bundles/." "$OUTPUT/"
 EOF
-printf 'ignored git metadata\n' > "$COMMERCE_SOURCE/.git/HEAD"
 printf 'ignored private eval answer\n' > "$COMMERCE_SOURCE/eval/answers/private.txt"
+git -C "$COMMERCE_SOURCE" init -q
+git -C "$COMMERCE_SOURCE" -c user.name=pi67-fixture -c user.email=pi67-fixture@example.invalid add .
+git -C "$COMMERCE_SOURCE" -c user.name=pi67-fixture -c user.email=pi67-fixture@example.invalid commit -qm "fixture pack"
+COMMERCE_SOURCE_COMMIT="$(git -C "$COMMERCE_SOURCE" rev-parse HEAD)"
 "$REPO_ROOT/scripts/pi67-sync-commerce-skill-pack.sh" \
   --source "$COMMERCE_SOURCE" \
   --dest-root "$COMMERCE_DEST_ROOT" \
   --pack-registry "$COMMERCE_PACK_REGISTRY" \
+  --pack-lock "$COMMERCE_PACK_LOCK" \
   --dry-run \
   --json > "$TMP_ROOT/commerce-sync-dry.json"
 assert_json_schema_result "$TMP_ROOT/commerce-sync-dry.json" "pi67-commerce-skill-pack-sync/v1" "READY_TO_APPLY"
-if [ -e "$COMMERCE_DEST_ROOT" ] || [ -e "$COMMERCE_PACK_REGISTRY" ]; then
+if [ -e "$COMMERCE_DEST_ROOT" ] || [ -e "$COMMERCE_PACK_REGISTRY" ] || [ -e "$COMMERCE_PACK_LOCK" ]; then
   fail "commerce sync dry-run wrote files"
 fi
 "$REPO_ROOT/scripts/pi67-sync-commerce-skill-pack.sh" \
   --source "$COMMERCE_SOURCE" \
   --dest-root "$COMMERCE_DEST_ROOT" \
   --pack-registry "$COMMERCE_PACK_REGISTRY" \
+  --pack-lock "$COMMERCE_PACK_LOCK" \
   --apply \
   --yes \
   --json > "$TMP_ROOT/commerce-sync-apply.json"
@@ -409,9 +417,23 @@ assert_json_schema_result "$TMP_ROOT/commerce-sync-apply.json" "pi67-commerce-sk
 if [ ! -f "$COMMERCE_DEST_ROOT/commerce-growth-os/SKILL.md" ] \
   || [ ! -f "$COMMERCE_DEST_ROOT/brand-strategy-communications/SKILL.md" ] \
   || [ ! -f "$COMMERCE_DEST_ROOT/commerce-growth-os/references/business-model-and-profit.md" ] \
-  || [ ! -f "$COMMERCE_PACK_REGISTRY" ]; then
+  || [ ! -f "$COMMERCE_PACK_REGISTRY" ] \
+  || [ ! -f "$COMMERCE_PACK_LOCK" ]; then
   fail "commerce Skill Pack sync apply did not copy the complete pack"
 fi
+node - "$COMMERCE_PACK_LOCK" "$COMMERCE_SOURCE_COMMIT" <<'NODE'
+const fs = require("fs");
+const [, , lockFile, sourceCommit] = process.argv;
+const lock = JSON.parse(fs.readFileSync(lockFile, "utf8"));
+if (lock.schema !== "pi67.shared-skill-packs-lock.v1") throw new Error("unexpected Skill Pack lock schema");
+const pack = lock.packs?.[0];
+if (pack?.source_commit !== sourceCommit) throw new Error("Skill Pack lock source commit mismatch");
+if (!/^[0-9a-f]{64}$/.test(pack?.manifest_sha256 || "")) throw new Error("missing manifest SHA-256");
+if (!/^[0-9a-f]{64}$/.test(pack?.bundle_sha256 || "")) throw new Error("missing bundle SHA-256");
+if (pack?.skills?.length !== 8 || pack.skills.some((skill) => !/^[0-9a-f]{64}$/.test(skill.sha256 || ""))) {
+  throw new Error("missing per-Skill SHA-256 provenance");
+}
+NODE
 if [ -e "$COMMERCE_DEST_ROOT/commerce-growth-os/.git" ] || [ -e "$COMMERCE_DEST_ROOT/commerce-growth-os/eval/answers" ]; then
   fail "commerce sync copied ignored repository/cache/eval-answer paths"
 fi
@@ -419,10 +441,25 @@ fi
   --source "$COMMERCE_SOURCE" \
   --dest "$COMMERCE_DEST_ROOT/commerce-growth-os" \
   --pack-registry "$COMMERCE_PACK_REGISTRY" \
+  --pack-lock "$COMMERCE_PACK_LOCK" \
   --dry-run \
   --json > "$TMP_ROOT/commerce-sync-legacy-alias.json"
 assert_json_schema_result "$TMP_ROOT/commerce-sync-legacy-alias.json" "pi67-commerce-skill-pack-sync/v1" "NOOP"
-pass "commerce Skill Pack vendored sync is transactional and keeps the legacy helper compatible"
+printf 'dirty source\n' >> "$COMMERCE_SOURCE/eval/answers/private.txt"
+if "$REPO_ROOT/scripts/pi67-sync-commerce-skill-pack.sh" \
+  --source "$COMMERCE_SOURCE" \
+  --dest-root "$COMMERCE_DEST_ROOT" \
+  --pack-registry "$COMMERCE_PACK_REGISTRY" \
+  --pack-lock "$COMMERCE_PACK_LOCK" \
+  --dry-run \
+  --json > "$TMP_ROOT/commerce-sync-dirty-source.json"; then
+  fail "commerce sync unexpectedly accepted a dirty upstream source"
+fi
+assert_json_schema_result "$TMP_ROOT/commerce-sync-dirty-source.json" "pi67-commerce-skill-pack-sync/v1" "INVALID_INPUT"
+if ! grep -q 'source Git worktree must be clean' "$TMP_ROOT/commerce-sync-dirty-source.json"; then
+  fail "commerce sync dirty-source failure was not explainable"
+fi
+pass "commerce Skill Pack vendored sync is transactional, provenance-locked, and keeps the legacy helper compatible"
 
 section "External sync helper conflict"
 EXTERNAL_CONFLICT_REPO="$TMP_ROOT/external-conflict-repo"

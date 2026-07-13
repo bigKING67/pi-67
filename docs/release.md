@@ -31,8 +31,9 @@ bash scripts/pi67-sync-commerce-skill-pack.sh \
   --dry-run
 ```
 
-The final dry-run must report `NOOP`. It proves the upstream Manifest build,
-all eight vendored directories, and `shared-skill-packs.json` agree before the
+The source checkout must be clean. The final dry-run must report `NOOP`. It
+proves the upstream Commit and Manifest build, all eight vendored directories,
+`shared-skill-packs.json`, and `shared-skill-packs.lock.json` agree before the
 release is distributed to other machines.
 
 PowerShell smoke for Windows-facing changes:
@@ -165,8 +166,8 @@ Expected result:
    - `docs/skill-migration-schema.md` if `scripts/pi67-migrate-skills.sh --json` behavior changed
    - `docs/external-skill-sync-schema.md` if `scripts/pi67-sync-external-skills.sh --json` behavior changed
    - `docs/skill-governance.md` if skill registry, migration, or external sync behavior changed
-   - `shared-skill-packs.json` and the vendored Pack directories when an
-     upstream Pack version changed
+   - `shared-skill-packs.json`, `shared-skill-packs.lock.json`, and the vendored
+     Pack directories when an upstream Pack version or source Commit changed
    - update workflow docs if `scripts/pi67-update.sh` or `scripts/pi67-update.ps1` changed
    - `docs/windows-fresh-install.md` if `scripts/pi67-bootstrap.ps1` or the
      Node/runtime prerequisite contract changed
@@ -348,8 +349,8 @@ so release consumers can see planned writes, preserved user-owned paths, and
 policy blockers before a real update.
 It must also include a valid `skillPacks` block with schema
 `pi67-shared-skill-packs-status/v1`; when comparing the vendored source against
-itself, `summary.attention` must be `0`. Release automation must not replace this
-with a writing Pack sync.
+itself, `registry.valid` and `lock.valid` must be true and `summary.attention`
+must be `0`. Release automation must not replace this with a writing Pack sync.
 It must also expose `policy.preservedRuntimeFiles`, `policy.themePolicy`,
 `policy.sharedSkillsPolicy`, and `policy.externalDirtyPolicy` so scripts and
 docs can prove that update behavior is governed by the same manifest contract.

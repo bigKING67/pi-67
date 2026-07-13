@@ -266,6 +266,7 @@ $RequiredFiles = @(
   "image-gen.example.json",
   "README.md",
   "shared-skill-packs.json",
+  "shared-skill-packs.lock.json",
   "docs/full-install.md",
   "docs/release.md",
   "docs/troubleshooting.md",
@@ -315,6 +316,7 @@ $RequiredFiles = @(
   "packages/pi67-cli/src/lib/update-safety.mjs",
   "packages/pi67-cli/src/lib/npm-registry.mjs",
   "packages/pi67-cli/src/lib/skill-policy.mjs",
+  "packages/pi67-cli/src/lib/skill-pack-integrity.mjs",
   "packages/pi67-cli/src/lib/settings-runtime-clean.mjs",
   "packages/pi67-cli/src/lib/settings-runtime-state.mjs",
   "packages/pi67-cli/src/lib/xtalpi-config.mjs",
@@ -348,6 +350,7 @@ $JsonFiles = @(
   "mcp.example.json",
   "package.json",
   "shared-skill-packs.json",
+  "shared-skill-packs.lock.json",
   "packages/pi67-cli/package.json",
   "packages/pi67-cli/src/data/distro-manifest.json",
   "packages/pi67-cli/src/data/extension-registry.json",
@@ -604,7 +607,7 @@ if (String(tmwd.args?.[0] || "").includes(browser67Root) || String(jsReverse.arg
     if ($payload.schemaId -ne "pi67-shared-skill-packs-status/v1") {
       throw "unexpected shared Skill Pack status schema"
     }
-    if (-not $payload.registry.valid -or $payload.summary.attention -ne 0) {
+    if (-not $payload.registry.valid -or -not $payload.lock.valid -or $payload.summary.attention -ne 0) {
       throw "vendored shared Skill Pack should be consistent against itself"
     }
   }
@@ -958,6 +961,7 @@ if ($GitAvailable) {
     "CHANGELOG.md",
     "README.md",
     "shared-skill-packs.json",
+    "shared-skill-packs.lock.json",
     "docs/full-install.md",
     "docs/release.md",
     "docs/troubleshooting.md",
@@ -987,6 +991,7 @@ if ($GitAvailable) {
     "packages/pi67-cli/src/commands/skills.mjs",
     "packages/pi67-cli/src/lib/npm-registry.mjs",
     "packages/pi67-cli/src/lib/skill-policy.mjs",
+    "packages/pi67-cli/src/lib/skill-pack-integrity.mjs",
     "packages/pi67-cli/src/lib/settings-runtime-clean.mjs",
     "packages/pi67-cli/src/lib/settings-runtime-state.mjs",
     "packages/pi67-cli/src/lib/xtalpi-config.mjs",

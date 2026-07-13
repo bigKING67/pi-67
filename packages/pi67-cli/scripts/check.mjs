@@ -59,6 +59,11 @@ import {
   inventorySkillPacks,
   syncSkillPack,
 } from "../src/lib/skill-policy.mjs";
+import {
+  SKILL_PACK_LOCK_SCHEMA,
+  hashDirectory,
+  hashSkillSet,
+} from "../src/lib/skill-pack-integrity.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const files = [];
@@ -146,6 +151,22 @@ function runSkillPackPolicySelfTests() {
       skills: ["pack-a", "pack-b"],
     }],
   }, null, 2)}\n`);
+  const lockedSkills = ["pack-a", "pack-b"].map((name) => ({
+    name,
+    sha256: hashDirectory(path.join(repoRoot, "shared-skills", name)),
+  }));
+  fs.writeFileSync(path.join(repoRoot, "shared-skill-packs.lock.json"), `${JSON.stringify({
+    schema: SKILL_PACK_LOCK_SCHEMA,
+    packs: [{
+      name: "fixture-pack",
+      version: "1.0.0",
+      upstream: "https://example.invalid/fixture-pack",
+      source_commit: "a".repeat(40),
+      manifest_sha256: "b".repeat(64),
+      bundle_sha256: hashSkillSet(lockedSkills),
+      skills: lockedSkills,
+    }],
+  }, null, 2)}\n`);
   const ctx = { repoRoot, skillsDir, stateDir };
 
   const dryOnlySkillsDir = path.join(tmpRoot, "dry-only-skills");
@@ -157,6 +178,8 @@ function runSkillPackPolicySelfTests() {
   const beforeStatus = inspectSkillPackStatus(ctx);
   assert(beforeStatus.schemaId === "pi67-shared-skill-packs-status/v1", "skill pack status schema must be stable");
   assert(beforeStatus.registry.valid, "skill pack status must validate a well-formed registry");
+  assert(beforeStatus.lock.valid, "skill pack status must validate the provenance lock");
+  assert(beforeStatus.packs[0].provenance.sourceCommit === "a".repeat(40), "skill pack status must expose source provenance");
   assert(beforeStatus.summary.attention === 1, "skill pack status must summarize inconsistent packs");
   assert(
     beforeStatus.packs[0].missingSkills.includes("pack-b") && beforeStatus.packs[0].conflictSkills.includes("pack-a"),
@@ -182,7 +205,25 @@ function runSkillPackPolicySelfTests() {
   assert(!fs.readdirSync(skillsDir).some((name) => name.startsWith(".pi67-skills-sync-")), "skill pack sync must clean transaction paths");
 
   const registryPath = path.join(repoRoot, "shared-skill-packs.json");
+  const lockPath = path.join(repoRoot, "shared-skill-packs.lock.json");
   const validRegistry = fs.readFileSync(registryPath, "utf8");
+  const validLock = fs.readFileSync(lockPath, "utf8");
+
+  fs.rmSync(lockPath);
+  const missingLock = inspectSkillPackStatus(ctx);
+  assert(missingLock.registry.valid && !missingLock.lock.valid, "skill pack status must distinguish a missing lock from an invalid registry");
+  fs.writeFileSync(lockPath, validLock);
+
+  const sourceSkill = path.join(repoRoot, "shared-skills", "pack-a", "SKILL.md");
+  const sourceSkillText = fs.readFileSync(sourceSkill, "utf8");
+  fs.writeFileSync(sourceSkill, "tampered-source\n");
+  const tamperedSource = inspectSkillPackStatus(ctx);
+  assert(
+    tamperedSource.registry.valid && !tamperedSource.lock.valid && tamperedSource.errors[0].includes("integrity mismatch"),
+    "skill pack status must reject vendored content that differs from the provenance lock",
+  );
+  fs.writeFileSync(sourceSkill, sourceSkillText);
+
   fs.writeFileSync(registryPath, validRegistry.replace('"1.0.0"', '"not-semver"'));
   const invalidVersion = inspectSkillPackStatus(ctx);
   assert(!invalidVersion.registry.valid && invalidVersion.errors[0].includes("SemVer"), "skill pack status must reject invalid versions");

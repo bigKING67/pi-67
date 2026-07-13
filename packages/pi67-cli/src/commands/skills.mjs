@@ -39,7 +39,8 @@ function packs(ctx, argv) {
     const status = pack.consistent
       ? "consistent"
       : `missing=${pack.summary.missing}, conflicts=${pack.summary.conflicts}`;
-    info(`${pack.name}@${pack.version}: ${status}; skills=${pack.summary.skills}`);
+    const sourceCommit = pack.provenance?.sourceCommit?.slice(0, 12) || "unknown";
+    info(`${pack.name}@${pack.version}: ${status}; skills=${pack.summary.skills}; source=${sourceCommit}`);
   }
 }
 

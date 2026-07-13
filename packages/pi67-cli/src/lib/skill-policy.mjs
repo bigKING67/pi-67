@@ -2,8 +2,15 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { CliError } from "./output.mjs";
+import {
+  SkillPackIntegrityError,
+  hashDirectory,
+  readSkillPackLock,
+  validateSkillPackLock,
+} from "./skill-pack-integrity.mjs";
 
 const SKILL_PACK_REGISTRY = "shared-skill-packs.json";
+const SKILL_PACK_LOCK = "shared-skill-packs.lock.json";
 
 export function inventorySkills(ctx) {
   const sourceRoot = path.join(ctx.repoRoot, "shared-skills");
@@ -11,9 +18,9 @@ export function inventorySkills(ctx) {
   const entries = sourceNames.map((name) => {
     const source = path.join(sourceRoot, name);
     const target = path.join(ctx.skillsDir, name);
-    const sourceHash = hashDir(source);
+    const sourceHash = hashDirectory(source);
     const targetExists = fs.existsSync(target);
-    const targetHash = targetExists ? hashDir(target) : "";
+    const targetHash = targetExists ? hashDirectory(target) : "";
     const identical = targetExists && sourceHash === targetHash;
     const conflict = targetExists && !identical;
     return { name, source, target, sourceHash, targetExists, targetHash, identical, conflict };
@@ -34,13 +41,16 @@ export function inventorySkills(ctx) {
   };
 }
 
-export function inventorySkillPacks(ctx, { inventory = null } = {}) {
+export function inventorySkillPacks(ctx, { inventory = null, registry = null } = {}) {
   const registryPath = path.join(ctx.repoRoot, SKILL_PACK_REGISTRY);
+  const lockPath = path.join(ctx.repoRoot, SKILL_PACK_LOCK);
   if (!fs.existsSync(registryPath)) {
     return {
       schema: "pi67.skill-packs-inventory.v1",
       registryPath,
       registryExists: false,
+      lockPath,
+      lockExists: fs.existsSync(lockPath),
       skillsDir: ctx.skillsDir,
       summary: {
         packs: 0,
@@ -51,10 +61,10 @@ export function inventorySkillPacks(ctx, { inventory = null } = {}) {
     };
   }
 
-  const registry = readSkillPackRegistry(registryPath);
+  const resolvedRegistry = registry || readSkillPackRegistry(registryPath);
   const skillInventory = inventory || inventorySkills(ctx);
   const byName = new Map(skillInventory.entries.map((entry) => [entry.name, entry]));
-  const packs = registry.packs.map((pack) => {
+  const packs = resolvedRegistry.packs.map((pack) => {
     const entries = pack.skills.map((name) => {
       const entry = byName.get(name);
       if (!entry) {
@@ -62,6 +72,15 @@ export function inventorySkillPacks(ctx, { inventory = null } = {}) {
       }
       return entry;
     });
+    return { pack, entries };
+  });
+  if (!fs.existsSync(lockPath)) {
+    throw new SkillPackIntegrityError(`shared Skill Pack lock is missing: ${lockPath}`);
+  }
+  const lock = readSkillPackLock(lockPath);
+  const sourceHashes = new Map(skillInventory.entries.map((entry) => [entry.name, entry.sourceHash]));
+  const lockByName = validateSkillPackLock({ lock, registry: resolvedRegistry, sourceHashes });
+  const resolvedPacks = packs.map(({ pack, entries }) => {
     const summary = {
       skills: entries.length,
       identical: entries.filter((entry) => entry.identical).length,
@@ -73,33 +92,59 @@ export function inventorySkillPacks(ctx, { inventory = null } = {}) {
       summary,
       consistent: summary.identical === summary.skills,
       entries,
+      provenance: {
+        sourceCommit: lockByName.get(pack.name).source_commit,
+        manifestSha256: lockByName.get(pack.name).manifest_sha256,
+        bundleSha256: lockByName.get(pack.name).bundle_sha256,
+        vendoredIntegrity: true,
+      },
     };
   });
   return {
     schema: "pi67.skill-packs-inventory.v1",
     registryPath,
     registryExists: true,
+    lockPath,
+    lockExists: true,
     skillsDir: ctx.skillsDir,
     summary: {
-      packs: packs.length,
-      consistent: packs.filter((pack) => pack.consistent).length,
-      attention: packs.filter((pack) => !pack.consistent).length,
+      packs: resolvedPacks.length,
+      consistent: resolvedPacks.filter((pack) => pack.consistent).length,
+      attention: resolvedPacks.filter((pack) => !pack.consistent).length,
     },
-    packs,
+    packs: resolvedPacks,
   };
 }
 
 export function inspectSkillPackStatus(ctx, { inventory = null } = {}) {
   const registryPath = path.join(ctx.repoRoot, SKILL_PACK_REGISTRY);
+  const lockPath = path.join(ctx.repoRoot, SKILL_PACK_LOCK);
+  let registry;
   try {
     if (!fs.existsSync(registryPath)) {
       throw new CliError(`shared Skill Pack registry is missing: ${registryPath}`, 2);
     }
-    const packInventory = inventorySkillPacks(ctx, { inventory });
+    registry = readSkillPackRegistry(registryPath);
+  } catch (error) {
+    return invalidSkillPackStatus(ctx, {
+      registryPath,
+      registryValid: false,
+      lockPath,
+      lockValid: false,
+      error,
+    });
+  }
+  try {
+    const packInventory = inventorySkillPacks(ctx, { inventory, registry });
     return {
       schemaId: "pi67-shared-skill-packs-status/v1",
       registry: {
         path: registryPath,
+        exists: true,
+        valid: true,
+      },
+      lock: {
+        path: lockPath,
         exists: true,
         valid: true,
       },
@@ -114,6 +159,7 @@ export function inspectSkillPackStatus(ctx, { inventory = null } = {}) {
         missing: pack.summary.missing,
         conflicts: pack.summary.conflicts,
         consistent: pack.consistent,
+        provenance: pack.provenance,
         missingSkills: pack.entries.filter((entry) => !entry.targetExists).map((entry) => entry.name),
         conflictSkills: pack.entries.filter((entry) => entry.conflict).map((entry) => entry.name),
         commands: {
@@ -124,22 +170,14 @@ export function inspectSkillPackStatus(ctx, { inventory = null } = {}) {
       errors: [],
     };
   } catch (error) {
-    return {
-      schemaId: "pi67-shared-skill-packs-status/v1",
-      registry: {
-        path: registryPath,
-        exists: fs.existsSync(registryPath),
-        valid: false,
-      },
-      skillsDir: ctx.skillsDir,
-      summary: {
-        packs: 0,
-        consistent: 0,
-        attention: 1,
-      },
-      packs: [],
-      errors: [error instanceof Error ? error.message : String(error)],
-    };
+    const lockInvalid = error instanceof SkillPackIntegrityError;
+    return invalidSkillPackStatus(ctx, {
+      registryPath,
+      registryValid: lockInvalid,
+      lockPath,
+      lockValid: false,
+      error,
+    });
   }
 }
 
@@ -168,7 +206,38 @@ export function syncSkillPack(ctx, name, { dryRun = false, yes = false } = {}) {
       version: pack.version,
       upstream: pack.upstream,
       skills: pack.skills,
+      provenance: pack.provenance,
     },
+  };
+}
+
+function invalidSkillPackStatus(ctx, {
+  registryPath,
+  registryValid,
+  lockPath,
+  lockValid,
+  error,
+}) {
+  return {
+    schemaId: "pi67-shared-skill-packs-status/v1",
+    registry: {
+      path: registryPath,
+      exists: fs.existsSync(registryPath),
+      valid: registryValid,
+    },
+    lock: {
+      path: lockPath,
+      exists: fs.existsSync(lockPath),
+      valid: lockValid,
+    },
+    skillsDir: ctx.skillsDir,
+    summary: {
+      packs: 0,
+      consistent: 0,
+      attention: 1,
+    },
+    packs: [],
+    errors: [error instanceof Error ? error.message : String(error)],
   };
 }
 
@@ -313,7 +382,7 @@ function applySkillOperations(ctx, operations, backupRoot) {
       activated.push(operation.entry.name);
     }
     for (const operation of operations) {
-      if (hashDir(operation.entry.source) !== hashDir(operation.entry.target)) {
+      if (hashDirectory(operation.entry.source) !== hashDirectory(operation.entry.target)) {
         throw new Error(`Skill sync hash mismatch: ${operation.entry.name}`);
       }
     }
@@ -337,21 +406,6 @@ function listSkillDirs(root) {
     .filter((entry) => entry.isDirectory() && fs.existsSync(path.join(root, entry.name, "SKILL.md")))
     .map((entry) => entry.name)
     .sort();
-}
-
-function hashDir(root) {
-  if (!fs.existsSync(root)) return "";
-  const hash = crypto.createHash("sha256");
-  const files = [];
-  walk(root, files);
-  for (const file of files.sort()) {
-    const rel = path.relative(root, file).replace(/\\/g, "/");
-    hash.update(rel);
-    hash.update("\0");
-    hash.update(fs.readFileSync(file));
-    hash.update("\0");
-  }
-  return hash.digest("hex");
 }
 
 function fileManifest(root) {

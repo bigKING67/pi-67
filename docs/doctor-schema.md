@@ -85,6 +85,9 @@ Doctor also validates shared skill governance:
 - `shared-skill-packs.json` must satisfy the versioned Pack registry contract;
   duplicate Pack names, invalid SemVer, duplicate Skill ownership, and unknown
   vendored Skill references are blocking failures.
+- `shared-skill-packs.lock.json` must match the registry and lock every Pack to
+  an upstream full Git Commit, Manifest SHA-256, Pack SHA-256, and per-Skill
+  SHA-256. Missing, stale, or tampered provenance is a blocking failure.
 - Every registered Pack is compared against the active root through the shared
   `pi67-shared-skill-packs-status/v1` implementation. Consistent Packs produce
   `PASS`; missing or different Pack members produce `WARN` by default and
@@ -189,6 +192,9 @@ planning, run:
 ```bash
 node scripts/pi67-shared-skill-packs-status.mjs --json
 ```
+
+The status contains separate `registry.valid` and `lock.valid` fields so
+operators can distinguish declaration errors from vendored integrity errors.
 
 When a Pack differs, first inspect `pi-67 skills packs`, then preview with
 `pi-67 skills sync-pack <pack> --dry-run`. Doctor never recommends or performs

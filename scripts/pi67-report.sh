@@ -399,12 +399,18 @@ function sharedSkillState(settings) {
 
 function sharedSkillPackState() {
   const helper = path.join(scriptDir, "pi67-shared-skill-packs-status.mjs");
+  const lockPath = path.join(repoRoot, "shared-skill-packs.lock.json");
   if (!fs.existsSync(helper)) {
     return {
       schemaId: "pi67-shared-skill-packs-status/v1",
       registry: {
         path: path.join(repoRoot, "shared-skill-packs.json"),
         exists: fs.existsSync(path.join(repoRoot, "shared-skill-packs.json")),
+        valid: false,
+      },
+      lock: {
+        path: lockPath,
+        exists: fs.existsSync(lockPath),
         valid: false,
       },
       skillsDir: sharedSkillsDir,
@@ -426,6 +432,11 @@ function sharedSkillPackState() {
     registry: {
       path: path.join(repoRoot, "shared-skill-packs.json"),
       exists: fs.existsSync(path.join(repoRoot, "shared-skill-packs.json")),
+      valid: false,
+    },
+    lock: {
+      path: lockPath,
+      exists: fs.existsSync(lockPath),
       valid: false,
     },
     skillsDir: sharedSkillsDir,

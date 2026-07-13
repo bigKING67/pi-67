@@ -91,8 +91,8 @@ export async function buildUpdatePlan(ctx, options = {}) {
   if (skills.summary.conflicts > 0) {
     recommendations.push("Run: pi-67 skills inventory to inspect preserved user-modified global skills.");
   }
-  if (!skillPacks.registry.valid) {
-    recommendations.push("Run: pi-67 skills packs to inspect the shared Skill Pack registry error.");
+  if (!skillPacks.registry.valid || !skillPacks.lock?.valid) {
+    recommendations.push("Run: pi-67 skills packs to inspect the shared Skill Pack registry or provenance lock error.");
   } else {
     const inconsistentPacks = skillPacks.packs.filter((entry) => !entry.consistent);
     if (inconsistentPacks.length > 0) recommendations.push(`Run: ${inconsistentPacks[0].commands.inspect}`);

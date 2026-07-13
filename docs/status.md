@@ -127,17 +127,20 @@ still appears as a normal dirty worktree warning.
 
 Both `pi-67 status` and `scripts/pi67-status.sh` expose the read-only
 `pi67-shared-skill-packs-status/v1` contract. It validates
-`shared-skill-packs.json`, compares every registered vendored Skill with the
-active `~/.agents/skills` copy, and reports:
+`shared-skill-packs.json` and `shared-skill-packs.lock.json`, verifies the
+vendored source against its locked upstream provenance, compares every
+registered vendored Skill with the active `~/.agents/skills` copy, and reports:
 
 - Pack name and SemVer version
+- locked upstream full Commit, Manifest SHA-256, Pack SHA-256, and verified vendored integrity
 - total, identical, missing, and conflicting Skill counts
 - exact missing/conflicting Skill names
 - `pi-67 skills packs` as the inspection command
 - `pi-67 skills sync-pack <pack> --dry-run` as the non-writing preview
 
-An invalid registry is `ACTION_REQUIRED`. A valid but inconsistent Pack is a
-warning. Status never recommends the writing `--yes` form automatically.
+An invalid registry or provenance Lock is `ACTION_REQUIRED`. A valid trusted
+Pack with inconsistent Active Skills is a warning. Status never recommends the
+writing `--yes` form automatically.
 
 ## xtalpi smoke status
 

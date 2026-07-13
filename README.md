@@ -247,6 +247,10 @@ bash ~/.pi/agent/scripts/pi67-sync-commerce-skill-pack.sh \
   --apply --yes
 ```
 
+维护 Helper 只接受干净的上游 Git checkout，并同时更新
+`shared-skill-packs.lock.json`。Lock 固定上游完整 Commit、Manifest SHA-256、
+整包 SHA-256 和每个 Skill 的 SHA-256，避免同一个版本号对应不同内容。
+
 普通用户在 `pi-67 update` 后检查或显式升级整套 Pack：
 
 ```bash
@@ -261,6 +265,8 @@ pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --yes
 `pi67-report.json` 会自动暴露同一份
 `pi67-shared-skill-packs-status/v1` 状态；发现差异时只建议先运行
 `skills packs` 和 `sync-pack ... --dry-run`，不会自动升级到写入式 `--yes`。
+Registry 或 provenance Lock 无效属于阻断错误；Active Skill 与可信 vendored
+基线不同仍按用户修改处理，默认警告、strict 模式失败。
 
 需要先检查真实外部仓库和当前 `~/.agents/skills` 是否会冲突时，用只读检查器：
 

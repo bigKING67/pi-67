@@ -299,7 +299,10 @@ pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --yes
 pi-67 external list
 ```
 
-`skills packs` reports version consistency for registered multi-Skill suites.
+`skills packs` reports version, source Commit, vendored integrity, and active
+consistency for registered multi-Skill suites. `shared-skill-packs.json`
+declares Pack ownership while `shared-skill-packs.lock.json` pins the upstream
+Commit and SHA-256 fingerprints used by the distribution.
 Normal update preserves different active Skills; `skills sync-pack ... --yes`
 is the explicit backed-up operation for aligning every Skill in a registered
 Pack to the pi-67 vendored version.

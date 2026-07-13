@@ -670,12 +670,15 @@ async function main() {
   const packStatus = policy.inspectSkillPackStatus(ctx, { inventory });
   if (!packStatus.registry.valid) {
     emit("FAIL", `shared Skill Pack registry invalid: ${packStatus.errors.join("; ")}`);
+  } else if (!packStatus.lock?.valid) {
+    emit("FAIL", `shared Skill Pack provenance lock invalid: ${packStatus.errors.join("; ")}`);
   } else if (packStatus.packs.length === 0) {
     emit("WARN", "shared Skill Pack registry has no registered packs");
   } else {
     for (const pack of packStatus.packs) {
       if (pack.consistent) {
-        emit("PASS", `shared Skill Pack consistent: ${pack.name}@${pack.version} (${pack.skills} skills)`);
+        const sourceCommit = pack.provenance?.sourceCommit?.slice(0, 12) || "unknown";
+        emit("PASS", `shared Skill Pack consistent: ${pack.name}@${pack.version} (${pack.skills} skills, source ${sourceCommit})`);
       } else {
         emit(
           strictSharedSkills ? "FAIL" : "WARN",

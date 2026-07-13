@@ -150,6 +150,11 @@ into `~/.agents/skills` instead of declared as active Pi packages.
     "exists": true,
     "valid": true
   },
+  "lock": {
+    "path": "/path/to/pi-67/shared-skill-packs.lock.json",
+    "exists": true,
+    "valid": true
+  },
   "skillsDir": "~/.agents/skills",
   "summary": {
     "packs": 1,
@@ -165,6 +170,12 @@ into `~/.agents/skills` instead of declared as active Pi packages.
       "missing": 0,
       "conflicts": 0,
       "consistent": true,
+      "provenance": {
+        "sourceCommit": "83186cb008f415965c50eca4a70dfa9471799095",
+        "manifestSha256": "ceb9c244d7eedfe5ec7c4b619531f571258050a2ebfd64b60e130b2ae9fe7c74",
+        "bundleSha256": "c1a115a23ba401487717e93d8245ebe74a277e08201a09e8da511ab04cec74d7",
+        "vendoredIntegrity": true
+      },
       "missingSkills": [],
       "conflictSkills": [],
       "commands": {
@@ -177,7 +188,8 @@ into `~/.agents/skills` instead of declared as active Pi packages.
 }
 ```
 
-The report stores names, versions, counts, equality state, affected Skill names,
+The report stores Registry/Lock validity, source provenance, names, versions,
+counts, equality state, affected Skill names,
 and safe command hints only. It does not embed Skill bodies or file-level
 content. Registry schema errors appear in `errors` with
 `registry.valid=false`; valid but different active copies increment

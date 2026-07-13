@@ -57,10 +57,11 @@ https://github.com/bigKING67/commerce-growth-os
 pi-67 keeps eight self-contained vendored distribution Skills under
 `shared-skills/`, registered as
 `consumer-brand-commerce-marketing-suite@2.0.0` in
-`shared-skill-packs.json`. Other macOS/Windows machines receive missing Skills
-through the normal pi-67 install/update path. Do not put a maintainer's local
-checkout path or this GitHub repository into `settings.json.packages`; active
-copies belong in `~/.agents/skills`.
+`shared-skill-packs.json`. Its resolved upstream Commit and Bundle fingerprints
+are stored separately in `shared-skill-packs.lock.json`. Other macOS/Windows
+machines receive missing Skills through the normal pi-67 install/update path.
+Do not put a maintainer's local checkout path or this GitHub repository into
+`settings.json.packages`; active copies belong in `~/.agents/skills`.
 
 ### B. Personal overlay skill
 
@@ -248,15 +249,19 @@ bash scripts/pi67-sync-commerce-skill-pack.sh \
 The default source is resolved in this order:
 
 ```text
+$COMMERCE_SKILL_PACK_REPO
 $COMMERCE_GROWTH_OS_REPO
 ../commerce-growth-os next to the pi-67 checkout
 ```
 
-Use `--source DIR` when the upstream checkout lives elsewhere. The helper runs
-the upstream Bundle Builder, requires the reviewed eight-Skill manifest,
-updates `shared-skill-packs.json`, and transactionally replaces only those eight
-vendored directories. The legacy `pi67-sync-commerce-growth-os.sh` filename is
-retained as a compatibility alias.
+Use `--source DIR` when the upstream checkout lives elsewhere. The source must
+be a clean Git checkout: vendoring uncommitted content is rejected. The helper
+runs the upstream Bundle Builder, requires the reviewed eight-Skill manifest,
+updates `shared-skill-packs.json` plus `shared-skill-packs.lock.json`, and
+transactionally replaces only those eight vendored directories. The Lock pins
+the full upstream Commit, Manifest SHA-256, Pack SHA-256, and per-Skill SHA-256.
+The legacy `pi67-sync-commerce-growth-os.sh` filename is retained as a
+compatibility alias.
 
 Existing machines preserve different active copies during normal updates. Use
 the pack-aware manager command for an explicit, backed-up version alignment:
@@ -274,9 +279,9 @@ can also be inspected directly:
 node scripts/pi67-shared-skill-packs-status.mjs --json
 ```
 
-It emits `pi67-shared-skill-packs-status/v1` with Pack versions, counts,
-missing/conflicting names, and a `sync-pack ... --dry-run` preview. It never
-writes the active root.
+It emits `pi67-shared-skill-packs-status/v1` with separate Registry/Lock
+validity, source provenance, Pack versions, counts, missing/conflicting names,
+and a `sync-pack ... --dry-run` preview. It never writes the active root.
 
 ## Validation helpers
 

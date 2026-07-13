@@ -700,12 +700,15 @@ if (-not (Test-CommandExists "node")) {
       Fail ("unexpected shared Skill Pack status schema: {0}" -f $skillPackStatus.schemaId)
     } elseif (-not $skillPackStatus.registry.valid) {
       Fail ("shared Skill Pack registry invalid: {0}" -f (@($skillPackStatus.errors) -join "; "))
+    } elseif (-not $skillPackStatus.lock.valid) {
+      Fail ("shared Skill Pack provenance lock invalid: {0}" -f (@($skillPackStatus.errors) -join "; "))
     } elseif (@($skillPackStatus.packs).Count -eq 0) {
       Warn "shared Skill Pack registry has no registered packs"
     } else {
       foreach ($pack in @($skillPackStatus.packs)) {
         if ($pack.consistent) {
-          Pass ("shared Skill Pack consistent: {0}@{1} ({2} skills)" -f $pack.name, $pack.version, $pack.skills)
+          $sourceCommit = if ($pack.provenance.sourceCommit) { $pack.provenance.sourceCommit.Substring(0, [Math]::Min(12, $pack.provenance.sourceCommit.Length)) } else { "unknown" }
+          Pass ("shared Skill Pack consistent: {0}@{1} ({2} skills, source {3})" -f $pack.name, $pack.version, $pack.skills, $sourceCommit)
         } else {
           $message = "shared Skill Pack differs: {0}@{1}; missing={2}, conflicts={3}; run pi-67 skills packs; preview: {4}" -f $pack.name, $pack.version, $pack.missing, $pack.conflicts, $pack.commands.preview
           if ($StrictSharedSkills) { Fail $message } else { Warn $message }

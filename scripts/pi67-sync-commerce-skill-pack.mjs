@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 
-import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import {
+  SKILL_PACK_LOCK_SCHEMA,
+  buildPackLockEntry,
+  hashDirectory,
+} from "../packages/pi67-cli/src/lib/skill-pack-integrity.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
@@ -46,6 +50,7 @@ if (options.legacyDest) {
   destRoot = path.dirname(legacyDest);
 }
 const registryPath = path.resolve(options.packRegistry || path.join(REPO_ROOT, "shared-skill-packs.json"));
+const lockPath = path.resolve(options.packLock || path.join(REPO_ROOT, "shared-skill-packs.lock.json"));
 
 const report = {
   schemaVersion: 1,
@@ -55,10 +60,17 @@ const report = {
   source: displayPath(sourceDir),
   destinationRoot: displayPath(destRoot),
   packRegistry: displayPath(registryPath),
+  packLock: displayPath(lockPath),
   packName: PACK_NAME,
   packVersion: null,
   sourceExists: fs.existsSync(sourceDir),
   registryChanged: false,
+  lockChanged: false,
+  provenance: {
+    sourceCommit: "",
+    manifestSha256: "",
+    bundleSha256: "",
+  },
   counts: {
     skills: EXPECTED_SKILLS.length,
     identical: 0,
@@ -74,6 +86,8 @@ let tempRoot;
 try {
   const manifest = loadManifest(sourceDir);
   report.packVersion = manifest.pack_version;
+  const sourceCommit = resolveSourceCommit(sourceDir);
+  report.provenance.sourceCommit = sourceCommit;
   tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-commerce-skill-pack-"));
   const buildRoot = path.join(tempRoot, "bundles");
   buildBundles(sourceDir, buildRoot);
@@ -82,9 +96,9 @@ try {
   for (const name of EXPECTED_SKILLS) {
     const source = path.join(buildRoot, name);
     const destination = path.join(destRoot, name);
-    const sourceHash = hashDir(source);
+    const sourceHash = hashDirectory(source);
     const destinationExists = fs.existsSync(path.join(destination, "SKILL.md"));
-    const destinationHash = destinationExists ? hashDir(destination) : "missing";
+    const destinationHash = destinationExists ? hashDirectory(destination) : "missing";
     const status = !destinationExists
       ? "create"
       : sourceHash === destinationHash
@@ -102,15 +116,30 @@ try {
   }
 
   const registryUpdate = buildRegistryUpdate(registryPath, manifest);
+  const lockUpdate = buildLockUpdate(lockPath, manifest, sourceCommit, buildRoot);
   report.registryChanged = registryUpdate.changed;
-  const hasChanges = report.counts.create > 0 || report.counts.replace > 0 || report.registryChanged;
+  report.lockChanged = lockUpdate.changed;
+  report.provenance.manifestSha256 = lockUpdate.entry.manifest_sha256;
+  report.provenance.bundleSha256 = lockUpdate.entry.bundle_sha256;
+  const hasChanges = report.counts.create > 0 ||
+    report.counts.replace > 0 ||
+    report.registryChanged ||
+    report.lockChanged;
   report.result = hasChanges ? (options.apply ? "APPLIED" : "READY_TO_APPLY") : "NOOP";
 
   if (options.apply && hasChanges) {
-    applyTransaction(buildRoot, destRoot, registryPath, registryUpdate.text, report);
+    applyTransaction(
+      buildRoot,
+      destRoot,
+      registryPath,
+      registryUpdate.text,
+      lockPath,
+      lockUpdate.text,
+      report,
+    );
     report.counts.applied = report.counts.create + report.counts.replace;
     for (const skill of report.skills) {
-      skill.destinationHash = hashDir(path.join(destRoot, skill.name));
+      skill.destinationHash = hashDirectory(path.join(destRoot, skill.name));
       if (skill.destinationHash !== skill.sourceHash) {
         throw new Error(`post-apply hash mismatch: ${skill.name}`);
       }
@@ -136,6 +165,7 @@ function parseArgs(argv) {
     destRoot: "",
     legacyDest: "",
     packRegistry: "",
+    packLock: "",
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -143,6 +173,7 @@ function parseArgs(argv) {
     else if (arg === "--dest-root") result.destRoot = requiredValue(argv, ++index, arg);
     else if (arg === "--dest") result.legacyDest = requiredValue(argv, ++index, arg);
     else if (arg === "--pack-registry") result.packRegistry = requiredValue(argv, ++index, arg);
+    else if (arg === "--pack-lock") result.packLock = requiredValue(argv, ++index, arg);
     else if (arg === "--dry-run") result.apply = false;
     else if (arg === "--apply") result.apply = true;
     else if (arg === "--yes" || arg === "-y") result.yes = true;
@@ -176,6 +207,24 @@ function loadManifest(source) {
     throw new Error("pack skills do not match the reviewed pi-67 distribution contract");
   }
   return manifest;
+}
+
+function resolveSourceCommit(source) {
+  const revision = spawnSync("git", ["-C", source, "rev-parse", "--verify", "HEAD"], {
+    encoding: "utf8",
+  });
+  const commit = String(revision.stdout || "").trim();
+  if (revision.status !== 0 || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(commit)) {
+    throw new Error("source must be a Git checkout with a resolvable full commit");
+  }
+  const status = spawnSync("git", ["-C", source, "status", "--porcelain=v1", "--untracked-files=all"], {
+    encoding: "utf8",
+  });
+  if (status.status !== 0) throw new Error("could not inspect source Git worktree state");
+  if (String(status.stdout || "").trim()) {
+    throw new Error("source Git worktree must be clean before vendoring a Skill Pack");
+  }
+  return commit;
 }
 
 function buildBundles(source, output) {
@@ -245,7 +294,41 @@ function buildRegistryUpdate(file, manifest) {
   return { changed: currentText !== text, text };
 }
 
-function applyTransaction(buildRoot, destinationRoot, packRegistry, registryText, data) {
+function buildLockUpdate(file, manifest, sourceCommit, buildRoot) {
+  const original = fs.existsSync(file)
+    ? JSON.parse(fs.readFileSync(file, "utf8"))
+    : { schema: SKILL_PACK_LOCK_SCHEMA, packs: [] };
+  if (original.schema !== SKILL_PACK_LOCK_SCHEMA || !Array.isArray(original.packs)) {
+    throw new Error("invalid shared-skill-packs.lock.json schema");
+  }
+  const next = structuredClone(original);
+  const entry = buildPackLockEntry({
+    name: PACK_NAME,
+    version: manifest.pack_version,
+    upstream: UPSTREAM,
+    sourceCommit,
+    manifestFile: path.join(sourceDir, "skill-pack.json"),
+    skillNames: EXPECTED_SKILLS,
+    skillRoot: buildRoot,
+  });
+  const index = next.packs.findIndex((pack) => pack.name === PACK_NAME);
+  if (index >= 0) next.packs[index] = entry;
+  else next.packs.push(entry);
+  next.packs.sort((left, right) => left.name.localeCompare(right.name));
+  const text = `${JSON.stringify(next, null, 2)}\n`;
+  const currentText = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+  return { changed: currentText !== text, entry, text };
+}
+
+function applyTransaction(
+  buildRoot,
+  destinationRoot,
+  packRegistry,
+  registryText,
+  packLock,
+  lockText,
+  data,
+) {
   fs.mkdirSync(destinationRoot, { recursive: true });
   const stamp = `${process.pid}-${Date.now()}`;
   const transactionRoot = path.join(destinationRoot, `.commerce-skill-pack-sync-${stamp}`);
@@ -256,6 +339,8 @@ function applyTransaction(buildRoot, destinationRoot, packRegistry, registryText
   const movedPrevious = [];
   const registryExisted = fs.existsSync(packRegistry);
   const registryOriginal = registryExisted ? fs.readFileSync(packRegistry) : null;
+  const lockExisted = fs.existsSync(packLock);
+  const lockOriginal = lockExisted ? fs.readFileSync(packLock) : null;
 
   try {
     fs.mkdirSync(stagedRoot, { recursive: true });
@@ -280,8 +365,12 @@ function applyTransaction(buildRoot, destinationRoot, packRegistry, registryText
       fs.mkdirSync(path.dirname(packRegistry), { recursive: true });
       fs.writeFileSync(packRegistry, registryText, "utf8");
     }
+    if (data.lockChanged) {
+      fs.mkdirSync(path.dirname(packLock), { recursive: true });
+      fs.writeFileSync(packLock, lockText, "utf8");
+    }
     for (const skill of changedSkills) {
-      const activatedHash = hashDir(path.join(destinationRoot, skill.name));
+      const activatedHash = hashDirectory(path.join(destinationRoot, skill.name));
       if (activatedHash !== skill.sourceHash) {
         throw new Error(`transactional activation hash mismatch: ${skill.name}`);
       }
@@ -299,29 +388,12 @@ function applyTransaction(buildRoot, destinationRoot, packRegistry, registryText
       if (registryExisted) fs.writeFileSync(packRegistry, registryOriginal);
       else fs.rmSync(packRegistry, { force: true });
     }
+    if (data.lockChanged) {
+      if (lockExisted) fs.writeFileSync(packLock, lockOriginal);
+      else fs.rmSync(packLock, { force: true });
+    }
     fs.rmSync(transactionRoot, { recursive: true, force: true });
     throw error;
-  }
-}
-
-function hashDir(root) {
-  const hash = crypto.createHash("sha256");
-  const files = [];
-  walkFiles(root, files);
-  for (const file of files.sort()) {
-    hash.update(path.relative(root, file).replace(/\\/g, "/"));
-    hash.update("\0");
-    hash.update(fs.readFileSync(file));
-    hash.update("\0");
-  }
-  return hash.digest("hex");
-}
-
-function walkFiles(root, output) {
-  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
-    const full = path.join(root, entry.name);
-    if (entry.isDirectory()) walkFiles(full, output);
-    else if (entry.isFile()) output.push(full);
   }
 }
 
@@ -365,15 +437,17 @@ Options:
                            shared-skills directory.
       --dest DIR           Legacy alias accepting a commerce-growth-os destination.
       --pack-registry FILE Pack registry. Defaults to shared-skill-packs.json.
+      --pack-lock FILE     Immutable provenance lock. Defaults to
+                           shared-skill-packs.lock.json.
       --dry-run            Build and compare without writing. This is the default.
       --apply              Transactionally replace/create the eight vendored Skills.
   -y, --yes                Required with --apply.
       --json               Emit pi67-commerce-skill-pack-sync/v1 JSON.
   -h, --help               Show this help.
 
-The helper runs the upstream manifest builder, verifies the reviewed eight-Skill
-contract, updates shared-skill-packs.json, and rolls back the vendored set if an
-apply operation fails.
+The helper requires a clean upstream Git checkout, runs the manifest builder,
+verifies the reviewed eight-Skill contract, updates the registry and provenance
+lock, and rolls back the vendored set if an apply operation fails.
 `);
 }
 

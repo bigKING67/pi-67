@@ -261,10 +261,12 @@ function Get-SharedSkillsSummary {
 function Get-SharedSkillPacksStatus {
   $helper = Join-Path $ScriptDir "pi67-shared-skill-packs-status.mjs"
   $registryPath = Join-Path $RepoRoot "shared-skill-packs.json"
+  $lockPath = Join-Path $RepoRoot "shared-skill-packs.lock.json"
   if (-not (Get-Command "node" -ErrorAction SilentlyContinue)) {
     return [ordered]@{
       schemaId = "pi67-shared-skill-packs-status/v1"
       registry = [ordered]@{ path = $registryPath; exists = (Test-Path -LiteralPath $registryPath -PathType Leaf); valid = $false }
+      lock = [ordered]@{ path = $lockPath; exists = (Test-Path -LiteralPath $lockPath -PathType Leaf); valid = $false }
       skillsDir = $SkillsDir
       summary = [ordered]@{ packs = 0; consistent = 0; attention = 1 }
       packs = @()
@@ -275,6 +277,7 @@ function Get-SharedSkillPacksStatus {
     return [ordered]@{
       schemaId = "pi67-shared-skill-packs-status/v1"
       registry = [ordered]@{ path = $registryPath; exists = (Test-Path -LiteralPath $registryPath -PathType Leaf); valid = $false }
+      lock = [ordered]@{ path = $lockPath; exists = (Test-Path -LiteralPath $lockPath -PathType Leaf); valid = $false }
       skillsDir = $SkillsDir
       summary = [ordered]@{ packs = 0; consistent = 0; attention = 1 }
       packs = @()
@@ -298,6 +301,7 @@ function Get-SharedSkillPacksStatus {
     return [ordered]@{
       schemaId = "pi67-shared-skill-packs-status/v1"
       registry = [ordered]@{ path = $registryPath; exists = (Test-Path -LiteralPath $registryPath -PathType Leaf); valid = $false }
+      lock = [ordered]@{ path = $lockPath; exists = (Test-Path -LiteralPath $lockPath -PathType Leaf); valid = $false }
       skillsDir = $SkillsDir
       summary = [ordered]@{ packs = 0; consistent = 0; attention = 1 }
       packs = @()

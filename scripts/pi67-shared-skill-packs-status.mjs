@@ -54,12 +54,13 @@ function fail(message) {
 }
 
 function printHelp() {
-  process.stdout.write(`pi67-shared-skill-packs-status - read-only Skill Pack parity status
+  process.stdout.write(`pi67-shared-skill-packs-status - read-only Skill Pack provenance and parity status
 
 Usage:
   node scripts/pi67-shared-skill-packs-status.mjs [--repo-root DIR] [--skills-dir DIR] [--json]
 
-The command emits pi67-shared-skill-packs-status/v1 JSON and never changes
-the active shared skill root.
+The command validates shared-skill-packs.json plus
+shared-skill-packs.lock.json, emits pi67-shared-skill-packs-status/v1 JSON,
+and never changes the active shared skill root.
 `);
 }

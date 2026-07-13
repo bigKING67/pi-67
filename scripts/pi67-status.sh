@@ -519,11 +519,17 @@ function deriveReport(repository, version) {
 function deriveSkillPacks() {
   const helper = path.join(scriptDir, "pi67-shared-skill-packs-status.mjs");
   const registryPath = path.join(repoRoot, "shared-skill-packs.json");
+  const lockPath = path.join(repoRoot, "shared-skill-packs.lock.json");
   const fallback = (message) => ({
     schemaId: "pi67-shared-skill-packs-status/v1",
     registry: {
       path: registryPath,
       exists: fs.existsSync(registryPath),
+      valid: false,
+    },
+    lock: {
+      path: lockPath,
+      exists: fs.existsSync(lockPath),
       valid: false,
     },
     skillsDir: sharedSkillsDir,
@@ -563,8 +569,8 @@ function deriveResult(repository, remote, report, xtalpiSmoke, skillPacks) {
     blockers.push("repository is not a git checkout");
   }
 
-  if (!skillPacks.registry?.valid) {
-    blockers.push(`shared Skill Pack registry is invalid: ${(skillPacks.errors || []).join("; ") || "unknown error"}`);
+  if (!skillPacks.registry?.valid || !skillPacks.lock?.valid) {
+    blockers.push(`shared Skill Pack registry or provenance lock is invalid: ${(skillPacks.errors || []).join("; ") || "unknown error"}`);
     recommendations.push("Run: pi-67 skills packs");
   } else {
     const inconsistentPacks = (skillPacks.packs || []).filter((entry) => !entry.consistent);
@@ -805,12 +811,15 @@ console.log("");
 console.log("--- skill packs ---");
 if (!sharedSkillPacks.registry?.valid) {
   console.log(`Registry   : invalid (${(sharedSkillPacks.errors || []).join("; ") || "unknown error"})`);
+} else if (!sharedSkillPacks.lock?.valid) {
+  console.log(`Lock       : invalid (${(sharedSkillPacks.errors || []).join("; ") || "unknown error"})`);
 } else if (!sharedSkillPacks.packs?.length) {
-  console.log("Registry   : valid; no packs registered");
+  console.log("Registry   : valid; lock valid; no packs registered");
 } else {
   for (const pack of sharedSkillPacks.packs) {
     const detail = pack.consistent ? "consistent" : `missing=${pack.missing} conflicts=${pack.conflicts}`;
-    console.log(`Pack       : ${pack.name}@${pack.version} ${detail}`);
+    const sourceCommit = pack.provenance?.sourceCommit?.slice(0, 12) || "unknown";
+    console.log(`Pack       : ${pack.name}@${pack.version} ${detail} source=${sourceCommit}`);
   }
 }
 console.log("");
