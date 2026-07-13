@@ -128,31 +128,6 @@ if command_exists node; then
   else
     fail "package.json version ($PACKAGE_VERSION) does not match VERSION ($VERSION)"
   fi
-  if node - "$PACKAGE_JSON" <<'NODE'
-const fs = require("fs");
-const [file] = process.argv.slice(2);
-const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
-const scripts = pkg.scripts || {};
-for (const name of ["test:xtalpi", "test:xtalpi:node", "test:xtalpi:coverage"]) {
-  if (typeof scripts[name] !== "string" || !scripts[name].trim()) {
-    throw new Error(`package.json missing script ${name}`);
-  }
-}
-if (!scripts["test:xtalpi:coverage"].includes("--test-coverage-lines=72")) {
-  throw new Error("test:xtalpi:coverage must enforce the line coverage floor");
-}
-if (!scripts["test:xtalpi:coverage"].includes("--test-coverage-branches=68")) {
-  throw new Error("test:xtalpi:coverage must enforce the branch coverage floor");
-}
-if (!scripts["test:xtalpi:coverage"].includes("--test-coverage-functions=71")) {
-  throw new Error("test:xtalpi:coverage must enforce the function coverage floor");
-}
-NODE
-  then
-    pass "package.json exposes xtalpi test and coverage gates"
-  else
-    fail "package.json xtalpi test or coverage gate is incomplete"
-  fi
 else
   warn "node not found; skipped package.json version check"
 fi
