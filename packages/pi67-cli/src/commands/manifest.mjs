@@ -28,6 +28,7 @@ export async function manifestCommand(ctx, argv) {
   }
   section("pi-67 distro manifest");
   keyValue("Dependencies", manifest.summary.dependencies);
+  keyValue("Upstream Pi tested", manifest.upstreamPi?.testedVersion || "unknown");
   keyValue("Runtime packages", `${manifest.summary.pi67ManagedRuntimePackages} pi67-managed, ${manifest.summary.userManagedRuntimePackages} user-managed`);
   keyValue("Local extensions", `${manifest.summary.localExtensions - manifest.summary.missingLocalExtensions}/${manifest.summary.localExtensions} present`);
   keyValue("Registered extensions", manifest.summary.registeredExtensions);

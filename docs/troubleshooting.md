@@ -906,6 +906,23 @@ agent-memory-mcp binary
 local Codex proxy if using the codex provider
 ```
 
+For a normal managed browser67 installation, do not stop after the low-level
+clone command. Preview and run the complete setup, then use the deep doctor to
+separate checkout/config readiness from the live Hub/extension connection:
+
+```bash
+pi-67 external setup browser67 --dry-run
+pi-67 external setup browser67
+pi-67 external doctor browser67 --deep
+```
+
+`pi-67 external doctor browser67` without `--deep` checks the repo,
+dependencies, prepared extension files, active skills, and MCP paths. It does
+not prove that Chrome/Edge loaded the unpacked extension. `--deep` additionally
+runs browser67's live doctor. The setup output prints the unpacked extension
+directory; load that directory in `chrome://extensions`, start the Hub if it
+was not started with `--start-hub`, and restart Pi before retrying MCP.
+
 Do not delete the MCP entries just because doctor warns. pi-67 intentionally installs the full best-practice configuration; doctor tells you which capabilities still need local setup.
 
 If Pi shows this while Codex/browser67 works:
@@ -1099,12 +1116,12 @@ Fix order:
 
 4. If only the deep probe warns but normal doctor is otherwise ready, run the MCP server command manually from `mcp.json` for local logs. Doctor intentionally does not print MCP stderr because those logs may include local private details.
 
-## `pi skill list` fails
+## `pi list` fails or doctor reports package registry warnings
 
 Run it manually for the detailed error:
 
 ```bash
-pi skill list
+pi list --no-approve
 ```
 
 Then check:
@@ -1122,6 +1139,12 @@ If npm dependencies were skipped or failed:
 cd ~/.pi/agent/npm
 npm install --ignore-scripts
 ```
+
+Do not use the removed `pi skill list` form with upstream Pi 0.80.6. It is no
+longer a package/skill listing command; Pi interprets `skill list` as an
+interactive user prompt and may start a real model request. Skill source
+conflicts are diagnosed through `pi-67 skills inventory` and doctor's direct
+shared-skill checks.
 
 ## Legacy prompt placeholder failure
 

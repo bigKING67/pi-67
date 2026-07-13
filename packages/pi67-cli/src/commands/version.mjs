@@ -1,4 +1,3 @@
-import { captureCommand } from "../lib/shell-runner.mjs";
 import { gitStatus } from "../lib/git.mjs";
 import { currentTheme } from "../lib/theme-policy.mjs";
 import { info, keyValue, printJson, section, warn } from "../lib/output.mjs";
@@ -6,6 +5,7 @@ import { platformName } from "../lib/platform.mjs";
 import { readCliPackageJson, readTextIfExists } from "../lib/paths.mjs";
 import { readJsonFileIfExists } from "../lib/config-json.mjs";
 import { parseCommandOptions } from "../lib/args.mjs";
+import { inspectUpstreamPiRuntime } from "../lib/upstream-pi-runtime.mjs";
 import path from "node:path";
 
 export async function versionCommand(ctx, argv) {
@@ -17,7 +17,7 @@ export async function versionCommand(ctx, argv) {
   const json = ctx.json || options.json;
   const pkg = readCliPackageJson();
   const git = gitStatus(ctx.repoRoot);
-  const pi = captureCommand("pi", ["--version"]);
+  const upstreamPi = await inspectUpstreamPiRuntime(ctx, { noRemote: ctx.noRemote });
   const distroVersion = readTextIfExists(path.join(ctx.repoRoot, "VERSION")).trim();
   const settings = readJsonFileIfExists(path.join(ctx.agentDir, "settings.json")) || {};
   const data = {
@@ -35,7 +35,8 @@ export async function versionCommand(ctx, argv) {
     runtime: {
       node: process.version,
       platform: platformName(),
-      pi: pi.ok ? pi.stdout.trim() || pi.stderr.trim() : "",
+      pi: upstreamPi.installedVersion,
+      upstreamPi,
     },
     paths: {
       agentDir: ctx.agentDir,
@@ -54,6 +55,10 @@ export async function versionCommand(ctx, argv) {
   keyValue("pi-67 distro", data.distro.version || "unknown");
   keyValue("git", `${data.distro.commit || "unknown"}${data.distro.dirty ? " dirty" : ""}`);
   keyValue("pi", data.runtime.pi || "not found");
+  keyValue("pi tested", data.runtime.upstreamPi.testedVersion || "unknown");
+  if (!data.runtime.upstreamPi.registry.skipped) {
+    keyValue("pi latest", data.runtime.upstreamPi.registry.latestVersion || "unknown");
+  }
   keyValue("node", data.runtime.node);
   keyValue("platform", data.runtime.platform);
   keyValue("agentDir", data.paths.agentDir);
@@ -102,6 +107,16 @@ function buildVersionRecommendations(ctx, data, git, settings) {
     recommendations.push({
       level: "INFO",
       message: "`pi` is not on PATH in this shell; this does not block pi-67 manager updates.",
+    });
+  } else if (data.runtime.upstreamPi.installedBehindTested) {
+    recommendations.push({
+      level: "WARN",
+      message: `upstream Pi ${data.runtime.pi} is behind the release-tested ${data.runtime.upstreamPi.testedVersion}; run: ${data.runtime.upstreamPi.updateCommand}`,
+    });
+  } else if (data.runtime.upstreamPi.registry.outdated) {
+    recommendations.push({
+      level: "INFO",
+      message: `upstream Pi ${data.runtime.pi} has registry latest ${data.runtime.upstreamPi.registry.latestVersion}; review upstream changes before updating.`,
     });
   }
   return recommendations;

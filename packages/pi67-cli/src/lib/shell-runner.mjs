@@ -6,14 +6,14 @@ import { CliError, info } from "./output.mjs";
 export function runCommand(command, args = [], options = {}) {
   const cwd = options.cwd || process.cwd();
   if (options.dryRun) {
-    info(`DRY-RUN (${cwd}) ${[command, ...args].join(" ")}`);
+    if (!options.quiet) info(`DRY-RUN (${cwd}) ${[command, ...args].join(" ")}`);
     return { status: 0, stdout: "", stderr: "" };
   }
   const platform = options.platform || process.platform;
   const env = envWithWindowsGitFallback({ ...process.env, ...(options.env || {}) }, platform);
   const { result, attempts } = spawnCommandWithFallback(command, args, {
     cwd,
-    stdio: options.stdio || "inherit",
+    stdio: options.stdio || (options.quiet ? "pipe" : "inherit"),
     env,
     encoding: "utf8",
     timeout: options.timeoutMs,

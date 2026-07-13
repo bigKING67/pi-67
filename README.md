@@ -4,7 +4,7 @@
 
 > 让 Windows 和 macOS 用户用尽可能少的步骤，获得公司统一、持续升级、可诊断、可回滚的 Pi 工作台。`pi` 始终是实际运行入口；`pi-67` 负责把 Pi 所需的配置、扩展、Skills、规则、脚本和公司默认 provider 封装成一键发行版。
 
-当前发行版版本：`0.11.1`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.11.2`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 项目定位
 
@@ -202,8 +202,9 @@ bash ~/.pi/agent/scripts/pi67-shared-skills-inventory.sh --json
   absolute `cwd` + relative `args`。不要在 MCP `command` / `args` 里写
   `$HOME/...`；`pi-mcp-adapter` 不会 shell-expand 这些字段。
 
-旧安装如果已经出现 duplicate / conflict / skipped / `auto (user)` 之类
-`pi skill list` 警告，先用迁移工具预览；它默认 dry-run、只复制缺失 skill、
+旧安装如果 doctor 或 shared-skill inventory 已经发现 duplicate / conflict /
+skipped / `auto (user)` 一类 Skill 来源冲突，先用迁移工具预览；它默认
+dry-run、只复制缺失 skill、
 遇到内容冲突会停止，不会覆盖 `~/.agents/skills`：
 
 ```bash
@@ -253,6 +254,39 @@ bash ~/.pi/agent/scripts/pi67-check-external-skills.sh \
   --repo /path/to/design-craft \
   --repo /path/to/browser67
 ```
+
+### browser67 是显式可选能力
+
+`pi-67 install` 默认不安装 browser67。旧的
+`pi-67 external install browser67` 只负责把 Git checkout 克隆到
+`~/.agents/packages/browser67`；它不代表依赖、Chrome/Edge 扩展、active
+skills、MCP 或 Hub 已经就绪。普通用户应先 dry-run，再运行完整 setup：
+
+```bash
+pi-67 external setup browser67 --dry-run
+pi-67 external setup browser67
+```
+
+该命令会在 checkout 缺失时 clone，然后执行 `npm ci`、browser67 extension
+setup、`browser67` / `js-reverse` active skill 同步，并把 `tmwd_browser` 与
+`js-reverse` MCP 指向 managed checkout。`--start-hub` 是显式可选项：
+
+```bash
+pi-67 external setup browser67 --start-hub
+```
+
+Chrome/Edge 的开发者模式、加载 unpacked extension、系统权限和重新启动 Pi
+仍然是人工步骤。setup 会打印实际 extension 目录和剩余步骤。完成后分层验收：
+
+```bash
+pi-67 external doctor browser67
+pi-67 external doctor browser67 --deep
+```
+
+普通 doctor 检查 checkout、依赖、extension、active skills 和 MCP 配置；
+`--deep` 还会运行 browser67 live doctor，验证本机 Hub/extension 连接。
+使用任意其他有效 browser67 checkout 的 absolute MCP entrypoint 仍受支持，
+不会被错误标成损坏。
 
 ## 快速开始
 
@@ -626,11 +660,11 @@ bash ~/.pi/agent/scripts/pi67-doctor.sh --quiet # 只看 summary/result
 bash ~/.pi/agent/scripts/pi67-doctor.sh --json  # 机器可读 readiness JSON
 ```
 
-如果只想快速 doctor 而不等待 `pi skill list`，用：
+如果只想快速 doctor 而不等待 upstream `pi list` package probe，用：
 
 ```bash
-pi-67 doctor --no-skill-list
-pi-67 doctor --skill-list-timeout-seconds 60
+pi-67 doctor --no-pi-list
+pi-67 doctor --pi-list-timeout-seconds 60
 ```
 
 只想快速看当前安装是否需要更新、报告是否过期、doctor 上次结果如何：

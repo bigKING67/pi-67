@@ -484,8 +484,22 @@ bash ~/.pi/agent/scripts/pi67-check-external-skills.sh \
 ~/.agents/packages/browser67/src/mcp/js-reverse/server.mjs
 ```
 
-Use `scripts/pi67-configure.sh --tmwd-repo /path/to/browser67` to point MCP at
-a local browser67 checkout.
+The default pi-67 install intentionally leaves browser67 absent. For the
+managed checkout, use the complete opt-in workflow rather than treating a Git
+clone as runtime readiness:
+
+```bash
+pi-67 external setup browser67 --dry-run
+pi-67 external setup browser67
+pi-67 external doctor browser67 --deep
+```
+
+This clones the repo when needed, installs dependencies, prepares the unpacked
+extension, synchronizes active skills, and writes adapter-compatible browser67
+MCP entries. It does not silently load a Chrome/Edge extension, grant OS
+permissions, or take over an existing browser profile. Use
+`scripts/pi67-configure.sh --tmwd-repo /path/to/browser67` only when MCP should
+point at a separate local development checkout.
 
 ## Install/update report
 
@@ -686,7 +700,7 @@ pi-67 distinguishes between installed and ready:
 | AGENTS kernel | Yes | `~/.pi/agent/AGENTS.md` points to the repo |
 | Rules | Yes | 9 rule files exist and `pi-rules-loader` is installed |
 | Prompts | Yes | Prompt files exist and do not use legacy double-brace placeholders |
-| Skills | Yes | `pi skill list` succeeds |
+| Skills | Yes | doctor shared-skill checks pass and `pi-67 skills inventory` reports no missing copies |
 | Pi interactive startup | Yes | `pi` enters its interface even with no provider key |
 | Active model request | Upstream Pi | The selected provider is authenticated through `/login` or its supported environment/config source |
 | Model persistence | Upstream Pi | `/model` selection is restored on the next `pi` launch |

@@ -39,22 +39,22 @@ export function externalStatus(ctx, name) {
   };
 }
 
-export function installExternal(ctx, name, { dryRun = false } = {}) {
+export function installExternal(ctx, name, { dryRun = false, quiet = false } = {}) {
   const spec = EXTERNAL_REPOS[name];
   if (!spec) throw new CliError(`unknown external repo: ${name}`, 2);
   const dir = externalPath(ctx, name);
   if (fs.existsSync(dir)) {
     return { action: "skip", reason: "already exists", status: externalStatus(ctx, name) };
   }
-  fs.mkdirSync(path.dirname(dir), { recursive: true });
-  runCommand("git", ["clone", spec.repoUrl, dir], { dryRun });
+  if (!dryRun) fs.mkdirSync(path.dirname(dir), { recursive: true });
+  runCommand("git", ["clone", spec.repoUrl, dir], { dryRun, quiet });
   return { action: dryRun ? "clone-dry-run" : "clone", status: externalStatus(ctx, name) };
 }
 
-export function updateExternal(ctx, name, { dryRun = false } = {}) {
+export function updateExternal(ctx, name, { dryRun = false, quiet = false } = {}) {
   const status = externalStatus(ctx, name);
   if (!status.exists) {
-    return installExternal(ctx, name, { dryRun });
+    return installExternal(ctx, name, { dryRun, quiet });
   }
   if (!status.git?.isRepo) {
     throw new CliError(`external path is not a git repo: ${status.path}`);
@@ -66,6 +66,6 @@ export function updateExternal(ctx, name, { dryRun = false } = {}) {
   if (!branch) {
     throw new CliError(`external repo is detached; not updating: ${status.path}`);
   }
-  runCommand("git", ["-C", status.path, "pull", "--ff-only"], { dryRun });
+  runCommand("git", ["-C", status.path, "pull", "--ff-only"], { dryRun, quiet });
   return { action: dryRun ? "pull-dry-run" : "pull", status: externalStatus(ctx, name) };
 }

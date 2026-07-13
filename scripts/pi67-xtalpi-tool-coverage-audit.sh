@@ -80,7 +80,7 @@ fi
 
 TMP_OUTPUT=""
 if [ -n "$OUTPUT" ]; then
-  TMP_OUTPUT="$(mktemp "${TMPDIR:-/tmp}/.pi67-xtalpi-tool-coverage-audit.XXXXXX.tmp")"
+  TMP_OUTPUT="$(mktemp "${TMPDIR:-/tmp}/.pi67-xtalpi-tool-coverage-audit.tmp.XXXXXX")"
   trap 'rm -f "$TMP_OUTPUT"' EXIT
 else
   TMP_OUTPUT="/dev/stdout"

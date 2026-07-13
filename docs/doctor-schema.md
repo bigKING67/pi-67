@@ -32,6 +32,7 @@ Compatibility rule:
 | `generatedAt` | string | stable | UTC timestamp for doctor JSON generation. |
 | `generatedBy` | string | stable | Script that generated the result. |
 | `pi67` | object | stable | Distribution metadata. |
+| `upstreamPi` | object or null | optional | Installed upstream Pi version, release-tested baseline, compatibility state, update command, and optional registry metadata. |
 | `diagnostics` | object | stable | Doctor mode and timeout settings. |
 | `installMode` | string | stable | `in-place` when the repo root is the agent dir; otherwise `linked`. |
 | `repository` | string | legacy-stable | Repository root inspected by doctor. |
@@ -53,13 +54,37 @@ Compatibility rule:
 
 Fresh installs often produce `READY WITH WARNINGS` because API keys, MCP paths, or optional local binaries still need user-specific configuration.
 
+Doctor also compares the installed upstream `pi --version` result with the
+release-tested runtime recorded in the distro manifest. An older installed Pi
+produces `READY WITH WARNINGS`, not `NOT READY`: the runtime exists, but it is
+outside the exact version baseline exercised by the current release. Registry
+lookup is skipped in doctor so readiness remains bounded and offline-capable;
+`pi-67 status` and `pi-67 version` expose npm latest-version metadata when
+remote checks are enabled.
+
+Example:
+
+```json
+{
+  "upstreamPi": {
+    "schema": "pi67.upstream-pi-runtime.v1",
+    "package": "@earendil-works/pi-coding-agent",
+    "installedVersion": "0.80.3",
+    "testedVersion": "0.80.6",
+    "compatibility": "behind-release-tested",
+    "installedBehindTested": true,
+    "updateCommand": "npm install -g @earendil-works/pi-coding-agent@latest"
+  }
+}
+```
+
 Doctor also validates shared skill governance:
 
 - `shared-skills/` must contain pi-67's distributable skill source.
 - `~/.agents/skills` must contain installed copies of those shared skills.
 - `settings.json` must not declare `design-craft` or `browser67` as active Pi skill packages; install their skills into `~/.agents/skills` instead.
 - Existing `~/.pi/agent/skills` or package clone skill directories are reported as duplicate sources when they overlap with `~/.agents/skills`.
-- `pi skill list` output is checked for duplicate/conflict/skipped/`auto (user)` skill-selection warnings and reported as a doctor warning when present.
+- `pi list --no-approve` is used as the bounded, non-interactive upstream package registry probe. Skill duplication is checked directly through the shared-skill inventory and legacy-source checks rather than by sending the removed `pi skill list` command into the interactive agent.
 
 ## `counts`
 
@@ -97,6 +122,8 @@ Messages are intended for display and troubleshooting. Do not parse specific wor
 {
   "deepMcp": false,
   "mcpTimeoutMs": 2500,
+  "piList": true,
+  "piListTimeoutSeconds": 30,
   "skillList": true,
   "skillListTimeoutSeconds": 30
 }
@@ -106,8 +133,10 @@ Messages are intended for display and troubleshooting. Do not parse specific wor
 | --- | --- | --- |
 | `deepMcp` | boolean | Whether doctor started stdio MCP servers and called JSON-RPC `initialize` + `tools/list`. |
 | `mcpTimeoutMs` | number | Per-server timeout used by deep MCP probing. |
-| `skillList` | boolean | Whether doctor ran `pi skill list`. |
-| `skillListTimeoutSeconds` | number | Watchdog timeout for `pi skill list`; timeout becomes a `WARN` so doctor does not hang indefinitely. |
+| `piList` | boolean | Whether doctor ran the non-interactive `pi list --no-approve` package probe. |
+| `piListTimeoutSeconds` | number | Watchdog timeout for `pi list --no-approve`; timeout becomes a `WARN`. |
+| `skillList` | boolean | Legacy compatibility alias mirroring `piList`. |
+| `skillListTimeoutSeconds` | number | Legacy compatibility alias mirroring `piListTimeoutSeconds`. |
 
 Normal doctor mode checks MCP commands and paths using the same no-shell
 assumption as `pi-mcp-adapter`. `--deep-mcp` is opt-in because it starts local
@@ -121,17 +150,22 @@ servers. It emits the same `schemaId`/`schemaVersion` contract, sets
 xtalpi provider settings, npm sync state, Node engine readiness, shared-skill
 copies, and the `/chat/completions` endpoint contract.
 
-If `pi skill list` is slow on a machine, keep doctor bounded:
+If `pi list` is slow on a machine, keep doctor bounded:
 
 ```bash
-pi-67 doctor --no-skill-list
-pi-67 doctor --skill-list-timeout-seconds 10
+pi-67 doctor --no-pi-list
+pi-67 doctor --pi-list-timeout-seconds 10
 ```
+
+The previous `--no-skill-list` and `--skill-list-timeout-seconds` names remain
+accepted as compatibility aliases. Upstream Pi 0.80.6 removed the old
+`pi skill list` CLI shape; invoking it now starts the interactive agent with
+`skill list` as a user prompt, so doctor must never use that form.
 
 Windows PowerShell parity:
 
 ```powershell
-.\scripts\pi67-doctor.ps1 -SkillList -SkillListTimeoutSeconds 10
+.\scripts\pi67-doctor.ps1 -PiList -PiListTimeoutSeconds 10
 ```
 
 By default, doctor reports pi-67 bundled shared skills that differ from

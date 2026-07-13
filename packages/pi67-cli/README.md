@@ -157,13 +157,15 @@ For automation, `pi-67 update --check --json` includes explicit `actions`,
 `blocked`, and `warnings` arrays. Each action lists planned writes and preserved
 paths, so update previews stay auditable instead of relying on prose output.
 
-Long or slow doctor runs can skip Pi's live skill listing while still checking
+Long or slow doctor runs can skip Pi's non-interactive package registry probe while still checking
 local metadata, config, provider/model, shared skill files, and endpoint
 contracts:
 
 ```bash
-pi-67 doctor --no-skill-list
+pi-67 doctor --no-pi-list
 ```
+
+`--no-skill-list` remains a deprecated compatibility alias.
 
 If the local manager may be stale, run the latest npm package for one repair:
 
@@ -180,6 +182,25 @@ Screenshot/image/OCR tasks under `xtalpi-pi-tools` should route to
 `vision_read` first, then optionally `image_review`; if neither tool is
 available, Pi returns a local readiness error instead of asking the text-only
 xtalpi provider to read PNG/JPG files.
+
+## Optional browser67 setup
+
+browser67 is intentionally excluded from the default pi-67 install. The
+low-level `external install browser67` command only clones the companion repo;
+use the explicit setup workflow for a runnable integration:
+
+```bash
+pi-67 external setup browser67 --dry-run
+pi-67 external setup browser67
+pi-67 external doctor browser67 --deep
+```
+
+Setup installs Node dependencies, prepares the unpacked extension, synchronizes
+the `browser67` and `js-reverse` skills into the configured shared skill root,
+and merges the `tmwd_browser` / `js-reverse` entries into `mcp.json` after
+backing up an existing file. Add `--start-hub` only when the user wants setup to
+start the local Hub. Loading the extension in Chrome/Edge, granting OS/browser
+permissions, and restarting Pi remain explicit manual steps.
 
 ## Safety defaults
 
@@ -274,6 +295,14 @@ pi-67 skills inventory
 pi-67 skills sync
 pi-67 external list
 ```
+
+`pi-67 version` and `pi-67 status` distinguish the upstream Pi runtime from
+the pi-67 manager and distro. Their JSON includes the installed Pi version,
+the runtime version tested by the current release, npm `latest` when remote
+checks are enabled, and a compatibility classification. `pi-67 doctor` uses
+the same tested baseline without a registry request and warns when the local Pi
+is older, while preserving upstream Pi as the sole owner of runtime updates,
+authentication, and model selection.
 
 If `pi-67 install` reports `agent dir exists but is not a git checkout`, the
 target `~/.pi/agent` already exists as a plain folder, usually because Pi or a

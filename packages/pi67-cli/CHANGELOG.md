@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+## [0.11.2]
+
+- Adds structured upstream Pi runtime compatibility metadata to `version` and
+  `status`, including installed version, release-tested version, npm latest
+  lookup, compatibility state, and an explicit update recommendation.
+- Makes POSIX and PowerShell doctor report a warning when the installed Pi is
+  behind the release-tested runtime instead of passing solely because
+  `pi --version` exits successfully.
+- Replaces the removed `pi skill list` doctor probe with bounded
+  `pi list --no-approve`. Upstream Pi 0.80.6 otherwise interprets `skill list`
+  as an interactive user prompt and can accidentally start a real agent turn.
+- Adds `external setup browser67` for the complete explicit opt-in integration
+  flow and `external doctor browser67 --deep` for deterministic plus live
+  readiness diagnostics. Existing MCP files are merged with a backup instead
+  of being overwritten.
+
 ## [0.11.1]
 
 - Keeps upstream Pi in full control of `/login`, `/model`, authentication

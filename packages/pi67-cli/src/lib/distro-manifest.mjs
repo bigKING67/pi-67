@@ -60,6 +60,7 @@ export function buildDistroManifest(ctx) {
     createdAt: new Date().toISOString(),
     ownership: base.ownership,
     commands: base.commands,
+    upstreamPi: base.upstreamPi,
     runtimeFiles: base.runtimeFiles,
     theme: base.theme,
     sharedSkills: {

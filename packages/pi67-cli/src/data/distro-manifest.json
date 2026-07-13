@@ -10,6 +10,13 @@
     "alwaysFreshRepair": "npx -y @bigking67/pi-67@latest update --repair",
     "upstreamPiExtensions": "pi update --extensions"
   },
+  "upstreamPi": {
+    "packageName": "@earendil-works/pi-coding-agent",
+    "command": "pi",
+    "testedVersion": "0.80.6",
+    "compatibilityPolicy": "warn-if-installed-behind-release-tested-version",
+    "updateCommand": "npm install -g @earendil-works/pi-coding-agent@latest"
+  },
   "runtimeFiles": {
     "preserve": [
       "settings.json",

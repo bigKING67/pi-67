@@ -16,6 +16,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CI_MODE=false
 KEEP_TMP=false
 TMP_ROOT=""
+SMOKE_LOG_DIR=""
 
 usage() {
   cat <<'USAGE'
@@ -72,63 +73,8 @@ section() {
 }
 
 cleanup() {
-  rm -f \
-    /tmp/pi67-smoke-placeholder.log \
-    /tmp/pi67-smoke-release-check.log \
-    /tmp/pi67-smoke-release-dry.log \
-    /tmp/pi67-smoke-secrets.log \
-    /tmp/pi67-smoke-install.log \
-    /tmp/pi67-smoke-install-conflict.log \
-    /tmp/pi67-smoke-install-strict-conflict.log \
-    /tmp/pi67-smoke-doctor.log \
-    /tmp/pi67-smoke-doctor-quiet.log \
-    /tmp/pi67-smoke-doctor-json.log \
-    /tmp/pi67-smoke-doctor-shared-conflict-json.log \
-    /tmp/pi67-smoke-doctor-shared-strict-json.log \
-    /tmp/pi67-smoke-doctor-skill-warning-json.log \
-    /tmp/pi67-smoke-doctor-deep-mcp.log \
-    /tmp/pi67-smoke-status.log \
-    /tmp/pi67-smoke-status-json.log \
-    /tmp/pi67-smoke-skill-audit.log \
-    /tmp/pi67-smoke-skill-audit-json.log \
-    /tmp/pi67-smoke-skill-governance.log \
-    /tmp/pi67-smoke-external-skills-check.log \
-    /tmp/pi67-smoke-release-artifact.log \
-    /tmp/pi67-smoke-xtalpi-pi-tools-test.log \
-    /tmp/pi67-smoke-xtalpi-parser-fuzz.log \
-    /tmp/pi67-smoke-xtalpi-provider-health-test.log \
-    /tmp/pi67-smoke-xtalpi-provider-error-contract.log \
-    /tmp/pi67-smoke-until-done-runtime-queue.log \
-    /tmp/pi67-smoke-migrate-skills-dry.log \
-    /tmp/pi67-smoke-migrate-skills-apply.log \
-    /tmp/pi67-smoke-migrate-skills-conflict.log \
-    /tmp/pi67-smoke-sync-external-dry.log \
-    /tmp/pi67-smoke-sync-external-apply.log \
-    /tmp/pi67-smoke-sync-external-conflict.log \
-    /tmp/pi67-smoke-inplace-install.log \
-    /tmp/pi67-smoke-inplace-doctor-json.log \
-    /tmp/pi67-smoke-inplace-status-json.log \
-    /tmp/pi67-smoke-configure-dry.log \
-    /tmp/pi67-smoke-configure.log \
-    /tmp/pi67-smoke-doctor-configured.log \
-    /tmp/pi67-smoke-ops-install.log \
-    /tmp/pi67-smoke-restore-dry.log \
-    /tmp/pi67-smoke-restore.log \
-    /tmp/pi67-smoke-ops-install-2.log \
-    /tmp/pi67-smoke-update-clone.log \
-    /tmp/pi67-smoke-update-check.log \
-    /tmp/pi67-smoke-update-dry.log \
-    /tmp/pi67-smoke-update.log \
-    /tmp/pi67-smoke-update-runtime-no-backup.log \
-    /tmp/pi67-smoke-update-runtime-final.log \
-    /tmp/pi67-smoke-update-conflict.log \
-    /tmp/pi67-smoke-update-strict-conflict.log \
-    /tmp/pi67-smoke-uninstall-dry.log \
-    /tmp/pi67-smoke-uninstall.log
   if [ "$KEEP_TMP" = true ]; then
-    if [ -n "$TMP_ROOT" ]; then
-      warn "kept temp directory: $TMP_ROOT"
-    fi
+    warn "kept temp directory: $TMP_ROOT"
     return
   fi
   if [ -n "$TMP_ROOT" ] && [ -d "$TMP_ROOT" ]; then
@@ -136,6 +82,10 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+
+TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/pi67-smoke.XXXXXX")"
+SMOKE_LOG_DIR="$TMP_ROOT/logs"
+mkdir -p "$SMOKE_LOG_DIR"
 
 command_exists() {
   command -v "$1" >/dev/null 2>&1
@@ -283,9 +233,9 @@ if [ -f "$REPO_ROOT/extensions/xtalpi-pi-tools/provider-error-contract.json" ]; 
   json_valid "$REPO_ROOT/extensions/xtalpi-pi-tools/provider-error-contract.json"
   pass "valid JSON: extensions/xtalpi-pi-tools/provider-error-contract.json"
 fi
-node "$REPO_ROOT/scripts/pi67-json-utils.cjs" --self-test >/tmp/pi67-smoke-json-utils.log
+node "$REPO_ROOT/scripts/pi67-json-utils.cjs" --self-test >"${SMOKE_LOG_DIR}/json-utils.log"
 pass "JSON compatibility utility self-test completed"
-node --check "$REPO_ROOT/scripts/pi67-mcp-config-utils.cjs" >/tmp/pi67-smoke-mcp-config-utils.log
+node --check "$REPO_ROOT/scripts/pi67-mcp-config-utils.cjs" >"${SMOKE_LOG_DIR}/mcp-config-utils.log"
 pass "MCP config utility syntax check completed"
 
 if grep -qx 'settings\.json text eol=lf filter=pi67-settings-runtime-state' "$REPO_ROOT/.gitattributes"; then
@@ -349,8 +299,8 @@ NODE
 pass "shared skill defaults and MCP normalization use adapter-compatible cwd"
 
 section "Release metadata"
-if ! "$REPO_ROOT/scripts/pi67-release-check.sh" >/tmp/pi67-smoke-release-check.log 2>&1; then
-  cat /tmp/pi67-smoke-release-check.log >&2
+if ! "$REPO_ROOT/scripts/pi67-release-check.sh" >"${SMOKE_LOG_DIR}/release-check.log" 2>&1; then
+  cat "${SMOKE_LOG_DIR}/release-check.log" >&2
   fail "release metadata check failed"
 fi
 pass "release metadata check completed"
@@ -358,9 +308,9 @@ pass "release metadata check completed"
 "$REPO_ROOT/scripts/pi67-release.sh" \
   --dry-run \
   --no-smoke \
-  --no-github-release >/tmp/pi67-smoke-release-dry.log
-if ! grep -q 'dry-run completed' /tmp/pi67-smoke-release-dry.log; then
-  cat /tmp/pi67-smoke-release-dry.log >&2
+  --no-github-release >"${SMOKE_LOG_DIR}/release-dry.log"
+if ! grep -q 'dry-run completed' "${SMOKE_LOG_DIR}/release-dry.log"; then
+  cat "${SMOKE_LOG_DIR}/release-dry.log" >&2
   fail "release automation dry-run did not complete"
 fi
 pass "release automation dry-run completed"
@@ -371,11 +321,11 @@ if grep_any '\{\{[^}]+\}\}' \
   "$REPO_ROOT/prompts" \
   "$REPO_ROOT/rules" \
   "$REPO_ROOT/docs" \
-  "$REPO_ROOT/scripts" >/tmp/pi67-smoke-placeholder.log 2>/dev/null; then
-  cat /tmp/pi67-smoke-placeholder.log >&2
+  "$REPO_ROOT/scripts" >"${SMOKE_LOG_DIR}/placeholder.log" 2>/dev/null; then
+  cat "${SMOKE_LOG_DIR}/placeholder.log" >&2
   fail "legacy double-brace placeholders found"
 fi
-rm -f /tmp/pi67-smoke-placeholder.log
+rm -f "${SMOKE_LOG_DIR}/placeholder.log"
 pass "no legacy double-brace placeholders"
 
 section "Secret pattern scan"
@@ -389,11 +339,11 @@ if grep_any 'BEGIN [A-Z ]*PRIVATE KEY|sk-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-
   "$REPO_ROOT/rules" \
   "$REPO_ROOT/scripts" \
   "$REPO_ROOT/shared-skills" \
-  "$REPO_ROOT/.github" >/tmp/pi67-smoke-secrets.log 2>/dev/null; then
-  cat /tmp/pi67-smoke-secrets.log >&2
+  "$REPO_ROOT/.github" >"${SMOKE_LOG_DIR}/secrets.log" 2>/dev/null; then
+  cat "${SMOKE_LOG_DIR}/secrets.log" >&2
   fail "possible real secret pattern found"
 fi
-rm -f /tmp/pi67-smoke-secrets.log
+rm -f "${SMOKE_LOG_DIR}/secrets.log"
 pass "no obvious private key/API token patterns"
 
 section "Portability scan"
@@ -404,15 +354,14 @@ PERSONAL_USER_PART_B="qian"
 PERSONAL_WORKSPACE_PART_A="six"
 PERSONAL_WORKSPACE_PART_B="seven"
 PORTABILITY_PATTERN="${PERSONAL_HOME_PREFIX_PART_A}${PERSONAL_HOME_PREFIX_PART_B}${PERSONAL_USER_PART_A}${PERSONAL_USER_PART_B}|Documents/${PERSONAL_WORKSPACE_PART_A}${PERSONAL_WORKSPACE_PART_B}|${PERSONAL_USER_PART_A}${PERSONAL_USER_PART_B}"
-if git -C "$REPO_ROOT" grep -n -E "$PORTABILITY_PATTERN" -- . >/tmp/pi67-smoke-portability.log 2>/dev/null; then
-  cat /tmp/pi67-smoke-portability.log >&2
+if git -C "$REPO_ROOT" grep -n -E "$PORTABILITY_PATTERN" -- . >"${SMOKE_LOG_DIR}/portability.log" 2>/dev/null; then
+  cat "${SMOKE_LOG_DIR}/portability.log" >&2
   fail "personal machine paths found in repository content"
 fi
-rm -f /tmp/pi67-smoke-portability.log
+rm -f "${SMOKE_LOG_DIR}/portability.log"
 pass "no personal machine paths"
 
 section "Temp full install"
-TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/pi67-smoke.XXXXXX")"
 FAKE_BIN="$TMP_ROOT/bin"
 AGENT_DIR="$TMP_ROOT/agent"
 
@@ -461,17 +410,13 @@ cat > "$FAKE_BIN/pi" <<'SH'
 #!/usr/bin/env bash
 case "$1" in
   --version)
-    echo "0.0.0-smoke"
+    echo "0.80.6-smoke"
     ;;
-  skill)
-    if [ "${2:-}" = "list" ]; then
-      if [ "${PI67_SMOKE_PI_SKILL_WARNING:-}" = "1" ]; then
-        echo "warning: duplicate skill design-craft skipped; selected auto (user)" >&2
-      else
-        echo "smoke skill list"
-      fi
+  list)
+    if [ "${PI67_SMOKE_PI_LIST_WARNING:-}" = "1" ]; then
+      echo "warning: duplicate package resource skipped" >&2
     else
-      echo "smoke pi skill"
+      echo "smoke package list"
     fi
     ;;
   *)
@@ -487,11 +432,11 @@ PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/install.sh" \
   --backup-dir "$TMP_ROOT/backup" \
   --no-npm \
   --no-doctor \
-  --yes >/tmp/pi67-smoke-install.log
+  --yes >"${SMOKE_LOG_DIR}/install.log"
 pass "temp full install completed"
 
 if [ ! -f "$AGENT_DIR/pi67-report.json" ]; then
-  cat /tmp/pi67-smoke-install.log >&2
+  cat "${SMOKE_LOG_DIR}/install.log" >&2
   fail "install did not write pi67-report.json"
 fi
 node -e '
@@ -523,9 +468,9 @@ PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/install.sh" \
   --no-npm \
   --no-doctor \
   --no-report \
-  --yes >/tmp/pi67-smoke-install-conflict.log 2>&1
-if ! grep -q "keeping existing global skill: $FIRST_SHARED_SKILL_NAME" /tmp/pi67-smoke-install-conflict.log; then
-  cat /tmp/pi67-smoke-install-conflict.log >&2
+  --yes >"${SMOKE_LOG_DIR}/install-conflict.log" 2>&1
+if ! grep -q "keeping existing global skill: $FIRST_SHARED_SKILL_NAME" "${SMOKE_LOG_DIR}/install-conflict.log"; then
+  cat "${SMOKE_LOG_DIR}/install-conflict.log" >&2
   fail "install did not keep existing different shared skill"
 fi
 if ! grep -q "Existing newer global skill" "$INSTALL_CONFLICT_SKILLS/$FIRST_SHARED_SKILL_NAME/SKILL.md"; then
@@ -542,8 +487,8 @@ if PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/install.sh" \
   --no-doctor \
   --no-report \
   --strict-shared-skills \
-  --yes >/tmp/pi67-smoke-install-strict-conflict.log 2>&1; then
-  cat /tmp/pi67-smoke-install-strict-conflict.log >&2
+  --yes >"${SMOKE_LOG_DIR}/install-strict-conflict.log" 2>&1; then
+  cat "${SMOKE_LOG_DIR}/install-strict-conflict.log" >&2
   fail "install strict shared skill mode accepted a conflict"
 fi
 pass "install strict shared skill mode blocks conflicts"
@@ -552,14 +497,14 @@ PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
   --repo-root "$REPO_ROOT" \
   --agent-dir "$INSTALL_CONFLICT_AGENT" \
   --skills-dir "$INSTALL_CONFLICT_SKILLS" \
-  --json >/tmp/pi67-smoke-doctor-shared-conflict-json.log
+  --json >"${SMOKE_LOG_DIR}/doctor-shared-conflict-json.log"
 node -e '
 const fs = require("fs");
 const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
 const check = data.checks.find((item) => item.message.includes("preserved user-modified global skills differ from pi-67 source"));
 if (!check) throw new Error("doctor did not report shared skill mismatch");
 if (check.level !== "WARN") throw new Error(`doctor mismatch should warn by default, got ${check.level}`);
-' /tmp/pi67-smoke-doctor-shared-conflict-json.log
+' "${SMOKE_LOG_DIR}/doctor-shared-conflict-json.log"
 pass "doctor warns on different existing shared skills by default"
 
 if PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
@@ -567,8 +512,8 @@ if PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
   --agent-dir "$INSTALL_CONFLICT_AGENT" \
   --skills-dir "$INSTALL_CONFLICT_SKILLS" \
   --strict-shared-skills \
-  --json >/tmp/pi67-smoke-doctor-shared-strict-json.log 2>&1; then
-  cat /tmp/pi67-smoke-doctor-shared-strict-json.log >&2
+  --json >"${SMOKE_LOG_DIR}/doctor-shared-strict-json.log" 2>&1; then
+  cat "${SMOKE_LOG_DIR}/doctor-shared-strict-json.log" >&2
   fail "doctor strict shared skill mode accepted a conflict"
 fi
 node -e '
@@ -577,17 +522,17 @@ const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
 const check = data.checks.find((item) => item.message.includes("preserved user-modified global skills differ from pi-67 source"));
 if (!check) throw new Error("doctor strict did not report shared skill mismatch");
 if (check.level !== "FAIL") throw new Error(`doctor strict mismatch should fail, got ${check.level}`);
-' /tmp/pi67-smoke-doctor-shared-strict-json.log
+' "${SMOKE_LOG_DIR}/doctor-shared-strict-json.log"
 pass "doctor strict shared skill mode blocks conflicts"
 
 PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
   --repo-root "$REPO_ROOT" \
   --skills-dir "$TMP_ROOT/shared-skills" \
-  --agent-dir "$AGENT_DIR" >/tmp/pi67-smoke-doctor.log
+  --agent-dir "$AGENT_DIR" >"${SMOKE_LOG_DIR}/doctor.log"
 pass "doctor completed on temp install"
 
-if ! grep -q 'Result: READY WITH WARNINGS\|Result: READY' /tmp/pi67-smoke-doctor.log; then
-  cat /tmp/pi67-smoke-doctor.log >&2
+if ! grep -q 'Result: READY WITH WARNINGS\|Result: READY' "${SMOKE_LOG_DIR}/doctor.log"; then
+  cat "${SMOKE_LOG_DIR}/doctor.log" >&2
   fail "doctor did not report a ready result"
 fi
 pass "doctor readiness result accepted"
@@ -596,13 +541,13 @@ PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
   --repo-root "$REPO_ROOT" \
   --agent-dir "$AGENT_DIR" \
   --skills-dir "$TMP_ROOT/shared-skills" \
-  --quiet >/tmp/pi67-smoke-doctor-quiet.log
-if grep -q -- '--- Core tools ---' /tmp/pi67-smoke-doctor-quiet.log; then
-  cat /tmp/pi67-smoke-doctor-quiet.log >&2
+  --quiet >"${SMOKE_LOG_DIR}/doctor-quiet.log"
+if grep -q -- '--- Core tools ---' "${SMOKE_LOG_DIR}/doctor-quiet.log"; then
+  cat "${SMOKE_LOG_DIR}/doctor-quiet.log" >&2
   fail "doctor --quiet printed detailed sections"
 fi
-if ! grep -q 'Result: READY WITH WARNINGS\|Result: READY' /tmp/pi67-smoke-doctor-quiet.log; then
-  cat /tmp/pi67-smoke-doctor-quiet.log >&2
+if ! grep -q 'Result: READY WITH WARNINGS\|Result: READY' "${SMOKE_LOG_DIR}/doctor-quiet.log"; then
+  cat "${SMOKE_LOG_DIR}/doctor-quiet.log" >&2
   fail "doctor --quiet did not report a ready result"
 fi
 pass "doctor quiet output completed"
@@ -611,7 +556,7 @@ PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
   --repo-root "$REPO_ROOT" \
   --agent-dir "$AGENT_DIR" \
   --skills-dir "$TMP_ROOT/shared-skills" \
-  --json >/tmp/pi67-smoke-doctor-json.log
+  --json >"${SMOKE_LOG_DIR}/doctor-json.log"
 node -e '
 const fs = require("fs");
 const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -628,7 +573,7 @@ if (!data.counts || data.counts.fail !== 0) {
 if (!Array.isArray(data.checks) || data.checks.length === 0) {
   throw new Error("doctor JSON missing checks");
 }
-' /tmp/pi67-smoke-doctor-json.log
+' "${SMOKE_LOG_DIR}/doctor-json.log"
 pass "doctor JSON output parsed"
 
 section "Xtalpi smoke status core"
@@ -826,9 +771,9 @@ section "Status summary"
 PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-status.sh" \
   --repo-root "$REPO_ROOT" \
   --agent-dir "$AGENT_DIR" \
-  --no-remote >/tmp/pi67-smoke-status.log
-if ! grep -q 'Result: READY WITH WARNINGS\|Result: READY' /tmp/pi67-smoke-status.log; then
-  cat /tmp/pi67-smoke-status.log >&2
+  --no-remote >"${SMOKE_LOG_DIR}/status.log"
+if ! grep -q 'Result: READY WITH WARNINGS\|Result: READY' "${SMOKE_LOG_DIR}/status.log"; then
+  cat "${SMOKE_LOG_DIR}/status.log" >&2
   fail "status text output did not complete"
 fi
 pass "status text output completed"
@@ -837,7 +782,7 @@ PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-status.sh" \
   --repo-root "$REPO_ROOT" \
   --agent-dir "$AGENT_DIR" \
   --no-remote \
-  --json >/tmp/pi67-smoke-status-json.log
+  --json >"${SMOKE_LOG_DIR}/status-json.log"
 node -e '
 const fs = require("fs");
 const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -848,7 +793,7 @@ if (data.report?.stale !== false) throw new Error(`status reported stale report:
 if (!Array.isArray(data.recommendations) || data.recommendations.length === 0) {
   throw new Error("status recommendations missing");
 }
-' /tmp/pi67-smoke-status-json.log
+' "${SMOKE_LOG_DIR}/status-json.log"
 pass "status JSON output parsed"
 
 section "Skill audit helper"
@@ -860,7 +805,7 @@ bash "$REPO_ROOT/scripts/pi67-skill-audit.sh" \
   --agent-dir "$TMP_ROOT/skill-audit-agent" \
   --legacy-names "$TMP_ROOT/legacy-skills.txt" \
   --legacy-links "$TMP_ROOT/legacy-links.txt" \
-  --skill-root "$TMP_ROOT/external-skills" >/tmp/pi67-smoke-skill-audit.log
+  --skill-root "$TMP_ROOT/external-skills" >"${SMOKE_LOG_DIR}/skill-audit.log"
 pass "skill audit text output completed"
 
 bash "$REPO_ROOT/scripts/pi67-skill-audit.sh" \
@@ -868,7 +813,7 @@ bash "$REPO_ROOT/scripts/pi67-skill-audit.sh" \
   --legacy-names "$TMP_ROOT/legacy-skills.txt" \
   --legacy-links "$TMP_ROOT/legacy-links.txt" \
   --skill-root "$TMP_ROOT/external-skills" \
-  --json >/tmp/pi67-smoke-skill-audit-json.log
+  --json >"${SMOKE_LOG_DIR}/skill-audit-json.log"
 node -e '
 const fs = require("fs");
 const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -877,21 +822,21 @@ if (!data.repository || data.repository.skillCount < 1) throw new Error("missing
 const missing = data.legacy?.legacyOnly?.find((entry) => entry.name === "legacy-missing");
 if (!missing) throw new Error("missing legacy-only skill audit entry");
 if (missing.classification !== "stale_broken_link") throw new Error(`unexpected classification: ${missing.classification}`);
-' /tmp/pi67-smoke-skill-audit-json.log
+' "${SMOKE_LOG_DIR}/skill-audit-json.log"
 pass "skill audit JSON output parsed"
 
 section "xtalpi-pi-tools extension coverage audit"
 bash "$REPO_ROOT/scripts/pi67-xtalpi-tool-coverage-audit.sh" \
   --agent-dir "$REPO_ROOT" \
   --include pi-rules-loader \
-  --include pi-vision-bridge >/tmp/pi67-smoke-xtalpi-tool-coverage.log
+  --include pi-vision-bridge >"${SMOKE_LOG_DIR}/xtalpi-tool-coverage.log"
 pass "xtalpi-pi-tools extension coverage text output completed"
 
 bash "$REPO_ROOT/scripts/pi67-xtalpi-tool-coverage-audit.sh" \
   --agent-dir "$REPO_ROOT" \
   --include pi-rules-loader \
   --include pi-vision-bridge \
-  --json >/tmp/pi67-smoke-xtalpi-tool-coverage-json.log
+  --json >"${SMOKE_LOG_DIR}/xtalpi-tool-coverage-json.log"
 node -e '
 const fs = require("fs");
 const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -916,19 +861,19 @@ if (rulesLoader.surface !== "command_or_hook_only") throw new Error(`unexpected 
 const visionBridge = data.entries.find((candidate) => candidate.spec === "local:extensions/pi-vision-bridge");
 if (!visionBridge || visionBridge.installed !== true) throw new Error("coverage audit did not include pi-vision-bridge");
 if (!visionBridge.modelCallableTools.includes("vision_read")) throw new Error("coverage audit did not find vision_read");
-' /tmp/pi67-smoke-xtalpi-tool-coverage-json.log
+' "${SMOKE_LOG_DIR}/xtalpi-tool-coverage-json.log"
 pass "xtalpi-pi-tools extension coverage JSON output parsed"
 
 section "xtalpi-pi-tools smoke plan"
 node "$REPO_ROOT/scripts/pi67-xtalpi-smoke-plan.mjs" \
   --repo-root "$REPO_ROOT" \
-  --agent-dir "$REPO_ROOT" >/tmp/pi67-smoke-xtalpi-smoke-plan.log
+  --agent-dir "$REPO_ROOT" >"${SMOKE_LOG_DIR}/xtalpi-smoke-plan.log"
 pass "xtalpi-pi-tools smoke plan text output completed"
 
 node "$REPO_ROOT/scripts/pi67-xtalpi-smoke-plan.mjs" \
   --repo-root "$REPO_ROOT" \
   --agent-dir "$REPO_ROOT" \
-  --json >/tmp/pi67-smoke-xtalpi-smoke-plan-json.log
+  --json >"${SMOKE_LOG_DIR}/xtalpi-smoke-plan-json.log"
 node -e '
 const fs = require("fs");
 const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -947,34 +892,34 @@ const rulesLoader = data.packages.find((entry) => entry.spec === "local:extensio
 if (!rulesLoader || rulesLoader.status !== "not_model_callable") throw new Error("smoke plan did not classify rules-loader");
 const visionBridge = data.packages.find((entry) => entry.spec === "local:extensions/pi-vision-bridge");
 if (!visionBridge || visionBridge.smokePolicy !== "manual_artifact") throw new Error("smoke plan did not classify vision bridge");
-' /tmp/pi67-smoke-xtalpi-smoke-plan-json.log
+' "${SMOKE_LOG_DIR}/xtalpi-smoke-plan-json.log"
 pass "xtalpi-pi-tools smoke plan JSON output parsed"
 
 section "Skill governance helper tests"
 "$REPO_ROOT/scripts/pi67-test-skill-governance.sh" \
-  --repo-root "$REPO_ROOT" >/tmp/pi67-smoke-skill-governance.log
+  --repo-root "$REPO_ROOT" >"${SMOKE_LOG_DIR}/skill-governance.log"
 pass "skill governance helper tests completed"
 
 section "Release artifact smoke"
 "$REPO_ROOT/scripts/pi67-release-artifact-smoke.sh" \
   --repo-root "$REPO_ROOT" \
-  --ref WORKTREE >/tmp/pi67-smoke-release-artifact.log
+  --ref WORKTREE >"${SMOKE_LOG_DIR}/release-artifact.log"
 pass "release artifact smoke completed"
 
 section "xtalpi-pi-tools unit tests"
-"$REPO_ROOT/scripts/pi67-test-xtalpi-pi-tools.sh" >/tmp/pi67-smoke-xtalpi-pi-tools-test.log
+"$REPO_ROOT/scripts/pi67-test-xtalpi-pi-tools.sh" >"${SMOKE_LOG_DIR}/xtalpi-pi-tools-test.log"
 if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-provider-health.mjs" ]; then
-  node "$REPO_ROOT/scripts/pi67-xtalpi-provider-health.mjs" --self-test >/tmp/pi67-smoke-xtalpi-provider-health-test.log
+  node "$REPO_ROOT/scripts/pi67-xtalpi-provider-health.mjs" --self-test >"${SMOKE_LOG_DIR}/xtalpi-provider-health-test.log"
 fi
 if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-provider-capability-probe.mjs" ]; then
-  node "$REPO_ROOT/scripts/pi67-xtalpi-provider-capability-probe.mjs" --self-test >/tmp/pi67-smoke-xtalpi-provider-capability-probe-test.log
+  node "$REPO_ROOT/scripts/pi67-xtalpi-provider-capability-probe.mjs" --self-test >"${SMOKE_LOG_DIR}/xtalpi-provider-capability-probe-test.log"
 fi
 if [ -f "$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs" ]; then
-  node "$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs" --self-test >/tmp/pi67-smoke-xtalpi-provider-error-contract.log
-  node "$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs" >>/tmp/pi67-smoke-xtalpi-provider-error-contract.log
+  node "$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs" --self-test >"${SMOKE_LOG_DIR}/xtalpi-provider-error-contract.log"
+  node "$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs" >>"${SMOKE_LOG_DIR}/xtalpi-provider-error-contract.log"
 fi
 if [ -f "$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.mjs" ]; then
-  node "$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.mjs" --self-test >/tmp/pi67-smoke-until-done-runtime-queue.log
+  node "$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.mjs" --self-test >"${SMOKE_LOG_DIR}/until-done-runtime-queue.log"
 fi
 pass "xtalpi-pi-tools protocol tests completed"
 
@@ -1001,11 +946,11 @@ PATH="$FAKE_BIN:$PATH" "$INPLACE_AGENT/install.sh" \
   --skills-dir "$TMP_ROOT/inplace-shared-skills" \
   --no-npm \
   --no-doctor \
-  --yes >/tmp/pi67-smoke-inplace-install.log
+  --yes >"${SMOKE_LOG_DIR}/inplace-install.log"
 pass "temp in-place install completed"
 
 if [ -L "$INPLACE_AGENT/AGENTS.md" ]; then
-  cat /tmp/pi67-smoke-inplace-install.log >&2
+  cat "${SMOKE_LOG_DIR}/inplace-install.log" >&2
   fail "in-place install turned AGENTS.md into a symlink"
 fi
 for path in AGENTS.md rules scripts shared-skills docs prompts extensions templates; do
@@ -1037,28 +982,28 @@ PATH="$FAKE_BIN:$PATH" "$INPLACE_AGENT/scripts/pi67-doctor.sh" \
   --agent-dir "$INPLACE_AGENT" \
   --skills-dir "$TMP_ROOT/inplace-shared-skills" \
   --no-skill-list \
-  --json >/tmp/pi67-smoke-inplace-doctor-json.log
+  --json >"${SMOKE_LOG_DIR}/inplace-doctor-json.log"
 node -e '
 const fs = require("fs");
 const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
 if (data.installMode !== "in-place") throw new Error(`unexpected installMode: ${data.installMode}`);
 if (data.agent?.installMode !== "in-place") throw new Error(`unexpected agent.installMode: ${data.agent?.installMode}`);
 if (!data.counts || data.counts.fail !== 0) throw new Error("in-place doctor JSON reported failures");
-' /tmp/pi67-smoke-inplace-doctor-json.log
+' "${SMOKE_LOG_DIR}/inplace-doctor-json.log"
 pass "in-place doctor JSON accepted"
 
 PATH="$FAKE_BIN:$PATH" "$INPLACE_AGENT/scripts/pi67-status.sh" \
   --repo-root "$INPLACE_AGENT" \
   --agent-dir "$INPLACE_AGENT" \
   --no-remote \
-  --json >/tmp/pi67-smoke-inplace-status-json.log
+  --json >"${SMOKE_LOG_DIR}/inplace-status-json.log"
 node -e '
 const fs = require("fs");
 const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
 if (data.installMode !== "in-place") throw new Error(`unexpected status installMode: ${data.installMode}`);
 if (data.agent?.installMode !== "in-place") throw new Error(`unexpected status agent.installMode: ${data.agent?.installMode}`);
 if (!["READY", "READY_WITH_WARNINGS"].includes(data.result)) throw new Error(`unexpected in-place status result: ${data.result}`);
-' /tmp/pi67-smoke-inplace-status-json.log
+' "${SMOKE_LOG_DIR}/inplace-status-json.log"
 pass "in-place status JSON accepted"
 
 section "Workspace-only configure boundary"
@@ -1098,7 +1043,7 @@ PI67_IMAGE_GEN_API_KEY="ignored-workspace-only-image" \
   --repo-root "$REPO_ROOT" \
   --agent-dir "$WORKSPACE_ONLY_AGENT" \
   --workspace-only \
-  --no-doctor >/tmp/pi67-smoke-workspace-only.log
+  --no-doctor >"${SMOKE_LOG_DIR}/workspace-only.log"
 
 node - "$WORKSPACE_ONLY_AGENT" "$WORKSPACE_ONLY_SNAPSHOT" <<'NODE'
 const fs = require("fs");
@@ -1142,7 +1087,7 @@ PI67_IMAGE_GEN_API_KEY="smoke_image_gen_api_key" \
   --image-gen-model "gpt-image-2" \
   --no-prompt \
   --no-doctor \
-  --dry-run >/tmp/pi67-smoke-configure-dry.log
+  --dry-run >"${SMOKE_LOG_DIR}/configure-dry.log"
 pass "configure dry-run completed"
 
 PATH="$FAKE_BIN:$PATH" \
@@ -1160,13 +1105,13 @@ PI67_IMAGE_GEN_API_KEY="smoke_image_gen_api_key" \
   --agent-memory-bin "$FAKE_BIN/agent-memory-mcp" \
   --image-gen-model "gpt-image-2" \
   --no-prompt \
-  --no-doctor >/tmp/pi67-smoke-configure.log
+  --no-doctor >"${SMOKE_LOG_DIR}/configure.log"
 pass "configure applied to temp install"
 
 PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
   --repo-root "$REPO_ROOT" \
   --skills-dir "$TMP_ROOT/shared-skills" \
-  --agent-dir "$AGENT_DIR" >/tmp/pi67-smoke-doctor-configured.log
+  --agent-dir "$AGENT_DIR" >"${SMOKE_LOG_DIR}/doctor-configured.log"
 
 node -e '
 const fs = require("fs");
@@ -1191,12 +1136,12 @@ if (tmwdArg !== "src/mcp/browser/server.mjs" || jsArg !== "src/mcp/js-reverse/se
 ' "$AGENT_DIR/mcp.json"
 pass "configure writes adapter-runnable MCP cwd with relative browser67 args"
 
-if grep -q 'Result: READY WITH WARNINGS' /tmp/pi67-smoke-doctor-configured.log; then
-  cat /tmp/pi67-smoke-doctor-configured.log >&2
+if grep -q 'Result: READY WITH WARNINGS' "${SMOKE_LOG_DIR}/doctor-configured.log"; then
+  cat "${SMOKE_LOG_DIR}/doctor-configured.log" >&2
   fail "doctor still reported warnings after configure"
 fi
-if ! grep -q 'Result: READY' /tmp/pi67-smoke-doctor-configured.log; then
-  cat /tmp/pi67-smoke-doctor-configured.log >&2
+if ! grep -q 'Result: READY' "${SMOKE_LOG_DIR}/doctor-configured.log"; then
+  cat "${SMOKE_LOG_DIR}/doctor-configured.log" >&2
   fail "doctor did not report READY after configure"
 fi
 pass "doctor reports READY after configure"
@@ -1248,7 +1193,7 @@ NODE
 node "$REPO_ROOT/scripts/pi67-provider-status.mjs" \
   --repo-root "$REPO_ROOT" \
   --agent-dir "$DEEPSEEK_AGENT" \
-  --json >/tmp/pi67-smoke-deepseek-provider-status.json
+  --json >"${SMOKE_LOG_DIR}/deepseek-provider-status.json"
 node -e '
 const fs = require("fs");
 const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -1258,13 +1203,13 @@ if (data.provider !== "deepseek" || data.model !== "deepseek-v4-pro" || data.rea
 if (data.checks.some((item) => item.level === "FAIL")) {
   throw new Error(`DeepSeek-only provider status reported failures: ${JSON.stringify(data.checks)}`);
 }
-' /tmp/pi67-smoke-deepseek-provider-status.json
+' "${SMOKE_LOG_DIR}/deepseek-provider-status.json"
 
 PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
   --repo-root "$REPO_ROOT" \
   --skills-dir "$TMP_ROOT/shared-skills" \
   --agent-dir "$DEEPSEEK_AGENT" \
-  --json >/tmp/pi67-smoke-deepseek-doctor.json
+  --json >"${SMOKE_LOG_DIR}/deepseek-doctor.json"
 node -e '
 const fs = require("fs");
 const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -1278,26 +1223,26 @@ if (!messages.includes("PASS|upstream Pi owns the selected provider/model: deeps
 if (!messages.includes("PASS|provider deepseek credential is available via auth.json")) {
   throw new Error("doctor did not recognize upstream Pi auth.json readiness");
 }
-' /tmp/pi67-smoke-deepseek-doctor.json
+' "${SMOKE_LOG_DIR}/deepseek-doctor.json"
 pass "read-only DeepSeek provider status and doctor contracts passed"
 
-PI67_SMOKE_PI_SKILL_WARNING=1 PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
+PI67_SMOKE_PI_LIST_WARNING=1 PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
   --repo-root "$REPO_ROOT" \
   --skills-dir "$TMP_ROOT/shared-skills" \
   --agent-dir "$AGENT_DIR" \
-  --json >/tmp/pi67-smoke-doctor-skill-warning-json.log
+  --json >"${SMOKE_LOG_DIR}/doctor-skill-warning-json.log"
 node -e '
 const fs = require("fs");
 const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
 const messages = data.checks.map((item) => item.message).join("\n");
-if (!messages.includes("pi skill list reported duplicate/conflict warnings")) {
-  throw new Error("doctor did not surface pi skill list duplicate warning");
+if (!messages.includes("pi list reported package/resource warnings")) {
+  throw new Error("doctor did not surface pi list package/resource warning");
 }
 if (data.counts.warn < 1) {
-  throw new Error("doctor warning count did not include pi skill list warning");
+  throw new Error("doctor warning count did not include pi list warning");
 }
-' /tmp/pi67-smoke-doctor-skill-warning-json.log
-pass "doctor detects pi skill list duplicate warnings"
+' "${SMOKE_LOG_DIR}/doctor-skill-warning-json.log"
+pass "doctor detects pi list package/resource warnings"
 
 section "Deep MCP doctor probe"
 cat > "$FAKE_BIN/fake-mcp-server" <<'SH'
@@ -1381,7 +1326,7 @@ PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
   --skills-dir "$TMP_ROOT/shared-skills" \
   --deep-mcp \
   --mcp-timeout-ms 2000 \
-  --json >/tmp/pi67-smoke-doctor-deep-mcp.log
+  --json >"${SMOKE_LOG_DIR}/doctor-deep-mcp.log"
 node -e '
 const fs = require("fs");
 const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -1398,7 +1343,7 @@ if (!messages.includes("MCP fake_mcp deep initialize succeeded")) {
 if (!messages.includes("MCP fake_mcp deep tools/list succeeded: 1 tools")) {
   throw new Error("missing deep tools/list success");
 }
-' /tmp/pi67-smoke-doctor-deep-mcp.log
+' "${SMOKE_LOG_DIR}/doctor-deep-mcp.log"
 
 cat > "$AGENT_DIR/mcp.json" <<'JSON'
 {
@@ -1420,8 +1365,8 @@ if PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
   --skills-dir "$TMP_ROOT/shared-skills" \
   --deep-mcp \
   --mcp-timeout-ms 2000 \
-  --json >/tmp/pi67-smoke-doctor-deep-mcp-bad-path.log; then
-  cat /tmp/pi67-smoke-doctor-deep-mcp-bad-path.log >&2
+  --json >"${SMOKE_LOG_DIR}/doctor-deep-mcp-bad-path.log"; then
+  cat "${SMOKE_LOG_DIR}/doctor-deep-mcp-bad-path.log" >&2
   fail "doctor deep MCP accepted unsupported $HOME arg placeholder"
 fi
 node -e '
@@ -1432,13 +1377,13 @@ if (data.result !== "FAIL") throw new Error(`bad MCP placeholder should fail dee
 if (!messages.includes("unsupported runtime placeholder")) {
   throw new Error("deep MCP doctor did not explain unsupported runtime placeholder");
 }
-' /tmp/pi67-smoke-doctor-deep-mcp-bad-path.log
+' "${SMOKE_LOG_DIR}/doctor-deep-mcp-bad-path.log"
 mv "$TMP_ROOT/mcp-configured.json" "$AGENT_DIR/mcp.json"
 pass "doctor deep MCP probe completed and rejects adapter-incompatible placeholders"
 
 section "Update helper"
 UPDATE_REPO="$TMP_ROOT/update-repo"
-git clone "$REPO_ROOT" "$UPDATE_REPO" >/tmp/pi67-smoke-update-clone.log 2>&1
+git clone "$REPO_ROOT" "$UPDATE_REPO" >"${SMOKE_LOG_DIR}/update-clone.log" 2>&1
 cp "$REPO_ROOT/scripts/pi67-report.sh" "$UPDATE_REPO/scripts/pi67-report.sh"
 cp "$REPO_ROOT/scripts/pi67-configure.sh" "$UPDATE_REPO/scripts/pi67-configure.sh"
 chmod +x "$UPDATE_REPO/scripts/pi67-report.sh"
@@ -1454,9 +1399,9 @@ fi
   --no-npm \
   --no-doctor \
   --no-report \
-  --check-only >/tmp/pi67-smoke-update-check.log 2>&1
-if ! grep -q 'check-only completed without writing files' /tmp/pi67-smoke-update-check.log; then
-  cat /tmp/pi67-smoke-update-check.log >&2
+  --check-only >"${SMOKE_LOG_DIR}/update-check.log" 2>&1
+if ! grep -q 'check-only completed without writing files' "${SMOKE_LOG_DIR}/update-check.log"; then
+  cat "${SMOKE_LOG_DIR}/update-check.log" >&2
   fail "update check-only did not complete"
 fi
 pass "update check-only completed"
@@ -1468,7 +1413,7 @@ pass "update check-only completed"
   --no-npm \
   --no-doctor \
   --allow-dirty \
-  --dry-run >/tmp/pi67-smoke-update-dry.log 2>&1
+  --dry-run >"${SMOKE_LOG_DIR}/update-dry.log" 2>&1
 pass "update dry-run completed"
 
 "$REPO_ROOT/scripts/pi67-update.sh" \
@@ -1477,10 +1422,10 @@ pass "update dry-run completed"
   --skills-dir "$TMP_ROOT/shared-skills" \
   --no-npm \
   --no-doctor \
-  --allow-dirty >/tmp/pi67-smoke-update.log 2>&1
+  --allow-dirty >"${SMOKE_LOG_DIR}/update.log" 2>&1
 
-if ! grep -q 'already up to date\|update finished' /tmp/pi67-smoke-update.log; then
-  cat /tmp/pi67-smoke-update.log >&2
+if ! grep -q 'already up to date\|update finished' "${SMOKE_LOG_DIR}/update.log"; then
+  cat "${SMOKE_LOG_DIR}/update.log" >&2
   fail "update helper did not complete cleanly"
 fi
 pass "update helper completed on temp checkout"
@@ -1519,17 +1464,17 @@ if ! HOME="$UPDATE_HOME" "$REPO_ROOT/scripts/pi67-update.sh" \
   --no-npm \
   --no-configure \
   --no-doctor \
-  --no-report >/tmp/pi67-smoke-update-runtime-no-backup.log 2>&1; then
-  cat /tmp/pi67-smoke-update-runtime-no-backup.log >&2
+  --no-report >"${SMOKE_LOG_DIR}/update-runtime-no-backup.log" 2>&1; then
+  cat "${SMOKE_LOG_DIR}/update-runtime-no-backup.log" >&2
   fail "up-to-date dirty runtime update failed"
 fi
 backup_count_after="$(count_backup_dirs "$UPDATE_BACKUP_ROOT")"
 if [ "$backup_count_after" != "$backup_count_before" ]; then
-  cat /tmp/pi67-smoke-update-runtime-no-backup.log >&2
+  cat "${SMOKE_LOG_DIR}/update-runtime-no-backup.log" >&2
   fail "up-to-date dirty runtime update created a backup"
 fi
-if ! grep -q 'leaving them in place without creating a runtime backup' /tmp/pi67-smoke-update-runtime-no-backup.log; then
-  cat /tmp/pi67-smoke-update-runtime-no-backup.log >&2
+if ! grep -q 'leaving them in place without creating a runtime backup' "${SMOKE_LOG_DIR}/update-runtime-no-backup.log"; then
+  cat "${SMOKE_LOG_DIR}/update-runtime-no-backup.log" >&2
   fail "up-to-date dirty runtime update did not report preserve-in-place behavior"
 fi
 node -e '
@@ -1606,12 +1551,12 @@ if ! HOME="$UPDATE_HOME" "$REPO_ROOT/scripts/pi67-update.sh" \
   --skills-dir "$TMP_ROOT/shared-skills" \
   --no-npm \
   --no-configure \
-  --no-doctor >/tmp/pi67-smoke-update-runtime-final.log 2>&1; then
-  cat /tmp/pi67-smoke-update-runtime-final.log >&2
+  --no-doctor >"${SMOKE_LOG_DIR}/update-runtime-final.log" 2>&1; then
+  cat "${SMOKE_LOG_DIR}/update-runtime-final.log" >&2
   fail "update helper final runtime migration failed"
 fi
-if ! grep -q 'settings runtime state (final)' /tmp/pi67-smoke-update-runtime-final.log; then
-  cat /tmp/pi67-smoke-update-runtime-final.log >&2
+if ! grep -q 'settings runtime state (final)' "${SMOKE_LOG_DIR}/update-runtime-final.log"; then
+  cat "${SMOKE_LOG_DIR}/update-runtime-final.log" >&2
   fail "update helper did not run final settings runtime migration"
 fi
 node -e '
@@ -1643,9 +1588,9 @@ printf '# Existing newer global skill\n' > "$UPDATE_CONFLICT_SKILLS/$FIRST_SHARE
   --no-npm \
   --no-doctor \
   --no-report \
-  --allow-dirty >/tmp/pi67-smoke-update-conflict.log 2>&1
-if ! grep -q "keeping existing global skill: $FIRST_SHARED_SKILL_NAME" /tmp/pi67-smoke-update-conflict.log; then
-  cat /tmp/pi67-smoke-update-conflict.log >&2
+  --allow-dirty >"${SMOKE_LOG_DIR}/update-conflict.log" 2>&1
+if ! grep -q "keeping existing global skill: $FIRST_SHARED_SKILL_NAME" "${SMOKE_LOG_DIR}/update-conflict.log"; then
+  cat "${SMOKE_LOG_DIR}/update-conflict.log" >&2
   fail "update did not keep existing different shared skill"
 fi
 pass "update keeps existing different shared skills by default"
@@ -1658,8 +1603,8 @@ if "$REPO_ROOT/scripts/pi67-update.sh" \
   --no-doctor \
   --no-report \
   --strict-shared-skills \
-  --allow-dirty >/tmp/pi67-smoke-update-strict-conflict.log 2>&1; then
-  cat /tmp/pi67-smoke-update-strict-conflict.log >&2
+  --allow-dirty >"${SMOKE_LOG_DIR}/update-strict-conflict.log" 2>&1; then
+  cat "${SMOKE_LOG_DIR}/update-strict-conflict.log" >&2
   fail "update strict shared skill mode accepted a conflict"
 fi
 pass "update strict shared skill mode blocks conflicts"
@@ -1689,26 +1634,26 @@ PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/install.sh" \
   --backup-dir "$OPS_BACKUP" \
   --no-npm \
   --no-doctor \
-  --yes >/tmp/pi67-smoke-ops-install.log
+  --yes >"${SMOKE_LOG_DIR}/ops-install.log"
 
 if [ -e "$OPS_AGENT/skills" ] || [ -L "$OPS_AGENT/skills" ]; then
-  cat /tmp/pi67-smoke-ops-install.log >&2
+  cat "${SMOKE_LOG_DIR}/ops-install.log" >&2
   fail "install did not retire legacy agent skills"
 fi
 if [ ! -f "$OPS_BACKUP/skills/old.txt" ]; then
-  cat /tmp/pi67-smoke-ops-install.log >&2
+  cat "${SMOKE_LOG_DIR}/ops-install.log" >&2
   fail "install did not back up legacy agent skills"
 fi
 
 "$REPO_ROOT/scripts/pi67-restore.sh" \
   --agent-dir "$OPS_AGENT" \
   --backup-dir "$OPS_BACKUP" \
-  --dry-run >/tmp/pi67-smoke-restore-dry.log
+  --dry-run >"${SMOKE_LOG_DIR}/restore-dry.log"
 
 "$REPO_ROOT/scripts/pi67-restore.sh" \
   --agent-dir "$OPS_AGENT" \
   --backup-dir "$OPS_BACKUP" \
-  --yes >/tmp/pi67-smoke-restore.log
+  --yes >"${SMOKE_LOG_DIR}/restore.log"
 
 if [ "$(cat "$OPS_AGENT/AGENTS.md")" != "old agents" ] || [ ! -f "$OPS_AGENT/skills/old.txt" ]; then
   fail "restore did not recover preinstall files"
@@ -1721,17 +1666,17 @@ PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/install.sh" \
   --backup-dir "$TMP_ROOT/ops-backup-2" \
   --no-npm \
   --no-doctor \
-  --yes >/tmp/pi67-smoke-ops-install-2.log
+  --yes >"${SMOKE_LOG_DIR}/ops-install-2.log"
 
 "$REPO_ROOT/scripts/pi67-uninstall.sh" \
   --repo-root "$REPO_ROOT" \
   --agent-dir "$OPS_AGENT" \
-  --dry-run >/tmp/pi67-smoke-uninstall-dry.log
+  --dry-run >"${SMOKE_LOG_DIR}/uninstall-dry.log"
 
 "$REPO_ROOT/scripts/pi67-uninstall.sh" \
   --repo-root "$REPO_ROOT" \
   --agent-dir "$OPS_AGENT" \
-  --yes >/tmp/pi67-smoke-uninstall.log
+  --yes >"${SMOKE_LOG_DIR}/uninstall.log"
 
 if [ -e "$OPS_AGENT/AGENTS.md" ] || [ ! -f "$OPS_AGENT/models.json" ]; then
   fail "uninstall did not remove owned symlinks while preserving local config"

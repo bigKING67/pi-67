@@ -41,6 +41,15 @@ import {
   managerFreshnessStatus,
 } from "../src/lib/manager-freshness.mjs";
 import {
+  inspectUpstreamPiRuntime,
+  upstreamPiCheck,
+} from "../src/lib/upstream-pi-runtime.mjs";
+import {
+  configureBrowser67Mcp,
+  inspectBrowser67Runtime,
+  setupBrowser67,
+} from "../src/lib/browser67-runtime.mjs";
+import {
   configureXtalpiModels,
   decodeJsonDocument,
   replaceFileSafely,
@@ -59,6 +68,8 @@ for (const file of files.filter((item) => item.endsWith(".json"))) {
   JSON.parse(fs.readFileSync(file, "utf8"));
 }
 await runNpmRegistrySelfTests();
+await runUpstreamPiRuntimeSelfTests();
+runBrowser67RuntimeSelfTests();
 runArgsSelfTests();
 runCliHelpContractSelfTests();
 runXtalpiConfigureSelfTests();
@@ -95,13 +106,81 @@ function runArgsSelfTests() {
     "command option parser must accept --help for every command",
   );
   assert(
+    parseCommandOptions(["--no-pi-list"], { bools: ["no-pi-list"] }).options.noPiList,
+    "command option parser must accept doctor --no-pi-list",
+  );
+  assert(
     parseCommandOptions(["--no-skill-list"], { bools: ["no-skill-list"] }).options.noSkillList,
-    "command option parser must accept doctor --no-skill-list",
+    "command option parser must retain the doctor --no-skill-list compatibility alias",
   );
   assert(
     parseCommandOptions(["--json"], { bools: ["json"] }).options.json,
     "command option parser must accept command-level --json",
   );
+}
+
+function runBrowser67RuntimeSelfTests() {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-browser67-runtime-"));
+  const home = path.join(tmpRoot, "home");
+  const agentDir = path.join(home, ".pi", "agent");
+  const skillsDir = path.join(home, ".agents", "skills");
+  const packagesDir = path.join(home, ".agents", "packages");
+  const stateDir = path.join(home, ".pi", "pi67");
+  const browserRoot = path.join(packagesDir, "browser67");
+  fs.mkdirSync(path.join(browserRoot, "src", "mcp", "browser"), { recursive: true });
+  fs.mkdirSync(path.join(browserRoot, "src", "mcp", "js-reverse"), { recursive: true });
+  fs.mkdirSync(path.join(browserRoot, "node_modules"), { recursive: true });
+  fs.mkdirSync(path.join(home, ".browser67", "browser", "tmwd_cdp_bridge"), { recursive: true });
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(browserRoot, "package.json"), '{"name":"browser67"}\n', "utf8");
+  fs.writeFileSync(path.join(browserRoot, "src", "mcp", "browser", "server.mjs"), "\n", "utf8");
+  fs.writeFileSync(path.join(browserRoot, "src", "mcp", "js-reverse", "server.mjs"), "\n", "utf8");
+  fs.writeFileSync(path.join(home, ".browser67", "browser", "tmwd_cdp_bridge", "manifest.json"), "{}\n", "utf8");
+  for (const skill of ["browser67", "js-reverse"]) {
+    fs.mkdirSync(path.join(skillsDir, skill), { recursive: true });
+    fs.writeFileSync(path.join(skillsDir, skill, "SKILL.md"), `# ${skill}\n`, "utf8");
+  }
+
+  const ctx = { agentDir, skillsDir, packagesDir, stateDir };
+  const commands = [];
+  const setup = setupBrowser67(ctx, {
+    root: browserRoot,
+    startHub: true,
+    runCommand(command, args, options) {
+      commands.push({ command, args, cwd: options.cwd });
+      return { status: 0, stdout: "", stderr: "" };
+    },
+  });
+  assert(
+    commands.map((item) => item.args.join(" ")).join("|") ===
+      "ci|run setup|run skills:active:sync -- --target " + skillsDir + "|run hub:start",
+    "browser67 setup must install dependencies, prepare extension, sync active skills, and optionally start the hub",
+  );
+  assert(setup.steps.some((step) => step.id === "mcp-config" && step.changed), "browser67 setup must configure Pi MCP");
+
+  const status = inspectBrowser67Runtime(ctx, {
+    root: browserRoot,
+    home,
+  });
+  assert(status.deterministicReady, "browser67 deterministic readiness fixture must pass");
+  const deep = inspectBrowser67Runtime(ctx, {
+    root: browserRoot,
+    home,
+    deep: true,
+    captureCommand() {
+      return { ok: true, status: 0, stdout: '{"ok":true}\n', stderr: "", error: "" };
+    },
+  });
+  assert(deep.ready && deep.live.ok, "browser67 deep doctor must include a passing live probe");
+
+  const mcpFile = path.join(agentDir, "mcp.json");
+  const mcp = JSON.parse(fs.readFileSync(mcpFile, "utf8"));
+  mcp.mcpServers.tmwd_browser.cwd = path.join(tmpRoot, "wrong-browser67");
+  fs.writeFileSync(mcpFile, `${JSON.stringify(mcp, null, 2)}\n`, "utf8");
+  const repaired = configureBrowser67Mcp(ctx, browserRoot);
+  assert(repaired.changed && repaired.backup && fs.existsSync(repaired.backup), "browser67 MCP repair must create a backup");
+
+  fs.rmSync(tmpRoot, { recursive: true, force: true });
 }
 
 function runCliHelpContractSelfTests() {
@@ -161,6 +240,13 @@ function runCliHelpContractSelfTests() {
         result.stdout.includes("pi-67 xtalpi configure") &&
           result.stdout.includes("never accepts a plaintext"),
         "xtalpi help must document the safe configure command",
+      );
+    }
+    if (command[0] === "external") {
+      assert(
+        result.stdout.includes("external setup browser67") &&
+          result.stdout.includes("external doctor browser67 --deep"),
+        "external help must document complete browser67 setup and layered readiness",
       );
     }
   }
@@ -713,6 +799,7 @@ function runVersionRecommendationSelfTests() {
     repo,
     "--repo-root",
     repo,
+    "--no-remote",
     "version",
   ], {
     cwd: root,
@@ -732,6 +819,7 @@ function runVersionRecommendationSelfTests() {
     repo,
     "--repo-root",
     repo,
+    "--no-remote",
     "version",
     "--json",
   ], {
@@ -746,6 +834,50 @@ function runVersionRecommendationSelfTests() {
     "version --json must include actionable recommendations",
   );
   fs.rmSync(tmpRoot, { recursive: true, force: true });
+}
+
+async function runUpstreamPiRuntimeSelfTests() {
+  const manifest = {
+    upstreamPi: {
+      packageName: "@earendil-works/pi-coding-agent",
+      command: "pi",
+      testedVersion: "0.80.6",
+      compatibilityPolicy: "warn-if-installed-behind-release-tested-version",
+      updateCommand: "npm install -g @earendil-works/pi-coding-agent@latest",
+    },
+  };
+  const behind = await inspectUpstreamPiRuntime({}, {
+    manifest,
+    captureCommand: () => ({ ok: true, stdout: "0.80.3\n", stderr: "" }),
+    registryOptions: {
+      fetchImpl: async () => jsonResponse(200, { version: "0.80.6" }),
+    },
+  });
+  assert(behind.installedVersion === "0.80.3", "upstream Pi inspection must parse the installed version");
+  assert(behind.testedVersion === "0.80.6", "upstream Pi inspection must expose the release-tested version");
+  assert(behind.installedBehindTested, "upstream Pi inspection must detect a runtime behind the tested baseline");
+  assert(behind.registry.outdated, "upstream Pi inspection must detect a registry update");
+  assert(
+    upstreamPiCheck(behind).level === "WARN" && upstreamPiCheck(behind).message.includes("release-tested 0.80.6"),
+    "upstream Pi doctor check must warn when the installed runtime is behind the tested baseline",
+  );
+
+  const current = await inspectUpstreamPiRuntime({}, {
+    manifest,
+    captureCommand: () => ({ ok: true, stdout: "pi 0.80.6\n", stderr: "" }),
+    noRemote: true,
+  });
+  assert(current.compatibility === "release-tested", "matching upstream Pi must satisfy the tested baseline");
+  assert(upstreamPiCheck(current).level === "PASS", "matching upstream Pi must pass the doctor check");
+  assert(current.registry.skipped, "no-remote upstream Pi inspection must skip the npm registry");
+
+  const missing = await inspectUpstreamPiRuntime({}, {
+    manifest,
+    captureCommand: () => ({ ok: false, stdout: "", stderr: "not found" }),
+    noRemote: true,
+  });
+  assert(missing.compatibility === "missing-or-failed", "missing upstream Pi must be observable");
+  assert(upstreamPiCheck(missing).level === "FAIL", "missing upstream Pi must fail the doctor check");
 }
 
 function runPublishTargetSelfTests() {

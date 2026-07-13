@@ -6,8 +6,8 @@ import { isWindows } from "../lib/platform.mjs";
 
 export async function doctorCommand(ctx, argv) {
   const { options } = parseCommandOptions(argv, {
-    bools: ["json", "quiet", "dry-run", "deep-mcp", "no-skill-list", "strict-shared-skills"],
-    strings: ["mcp-timeout-ms", "skill-list-timeout-seconds"],
+    bools: ["json", "quiet", "dry-run", "deep-mcp", "no-pi-list", "no-skill-list", "strict-shared-skills"],
+    strings: ["mcp-timeout-ms", "pi-list-timeout-seconds", "skill-list-timeout-seconds"],
   });
   if (options.help) {
     printDoctorHelp();
@@ -30,9 +30,12 @@ export async function doctorCommand(ctx, argv) {
   if (options.strictSharedSkills) args.push(isWindows() ? "-StrictSharedSkills" : "--strict-shared-skills");
   if (!isWindows() && options.deepMcp) args.push("--deep-mcp");
   if (!isWindows() && options.mcpTimeoutMs) args.push("--mcp-timeout-ms", options.mcpTimeoutMs);
-  if (!isWindows() && options.noSkillList) args.push("--no-skill-list");
-  if (options.skillListTimeoutSeconds) {
-    args.push(isWindows() ? "-SkillListTimeoutSeconds" : "--skill-list-timeout-seconds", options.skillListTimeoutSeconds);
+  const noPiList = options.noPiList || options.noSkillList;
+  const piListTimeoutSeconds = options.piListTimeoutSeconds || options.skillListTimeoutSeconds;
+  if (isWindows() && !noPiList) args.push("-PiList");
+  if (!isWindows() && noPiList) args.push("--no-pi-list");
+  if (piListTimeoutSeconds) {
+    args.push(isWindows() ? "-PiListTimeoutSeconds" : "--pi-list-timeout-seconds", piListTimeoutSeconds);
   }
   runDistroScript(ctx, { sh: "pi67-doctor.sh", ps1: "pi67-doctor.ps1" }, args, {
     dryRun: ctx.dryRun || options.dryRun,
@@ -50,9 +53,12 @@ Options:
   --quiet                 Reduce human output where supported.
   --deep-mcp              Run deeper MCP probes on POSIX platforms.
   --mcp-timeout-ms N      Timeout for deep MCP probes on POSIX platforms.
-  --no-skill-list         Skip pi skill list on POSIX platforms; accepted as a no-op on Windows.
+  --no-pi-list            Skip the non-interactive pi list --no-approve package probe.
+  --pi-list-timeout-seconds N
+                          Timeout for the package probe where enabled.
+  --no-skill-list         Deprecated alias for --no-pi-list.
   --skill-list-timeout-seconds N
-                          Timeout for pi skill list where enabled.
+                          Deprecated alias for --pi-list-timeout-seconds.
   --strict-shared-skills  Treat preserved user-modified shared skills as blocking.
   --dry-run               Print the script invocation without running it.
 

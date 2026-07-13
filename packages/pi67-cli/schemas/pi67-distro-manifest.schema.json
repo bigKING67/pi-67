@@ -32,6 +32,29 @@
       "type": "object",
       "required": ["update", "repair", "alwaysFreshRepair", "upstreamPiExtensions"]
     },
+    "upstreamPi": {
+      "type": "object",
+      "required": ["packageName", "command", "testedVersion", "compatibilityPolicy", "updateCommand"],
+      "properties": {
+        "packageName": {
+          "const": "@earendil-works/pi-coding-agent"
+        },
+        "command": {
+          "const": "pi"
+        },
+        "testedVersion": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+].*)?$"
+        },
+        "compatibilityPolicy": {
+          "const": "warn-if-installed-behind-release-tested-version"
+        },
+        "updateCommand": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
     "runtimeFiles": {
       "type": "object",
       "required": ["preserve", "templateOnly"]

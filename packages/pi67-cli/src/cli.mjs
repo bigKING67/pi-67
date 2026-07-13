@@ -87,7 +87,7 @@ Commands:
   themes               current/list/doctor/set without update-time overwrite
   skills               inventory/plan/diff/sync/migrate shared skills
   extensions           list/doctor/inspect/plan extension ownership policy
-  external             list/install/update/doctor external repos
+  external             list/install/setup/update/doctor external repos
   self-update          Explicitly update the npm manager package
   publish-check        Verify npm publish readiness and trusted publishing
   manifest             Show managed package/config/theme ownership policy
@@ -106,6 +106,8 @@ Examples:
   pi-67 backups list
   pi-67 backups prune --keep-last 10 --dry-run
   pi-67 extensions doctor
+  pi-67 external setup browser67 --dry-run
+  pi-67 external doctor browser67 --deep
   pi-67 skills plan
   pi-67 xtalpi configure --verify
   pi-67 xtalpi smoke --quick

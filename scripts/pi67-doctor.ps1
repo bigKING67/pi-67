@@ -9,6 +9,8 @@ param(
   [string]$SkillsDir,
   [switch]$Json,
   [switch]$Quiet,
+  [switch]$PiList,
+  [int]$PiListTimeoutSeconds = 0,
   [switch]$SkillList,
   [int]$SkillListTimeoutSeconds = 60,
   [switch]$StrictSharedSkills,
@@ -38,9 +40,12 @@ Options:
   -SkillsDir DIR       Shared skills dir. Defaults to `$HOME\.agents\skills.
   -Json                Print machine-readable JSON only.
   -Quiet               Print only summary in text mode.
-  -SkillList           Also run `pi skill list` when pi is available.
+  -PiList              Run the non-interactive `pi list --no-approve` package probe.
+  -PiListTimeoutSeconds
+                       Timeout for `pi list --no-approve`. Defaults to 60.
+  -SkillList           Deprecated alias for -PiList.
   -SkillListTimeoutSeconds
-                       Timeout for `pi skill list`. Defaults to 60.
+                       Deprecated timeout alias for -PiListTimeoutSeconds.
   -StrictSharedSkills  Treat missing shared skill copies as FAIL.
   -Help                Show this help.
 
@@ -90,6 +95,7 @@ $script:PassCount = 0
 $script:WarnCount = 0
 $script:FailCount = 0
 $script:Checks = @()
+$UpstreamPiStatus = $null
 
 function Add-Check {
   param(
@@ -380,13 +386,34 @@ if (Test-CommandExists "git") {
   Fail "git is required for update/status checks; install Git for Windows with: winget install --id Git.Git -e --source winget"
 }
 
-if (Test-CommandExists "pi") {
-  $piVersion = Invoke-External "pi" @("--version")
-  if ($piVersion.exitCode -eq 0) {
-    Pass ("pi found: {0}" -f (($piVersion.output | Select-Object -First 1)))
+if ((Test-CommandExists "node") -and (Test-Path -LiteralPath (RepoPath "scripts" "pi67-upstream-pi-status.mjs") -PathType Leaf)) {
+  $upstreamPiResult = Invoke-External "node" @(
+    (RepoPath "scripts" "pi67-upstream-pi-status.mjs"),
+    "--repo-root", $RepoRoot,
+    "--agent-dir", $AgentDir,
+    "--skills-dir", $SkillsDir,
+    "--json",
+    "--no-remote"
+  )
+  if ($upstreamPiResult.exitCode -eq 0) {
+    try {
+      $UpstreamPiStatus = $upstreamPiResult.text | ConvertFrom-Json
+      switch ([string]$UpstreamPiStatus.check.level) {
+        "PASS" { Pass ([string]$UpstreamPiStatus.check.message) }
+        "WARN" { Warn ([string]$UpstreamPiStatus.check.message) }
+        "FAIL" { Fail ([string]$UpstreamPiStatus.check.message) }
+        default { Warn "upstream Pi compatibility checker returned an unknown result" }
+      }
+    } catch {
+      Warn ("could not parse upstream Pi compatibility status: {0}" -f $_.Exception.Message)
+    }
   } else {
-    Warn "pi exists but --version failed"
+    Warn "could not inspect upstream Pi release compatibility"
   }
+} elseif (Test-CommandExists "pi") {
+  $piVersion = Invoke-External "pi" @("--version")
+  $versionText = if ($piVersion.exitCode -eq 0) { ($piVersion.output | Select-Object -First 1) } else { "unknown" }
+  Warn ("upstream Pi compatibility checker missing; pi found: {0}" -f $versionText)
 } else {
   Warn "pi command not found on PATH"
 }
@@ -436,6 +463,7 @@ $requiredFiles = @(
   "scripts/pi67-json-utils.ps1",
   "scripts/pi67-json-utils.cjs",
   "scripts/pi67-mcp-config-utils.cjs",
+  "scripts/pi67-upstream-pi-status.mjs",
   "scripts/pi67-provider-status.mjs",
   "scripts/pi67-xtalpi-pi-tools-smoke.ps1",
   "extensions/xtalpi-pi-tools/json-file.ts",
@@ -701,24 +729,26 @@ if ((Test-Path -LiteralPath $runtimeConfig -PathType Leaf) -and (Test-Path -Lite
   }
 }
 
-if ($SkillList) {
-  Section "Pi skill list"
+$RunPiList = [bool]($PiList -or $SkillList)
+$EffectivePiListTimeoutSeconds = if ($PiListTimeoutSeconds -gt 0) { $PiListTimeoutSeconds } else { $SkillListTimeoutSeconds }
+if ($RunPiList) {
+  Section "Pi package registry"
   if (Test-CommandExists "pi") {
-    $skillResult = Invoke-ExternalWithTimeout "pi" @("skill", "list") $AgentDir $SkillListTimeoutSeconds
-    if ($skillResult.exitCode -eq 0) {
-      $text = $skillResult.text
-      if ($text -match "(duplicate|conflict|skipped|auto \(user\))") {
-        Warn "pi skill list reported duplicate/conflict/skipped/auto-user warnings"
+    $piListResult = Invoke-ExternalWithTimeout "pi" @("list", "--no-approve") $AgentDir $EffectivePiListTimeoutSeconds
+    if ($piListResult.exitCode -eq 0) {
+      $text = $piListResult.text
+      if ($text -match "(warning|error|duplicate|conflict|skipped)") {
+        Warn "pi list reported package/resource warnings"
       } else {
-        Pass "pi skill list completed without obvious duplicate/conflict warnings"
+        Pass "pi list completed without package/resource warnings"
       }
-    } elseif ($skillResult.timedOut) {
-      Warn ("pi skill list exceeded {0}s; skipped duplicate warning check" -f $SkillListTimeoutSeconds)
+    } elseif ($piListResult.timedOut) {
+      Warn ("pi list exceeded {0}s; skipped package registry check" -f $EffectivePiListTimeoutSeconds)
     } else {
-      Warn "pi skill list failed"
+      Warn "pi list failed"
     }
   } else {
-    Warn "pi command not found; skipped pi skill list"
+    Warn "pi command not found; skipped pi list"
   }
 }
 
@@ -739,11 +769,14 @@ if ($Json) {
     pi67 = [ordered]@{
       version = $version
     }
+    upstreamPi = $UpstreamPiStatus
     diagnostics = [ordered]@{
       deepMcp = $false
       mcpTimeoutMs = 0
-      skillList = [bool]$SkillList
-      skillListTimeoutSeconds = [int]$SkillListTimeoutSeconds
+      piList = $RunPiList
+      piListTimeoutSeconds = [int]$EffectivePiListTimeoutSeconds
+      skillList = $RunPiList
+      skillListTimeoutSeconds = [int]$EffectivePiListTimeoutSeconds
       strictSharedSkills = [bool]$StrictSharedSkills
     }
     installMode = $InstallMode

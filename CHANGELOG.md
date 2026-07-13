@@ -6,6 +6,34 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-07-13
+
+### Added
+
+- Added a release-tested upstream Pi runtime baseline to the distro manifest.
+  `pi-67 version`, `pi-67 status`, and both doctor implementations now report
+  installed, tested, and available runtime version state instead of treating
+  any successful `pi --version` response as fully current.
+- Added `pi-67 external setup browser67`, which turns the optional browser67
+  companion checkout into a runnable integration by installing dependencies,
+  preparing the unpacked extension, synchronizing active skills, and safely
+  merging MCP paths. `--start-hub` remains explicit.
+- Added `pi-67 external doctor browser67 --deep` with separate deterministic
+  checkout/config checks and a live Hub/extension readiness probe.
+
+### Fixed
+
+- Doctor now warns when the installed upstream Pi runtime is older than the
+  version exercised by the current pi-67 release, preventing a stale runtime
+  from producing an otherwise false-green readiness result.
+- Replaced the obsolete `pi skill list` doctor probe with the non-interactive
+  `pi list --no-approve` package registry command required by upstream Pi
+  0.80.6, preventing doctor from accidentally starting an interactive model
+  request.
+- Isolated smoke logs per process and moved filename extensions before the
+  trailing `mktemp` template, so concurrent macOS smoke/release checks no
+  longer race on shared files or fail with spurious `ENOENT` errors.
+
 ## [0.11.1] - 2026-07-12
 
 ### Changed

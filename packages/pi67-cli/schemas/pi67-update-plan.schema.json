@@ -57,6 +57,55 @@
       },
       "additionalProperties": true
     },
+    "runtime": {
+      "type": "object",
+      "properties": {
+        "upstreamPi": {
+          "type": "object",
+          "required": [
+            "package",
+            "command",
+            "installed",
+            "installedVersion",
+            "testedVersion",
+            "compatibility",
+            "registry"
+          ],
+          "properties": {
+            "package": {
+              "const": "@earendil-works/pi-coding-agent"
+            },
+            "command": {
+              "const": "pi"
+            },
+            "installed": {
+              "type": "boolean"
+            },
+            "installedVersion": {
+              "type": "string"
+            },
+            "testedVersion": {
+              "type": "string"
+            },
+            "compatibility": {
+              "enum": [
+                "missing-or-failed",
+                "unknown-version",
+                "installed-unbounded",
+                "behind-release-tested",
+                "release-tested",
+                "newer-than-release-tested"
+              ]
+            },
+            "registry": {
+              "type": "object"
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
     "actions": {
       "type": "array",
       "description": "Safe update/repair actions that preserve user-owned config and local choices.",

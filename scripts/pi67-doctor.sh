@@ -15,12 +15,12 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PI_AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
 SHARED_SKILLS_DIR="${SHARED_SKILLS_DIR:-$HOME/.agents/skills}"
-RUN_SKILL_LIST=true
+RUN_PI_LIST=true
 OUTPUT_FORMAT="text"
 QUIET=false
 DEEP_MCP=false
 MCP_TIMEOUT_MS=2500
-SKILL_LIST_TIMEOUT_SECONDS="${PI67_DOCTOR_SKILL_LIST_TIMEOUT_SECONDS:-60}"
+PI_LIST_TIMEOUT_SECONDS="${PI67_DOCTOR_PI_LIST_TIMEOUT_SECONDS:-${PI67_DOCTOR_SKILL_LIST_TIMEOUT_SECONDS:-60}}"
 STRICT_SHARED_SKILLS=false
 
 CHECKS_FILE="$(mktemp "${TMPDIR:-/tmp}/pi67-doctor-checks.XXXXXX")"
@@ -33,6 +33,7 @@ trap cleanup EXIT
 PASS_COUNT=0
 WARN_COUNT=0
 FAIL_COUNT=0
+UPSTREAM_PI_JSON="null"
 
 usage() {
   cat <<'USAGE'
@@ -45,14 +46,17 @@ Options:
       --repo-root DIR      Repository root. Defaults to parent of this script.
       --agent-dir DIR      Pi agent dir. Defaults to ~/.pi/agent.
       --skills-dir DIR     Shared skill root. Defaults to ~/.agents/skills.
-      --no-skill-list      Skip `pi skill list`.
+      --no-pi-list         Skip the non-interactive `pi list --no-approve` package probe.
+      --no-skill-list      Deprecated alias for --no-pi-list.
       --strict-shared-skills
                            Treat global shared skills that differ from the
                            pi-67 bundled baseline as FAIL instead of WARN.
       --deep-mcp           Start configured MCP servers briefly and probe initialize + tools/list.
       --mcp-timeout-ms MS  Timeout per MCP deep probe. Defaults to 2500.
+      --pi-list-timeout-seconds SEC
+                           Timeout for `pi list --no-approve`. Defaults to 60.
       --skill-list-timeout-seconds SEC
-                           Timeout for `pi skill list`. Defaults to 60.
+                           Deprecated alias for --pi-list-timeout-seconds.
       --quiet              Print only the text summary and final result.
       --json               Print machine-readable JSON only.
   -h, --help               Show this help.
@@ -73,8 +77,8 @@ while [ "$#" -gt 0 ]; do
       SHARED_SKILLS_DIR="${2:?--skills-dir requires a path}"
       shift 2
       ;;
-    --no-skill-list)
-      RUN_SKILL_LIST=false
+    --no-pi-list|--no-skill-list)
+      RUN_PI_LIST=false
       shift
       ;;
     --strict-shared-skills)
@@ -89,8 +93,8 @@ while [ "$#" -gt 0 ]; do
       MCP_TIMEOUT_MS="${2:?--mcp-timeout-ms requires a number}"
       shift 2
       ;;
-    --skill-list-timeout-seconds)
-      SKILL_LIST_TIMEOUT_SECONDS="${2:?--skill-list-timeout-seconds requires a number}"
+    --pi-list-timeout-seconds|--skill-list-timeout-seconds)
+      PI_LIST_TIMEOUT_SECONDS="${2:?$1 requires a number}"
       shift 2
       ;;
     --quiet)
@@ -118,8 +122,8 @@ if ! [[ "$MCP_TIMEOUT_MS" =~ ^[0-9]+$ ]] || [ "$MCP_TIMEOUT_MS" -lt 250 ]; then
   exit 2
 fi
 
-if ! [[ "$SKILL_LIST_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || [ "$SKILL_LIST_TIMEOUT_SECONDS" -lt 1 ]; then
-  echo "--skill-list-timeout-seconds must be an integer >= 1" >&2
+if ! [[ "$PI_LIST_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || [ "$PI_LIST_TIMEOUT_SECONDS" -lt 1 ]; then
+  echo "--pi-list-timeout-seconds must be an integer >= 1" >&2
   exit 2
 fi
 
@@ -185,11 +189,14 @@ emit_json() {
   printf '  "pi67": {\n'
   printf '    "version": "%s"\n' "$(json_escape "$pi67_version")"
   printf '  },\n'
+  printf '  "upstreamPi": %s,\n' "${UPSTREAM_PI_JSON:-null}"
   printf '  "diagnostics": {\n'
   printf '    "deepMcp": %s,\n' "$DEEP_MCP"
   printf '    "mcpTimeoutMs": %s,\n' "$MCP_TIMEOUT_MS"
-  printf '    "skillList": %s,\n' "$RUN_SKILL_LIST"
-  printf '    "skillListTimeoutSeconds": %s\n' "$SKILL_LIST_TIMEOUT_SECONDS"
+  printf '    "piList": %s,\n' "$RUN_PI_LIST"
+  printf '    "piListTimeoutSeconds": %s,\n' "$PI_LIST_TIMEOUT_SECONDS"
+  printf '    "skillList": %s,\n' "$RUN_PI_LIST"
+  printf '    "skillListTimeoutSeconds": %s\n' "$PI_LIST_TIMEOUT_SECONDS"
   printf '  },\n'
   printf '  "installMode": "%s",\n' "$(json_escape "$INSTALL_MODE")"
   printf '  "repository": "%s",\n' "$(json_escape "$REPO_ROOT")"
@@ -442,7 +449,7 @@ NODE
   rm -f "$tmp"
 }
 
-run_pi_skill_list_with_timeout() {
+run_pi_list_with_timeout() {
   local output_file="$1"
   local timeout_seconds="$2"
   node - "$output_file" "$timeout_seconds" <<'NODE'
@@ -455,7 +462,7 @@ let stdout = "";
 let stderr = "";
 let timedOut = false;
 
-const child = spawn("pi", ["skill", "list"], {
+const child = spawn("pi", ["list", "--no-approve"], {
   stdio: ["ignore", "pipe", "pipe"],
 });
 
@@ -1160,8 +1167,26 @@ if detailed_text_enabled; then
 fi
 
 section "Core tools"
-if command_exists pi; then
-  pass "pi found: $(pi --version 2>/dev/null || echo unknown)"
+upstream_pi_status="$REPO_ROOT/scripts/pi67-upstream-pi-status.mjs"
+if command_exists node && [ -f "$upstream_pi_status" ]; then
+  if UPSTREAM_PI_JSON="$(node "$upstream_pi_status" \
+    --repo-root "$REPO_ROOT" \
+    --agent-dir "$PI_AGENT_DIR" \
+    --skills-dir "$SHARED_SKILLS_DIR" \
+    --json \
+    --no-remote 2>/dev/null)"; then
+    run_node_report "$upstream_pi_status" \
+      --repo-root "$REPO_ROOT" \
+      --agent-dir "$PI_AGENT_DIR" \
+      --skills-dir "$SHARED_SKILLS_DIR" \
+      --check \
+      --no-remote
+  else
+    UPSTREAM_PI_JSON="null"
+    warn "could not inspect upstream Pi release compatibility"
+  fi
+elif command_exists pi; then
+  warn "upstream Pi compatibility checker missing; pi found: $(pi --version 2>/dev/null || echo unknown)"
 else
   fail "pi command not found"
 fi
@@ -1249,29 +1274,29 @@ fi
 section "Extension runtime compatibility"
 check_until_done_runtime_queue
 
-section "Pi runtime"
-if [ "$RUN_SKILL_LIST" = true ]; then
+section "Pi package registry"
+if [ "$RUN_PI_LIST" = true ]; then
   if command_exists pi; then
-    pi_skill_list_output="$(mktemp "${TMPDIR:-/tmp}/pi67-skill-list.XXXXXX")"
-    pi_skill_status=0
-    run_pi_skill_list_with_timeout "$pi_skill_list_output" "$SKILL_LIST_TIMEOUT_SECONDS" || pi_skill_status=$?
-    if [ "$pi_skill_status" -eq 0 ]; then
-      if grep -Eiq 'duplicate|conflict|skipped|auto[[:space:]]*\(user\)|auto\(user\)' "$pi_skill_list_output"; then
-        warn "pi skill list reported duplicate/conflict warnings"
+    pi_list_output="$(mktemp "${TMPDIR:-/tmp}/pi67-pi-list.XXXXXX")"
+    pi_list_status=0
+    run_pi_list_with_timeout "$pi_list_output" "$PI_LIST_TIMEOUT_SECONDS" || pi_list_status=$?
+    if [ "$pi_list_status" -eq 0 ]; then
+      if grep -Eiq 'warning|error|duplicate|conflict|skipped' "$pi_list_output"; then
+        warn "pi list reported package/resource warnings"
       else
-        pass "pi skill list completed without duplicate warnings"
+        pass "pi list completed without package/resource warnings"
       fi
-    elif [ "$pi_skill_status" -eq 124 ]; then
-      warn "pi skill list exceeded ${SKILL_LIST_TIMEOUT_SECONDS}s; skipped duplicate warning check"
+    elif [ "$pi_list_status" -eq 124 ]; then
+      warn "pi list exceeded ${PI_LIST_TIMEOUT_SECONDS}s; skipped package registry check"
     else
-      warn "pi skill list failed; run manually for details"
+      warn "pi list failed; run manually for details"
     fi
-    rm -f "$pi_skill_list_output"
+    rm -f "$pi_list_output"
   else
-    fail "cannot run pi skill list because pi is missing"
+    fail "cannot run pi list because pi is missing"
   fi
 else
-  warn "pi skill list skipped"
+  warn "pi list skipped"
 fi
 
 section "Repository hygiene"

@@ -16,6 +16,7 @@ import { inspectManagerFreshness, managerFreshnessBlockReason } from "./manager-
 import { buildDistroManifest } from "./distro-manifest.mjs";
 import { PRESERVED_RUNTIME_FILES } from "./update-safety.mjs";
 import { settingsRuntimeMarkerFromObject } from "./settings-runtime-state.mjs";
+import { inspectUpstreamPiRuntime } from "./upstream-pi-runtime.mjs";
 
 export async function buildUpdatePlan(ctx, options = {}) {
   const versionFile = path.join(ctx.repoRoot, "VERSION");
@@ -36,6 +37,15 @@ export async function buildUpdatePlan(ctx, options = {}) {
   const skills = inventorySkills(ctx);
   const external = listExternal(ctx);
   const manifest = buildDistroManifest(ctx);
+  const [upstreamPi, packageAudit] = await Promise.all([
+    inspectUpstreamPiRuntime(ctx, {
+      manifest,
+      noRemote: ctx.noRemote || options.noRemote,
+    }),
+    auditManagedDependencyPackages(ctx, manifest, {
+      noRemote: ctx.noRemote || options.noRemote,
+    }),
+  ]);
   const requiredScripts = [
     "pi67-update.sh",
     "pi67-update.ps1",
@@ -50,9 +60,6 @@ export async function buildUpdatePlan(ctx, options = {}) {
     name,
     fs.existsSync(path.join(ctx.repoRoot, "scripts", name)),
   ]));
-  const packageAudit = await auditManagedDependencyPackages(ctx, manifest, {
-    noRemote: ctx.noRemote || options.noRemote,
-  });
   const settingsRuntimeMarker = settingsRuntimeMarkerFromObject(settings);
   const dirtyClass = classifyGitShort(git?.short || "");
   const benignRuntime = classifyBenignRuntimeDiff(ctx, dirtyClass.preservedRuntime);
@@ -88,6 +95,13 @@ export async function buildUpdatePlan(ctx, options = {}) {
   }
   if (manifest.summary.userManagedRuntimePackages > 0) {
     recommendations.push("User-managed Pi runtime packages detected; pi-67 will report them but not overwrite them by default.");
+  }
+  if (!upstreamPi.commandOk) {
+    recommendations.push(`Install upstream Pi: ${upstreamPi.updateCommand}`);
+  } else if (upstreamPi.installedBehindTested) {
+    recommendations.push(`Update upstream Pi to the release-tested baseline: ${upstreamPi.updateCommand}`);
+  } else if (upstreamPi.installedVersion && upstreamPi.registry.outdated) {
+    recommendations.push(`Upstream Pi ${upstreamPi.installedVersion} has registry latest ${upstreamPi.registry.latestVersion}; review upstream changes before updating.`);
   }
   if (packageAudit.summary.baselineBehindLatest > 0) {
     const names = packageAudit.packages
@@ -160,6 +174,9 @@ export async function buildUpdatePlan(ctx, options = {}) {
     },
     scripts: scriptStatus,
     manifest: manifest.summary,
+    runtime: {
+      upstreamPi,
+    },
     packages: packageAudit,
     skills: skills.summary,
     runtimeState: {
@@ -170,9 +187,22 @@ export async function buildUpdatePlan(ctx, options = {}) {
     external,
     actions: decisions.actions,
     blocked: decisions.blocked,
-    warnings: decisions.warnings,
+    warnings: upstreamPiRuntimeWarnings(upstreamPi, decisions.warnings),
     recommendations,
   };
+}
+
+function upstreamPiRuntimeWarnings(runtime, warnings) {
+  if (!runtime.commandOk) {
+    return [...warnings, "upstream Pi command is missing or failed `pi --version`"];
+  }
+  if (runtime.installedBehindTested) {
+    return [...warnings, `upstream Pi ${runtime.installedVersion} is behind release-tested ${runtime.testedVersion}`];
+  }
+  if (!runtime.installedVersion) {
+    return [...warnings, "upstream Pi version could not be parsed"];
+  }
+  return warnings;
 }
 
 export async function auditManagedDependencyPackages(ctx, manifest, options = {}) {
