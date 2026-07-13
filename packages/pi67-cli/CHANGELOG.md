@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added shared Skill Pack parity to `status` and update-plan JSON through the
+  `pi67-shared-skill-packs-status/v1` contract, including registry validation,
+  affected Skill names, and safe `sync-pack ... --dry-run` recommendations.
+
+- Adds versioned shared Skill Pack inventory and explicit backed-up Pack sync
+  commands for keeping multi-Skill distributions consistent across machines.
+
 ## [0.11.3]
 
 - Removes the browser67 runtime dependency on a repository-root MCP utility

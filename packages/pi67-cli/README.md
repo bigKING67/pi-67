@@ -292,9 +292,21 @@ pi-67 xtalpi smoke --quick
 pi-67 themes current
 pi-67 themes list
 pi-67 skills inventory
+pi-67 skills packs
 pi-67 skills sync
+pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --dry-run
+pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --yes
 pi-67 external list
 ```
+
+`skills packs` reports version consistency for registered multi-Skill suites.
+Normal update preserves different active Skills; `skills sync-pack ... --yes`
+is the explicit backed-up operation for aligning every Skill in a registered
+Pack to the pi-67 vendored version.
+`pi-67 status` and `pi-67 update --check --json` include the same compact
+`pi67-shared-skill-packs-status/v1` block used by Bash/PowerShell Doctor and
+Report. Inconsistent Packs recommend inspection and `sync-pack ... --dry-run`;
+the manager never recommends the writing `--yes` form automatically.
 
 `pi-67 version` and `pi-67 status` distinguish the upstream Pi runtime from
 the pi-67 manager and distro. Their JSON includes the installed Pi version,

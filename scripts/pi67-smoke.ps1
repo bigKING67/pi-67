@@ -265,6 +265,7 @@ $RequiredFiles = @(
   "auth.example.json",
   "image-gen.example.json",
   "README.md",
+  "shared-skill-packs.json",
   "docs/full-install.md",
   "docs/release.md",
   "docs/troubleshooting.md",
@@ -280,6 +281,7 @@ $RequiredFiles = @(
   "scripts/pi67-json-utils.cjs",
   "scripts/pi67-mcp-config-utils.cjs",
   "scripts/pi67-provider-status.mjs",
+  "scripts/pi67-shared-skill-packs-status.mjs",
   "scripts/pi67-release-check.sh",
   "scripts/pi67-zero-key-startup-probe.ts",
   "scripts/pi67-zero-key-startup-smoke.ps1",
@@ -295,6 +297,9 @@ $RequiredFiles = @(
   "scripts/pi67-patch-pi-until-done-runtime-queue.sh",
   "scripts/pi67-patch-pi-until-done-runtime-queue.ps1",
   "scripts/pi67-shared-skills-inventory.sh",
+  "scripts/pi67-sync-commerce-growth-os.sh",
+  "scripts/pi67-sync-commerce-skill-pack.sh",
+  "scripts/pi67-sync-commerce-skill-pack.mjs",
   "packages/pi67-cli/package.json",
   "packages/pi67-cli/bin/pi-67.mjs",
   "packages/pi67-cli/src/cli.mjs",
@@ -302,12 +307,14 @@ $RequiredFiles = @(
   "packages/pi67-cli/src/commands/extensions.mjs",
   "packages/pi67-cli/src/commands/manifest.mjs",
   "packages/pi67-cli/src/commands/self-update.mjs",
+  "packages/pi67-cli/src/commands/skills.mjs",
   "packages/pi67-cli/src/data/distro-manifest.json",
   "packages/pi67-cli/src/data/extension-registry.json",
   "packages/pi67-cli/src/lib/distro-manifest.mjs",
   "packages/pi67-cli/src/lib/extension-registry.mjs",
   "packages/pi67-cli/src/lib/update-safety.mjs",
   "packages/pi67-cli/src/lib/npm-registry.mjs",
+  "packages/pi67-cli/src/lib/skill-policy.mjs",
   "packages/pi67-cli/src/lib/settings-runtime-clean.mjs",
   "packages/pi67-cli/src/lib/settings-runtime-state.mjs",
   "packages/pi67-cli/src/lib/xtalpi-config.mjs",
@@ -340,6 +347,7 @@ $JsonFiles = @(
   "models.example.json",
   "mcp.example.json",
   "package.json",
+  "shared-skill-packs.json",
   "packages/pi67-cli/package.json",
   "packages/pi67-cli/src/data/distro-manifest.json",
   "packages/pi67-cli/src/data/extension-registry.json",
@@ -583,6 +591,22 @@ if (String(tmwd.args?.[0] || "").includes(browser67Root) || String(jsReverse.arg
 
   Run-Check "pi-67 npm CLI syntax suite passed" {
     Invoke-External "node" @((RepoPath "packages/pi67-cli/scripts/check.mjs")) | Out-Null
+  }
+
+  Run-Check "shared Skill Pack status helper passed" {
+    $raw = Invoke-External "node" @(
+      (RepoPath "scripts/pi67-shared-skill-packs-status.mjs"),
+      "--repo-root", $RepoRoot,
+      "--skills-dir", (RepoPath "shared-skills"),
+      "--json"
+    )
+    $payload = ($raw -join "`n") | ConvertFrom-Json
+    if ($payload.schemaId -ne "pi67-shared-skill-packs-status/v1") {
+      throw "unexpected shared Skill Pack status schema"
+    }
+    if (-not $payload.registry.valid -or $payload.summary.attention -ne 0) {
+      throw "vendored shared Skill Pack should be consistent against itself"
+    }
   }
 
   Run-Check "pi-67 npm CLI smoke passed" {
@@ -933,6 +957,7 @@ if ($GitAvailable) {
     "VERSION",
     "CHANGELOG.md",
     "README.md",
+    "shared-skill-packs.json",
     "docs/full-install.md",
     "docs/release.md",
     "docs/troubleshooting.md",
@@ -947,15 +972,21 @@ if ($GitAvailable) {
     "scripts/pi67-json-utils.ps1",
     "scripts/pi67-json-utils.cjs",
     "scripts/pi67-release-check.sh",
+    "scripts/pi67-shared-skill-packs-status.mjs",
     "scripts/pi67-zero-key-startup-probe.ts",
     "scripts/pi67-zero-key-startup-smoke.ps1",
+    "scripts/pi67-sync-commerce-growth-os.sh",
+    "scripts/pi67-sync-commerce-skill-pack.sh",
+    "scripts/pi67-sync-commerce-skill-pack.mjs",
     "packages/pi67-cli/package.json",
     "packages/pi67-cli/README.md",
     "packages/pi67-cli/CHANGELOG.md",
     "packages/pi67-cli/bin/pi-67.mjs",
     "packages/pi67-cli/src/cli.mjs",
     "packages/pi67-cli/src/commands/self-update.mjs",
+    "packages/pi67-cli/src/commands/skills.mjs",
     "packages/pi67-cli/src/lib/npm-registry.mjs",
+    "packages/pi67-cli/src/lib/skill-policy.mjs",
     "packages/pi67-cli/src/lib/settings-runtime-clean.mjs",
     "packages/pi67-cli/src/lib/settings-runtime-state.mjs",
     "packages/pi67-cli/src/lib/xtalpi-config.mjs",

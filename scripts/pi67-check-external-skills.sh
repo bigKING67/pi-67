@@ -33,7 +33,7 @@ Examples:
     --repo /path/to/design-craft \
     --repo /path/to/browser67
 
-  bash scripts/pi67-check-external-skills.sh --repo /path/to/commerce-growth-os
+  bash scripts/pi67-check-external-skills.sh --repo /path/to/root-skill-repo
 
   bash scripts/pi67-check-external-skills.sh --repo /path/to/design-craft --json
 USAGE

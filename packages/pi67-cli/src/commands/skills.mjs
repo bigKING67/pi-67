@@ -1,5 +1,12 @@
 import { parseCommandOptions } from "../lib/args.mjs";
-import { diffSkill, inventorySkills, planSkills, syncSkills } from "../lib/skill-policy.mjs";
+import {
+  diffSkill,
+  inventorySkillPacks,
+  inventorySkills,
+  planSkills,
+  syncSkillPack,
+  syncSkills,
+} from "../lib/skill-policy.mjs";
 import { CliError, info, keyValue, pass, printJson, section, warn } from "../lib/output.mjs";
 
 export async function skillsCommand(ctx, argv) {
@@ -9,11 +16,31 @@ export async function skillsCommand(ctx, argv) {
     return;
   }
   if (sub === "inventory") return inventory(ctx, rest);
+  if (sub === "packs") return packs(ctx, rest);
   if (sub === "plan") return plan(ctx, rest);
   if (sub === "diff") return diff(ctx, rest);
   if (sub === "sync") return sync(ctx, rest);
+  if (sub === "sync-pack") return syncPack(ctx, rest);
   if (sub === "migrate") return migrate(ctx, rest);
   throw new CliError(`unknown skills command: ${sub}`, 2);
+}
+
+function packs(ctx, argv) {
+  const { options } = parseCommandOptions(argv, { bools: ["json"] });
+  if (options.help) return printSkillsHelp();
+  const data = inventorySkillPacks(ctx);
+  if (ctx.json || options.json) return printJson(data);
+  section("pi-67 shared skill packs");
+  if (data.packs.length === 0) {
+    warn("no shared skill packs are registered");
+    return;
+  }
+  for (const pack of data.packs) {
+    const status = pack.consistent
+      ? "consistent"
+      : `missing=${pack.summary.missing}, conflicts=${pack.summary.conflicts}`;
+    info(`${pack.name}@${pack.version}: ${status}; skills=${pack.summary.skills}`);
+  }
 }
 
 function inventory(ctx, argv) {
@@ -91,6 +118,23 @@ function sync(ctx, argv) {
   }
 }
 
+function syncPack(ctx, argv) {
+  const { options, positionals } = parseCommandOptions(argv, { bools: ["json", "dry-run", "yes"] });
+  if (options.help) return printSkillsHelp();
+  const name = positionals[0];
+  if (!name) throw new CliError("skills sync-pack requires a pack name", 2);
+  const data = syncSkillPack(ctx, name, {
+    dryRun: ctx.dryRun || options.dryRun,
+    yes: ctx.yes || options.yes,
+  });
+  if (ctx.json || options.json) return printJson(data);
+  section(`pi-67 shared skill pack sync: ${data.pack.name}@${data.pack.version}`);
+  for (const action of data.actions) {
+    if (action.action === "warn") warn(`${action.name}: ${action.reason}`);
+    else info(`${action.name}: ${action.action}`);
+  }
+}
+
 function migrate(ctx, argv) {
   const { options } = parseCommandOptions(argv, { bools: ["dry-run", "json"] });
   if (options.help) return printSkillsHelp();
@@ -112,9 +156,11 @@ function printSkillsHelp() {
 
 Usage:
   pi-67 skills inventory [--json]
+  pi-67 skills packs [--json]
   pi-67 skills plan [skill...] [--json]
   pi-67 skills diff <skill> [--json]
   pi-67 skills sync [skill...] [--dry-run] [--yes] [--json]
+  pi-67 skills sync-pack <pack> [--dry-run] [--yes] [--json]
   pi-67 skills migrate [--dry-run] [--json]
 
 Safety:
@@ -125,9 +171,12 @@ Safety:
 
 Examples:
   pi-67 skills inventory
+  pi-67 skills packs
   pi-67 skills plan
   pi-67 skills diff lark-doc
   pi-67 skills sync lark-doc --dry-run
   pi-67 skills sync lark-doc --yes
+  pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --dry-run
+  pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --yes
 `);
 }

@@ -33,7 +33,7 @@ Options:
 Examples:
   bash scripts/pi67-sync-external-skills.sh --repo /path/to/design-craft --dry-run
   bash scripts/pi67-sync-external-skills.sh --repo /path/to/browser67 --apply --yes
-  bash scripts/pi67-sync-external-skills.sh --repo /path/to/commerce-growth-os --dry-run
+  bash scripts/pi67-sync-external-skills.sh --repo /path/to/root-skill-repo --dry-run
 
 Conflict policy:
   - missing canonical skill: copy into --skills-dir when applying

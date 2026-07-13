@@ -106,6 +106,58 @@
       },
       "additionalProperties": true
     },
+    "skillPacks": {
+      "type": "object",
+      "description": "Read-only version/parity status for registered shared Skill Packs.",
+      "required": ["schemaId", "registry", "summary", "packs", "errors"],
+      "properties": {
+        "schemaId": {
+          "const": "pi67-shared-skill-packs-status/v1"
+        },
+        "registry": {
+          "type": "object",
+          "required": ["path", "exists", "valid"],
+          "properties": {
+            "path": { "type": "string" },
+            "exists": { "type": "boolean" },
+            "valid": { "type": "boolean" }
+          },
+          "additionalProperties": true
+        },
+        "summary": {
+          "type": "object",
+          "required": ["packs", "consistent", "attention"],
+          "properties": {
+            "packs": { "type": "integer", "minimum": 0 },
+            "consistent": { "type": "integer", "minimum": 0 },
+            "attention": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": true
+        },
+        "packs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "version", "skills", "identical", "missing", "conflicts", "consistent"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "version": { "type": "string", "minLength": 1 },
+              "skills": { "type": "integer", "minimum": 1 },
+              "identical": { "type": "integer", "minimum": 0 },
+              "missing": { "type": "integer", "minimum": 0 },
+              "conflicts": { "type": "integer", "minimum": 0 },
+              "consistent": { "type": "boolean" }
+            },
+            "additionalProperties": true
+          }
+        },
+        "errors": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": true
+    },
     "actions": {
       "type": "array",
       "description": "Safe update/repair actions that preserve user-owned config and local choices.",

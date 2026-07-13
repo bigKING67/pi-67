@@ -1,0 +1,21 @@
+{
+  "schema": "pi67.shared-skill-packs.v1",
+  "packs": [
+    {
+      "name": "consumer-brand-commerce-marketing-suite",
+      "version": "2.0.0",
+      "upstream": "https://github.com/bigKING67/commerce-growth-os",
+      "sync_helper": "scripts/pi67-sync-commerce-skill-pack.sh",
+      "skills": [
+        "commerce-growth-os",
+        "commerce-commercial-strategy",
+        "commerce-operations",
+        "commerce-analytics",
+        "consumer-marketing-os",
+        "brand-strategy-communications",
+        "content-creative-social-marketing",
+        "growth-performance-lifecycle-marketing"
+      ]
+    }
+  ]
+}

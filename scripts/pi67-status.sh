@@ -21,6 +21,7 @@ resolve_script_dir() {
 SCRIPT_DIR="$(resolve_script_dir)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 PI_AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
+SHARED_SKILLS_DIR="${SHARED_SKILLS_DIR:-$HOME/.agents/skills}"
 OUTPUT_FORMAT="text"
 CHECK_REMOTE=true
 REMOTE="origin"
@@ -43,6 +44,7 @@ Usage:
 Options:
       --repo-root DIR          pi-67 checkout. Defaults to parent of this script.
       --agent-dir DIR          Pi agent dir. Defaults to ~/.pi/agent.
+      --skills-dir DIR         Shared skill root. Defaults to ~/.agents/skills.
       --remote NAME            Git remote to inspect. Defaults to origin.
       --branch NAME            Remote branch to inspect. Defaults to current branch.
       --no-remote              Do not call git ls-remote.
@@ -69,6 +71,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --agent-dir)
       PI_AGENT_DIR="${2:?--agent-dir requires a path}"
+      shift 2
+      ;;
+    --skills-dir)
+      SHARED_SKILLS_DIR="${2:?--skills-dir requires a path}"
       shift 2
       ;;
     --remote)
@@ -137,7 +143,7 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 
-node - "$REPO_ROOT" "$PI_AGENT_DIR" "$OUTPUT_FORMAT" "$CHECK_REMOTE" "$REMOTE" "$BRANCH" "$REMOTE_TIMEOUT_MS" "$XTALPI_SMOKE" "$XTALPI_SMOKE_DIR" "$XTALPI_SMOKE_HISTORY" "$XTALPI_SMOKE_TREND" "$XTALPI_SMOKE_DRIFT" "$XTALPI_SMOKE_TIMEOUT_MS" "$SCRIPT_DIR" <<'NODE'
+node - "$REPO_ROOT" "$PI_AGENT_DIR" "$SHARED_SKILLS_DIR" "$OUTPUT_FORMAT" "$CHECK_REMOTE" "$REMOTE" "$BRANCH" "$REMOTE_TIMEOUT_MS" "$XTALPI_SMOKE" "$XTALPI_SMOKE_DIR" "$XTALPI_SMOKE_HISTORY" "$XTALPI_SMOKE_TREND" "$XTALPI_SMOKE_DRIFT" "$XTALPI_SMOKE_TIMEOUT_MS" "$SCRIPT_DIR" <<'NODE'
 const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
@@ -147,6 +153,7 @@ const [
   ,
   repoRoot,
   agentDir,
+  sharedSkillsDir,
   outputFormat,
   checkRemoteArg,
   remoteName,
@@ -509,7 +516,39 @@ function deriveReport(repository, version) {
   return base;
 }
 
-function deriveResult(repository, remote, report, xtalpiSmoke) {
+function deriveSkillPacks() {
+  const helper = path.join(scriptDir, "pi67-shared-skill-packs-status.mjs");
+  const registryPath = path.join(repoRoot, "shared-skill-packs.json");
+  const fallback = (message) => ({
+    schemaId: "pi67-shared-skill-packs-status/v1",
+    registry: {
+      path: registryPath,
+      exists: fs.existsSync(registryPath),
+      valid: false,
+    },
+    skillsDir: sharedSkillsDir,
+    summary: { packs: 0, consistent: 0, attention: 1 },
+    packs: [],
+    errors: [message],
+  });
+  if (!fs.existsSync(helper)) return fallback("shared Skill Pack status helper is missing");
+  const result = command(process.execPath, [
+    helper,
+    "--repo-root", repoRoot,
+    "--skills-dir", sharedSkillsDir,
+    "--json",
+  ], { cwd: repoRoot, timeout: 30000 });
+  let parsed = null;
+  try {
+    parsed = JSON.parse(result.stdout);
+  } catch {
+    parsed = null;
+  }
+  if (parsed?.schemaId === "pi67-shared-skill-packs-status/v1") return parsed;
+  return fallback(result.stderr || result.error || "could not parse shared Skill Pack status");
+}
+
+function deriveResult(repository, remote, report, xtalpiSmoke, skillPacks) {
   const recommendations = [];
   const warnings = [];
   const blockers = [];
@@ -522,6 +561,18 @@ function deriveResult(repository, remote, report, xtalpiSmoke) {
 
   if (!repository.isGit) {
     blockers.push("repository is not a git checkout");
+  }
+
+  if (!skillPacks.registry?.valid) {
+    blockers.push(`shared Skill Pack registry is invalid: ${(skillPacks.errors || []).join("; ") || "unknown error"}`);
+    recommendations.push("Run: pi-67 skills packs");
+  } else {
+    const inconsistentPacks = (skillPacks.packs || []).filter((entry) => !entry.consistent);
+    if (inconsistentPacks.length > 0) recommendations.push(`Run: ${inconsistentPacks[0].commands.inspect}`);
+    for (const pack of inconsistentPacks) {
+      warnings.push(`shared Skill Pack differs: ${pack.name}@${pack.version}; missing=${pack.missing}, conflicts=${pack.conflicts}`);
+      recommendations.push(`Preview: ${pack.commands.preview}`);
+    }
   }
 
   if (repository.dirty) {
@@ -679,6 +730,7 @@ const installMode = deriveInstallMode();
 const repository = deriveRepository();
 const remote = deriveRemote(repository);
 const report = deriveReport(repository, version);
+const sharedSkillPacks = deriveSkillPacks();
 const xtalpiSmoke = xtalpiSmokeEnabled
   ? collectXtalpiSmokeStatus({
       repoRoot,
@@ -694,7 +746,7 @@ const xtalpiSmoke = xtalpiSmokeEnabled
       skipped: true,
       reason: "disabled by caller",
     };
-const status = deriveResult(repository, remote, report, xtalpiSmoke);
+const status = deriveResult(repository, remote, report, xtalpiSmoke, sharedSkillPacks);
 
 const output = {
   schemaVersion: 1,
@@ -713,6 +765,7 @@ const output = {
     installMode,
   },
   report,
+  sharedSkillPacks,
   xtalpiSmoke,
   result: status.result,
   blockers: status.blockers,
@@ -747,6 +800,18 @@ console.log(`Remote     : ${remote.status}${remote.shortCommit ? ` (${remote.sho
 console.log(`Remote note: ${remote.summary}`);
 if (repository.upstream) {
   console.log(`Tracking   : ${repository.upstream} (ahead=${repository.ahead ?? "unknown"} behind=${repository.behind ?? "unknown"})`);
+}
+console.log("");
+console.log("--- skill packs ---");
+if (!sharedSkillPacks.registry?.valid) {
+  console.log(`Registry   : invalid (${(sharedSkillPacks.errors || []).join("; ") || "unknown error"})`);
+} else if (!sharedSkillPacks.packs?.length) {
+  console.log("Registry   : valid; no packs registered");
+} else {
+  for (const pack of sharedSkillPacks.packs) {
+    const detail = pack.consistent ? "consistent" : `missing=${pack.missing} conflicts=${pack.conflicts}`;
+    console.log(`Pack       : ${pack.name}@${pack.version} ${detail}`);
+  }
 }
 console.log("");
 console.log("--- report ---");

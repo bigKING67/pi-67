@@ -50,6 +50,7 @@ Compatibility rule:
 | `repository` | object | stable | pi-67 checkout state. |
 | `sharedSkillsRoot` | string | stable | Canonical active skill root, normally `~/.agents/skills`. |
 | `sharedSkills` | object | stable | Shared skill source/install/duplicate state. |
+| `sharedSkillPacks` | object | optional-stable | Versioned Pack registry and active-root parity status using `pi67-shared-skill-packs-status/v1`. |
 | `externalPackages` | array | deprecated | Always empty under shared skill governance. Kept for compatibility. |
 | `agent` | object | stable | Pi agent directory state. |
 | `runtime` | object | stable | Local runtime versions. |
@@ -138,6 +139,49 @@ reports legacy active roots such as `~/.pi/agent/skills` or package clone
 `skills/` directories when they overlap with the canonical global root.
 `activeSkillPackageSources` should be empty; skill repositories are installed
 into `~/.agents/skills` instead of declared as active Pi packages.
+
+## `sharedSkillPacks`
+
+```json
+{
+  "schemaId": "pi67-shared-skill-packs-status/v1",
+  "registry": {
+    "path": "/path/to/pi-67/shared-skill-packs.json",
+    "exists": true,
+    "valid": true
+  },
+  "skillsDir": "~/.agents/skills",
+  "summary": {
+    "packs": 1,
+    "consistent": 1,
+    "attention": 0
+  },
+  "packs": [
+    {
+      "name": "consumer-brand-commerce-marketing-suite",
+      "version": "2.0.0",
+      "skills": 8,
+      "identical": 8,
+      "missing": 0,
+      "conflicts": 0,
+      "consistent": true,
+      "missingSkills": [],
+      "conflictSkills": [],
+      "commands": {
+        "inspect": "pi-67 skills packs",
+        "preview": "pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --dry-run"
+      }
+    }
+  ],
+  "errors": []
+}
+```
+
+The report stores names, versions, counts, equality state, affected Skill names,
+and safe command hints only. It does not embed Skill bodies or file-level
+content. Registry schema errors appear in `errors` with
+`registry.valid=false`; valid but different active copies increment
+`summary.attention`.
 
 ## `externalPackages`
 

@@ -442,32 +442,47 @@ bash ~/.pi/agent/scripts/pi67-sync-external-skills.sh \
 ```
 
 That command copies `skills/*/SKILL.md` trees into `~/.agents/skills`, skips
-identical already-installed skills, and refuses conflicts. It also supports
-root-level skill repositories with `repo/SKILL.md`, such as
-`commerce-growth-os`:
+identical already-installed skills, and refuses conflicts. Manifest-built
+monorepos use their own Installer. For the Consumer Brand Commerce and
+Marketing Pack:
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-check-external-skills.sh \
-  --repo /path/to/commerce-growth-os
-
-bash ~/.pi/agent/scripts/pi67-sync-external-skills.sh \
-  --repo /path/to/commerce-growth-os \
+bash /path/to/commerce-growth-os/scripts/install.sh \
+  --install-root ~/.agents/skills \
   --dry-run
+
+bash /path/to/commerce-growth-os/scripts/install.sh \
+  --install-root ~/.agents/skills
 ```
 
 It does not edit `~/.pi/agent/git/...`, `settings.json`, or `mcp.json`.
 
-Maintainers refreshing pi-67's vendored `shared-skills/commerce-growth-os`
-copy from the standalone upstream repo should use:
+Maintainers refreshing pi-67's vendored eight-Skill Pack should use:
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-sync-commerce-growth-os.sh \
+bash ~/.pi/agent/scripts/pi67-sync-commerce-skill-pack.sh \
   --source /path/to/commerce-growth-os \
   --dry-run
 
-bash ~/.pi/agent/scripts/pi67-sync-commerce-growth-os.sh \
+bash ~/.pi/agent/scripts/pi67-sync-commerce-skill-pack.sh \
   --source /path/to/commerce-growth-os \
   --apply --yes
+```
+
+After a normal update, align an existing machine explicitly when Pack contents
+differ:
+
+```bash
+pi-67 skills packs
+pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --dry-run
+pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --yes
+```
+
+Doctor, Status, Update Plan, and `pi67-report.json` expose the same read-only
+`pi67-shared-skill-packs-status/v1` parity block. To inspect it directly:
+
+```bash
+node ~/.pi/agent/scripts/pi67-shared-skill-packs-status.mjs --json
 ```
 
 Before applying real repo syncs, use the optional read-only checker when you

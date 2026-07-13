@@ -1040,29 +1040,49 @@ bash ~/.pi/agent/scripts/pi67-sync-external-skills.sh \
   --dry-run
 ```
 
-The same helper also supports root-level skill repos such as
-`commerce-growth-os`:
+The Consumer Brand Commerce and Marketing repository is a Manifest-built
+8-Skill Pack. Use its own Installer so shared resources are materialized:
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-check-external-skills.sh \
-  --repo /path/to/commerce-growth-os
-
-bash ~/.pi/agent/scripts/pi67-sync-external-skills.sh \
-  --repo /path/to/commerce-growth-os \
+bash /path/to/commerce-growth-os/scripts/install.sh \
+  --install-root ~/.agents/skills \
   --dry-run
+
+bash /path/to/commerce-growth-os/scripts/install.sh \
+  --install-root ~/.agents/skills
 ```
 
 Maintainers refreshing the vendored pi-67 distribution copy should use:
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-sync-commerce-growth-os.sh \
+bash ~/.pi/agent/scripts/pi67-sync-commerce-skill-pack.sh \
   --source /path/to/commerce-growth-os \
   --dry-run
 
-bash ~/.pi/agent/scripts/pi67-sync-commerce-growth-os.sh \
+bash ~/.pi/agent/scripts/pi67-sync-commerce-skill-pack.sh \
   --source /path/to/commerce-growth-os \
   --apply --yes
 ```
+
+If `pi-67 update` preserved an older active Pack, inspect and align it with a
+backup before replacement:
+
+```bash
+pi-67 skills packs
+pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --dry-run
+pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --yes
+```
+
+The same mismatch is visible without writing through:
+
+```bash
+node ~/.pi/agent/scripts/pi67-shared-skill-packs-status.mjs --json
+```
+
+If `registry.valid` is `false`, fix the registry or vendored source contract
+before attempting a Pack sync. If the registry is valid and
+`summary.attention > 0`, inspect `missingSkills` / `conflictSkills`, then run the
+reported `sync-pack ... --dry-run` preview. Do not jump directly to `--yes`.
 
 For a read-only summary before applying a real repo sync, use:
 

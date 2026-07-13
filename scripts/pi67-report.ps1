@@ -258,6 +258,54 @@ function Get-SharedSkillsSummary {
   }
 }
 
+function Get-SharedSkillPacksStatus {
+  $helper = Join-Path $ScriptDir "pi67-shared-skill-packs-status.mjs"
+  $registryPath = Join-Path $RepoRoot "shared-skill-packs.json"
+  if (-not (Get-Command "node" -ErrorAction SilentlyContinue)) {
+    return [ordered]@{
+      schemaId = "pi67-shared-skill-packs-status/v1"
+      registry = [ordered]@{ path = $registryPath; exists = (Test-Path -LiteralPath $registryPath -PathType Leaf); valid = $false }
+      skillsDir = $SkillsDir
+      summary = [ordered]@{ packs = 0; consistent = 0; attention = 1 }
+      packs = @()
+      errors = @("node is required to inspect shared Skill Packs")
+    }
+  }
+  if (-not (Test-Path -LiteralPath $helper -PathType Leaf)) {
+    return [ordered]@{
+      schemaId = "pi67-shared-skill-packs-status/v1"
+      registry = [ordered]@{ path = $registryPath; exists = (Test-Path -LiteralPath $registryPath -PathType Leaf); valid = $false }
+      skillsDir = $SkillsDir
+      summary = [ordered]@{ packs = 0; consistent = 0; attention = 1 }
+      packs = @()
+      errors = @("shared Skill Pack status helper is missing")
+    }
+  }
+
+  $result = Invoke-External "node" @(
+    $helper,
+    "--repo-root", $RepoRoot,
+    "--skills-dir", $SkillsDir,
+    "--json"
+  )
+  try {
+    $status = $result.text | ConvertFrom-Json
+    if ($status.schemaId -ne "pi67-shared-skill-packs-status/v1") {
+      throw "unexpected schemaId: $($status.schemaId)"
+    }
+    return $status
+  } catch {
+    return [ordered]@{
+      schemaId = "pi67-shared-skill-packs-status/v1"
+      registry = [ordered]@{ path = $registryPath; exists = (Test-Path -LiteralPath $registryPath -PathType Leaf); valid = $false }
+      skillsDir = $SkillsDir
+      summary = [ordered]@{ packs = 0; consistent = 0; attention = 1 }
+      packs = @()
+      errors = @($_.Exception.Message)
+    }
+  }
+}
+
 function Invoke-DoctorJson {
   if ($NoDoctor) {
     return [ordered]@{
@@ -345,6 +393,7 @@ $report = [ordered]@{
   }
   sharedSkillsRoot = $SkillsDir
   sharedSkills = Get-SharedSkillsSummary
+  sharedSkillPacks = Get-SharedSkillPacksStatus
   externalPackages = @()
   agent = [ordered]@{
     dir = $AgentDir

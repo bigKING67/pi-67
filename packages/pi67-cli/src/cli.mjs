@@ -85,7 +85,7 @@ Commands:
   version              Print manager and distro versions
   xtalpi               Configure and verify the company xtalpi-pi-tools provider
   themes               current/list/doctor/set without update-time overwrite
-  skills               inventory/plan/diff/sync/migrate shared skills
+  skills               inventory/packs/plan/diff/sync/sync-pack/migrate shared skills
   extensions           list/doctor/inspect/plan extension ownership policy
   external             list/install/setup/update/doctor external repos
   self-update          Explicitly update the npm manager package

@@ -63,6 +63,10 @@ XTALPI_PI_TOOLS_DOC="$REPO_ROOT/docs/xtalpi-pi-tools.md"
 SKILL_GOVERNANCE_TEST="$REPO_ROOT/scripts/pi67-test-skill-governance.sh"
 EXTERNAL_SKILLS_CHECK="$REPO_ROOT/scripts/pi67-check-external-skills.sh"
 COMMERCE_GROWTH_SYNC="$REPO_ROOT/scripts/pi67-sync-commerce-growth-os.sh"
+COMMERCE_SKILL_PACK_SYNC="$REPO_ROOT/scripts/pi67-sync-commerce-skill-pack.sh"
+COMMERCE_SKILL_PACK_SYNC_MJS="$REPO_ROOT/scripts/pi67-sync-commerce-skill-pack.mjs"
+SHARED_SKILL_PACKS="$REPO_ROOT/shared-skill-packs.json"
+SHARED_SKILL_PACK_STATUS="$REPO_ROOT/scripts/pi67-shared-skill-packs-status.mjs"
 RELEASE_ARTIFACT_SMOKE="$REPO_ROOT/scripts/pi67-release-artifact-smoke.sh"
 RELEASE_SCRIPT="$REPO_ROOT/scripts/pi67-release.sh"
 XTALPI_PI_TOOLS_SCRIPT="$REPO_ROOT/scripts/pi67-xtalpi-pi-tools.sh"
@@ -286,6 +290,14 @@ else
   fail "missing docs/release.md"
 fi
 
+if grep -q "pi67-sync-commerce-skill-pack.sh" "$RELEASE_DOC" \
+  && grep -q "shared-skill-packs.json" "$RELEASE_DOC" \
+  && grep -q 'report `NOOP`' "$RELEASE_DOC"; then
+  pass "release workflow includes upstream-to-vendored Skill Pack parity"
+else
+  fail "release workflow is missing Skill Pack parity guidance"
+fi
+
 if grep -q "pi67-release-check.sh" "$REPO_ROOT/README.md" && grep -q "pi67-release-check.sh" "$RELEASE_DOC"; then
   pass "release check is documented"
 else
@@ -479,7 +491,14 @@ else
   fail "skill migration/sync workflows are not documented"
 fi
 
-if [ -f "$SKILL_GOVERNANCE_TEST" ] && [ -f "$EXTERNAL_SKILLS_CHECK" ] && [ -f "$COMMERCE_GROWTH_SYNC" ] && [ -f "$RELEASE_ARTIFACT_SMOKE" ]; then
+if [ -f "$SKILL_GOVERNANCE_TEST" ] \
+  && [ -f "$EXTERNAL_SKILLS_CHECK" ] \
+  && [ -f "$COMMERCE_GROWTH_SYNC" ] \
+  && [ -f "$COMMERCE_SKILL_PACK_SYNC" ] \
+  && [ -f "$COMMERCE_SKILL_PACK_SYNC_MJS" ] \
+  && [ -f "$SHARED_SKILL_PACKS" ] \
+  && [ -f "$SHARED_SKILL_PACK_STATUS" ] \
+  && [ -f "$RELEASE_ARTIFACT_SMOKE" ]; then
   pass "governance and artifact check scripts exist"
 else
   fail "governance and artifact check scripts are missing"
@@ -503,10 +522,66 @@ else
   fail "browser67 explicit setup or layered doctor documentation is incomplete"
 fi
 
-if grep -q "pi67-test-skill-governance.sh" "$SKILL_GOV_DOC" && grep -q "pi67-check-external-skills.sh" "$SKILL_GOV_DOC" && grep -q "pi67-sync-commerce-growth-os.sh" "$SKILL_GOV_DOC"; then
+if grep -q "pi67-test-skill-governance.sh" "$SKILL_GOV_DOC" \
+  && grep -q "pi67-check-external-skills.sh" "$SKILL_GOV_DOC" \
+  && grep -q "pi67-sync-commerce-skill-pack.sh" "$SKILL_GOV_DOC" \
+  && grep -q "skills sync-pack consumer-brand-commerce-marketing-suite" "$SKILL_GOV_DOC"; then
   pass "skill governance check scripts are documented"
 else
   fail "skill governance check scripts are not documented"
+fi
+
+if command_exists node && node - "$SHARED_SKILL_PACKS" "$REPO_ROOT/shared-skills" <<'NODE'
+const fs = require("fs");
+const path = require("path");
+const [registryFile, skillsRoot] = process.argv.slice(2);
+const data = JSON.parse(fs.readFileSync(registryFile, "utf8"));
+if (data.schema !== "pi67.shared-skill-packs.v1" || !Array.isArray(data.packs)) {
+  throw new Error("invalid shared Skill Pack registry schema");
+}
+const pack = data.packs.find((entry) => entry.name === "consumer-brand-commerce-marketing-suite");
+if (!pack || !/^\d+\.\d+\.\d+$/.test(pack.version || "") || pack.skills.length !== 8) {
+  throw new Error("Consumer Brand Skill Pack registry entry is missing or stale");
+}
+for (const name of pack.skills) {
+  if (!fs.existsSync(path.join(skillsRoot, name, "SKILL.md"))) {
+    throw new Error(`vendored Skill Pack entry is missing: ${name}`);
+  }
+}
+NODE
+then
+  pass "shared Skill Pack registry and eight vendored Skills are consistent"
+else
+  fail "shared Skill Pack registry or vendored Skills are invalid"
+fi
+
+if command_exists node; then
+  SKILL_PACK_STATUS_JSON="$(mktemp "${TMPDIR:-/tmp}/pi67-skill-pack-status.XXXXXX.json")"
+  if node --check "$SHARED_SKILL_PACK_STATUS" >/dev/null \
+    && node "$SHARED_SKILL_PACK_STATUS" --repo-root "$REPO_ROOT" --skills-dir "$REPO_ROOT/shared-skills" --json > "$SKILL_PACK_STATUS_JSON" \
+    && node - "$SKILL_PACK_STATUS_JSON" <<'NODE'
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+if (data.schemaId !== "pi67-shared-skill-packs-status/v1") throw new Error(`unexpected schemaId: ${data.schemaId}`);
+if (!data.registry?.valid) throw new Error(`invalid registry: ${(data.errors || []).join("; ")}`);
+if (data.summary?.attention !== 0) throw new Error(`vendored pack differs from itself: ${JSON.stringify(data.summary)}`);
+NODE
+  then
+    pass "shared Skill Pack diagnostic helper and schema passed"
+  else
+    fail "shared Skill Pack diagnostic helper or schema failed"
+  fi
+  rm -f "$SKILL_PACK_STATUS_JSON"
+else
+  warn "node not found; skipped shared Skill Pack diagnostic helper"
+fi
+
+if grep -q "pi67-shared-skill-packs-status/v1" "$STATUS_DOC" \
+  && grep -q "pi67-shared-skill-packs-status/v1" "$REPORT_SCHEMA_DOC" \
+  && grep -q "pi67-shared-skill-packs-status/v1" "$DOCTOR_SCHEMA_DOC"; then
+  pass "shared Skill Pack diagnostics are documented across status/report/doctor"
+else
+  fail "shared Skill Pack diagnostic schema documentation is incomplete"
 fi
 
 if grep -q "pi67-release-artifact-smoke.sh" "$RELEASE_DOC"; then
@@ -829,7 +904,7 @@ if command_exists git && git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/d
     fail "git diff --check failed"
   fi
 
-  if git -C "$REPO_ROOT" ls-files --error-unmatch .gitattributes VERSION CHANGELOG.md .github/workflows/ci.yml .github/workflows/npm-publish.yml docs/release.md docs/windows-fresh-install.md docs/report-schema.md docs/doctor-schema.md docs/status.md docs/skill-migration-schema.md docs/external-skill-sync-schema.md docs/skill-governance.md docs/troubleshooting.md docs/xtalpi-pi-tools.md packages/pi67-cli/package.json packages/pi67-cli/README.md packages/pi67-cli/CHANGELOG.md packages/pi67-cli/bin/pi-67.mjs packages/pi67-cli/scripts/check.mjs packages/pi67-cli/src/cli.mjs packages/pi67-cli/src/commands/backups.mjs packages/pi67-cli/src/commands/extensions.mjs packages/pi67-cli/src/commands/manifest.mjs packages/pi67-cli/src/commands/publish-check.mjs packages/pi67-cli/src/commands/self-update.mjs packages/pi67-cli/src/commands/xtalpi.mjs packages/pi67-cli/src/data/distro-manifest.json packages/pi67-cli/src/data/extension-registry.json packages/pi67-cli/src/lib/distro-manifest.mjs packages/pi67-cli/src/lib/extension-registry.mjs packages/pi67-cli/src/lib/npm-registry.mjs packages/pi67-cli/src/lib/settings-runtime-clean.mjs packages/pi67-cli/src/lib/settings-runtime-state.mjs packages/pi67-cli/src/lib/update-safety.mjs packages/pi67-cli/src/lib/upstream-pi-runtime.mjs packages/pi67-cli/src/lib/xtalpi-config.mjs packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs packages/pi67-cli/schemas/pi67-distro-manifest.schema.json packages/pi67-cli/schemas/pi67-extension-registry.schema.json packages/pi67-cli/schemas/pi67-publish-check.schema.json packages/pi67-cli/schemas/pi67-state.schema.json packages/pi67-cli/schemas/pi67-update-plan.schema.json scripts/pi67-bootstrap.ps1 scripts/pi67-check-external-skills.sh scripts/pi67-doctor.sh scripts/pi67-doctor.ps1 scripts/pi67-json-utils.cjs scripts/pi67-json-utils.ps1 scripts/pi67-mcp-config-utils.cjs scripts/pi67-upstream-pi-status.mjs scripts/pi67-migrate-skills.sh scripts/pi67-release-artifact-smoke.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-report.ps1 scripts/pi67-status.sh scripts/pi67-shared-skills-inventory.sh scripts/pi67-sync-commerce-growth-os.sh scripts/pi67-sync-external-skills.sh scripts/pi67-test-skill-governance.sh scripts/pi67-update.sh scripts/pi67-update.ps1 scripts/pi67-windows-acceptance.ps1 scripts/pi67-smoke.ps1 scripts/pi67-zero-key-startup-probe.ts scripts/pi67-zero-key-startup-smoke.ps1 scripts/pi67-xtalpi-pi-tools.sh scripts/pi67-xtalpi-pi-tools.ps1 scripts/pi67-test-xtalpi-pi-tools.sh scripts/pi67-fuzz-xtalpi-parser.mjs scripts/pi67-patch-pi-until-done-runtime-queue.mjs scripts/pi67-patch-pi-until-done-runtime-queue.sh scripts/pi67-patch-pi-until-done-runtime-queue.ps1 scripts/pi67-xtalpi-pi-tools-smoke.sh scripts/pi67-xtalpi-pi-tools-smoke.ps1 scripts/pi67-xtalpi-pi-tools-debug-summary.sh scripts/pi67-xtalpi-tool-coverage-audit.sh scripts/pi67-xtalpi-smoke-status-core.cjs scripts/pi67-xtalpi-smoke-plan.mjs scripts/pi67-xtalpi-provider-health.mjs scripts/pi67-xtalpi-provider-capability-probe.mjs scripts/pi67-validate-xtalpi-provider-error-contract.mjs extensions/xtalpi-pi-tools/json-file.ts extensions/xtalpi-pi-tools/json-action-protocol.ts extensions/xtalpi-pi-tools/vision-bridge.ts extensions/xtalpi-pi-tools/browser-bridge.ts extensions/pi-vision-bridge/index.ts extensions/xtalpi-pi-tools/fixtures/replay-cases.json extensions/xtalpi-pi-tools/provider-error-contract.json >/dev/null 2>&1; then
+  if git -C "$REPO_ROOT" ls-files --error-unmatch .gitattributes VERSION CHANGELOG.md shared-skill-packs.json .github/workflows/ci.yml .github/workflows/npm-publish.yml docs/release.md docs/windows-fresh-install.md docs/report-schema.md docs/doctor-schema.md docs/status.md docs/skill-migration-schema.md docs/external-skill-sync-schema.md docs/skill-governance.md docs/troubleshooting.md docs/xtalpi-pi-tools.md packages/pi67-cli/package.json packages/pi67-cli/README.md packages/pi67-cli/CHANGELOG.md packages/pi67-cli/bin/pi-67.mjs packages/pi67-cli/scripts/check.mjs packages/pi67-cli/src/cli.mjs packages/pi67-cli/src/commands/backups.mjs packages/pi67-cli/src/commands/extensions.mjs packages/pi67-cli/src/commands/manifest.mjs packages/pi67-cli/src/commands/publish-check.mjs packages/pi67-cli/src/commands/self-update.mjs packages/pi67-cli/src/commands/skills.mjs packages/pi67-cli/src/commands/xtalpi.mjs packages/pi67-cli/src/data/distro-manifest.json packages/pi67-cli/src/data/extension-registry.json packages/pi67-cli/src/lib/distro-manifest.mjs packages/pi67-cli/src/lib/extension-registry.mjs packages/pi67-cli/src/lib/npm-registry.mjs packages/pi67-cli/src/lib/settings-runtime-clean.mjs packages/pi67-cli/src/lib/settings-runtime-state.mjs packages/pi67-cli/src/lib/skill-policy.mjs packages/pi67-cli/src/lib/update-safety.mjs packages/pi67-cli/src/lib/upstream-pi-runtime.mjs packages/pi67-cli/src/lib/xtalpi-config.mjs packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs packages/pi67-cli/schemas/pi67-distro-manifest.schema.json packages/pi67-cli/schemas/pi67-extension-registry.schema.json packages/pi67-cli/schemas/pi67-publish-check.schema.json packages/pi67-cli/schemas/pi67-state.schema.json packages/pi67-cli/schemas/pi67-update-plan.schema.json scripts/pi67-bootstrap.ps1 scripts/pi67-check-external-skills.sh scripts/pi67-doctor.sh scripts/pi67-doctor.ps1 scripts/pi67-json-utils.cjs scripts/pi67-json-utils.ps1 scripts/pi67-mcp-config-utils.cjs scripts/pi67-upstream-pi-status.mjs scripts/pi67-migrate-skills.sh scripts/pi67-release-artifact-smoke.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-report.ps1 scripts/pi67-status.sh scripts/pi67-shared-skills-inventory.sh scripts/pi67-shared-skill-packs-status.mjs scripts/pi67-sync-commerce-growth-os.sh scripts/pi67-sync-commerce-skill-pack.sh scripts/pi67-sync-commerce-skill-pack.mjs scripts/pi67-sync-external-skills.sh scripts/pi67-test-skill-governance.sh scripts/pi67-update.sh scripts/pi67-update.ps1 scripts/pi67-windows-acceptance.ps1 scripts/pi67-smoke.ps1 scripts/pi67-zero-key-startup-probe.ts scripts/pi67-zero-key-startup-smoke.ps1 scripts/pi67-xtalpi-pi-tools.sh scripts/pi67-xtalpi-pi-tools.ps1 scripts/pi67-test-xtalpi-pi-tools.sh scripts/pi67-fuzz-xtalpi-parser.mjs scripts/pi67-patch-pi-until-done-runtime-queue.mjs scripts/pi67-patch-pi-until-done-runtime-queue.sh scripts/pi67-patch-pi-until-done-runtime-queue.ps1 scripts/pi67-xtalpi-pi-tools-smoke.sh scripts/pi67-xtalpi-pi-tools-smoke.ps1 scripts/pi67-xtalpi-pi-tools-debug-summary.sh scripts/pi67-xtalpi-tool-coverage-audit.sh scripts/pi67-xtalpi-smoke-status-core.cjs scripts/pi67-xtalpi-smoke-plan.mjs scripts/pi67-xtalpi-provider-health.mjs scripts/pi67-xtalpi-provider-capability-probe.mjs scripts/pi67-validate-xtalpi-provider-error-contract.mjs extensions/xtalpi-pi-tools/json-file.ts extensions/xtalpi-pi-tools/json-action-protocol.ts extensions/xtalpi-pi-tools/vision-bridge.ts extensions/xtalpi-pi-tools/browser-bridge.ts extensions/pi-vision-bridge/index.ts extensions/xtalpi-pi-tools/fixtures/replay-cases.json extensions/xtalpi-pi-tools/provider-error-contract.json >/dev/null 2>&1; then
     pass "release metadata files are tracked or staged"
   else
     warn "release metadata files are not all tracked yet; expected before final commit"

@@ -46,7 +46,7 @@ Options:
   -SkillList           Deprecated alias for -PiList.
   -SkillListTimeoutSeconds
                        Deprecated timeout alias for -PiListTimeoutSeconds.
-  -StrictSharedSkills  Treat missing shared skill copies as FAIL.
+  -StrictSharedSkills  Treat missing/different shared skills and Skill Packs as FAIL.
   -Help                Show this help.
 
 The PowerShell doctor does not start MCP servers. Use the Bash doctor
@@ -465,6 +465,7 @@ $requiredFiles = @(
   "scripts/pi67-mcp-config-utils.cjs",
   "scripts/pi67-upstream-pi-status.mjs",
   "scripts/pi67-provider-status.mjs",
+  "scripts/pi67-shared-skill-packs-status.mjs",
   "scripts/pi67-xtalpi-pi-tools-smoke.ps1",
   "extensions/xtalpi-pi-tools/json-file.ts",
   "extensions/xtalpi-pi-tools/runtime-config.ts",
@@ -678,6 +679,41 @@ if (-not (Test-Path -LiteralPath $sourceSkillsRoot -PathType Container)) {
   } else {
     $message = "missing installed shared skills: {0}" -f (($missingSkills | Select-Object -First 12) -join ", ")
     if ($StrictSharedSkills) { Fail $message } else { Warn $message }
+  }
+}
+
+$skillPackStatusScript = RepoPath "scripts" "pi67-shared-skill-packs-status.mjs"
+if (-not (Test-CommandExists "node")) {
+  Fail "node not found; cannot inspect shared Skill Packs"
+} elseif (-not (Test-Path -LiteralPath $skillPackStatusScript -PathType Leaf)) {
+  Fail "shared Skill Pack status helper missing"
+} else {
+  $skillPackResult = Invoke-External "node" @(
+    $skillPackStatusScript,
+    "--repo-root", $RepoRoot,
+    "--skills-dir", $SkillsDir,
+    "--json"
+  ) $RepoRoot
+  try {
+    $skillPackStatus = $skillPackResult.text | ConvertFrom-Json
+    if ($skillPackStatus.schemaId -ne "pi67-shared-skill-packs-status/v1") {
+      Fail ("unexpected shared Skill Pack status schema: {0}" -f $skillPackStatus.schemaId)
+    } elseif (-not $skillPackStatus.registry.valid) {
+      Fail ("shared Skill Pack registry invalid: {0}" -f (@($skillPackStatus.errors) -join "; "))
+    } elseif (@($skillPackStatus.packs).Count -eq 0) {
+      Warn "shared Skill Pack registry has no registered packs"
+    } else {
+      foreach ($pack in @($skillPackStatus.packs)) {
+        if ($pack.consistent) {
+          Pass ("shared Skill Pack consistent: {0}@{1} ({2} skills)" -f $pack.name, $pack.version, $pack.skills)
+        } else {
+          $message = "shared Skill Pack differs: {0}@{1}; missing={2}, conflicts={3}; run pi-67 skills packs; preview: {4}" -f $pack.name, $pack.version, $pack.missing, $pack.conflicts, $pack.commands.preview
+          if ($StrictSharedSkills) { Fail $message } else { Warn $message }
+        }
+      }
+    }
+  } catch {
+    Fail ("could not inspect shared Skill Packs: {0}" -f $_.Exception.Message)
   }
 }
 

@@ -102,7 +102,25 @@
     },
     "sharedSkills": {
       "type": "object",
-      "required": ["sourceDir", "activeDirDefault", "policy", "activeDir"]
+      "required": ["sourceDir", "packRegistry", "activeDirDefault", "policy", "activeDir"],
+      "properties": {
+        "sourceDir": {
+          "const": "shared-skills"
+        },
+        "packRegistry": {
+          "const": "shared-skill-packs.json"
+        },
+        "activeDirDefault": {
+          "const": "~/.agents/skills"
+        },
+        "policy": {
+          "type": "string"
+        },
+        "activeDir": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
     },
     "extensionRegistry": {
       "type": "object",

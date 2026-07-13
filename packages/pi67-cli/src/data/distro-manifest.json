@@ -52,6 +52,7 @@
   },
   "sharedSkills": {
     "sourceDir": "shared-skills",
+    "packRegistry": "shared-skill-packs.json",
     "activeDirDefault": "~/.agents/skills",
     "policy": "copy-by-default-preserve-different-existing-skills-unless-strict"
   },

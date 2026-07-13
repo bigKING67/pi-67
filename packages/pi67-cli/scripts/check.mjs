@@ -54,6 +54,11 @@ import {
   decodeJsonDocument,
   replaceFileSafely,
 } from "../src/lib/xtalpi-config.mjs";
+import {
+  inspectSkillPackStatus,
+  inventorySkillPacks,
+  syncSkillPack,
+} from "../src/lib/skill-policy.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const files = [];
@@ -84,6 +89,7 @@ runSettingsRuntimeStateSelfTests();
 runUpdatePreflightMigrationSelfTests();
 runUpdatePlanSelfTests();
 runUpdateSafetySelfTests();
+runSkillPackPolicySelfTests();
 
 function walk(dir, files) {
   if (!fs.existsSync(dir)) return;
@@ -118,6 +124,82 @@ function runArgsSelfTests() {
     parseCommandOptions(["--json"], { bools: ["json"] }).options.json,
     "command option parser must accept command-level --json",
   );
+}
+
+function runSkillPackPolicySelfTests() {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-skill-pack-policy-"));
+  const repoRoot = path.join(tmpRoot, "repo");
+  const skillsDir = path.join(tmpRoot, "skills");
+  const stateDir = path.join(tmpRoot, "state");
+  fs.mkdirSync(path.join(repoRoot, "shared-skills", "pack-a"), { recursive: true });
+  fs.mkdirSync(path.join(repoRoot, "shared-skills", "pack-b"), { recursive: true });
+  fs.mkdirSync(path.join(skillsDir, "pack-a"), { recursive: true });
+  fs.writeFileSync(path.join(repoRoot, "shared-skills", "pack-a", "SKILL.md"), "source-a\n");
+  fs.writeFileSync(path.join(repoRoot, "shared-skills", "pack-b", "SKILL.md"), "source-b\n");
+  fs.writeFileSync(path.join(skillsDir, "pack-a", "SKILL.md"), "old-a\n");
+  fs.writeFileSync(path.join(repoRoot, "shared-skill-packs.json"), `${JSON.stringify({
+    schema: "pi67.shared-skill-packs.v1",
+    packs: [{
+      name: "fixture-pack",
+      version: "1.0.0",
+      upstream: "https://example.invalid/fixture-pack",
+      skills: ["pack-a", "pack-b"],
+    }],
+  }, null, 2)}\n`);
+  const ctx = { repoRoot, skillsDir, stateDir };
+
+  const dryOnlySkillsDir = path.join(tmpRoot, "dry-only-skills");
+  syncSkillPack({ ...ctx, skillsDir: dryOnlySkillsDir }, "fixture-pack", { dryRun: true, yes: true });
+  assert(!fs.existsSync(dryOnlySkillsDir), "skill pack dry-run must not create the target root");
+
+  const before = inventorySkillPacks(ctx).packs[0];
+  assert(before.summary.conflicts === 1 && before.summary.missing === 1, "skill pack inventory must expose conflicts and missing skills");
+  const beforeStatus = inspectSkillPackStatus(ctx);
+  assert(beforeStatus.schemaId === "pi67-shared-skill-packs-status/v1", "skill pack status schema must be stable");
+  assert(beforeStatus.registry.valid, "skill pack status must validate a well-formed registry");
+  assert(beforeStatus.summary.attention === 1, "skill pack status must summarize inconsistent packs");
+  assert(
+    beforeStatus.packs[0].missingSkills.includes("pack-b") && beforeStatus.packs[0].conflictSkills.includes("pack-a"),
+    "skill pack status must expose missing and conflicting skill names",
+  );
+  assert(
+    beforeStatus.packs[0].commands.preview === "pi-67 skills sync-pack fixture-pack --dry-run",
+    "skill pack status must provide a non-writing preview command",
+  );
+  const dryRun = syncSkillPack(ctx, "fixture-pack", { dryRun: true, yes: true });
+  assert(dryRun.actions.some((item) => item.action === "replace-dry-run"), "skill pack dry-run must plan explicit replacement");
+  assert(dryRun.actions.some((item) => item.action === "copy-dry-run"), "skill pack dry-run must plan missing skill copy");
+  assert(fs.readFileSync(path.join(skillsDir, "pack-a", "SKILL.md"), "utf8") === "old-a\n", "skill pack dry-run must not write");
+
+  syncSkillPack(ctx, "fixture-pack", { yes: true });
+  const after = inventorySkillPacks(ctx).packs[0];
+  assert(after.consistent, "explicit skill pack sync must make every pack skill consistent");
+  const afterStatus = inspectSkillPackStatus(ctx);
+  assert(afterStatus.summary.consistent === 1 && afterStatus.summary.attention === 0, "skill pack status must turn green after sync");
+  assert(fs.readFileSync(path.join(skillsDir, "pack-b", "SKILL.md"), "utf8") === "source-b\n", "skill pack sync must copy missing skills");
+  const backupsRoot = path.join(stateDir, "backups");
+  assert(fs.existsSync(backupsRoot) && fs.readdirSync(backupsRoot).length > 0, "skill pack replacement must create a backup");
+  assert(!fs.readdirSync(skillsDir).some((name) => name.startsWith(".pi67-skills-sync-")), "skill pack sync must clean transaction paths");
+
+  const registryPath = path.join(repoRoot, "shared-skill-packs.json");
+  const validRegistry = fs.readFileSync(registryPath, "utf8");
+  fs.writeFileSync(registryPath, validRegistry.replace('"1.0.0"', '"not-semver"'));
+  const invalidVersion = inspectSkillPackStatus(ctx);
+  assert(!invalidVersion.registry.valid && invalidVersion.errors[0].includes("SemVer"), "skill pack status must reject invalid versions");
+  fs.writeFileSync(registryPath, `${JSON.stringify({
+    schema: "pi67.shared-skill-packs.v1",
+    packs: [
+      { name: "fixture-pack", version: "1.0.0", skills: ["pack-a"] },
+      { name: "fixture-pack-two", version: "1.0.0", skills: ["pack-a"] },
+    ],
+  }, null, 2)}\n`);
+  const duplicateOwner = inspectSkillPackStatus(ctx);
+  assert(
+    !duplicateOwner.registry.valid && duplicateOwner.errors[0].includes("assigned to multiple packs"),
+    "skill pack status must reject ambiguous cross-pack skill ownership",
+  );
+  fs.writeFileSync(registryPath, validRegistry);
+  fs.rmSync(tmpRoot, { recursive: true, force: true });
 }
 
 function runBrowser67RuntimeSelfTests() {

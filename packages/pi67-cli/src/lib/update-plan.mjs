@@ -4,7 +4,7 @@ import { gitStatus, gitText, remoteHead } from "./git.mjs";
 import { currentTheme, hasTheme, listThemes } from "./theme-policy.mjs";
 import { readJsonFileIfExists } from "./config-json.mjs";
 import { listExternal } from "./external-repos.mjs";
-import { inventorySkills } from "./skill-policy.mjs";
+import { inspectSkillPackStatus, inventorySkills } from "./skill-policy.mjs";
 import { readTextIfExists } from "./paths.mjs";
 import {
   compareSemver,
@@ -35,6 +35,7 @@ export async function buildUpdatePlan(ctx, options = {}) {
   const git = fs.existsSync(ctx.repoRoot) ? gitStatus(ctx.repoRoot) : { isRepo: false };
   const remote = !options.noRemote && git?.isRepo ? remoteHead(ctx.repoRoot) : { skipped: true };
   const skills = inventorySkills(ctx);
+  const skillPacks = inspectSkillPackStatus(ctx, { inventory: skills });
   const external = listExternal(ctx);
   const manifest = buildDistroManifest(ctx);
   const [upstreamPi, packageAudit] = await Promise.all([
@@ -89,6 +90,15 @@ export async function buildUpdatePlan(ctx, options = {}) {
   }
   if (skills.summary.conflicts > 0) {
     recommendations.push("Run: pi-67 skills inventory to inspect preserved user-modified global skills.");
+  }
+  if (!skillPacks.registry.valid) {
+    recommendations.push("Run: pi-67 skills packs to inspect the shared Skill Pack registry error.");
+  } else {
+    const inconsistentPacks = skillPacks.packs.filter((entry) => !entry.consistent);
+    if (inconsistentPacks.length > 0) recommendations.push(`Run: ${inconsistentPacks[0].commands.inspect}`);
+    for (const pack of inconsistentPacks) {
+      recommendations.push(`Preview: ${pack.commands.preview}`);
+    }
   }
   if (theme && !hasTheme(ctx, theme)) {
     recommendations.push(`Current theme is missing: ${theme}. Run: pi-67 themes list`);
@@ -179,6 +189,7 @@ export async function buildUpdatePlan(ctx, options = {}) {
     },
     packages: packageAudit,
     skills: skills.summary,
+    skillPacks,
     runtimeState: {
       settingsLastChangelogVersion: settingsRuntimeMarker?.value || "",
       storage: "~/.pi/pi67/state.json",

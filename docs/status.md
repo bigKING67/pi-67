@@ -8,6 +8,7 @@ It summarizes:
 - install mode (`in-place` or `linked`)
 - local Git branch, commit, dirty state, upstream ahead/behind
 - optional remote branch head status
+- live shared Skill Pack version/parity status against `~/.agents/skills`
 - `~/.pi/agent/pi67-report.json` freshness
 - doctor summary from the latest report
 - latest local `xtalpi-pi-tools` smoke artifact history and `full-suite-strict` trend status
@@ -37,6 +38,12 @@ Skip the remote `git ls-remote` check:
 
 ```bash
 bash ~/.pi/agent/scripts/pi67-status.sh --no-remote
+```
+
+Inspect a non-default shared skill root:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-status.sh --skills-dir /path/to/skills
 ```
 
 Inspect a specific branch or remote:
@@ -99,6 +106,7 @@ Stable top-level fields:
 | `installMode` | string | `in-place` when the repo root is the agent dir; otherwise `linked`. |
 | `agent` | object | Pi agent directory path. |
 | `report` | object | Existing `pi67-report.json` parse/freshness state. |
+| `sharedSkillPacks` | object | Live `pi67-shared-skill-packs-status/v1` registry/version/hash-parity status. |
 | `xtalpiSmoke` | object | Read-only compact summary of local xtalpi smoke artifacts, `full-suite-strict` trend status, and full-suite drift status. |
 | `result` | string | Overall status result. |
 | `blockers` | array | Blocking issues. |
@@ -114,6 +122,22 @@ ignored manager state at `~/.pi/pi67/state.json`, removes it from
 `settings.json`, and installs a local Git clean filter so the marker is not
 carried into normal diffs or commits. Any other tracked or untracked change
 still appears as a normal dirty worktree warning.
+
+## Shared Skill Pack status
+
+Both `pi-67 status` and `scripts/pi67-status.sh` expose the read-only
+`pi67-shared-skill-packs-status/v1` contract. It validates
+`shared-skill-packs.json`, compares every registered vendored Skill with the
+active `~/.agents/skills` copy, and reports:
+
+- Pack name and SemVer version
+- total, identical, missing, and conflicting Skill counts
+- exact missing/conflicting Skill names
+- `pi-67 skills packs` as the inspection command
+- `pi-67 skills sync-pack <pack> --dry-run` as the non-writing preview
+
+An invalid registry is `ACTION_REQUIRED`. A valid but inconsistent Pack is a
+warning. Status never recommends the writing `--yes` form automatically.
 
 ## xtalpi smoke status
 

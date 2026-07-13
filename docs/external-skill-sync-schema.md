@@ -14,6 +14,11 @@ repo/SKILL.md
 repo/skills/<skill-name>/SKILL.md
 ```
 
+Manifest-built monorepos with deeper source layouts or materialized shared
+resources are outside this generic copy contract. Use the upstream repository's
+own installer, or a dedicated pi-67 vendoring helper, rather than recursively
+copying source directories without their build step.
+
 For `repo/SKILL.md`, the canonical skill name is read from the `name:` field in
 the `SKILL.md` frontmatter. For `repo/skills/<skill-name>/SKILL.md`, the same
 frontmatter name is used when present; otherwise the directory basename is used.
@@ -81,13 +86,13 @@ Each repository entry records whether a source repo has valid skill directories:
 }
 ```
 
-Root-level skill repositories report `sourceLayouts: ["repo-root"]`:
+Root-level single-Skill repositories report `sourceLayouts: ["repo-root"]`:
 
 ```json
 {
-  "repo": "/path/to/commerce-growth-os",
+  "repo": "/path/to/root-skill-repo",
   "exists": true,
-  "skillsDir": "/path/to/commerce-growth-os/skills",
+  "skillsDir": "/path/to/root-skill-repo/skills",
   "sourceLayouts": ["repo-root"],
   "skillCount": 1,
   "skills": []

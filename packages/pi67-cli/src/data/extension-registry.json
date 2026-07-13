@@ -110,13 +110,16 @@
       "configPatches": [],
       "explicitCommands": [
         "pi-67 skills inventory",
+        "pi-67 skills packs",
         "pi-67 skills sync",
+        "pi-67 skills sync-pack <pack> --yes",
         "pi-67 skills migrate"
       ],
       "smoke": [
-        "pi-67 skills inventory"
+        "pi-67 skills inventory",
+        "pi-67 skills packs"
       ],
-      "notes": "Different existing shared skills are user-owned by default; strict mode blocks instead of overwriting."
+      "notes": "Different existing shared skills are user-owned by default; strict mode blocks instead of overwriting. Registered multi-Skill packs use explicit backed-up sync-pack upgrades for version alignment."
     },
     {
       "id": "browser67",

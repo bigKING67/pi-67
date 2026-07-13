@@ -3,6 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { CliError } from "./output.mjs";
 
+const SKILL_PACK_REGISTRY = "shared-skill-packs.json";
+
 export function inventorySkills(ctx) {
   const sourceRoot = path.join(ctx.repoRoot, "shared-skills");
   const sourceNames = listSkillDirs(sourceRoot);
@@ -29,6 +31,144 @@ export function inventorySkills(ctx) {
       preservedUserModified: conflicts,
     },
     entries,
+  };
+}
+
+export function inventorySkillPacks(ctx, { inventory = null } = {}) {
+  const registryPath = path.join(ctx.repoRoot, SKILL_PACK_REGISTRY);
+  if (!fs.existsSync(registryPath)) {
+    return {
+      schema: "pi67.skill-packs-inventory.v1",
+      registryPath,
+      registryExists: false,
+      skillsDir: ctx.skillsDir,
+      summary: {
+        packs: 0,
+        consistent: 0,
+        attention: 0,
+      },
+      packs: [],
+    };
+  }
+
+  const registry = readSkillPackRegistry(registryPath);
+  const skillInventory = inventory || inventorySkills(ctx);
+  const byName = new Map(skillInventory.entries.map((entry) => [entry.name, entry]));
+  const packs = registry.packs.map((pack) => {
+    const entries = pack.skills.map((name) => {
+      const entry = byName.get(name);
+      if (!entry) {
+        throw new CliError(`skill pack ${pack.name} references unknown shared skill: ${name}`, 2);
+      }
+      return entry;
+    });
+    const summary = {
+      skills: entries.length,
+      identical: entries.filter((entry) => entry.identical).length,
+      missing: entries.filter((entry) => !entry.targetExists).length,
+      conflicts: entries.filter((entry) => entry.conflict).length,
+    };
+    return {
+      ...pack,
+      summary,
+      consistent: summary.identical === summary.skills,
+      entries,
+    };
+  });
+  return {
+    schema: "pi67.skill-packs-inventory.v1",
+    registryPath,
+    registryExists: true,
+    skillsDir: ctx.skillsDir,
+    summary: {
+      packs: packs.length,
+      consistent: packs.filter((pack) => pack.consistent).length,
+      attention: packs.filter((pack) => !pack.consistent).length,
+    },
+    packs,
+  };
+}
+
+export function inspectSkillPackStatus(ctx, { inventory = null } = {}) {
+  const registryPath = path.join(ctx.repoRoot, SKILL_PACK_REGISTRY);
+  try {
+    if (!fs.existsSync(registryPath)) {
+      throw new CliError(`shared Skill Pack registry is missing: ${registryPath}`, 2);
+    }
+    const packInventory = inventorySkillPacks(ctx, { inventory });
+    return {
+      schemaId: "pi67-shared-skill-packs-status/v1",
+      registry: {
+        path: registryPath,
+        exists: true,
+        valid: true,
+      },
+      skillsDir: ctx.skillsDir,
+      summary: packInventory.summary,
+      packs: packInventory.packs.map((pack) => ({
+        name: pack.name,
+        version: pack.version,
+        upstream: pack.upstream || "",
+        skills: pack.summary.skills,
+        identical: pack.summary.identical,
+        missing: pack.summary.missing,
+        conflicts: pack.summary.conflicts,
+        consistent: pack.consistent,
+        missingSkills: pack.entries.filter((entry) => !entry.targetExists).map((entry) => entry.name),
+        conflictSkills: pack.entries.filter((entry) => entry.conflict).map((entry) => entry.name),
+        commands: {
+          inspect: "pi-67 skills packs",
+          preview: `pi-67 skills sync-pack ${pack.name} --dry-run`,
+        },
+      })),
+      errors: [],
+    };
+  } catch (error) {
+    return {
+      schemaId: "pi67-shared-skill-packs-status/v1",
+      registry: {
+        path: registryPath,
+        exists: fs.existsSync(registryPath),
+        valid: false,
+      },
+      skillsDir: ctx.skillsDir,
+      summary: {
+        packs: 0,
+        consistent: 0,
+        attention: 1,
+      },
+      packs: [],
+      errors: [error instanceof Error ? error.message : String(error)],
+    };
+  }
+}
+
+export function syncSkillPack(ctx, name, { dryRun = false, yes = false } = {}) {
+  const inventory = inventorySkillPacks(ctx);
+  const pack = inventory.packs.find((entry) => entry.name === name);
+  if (!pack) {
+    throw new CliError(`unknown shared skill pack: ${name}`, 2);
+  }
+  const result = syncSkills(ctx, { dryRun, names: pack.skills, yes });
+  const selected = new Set(pack.skills);
+  const entries = result.entries.filter((entry) => selected.has(entry.name));
+  return {
+    ...result,
+    schema: "pi67.skill-pack-sync.v1",
+    summary: {
+      source: entries.length,
+      missing: entries.filter((entry) => !entry.targetExists).length,
+      identical: entries.filter((entry) => entry.identical).length,
+      conflicts: entries.filter((entry) => entry.conflict).length,
+      preservedUserModified: entries.filter((entry) => entry.conflict).length,
+    },
+    entries,
+    pack: {
+      name: pack.name,
+      version: pack.version,
+      upstream: pack.upstream,
+      skills: pack.skills,
+    },
   };
 }
 
@@ -100,7 +240,8 @@ export function syncSkills(ctx, { dryRun = false, names = [], yes = false } = {}
   const selectedSet = new Set(selected);
   const targeted = selected.length > 0;
   const actions = [];
-  fs.mkdirSync(ctx.skillsDir, { recursive: true });
+  const operations = [];
+  const backupRoot = path.join(ctx.stateDir, "backups", `${transactionId()}-skills-sync`);
   for (const entry of inventory.entries) {
     if (targeted && !selectedSet.has(entry.name)) continue;
     if (entry.identical) {
@@ -118,27 +259,76 @@ export function syncSkills(ctx, { dryRun = false, names = [], yes = false } = {}
         });
         continue;
       }
-      const backupDir = path.join(ctx.stateDir, "backups", `${timestamp()}-skills-sync`, entry.name);
+      const backupDir = path.join(backupRoot, entry.name);
       actions.push({
         name: entry.name,
         action: dryRun ? "replace-dry-run" : "replace",
         reason: "target differs and was explicitly named with --yes",
         backupDir,
       });
-      if (!dryRun) {
-        fs.mkdirSync(path.dirname(backupDir), { recursive: true, mode: 0o700 });
-        fs.cpSync(entry.target, backupDir, { recursive: true, force: true });
-        fs.rmSync(entry.target, { recursive: true, force: true });
-        fs.cpSync(entry.source, entry.target, { recursive: true, errorOnExist: true });
-      }
+      operations.push({ entry, action: "replace", backupDir });
       continue;
     }
     actions.push({ name: entry.name, action: dryRun ? "copy-dry-run" : "copy", reason: "missing" });
-    if (!dryRun) {
-      fs.cpSync(entry.source, entry.target, { recursive: true, errorOnExist: true });
-    }
+    operations.push({ entry, action: "copy", backupDir: "" });
   }
+  if (!dryRun && operations.length > 0) applySkillOperations(ctx, operations, backupRoot);
   return { ...inventory, selected, actions };
+}
+
+function applySkillOperations(ctx, operations, backupRoot) {
+  fs.mkdirSync(ctx.skillsDir, { recursive: true });
+  const transactionRoot = path.join(ctx.skillsDir, `.pi67-skills-sync-${transactionId()}`);
+  const stagedRoot = path.join(transactionRoot, "staged");
+  const previousRoot = path.join(transactionRoot, "previous");
+  const activated = [];
+  const movedPrevious = [];
+  try {
+    fs.mkdirSync(stagedRoot, { recursive: true });
+    for (const operation of operations) {
+      fs.cpSync(operation.entry.source, path.join(stagedRoot, operation.entry.name), {
+        recursive: true,
+        errorOnExist: true,
+      });
+      if (operation.action === "replace") {
+        fs.mkdirSync(path.dirname(operation.backupDir), { recursive: true, mode: 0o700 });
+        fs.cpSync(operation.entry.target, operation.backupDir, { recursive: true, errorOnExist: true });
+      }
+    }
+    for (const operation of operations) {
+      const targetExists = fs.existsSync(operation.entry.target);
+      if (operation.action === "copy" && targetExists) {
+        throw new Error(`Skill sync target appeared during transaction: ${operation.entry.name}`);
+      }
+      if (operation.action === "replace" && !targetExists) {
+        throw new Error(`Skill sync target disappeared during transaction: ${operation.entry.name}`);
+      }
+      if (!targetExists) continue;
+      fs.mkdirSync(previousRoot, { recursive: true });
+      fs.renameSync(operation.entry.target, path.join(previousRoot, operation.entry.name));
+      movedPrevious.push(operation.entry.name);
+    }
+    for (const operation of operations) {
+      fs.renameSync(path.join(stagedRoot, operation.entry.name), operation.entry.target);
+      activated.push(operation.entry.name);
+    }
+    for (const operation of operations) {
+      if (hashDir(operation.entry.source) !== hashDir(operation.entry.target)) {
+        throw new Error(`Skill sync hash mismatch: ${operation.entry.name}`);
+      }
+    }
+    fs.rmSync(transactionRoot, { recursive: true, force: true });
+  } catch (error) {
+    for (const name of activated.reverse()) {
+      fs.rmSync(path.join(ctx.skillsDir, name), { recursive: true, force: true });
+    }
+    for (const name of movedPrevious.reverse()) {
+      const previous = path.join(previousRoot, name);
+      if (fs.existsSync(previous)) fs.renameSync(previous, path.join(ctx.skillsDir, name));
+    }
+    fs.rmSync(transactionRoot, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 function listSkillDirs(root) {
@@ -198,8 +388,50 @@ function normalizeNames(names, inventory) {
   return selected;
 }
 
-function timestamp() {
-  return new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "Z");
+function readSkillPackRegistry(file) {
+  let payload;
+  try {
+    payload = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (error) {
+    throw new CliError(`invalid shared skill pack registry: ${error.message}`, 2);
+  }
+  if (payload?.schema !== "pi67.shared-skill-packs.v1" || !Array.isArray(payload.packs)) {
+    throw new CliError("invalid shared skill pack registry schema", 2);
+  }
+  const names = new Set();
+  const skillOwners = new Map();
+  for (const pack of payload.packs) {
+    if (!pack || typeof pack.name !== "string" || !pack.name || typeof pack.version !== "string") {
+      throw new CliError("shared skill pack entries require name and version", 2);
+    }
+    if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(pack.version)) {
+      throw new CliError(`shared skill pack ${pack.name} requires a SemVer version`, 2);
+    }
+    if (names.has(pack.name)) {
+      throw new CliError(`duplicate shared skill pack: ${pack.name}`, 2);
+    }
+    names.add(pack.name);
+    if (
+      !Array.isArray(pack.skills) ||
+      pack.skills.length === 0 ||
+      pack.skills.some((name) => typeof name !== "string" || !name) ||
+      new Set(pack.skills).size !== pack.skills.length
+    ) {
+      throw new CliError(`shared skill pack ${pack.name} requires unique skill names`, 2);
+    }
+    for (const skill of pack.skills) {
+      const owner = skillOwners.get(skill);
+      if (owner) {
+        throw new CliError(`shared skill ${skill} is assigned to multiple packs: ${owner}, ${pack.name}`, 2);
+      }
+      skillOwners.set(skill, pack.name);
+    }
+  }
+  return payload;
+}
+
+function transactionId() {
+  return `${new Date().toISOString().replace(/[-:.]/g, "")}-${process.pid}`;
 }
 
 function walk(dir, files) {

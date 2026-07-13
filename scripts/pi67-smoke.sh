@@ -148,6 +148,12 @@ fi
 if [ -f "$REPO_ROOT/scripts/pi67-sync-commerce-growth-os.sh" ]; then
   bash -n "$REPO_ROOT/scripts/pi67-sync-commerce-growth-os.sh"
 fi
+if [ -f "$REPO_ROOT/scripts/pi67-sync-commerce-skill-pack.sh" ]; then
+  bash -n "$REPO_ROOT/scripts/pi67-sync-commerce-skill-pack.sh"
+fi
+if [ -f "$REPO_ROOT/scripts/pi67-sync-commerce-skill-pack.mjs" ]; then
+  node --check "$REPO_ROOT/scripts/pi67-sync-commerce-skill-pack.mjs"
+fi
 if [ -f "$REPO_ROOT/scripts/pi67-test-skill-governance.sh" ]; then
   bash -n "$REPO_ROOT/scripts/pi67-test-skill-governance.sh"
 fi
@@ -221,7 +227,7 @@ fi
 pass "shell scripts parse"
 
 section "JSON"
-for file in settings.json auth.example.json image-gen.example.json models.example.json mcp.example.json package.json packages/pi67-cli/package.json; do
+for file in settings.json auth.example.json image-gen.example.json models.example.json mcp.example.json package.json shared-skill-packs.json packages/pi67-cli/package.json; do
   json_valid "$REPO_ROOT/$file"
   pass "valid JSON: $file"
 done
@@ -452,6 +458,9 @@ if (!report.sharedSkills || report.sharedSkills.sourceCount < 1) throw new Error
 if (report.sharedSkillsRoot !== expectedSkillsRoot) throw new Error(`report sharedSkillsRoot mismatch: ${report.sharedSkillsRoot}`);
 if (report.sharedSkills.canonicalRoot !== expectedSkillsRoot) throw new Error(`report sharedSkills canonicalRoot mismatch: ${report.sharedSkills.canonicalRoot}`);
 if (report.sharedSkills.missingInstalled.length !== 0) throw new Error(`shared skills missing from temp root: ${report.sharedSkills.missingInstalled.join(", ")}`);
+if (report.sharedSkillPacks?.schemaId !== "pi67-shared-skill-packs-status/v1") throw new Error("report sharedSkillPacks schema missing");
+if (!report.sharedSkillPacks.registry?.valid) throw new Error(`report shared Skill Pack registry invalid: ${(report.sharedSkillPacks.errors || []).join("; ")}`);
+if (report.sharedSkillPacks.summary?.attention !== 0) throw new Error("fresh install shared Skill Pack is inconsistent");
 if (!Array.isArray(report.externalPackages) || report.externalPackages.length !== 0) throw new Error("report externalPackages should be empty under shared skill governance");
 if (report.doctor?.skipped !== true) throw new Error("install --no-doctor report should mark doctor skipped");
 ' "$AGENT_DIR/pi67-report.json" "$TMP_ROOT/shared-skills"
@@ -575,6 +584,72 @@ if (!Array.isArray(data.checks) || data.checks.length === 0) {
 }
 ' "${SMOKE_LOG_DIR}/doctor-json.log"
 pass "doctor JSON output parsed"
+
+section "Shared Skill Pack diagnostics"
+PACK_SKILL_NAME="$(node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(p.packs[0].skills[0]);' "$REPO_ROOT/shared-skill-packs.json")"
+printf '# smoke conflict\n' > "$TMP_ROOT/shared-skills/$PACK_SKILL_NAME/SKILL.md"
+node "$REPO_ROOT/scripts/pi67-shared-skill-packs-status.mjs" \
+  --repo-root "$REPO_ROOT" \
+  --skills-dir "$TMP_ROOT/shared-skills" \
+  --json > "${SMOKE_LOG_DIR}/skill-pack-status-conflict.json"
+node -e '
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (data.schemaId !== "pi67-shared-skill-packs-status/v1") throw new Error(`unexpected schemaId: ${data.schemaId}`);
+if (!data.registry?.valid) throw new Error(`registry should remain valid: ${(data.errors || []).join("; ")}`);
+if (data.summary?.attention !== 1) throw new Error(`expected one inconsistent pack: ${JSON.stringify(data.summary)}`);
+if (!data.packs?.[0]?.conflictSkills?.includes(process.argv[2])) throw new Error("pack conflict skill name missing");
+if (!data.packs?.[0]?.commands?.preview?.endsWith("--dry-run")) throw new Error("pack preview command must be non-writing");
+' "${SMOKE_LOG_DIR}/skill-pack-status-conflict.json" "$PACK_SKILL_NAME"
+
+PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
+  --repo-root "$REPO_ROOT" \
+  --agent-dir "$AGENT_DIR" \
+  --skills-dir "$TMP_ROOT/shared-skills" \
+  --no-pi-list \
+  --json > "${SMOKE_LOG_DIR}/doctor-skill-pack-conflict.json"
+node -e '
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+const check = data.checks.find((item) => item.message.includes("shared Skill Pack differs"));
+if (!check || check.level !== "WARN") throw new Error(`pack conflict should warn by default: ${JSON.stringify(check)}`);
+' "${SMOKE_LOG_DIR}/doctor-skill-pack-conflict.json"
+
+if PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
+  --repo-root "$REPO_ROOT" \
+  --agent-dir "$AGENT_DIR" \
+  --skills-dir "$TMP_ROOT/shared-skills" \
+  --no-pi-list \
+  --strict-shared-skills \
+  --json > "${SMOKE_LOG_DIR}/doctor-skill-pack-conflict-strict.json" 2>&1; then
+  fail "doctor strict shared skill mode accepted a Skill Pack conflict"
+fi
+node -e '
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+const check = data.checks.find((item) => item.message.includes("shared Skill Pack differs"));
+if (!check || check.level !== "FAIL") throw new Error(`strict pack conflict should fail: ${JSON.stringify(check)}`);
+' "${SMOKE_LOG_DIR}/doctor-skill-pack-conflict-strict.json"
+bash "$REPO_ROOT/scripts/pi67-status.sh" \
+  --repo-root "$REPO_ROOT" \
+  --agent-dir "$AGENT_DIR" \
+  --skills-dir "$TMP_ROOT/shared-skills" \
+  --no-remote \
+  --no-xtalpi-smoke \
+  --json > "${SMOKE_LOG_DIR}/status-skill-pack-conflict.json"
+node -e '
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (data.sharedSkillPacks?.summary?.attention !== 1) throw new Error("status did not expose the inconsistent Pack");
+if (!data.recommendations?.some((item) => item.includes("skills sync-pack") && item.includes("--dry-run"))) {
+  throw new Error("status did not recommend the non-writing Pack preview");
+}
+if (data.recommendations?.some((item) => item.includes("--yes"))) {
+  throw new Error("status must not recommend the writing Pack sync form");
+}
+' "${SMOKE_LOG_DIR}/status-skill-pack-conflict.json"
+cp "$REPO_ROOT/shared-skills/$PACK_SKILL_NAME/SKILL.md" "$TMP_ROOT/shared-skills/$PACK_SKILL_NAME/SKILL.md"
+pass "shared Skill Pack helper, doctor strictness, and safe status recommendations passed"
 
 section "Xtalpi smoke status core"
 XTALPI_SMOKE_FIXTURE_DIR="$TMP_ROOT/xtalpi-smoke-status-fixture"
@@ -771,6 +846,7 @@ section "Status summary"
 PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-status.sh" \
   --repo-root "$REPO_ROOT" \
   --agent-dir "$AGENT_DIR" \
+  --skills-dir "$TMP_ROOT/shared-skills" \
   --no-remote >"${SMOKE_LOG_DIR}/status.log"
 if ! grep -q 'Result: READY WITH WARNINGS\|Result: READY' "${SMOKE_LOG_DIR}/status.log"; then
   cat "${SMOKE_LOG_DIR}/status.log" >&2
@@ -781,6 +857,7 @@ pass "status text output completed"
 PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-status.sh" \
   --repo-root "$REPO_ROOT" \
   --agent-dir "$AGENT_DIR" \
+  --skills-dir "$TMP_ROOT/shared-skills" \
   --no-remote \
   --json >"${SMOKE_LOG_DIR}/status-json.log"
 node -e '
@@ -790,6 +867,8 @@ if (data.schemaVersion !== 1) throw new Error(`unexpected status schemaVersion: 
 if (data.schemaId !== "pi67-status/v1") throw new Error(`unexpected status schemaId: ${data.schemaId}`);
 if (data.report?.schemaId !== "pi67-report/v2") throw new Error("status did not read report schema v2");
 if (data.report?.stale !== false) throw new Error(`status reported stale report: ${(data.report?.staleReasons || []).join("; ")}`);
+if (data.sharedSkillPacks?.schemaId !== "pi67-shared-skill-packs-status/v1") throw new Error("status sharedSkillPacks schema missing");
+if (data.sharedSkillPacks.summary?.attention !== 0) throw new Error("status shared Skill Pack should be consistent");
 if (!Array.isArray(data.recommendations) || data.recommendations.length === 0) {
   throw new Error("status recommendations missing");
 }
@@ -995,6 +1074,7 @@ pass "in-place doctor JSON accepted"
 PATH="$FAKE_BIN:$PATH" "$INPLACE_AGENT/scripts/pi67-status.sh" \
   --repo-root "$INPLACE_AGENT" \
   --agent-dir "$INPLACE_AGENT" \
+  --skills-dir "$TMP_ROOT/inplace-shared-skills" \
   --no-remote \
   --json >"${SMOKE_LOG_DIR}/inplace-status-json.log"
 node -e '
@@ -1002,6 +1082,7 @@ const fs = require("fs");
 const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
 if (data.installMode !== "in-place") throw new Error(`unexpected status installMode: ${data.installMode}`);
 if (data.agent?.installMode !== "in-place") throw new Error(`unexpected status agent.installMode: ${data.agent?.installMode}`);
+if (data.sharedSkillPacks?.summary?.attention !== 0) throw new Error("in-place status shared Skill Pack should be consistent");
 if (!["READY", "READY_WITH_WARNINGS"].includes(data.result)) throw new Error(`unexpected in-place status result: ${data.result}`);
 ' "${SMOKE_LOG_DIR}/inplace-status-json.log"
 pass "in-place status JSON accepted"
@@ -1446,7 +1527,7 @@ do
 done
 git -C "$UPDATE_REPO" config user.email pi67-smoke@example.invalid
 git -C "$UPDATE_REPO" config user.name pi67-smoke
-git -C "$UPDATE_REPO" add .gitattributes settings.json scripts/pi67-configure.sh packages/pi67-cli/src/lib/settings-runtime-clean.mjs packages/pi67-cli/src/lib/settings-runtime-state.mjs packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs
+git -C "$UPDATE_REPO" add .gitattributes settings.json scripts/pi67-configure.sh scripts/pi67-report.sh packages/pi67-cli/src/lib/settings-runtime-clean.mjs packages/pi67-cli/src/lib/settings-runtime-state.mjs packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs
 if ! git -C "$UPDATE_REPO" diff --cached --quiet; then
   git -C "$UPDATE_REPO" commit -q -m "smoke runtime-state baseline"
 fi

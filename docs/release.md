@@ -16,6 +16,25 @@ Do not use the upstream Pi CLI version as the pi-67 release version. Pi itself h
 
 Before tagging or publishing release notes:
 
+If the Consumer Brand Commerce and Marketing upstream changed, refresh the
+vendored Pack before running platform gates:
+
+```bash
+bash scripts/pi67-sync-commerce-skill-pack.sh \
+  --source /path/to/commerce-growth-os \
+  --dry-run
+bash scripts/pi67-sync-commerce-skill-pack.sh \
+  --source /path/to/commerce-growth-os \
+  --apply --yes
+bash scripts/pi67-sync-commerce-skill-pack.sh \
+  --source /path/to/commerce-growth-os \
+  --dry-run
+```
+
+The final dry-run must report `NOOP`. It proves the upstream Manifest build,
+all eight vendored directories, and `shared-skill-packs.json` agree before the
+release is distributed to other machines.
+
 PowerShell smoke for Windows-facing changes:
 
 ```powershell
@@ -89,6 +108,8 @@ git status --short
 Expected result:
 
 - release metadata is internally consistent
+- registered shared Skill Pack metadata and all eight vendored bundles are
+  internally consistent
 - Windows PowerShell smoke passes on a PowerShell runtime when Windows-facing files changed
 - Windows fresh-machine bootstrap self-test and dry-run pass without changing
   the host
@@ -144,6 +165,8 @@ Expected result:
    - `docs/skill-migration-schema.md` if `scripts/pi67-migrate-skills.sh --json` behavior changed
    - `docs/external-skill-sync-schema.md` if `scripts/pi67-sync-external-skills.sh --json` behavior changed
    - `docs/skill-governance.md` if skill registry, migration, or external sync behavior changed
+   - `shared-skill-packs.json` and the vendored Pack directories when an
+     upstream Pack version changed
    - update workflow docs if `scripts/pi67-update.sh` or `scripts/pi67-update.ps1` changed
    - `docs/windows-fresh-install.md` if `scripts/pi67-bootstrap.ps1` or the
      Node/runtime prerequisite contract changed
@@ -295,6 +318,7 @@ node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" manif
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" extensions doctor --json --no-remote
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" update --check --json --no-remote
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" update --check --json --no-remote --strict-shared-skills
+node scripts/pi67-shared-skill-packs-status.mjs --repo-root "$PWD" --skills-dir "$PWD/shared-skills" --json
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" publish-check --json --no-remote
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" themes current --json
 node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" backups list --json
@@ -322,6 +346,10 @@ pi-67 update --check --strict-shared-skills
 `pi-67 update --check --json` must include `actions`, `blocked`, and `warnings`
 so release consumers can see planned writes, preserved user-owned paths, and
 policy blockers before a real update.
+It must also include a valid `skillPacks` block with schema
+`pi67-shared-skill-packs-status/v1`; when comparing the vendored source against
+itself, `summary.attention` must be `0`. Release automation must not replace this
+with a writing Pack sync.
 It must also expose `policy.preservedRuntimeFiles`, `policy.themePolicy`,
 `policy.sharedSkillsPolicy`, and `policy.externalDirtyPolicy` so scripts and
 docs can prove that update behavior is governed by the same manifest contract.

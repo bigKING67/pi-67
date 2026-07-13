@@ -82,6 +82,13 @@ Doctor also validates shared skill governance:
 
 - `shared-skills/` must contain pi-67's distributable skill source.
 - `~/.agents/skills` must contain installed copies of those shared skills.
+- `shared-skill-packs.json` must satisfy the versioned Pack registry contract;
+  duplicate Pack names, invalid SemVer, duplicate Skill ownership, and unknown
+  vendored Skill references are blocking failures.
+- Every registered Pack is compared against the active root through the shared
+  `pi67-shared-skill-packs-status/v1` implementation. Consistent Packs produce
+  `PASS`; missing or different Pack members produce `WARN` by default and
+  `FAIL` under strict shared-skill mode.
 - `settings.json` must not declare `design-craft` or `browser67` as active Pi skill packages; install their skills into `~/.agents/skills` instead.
 - Existing `~/.pi/agent/skills` or package clone skill directories are reported as duplicate sources when they overlap with `~/.agents/skills`.
 - `pi list --no-approve` is used as the bounded, non-interactive upstream package registry probe. Skill duplication is checked directly through the shared-skill inventory and legacy-source checks rather than by sending the removed `pi skill list` command into the interactive agent.
@@ -176,6 +183,16 @@ checks should treat those differences as blocking failures.
 For an explainable per-skill inventory with hashes, run
 `bash scripts/pi67-shared-skills-inventory.sh --json`; the helper is read-only
 and keeps existing global skills by default.
+For the compact Pack-level contract used by Doctor, Status, Report, and update
+planning, run:
+
+```bash
+node scripts/pi67-shared-skill-packs-status.mjs --json
+```
+
+When a Pack differs, first inspect `pi-67 skills packs`, then preview with
+`pi-67 skills sync-pack <pack> --dry-run`. Doctor never recommends or performs
+the writing `--yes` form automatically.
 
 Deep MCP probing uses standard `Content-Length` framed stdio JSON-RPC by default.
 For browser67 / legacy tmwd-browser-mcp and the local agent-memory EverOS

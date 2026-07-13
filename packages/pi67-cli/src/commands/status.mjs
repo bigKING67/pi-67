@@ -23,6 +23,7 @@ export async function statusCommand(ctx, argv) {
   keyValue("Model", plan.settings.defaultModel || "unset");
   keyValue("Theme", plan.settings.theme || "unset");
   keyValue("Shared skills", `${plan.skills.identical} ok, ${plan.skills.missing} missing, ${preservedUserModified(plan.skills)} preserved user-modified`);
+  printSkillPackStatus(plan.skillPacks);
   if (plan.warnings?.length) {
     section("Warnings");
     for (const message of plan.warnings) warn(message);
@@ -30,6 +31,23 @@ export async function statusCommand(ctx, argv) {
   if (plan.recommendations?.length) {
     section("Recommendations");
     for (const message of plan.recommendations) info(message);
+  }
+}
+
+function printSkillPackStatus(status) {
+  if (!status?.registry?.valid) {
+    keyValue("Skill Packs", `invalid (${status?.errors?.[0] || "registry error"})`);
+    return;
+  }
+  if (!status.packs?.length) {
+    keyValue("Skill Packs", "none registered");
+    return;
+  }
+  for (const pack of status.packs) {
+    const detail = pack.consistent
+      ? "consistent"
+      : `missing=${pack.missing}, conflicts=${pack.conflicts}`;
+    keyValue("Skill Pack", `${pack.name}@${pack.version} ${detail}`);
   }
 }
 

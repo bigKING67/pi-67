@@ -558,8 +558,8 @@ check_shared_skills() {
   tmp="$(mktemp)"
   cat > "$tmp" <<'NODE'
 const fs = require("fs");
-const crypto = require("crypto");
 const path = require("path");
+const { pathToFileURL } = require("url");
 const [, , repoRoot, agentDir, sharedSkillsDir, strictSharedSkillsRaw] = process.argv;
 const { readJsonFile } = require(path.join(repoRoot, "scripts", "pi67-json-utils.cjs"));
 const strictSharedSkills = strictSharedSkillsRaw === "true";
@@ -594,130 +594,124 @@ function intersection(left, right) {
   return left.filter((item) => rightSet.has(item));
 }
 
-function collectFileHashes(dir, base = dir, output = []) {
-  let entries = [];
+async function main() {
+  const settings = readJson(path.join(agentDir, "settings.json"));
+  if (settings) {
+    if (!Array.isArray(settings.packages)) {
+      emit("FAIL", "settings.json packages must be an array");
+    } else {
+      const bannedSkillPackageSources = [
+        "github.com/bigKING67/design-craft",
+        "github.com/bigKING67/browser67",
+      ];
+      for (const sourceNeedle of bannedSkillPackageSources) {
+        const spec = settings.packages.find((item) => String(item).includes(sourceNeedle));
+        if (spec) {
+          emit("FAIL", `settings.json still declares active skill package source: ${spec}`);
+        }
+      }
+    }
+  }
+
+  let policy;
   try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return output;
+    const policyUrl = pathToFileURL(path.join(repoRoot, "packages", "pi67-cli", "src", "lib", "skill-policy.mjs"));
+    policy = await import(policyUrl.href);
+  } catch (error) {
+    emit("FAIL", `cannot load shared Skill policy: ${error.message}`);
+    return;
   }
 
-  entries.sort((a, b) => a.name.localeCompare(b.name));
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    let stat;
-    try {
-      stat = fs.statSync(full);
-    } catch {
-      continue;
-    }
-    if (stat.isDirectory()) {
-      collectFileHashes(full, base, output);
-    } else if (stat.isFile()) {
-      const relative = path.relative(base, full).split(path.sep).join("/");
-      const fileHash = crypto.createHash("sha256").update(fs.readFileSync(full)).digest("hex");
-      output.push(`${relative}\0${fileHash}`);
-    }
+  const ctx = { repoRoot, skillsDir: sharedSkillsDir };
+  let inventory;
+  try {
+    inventory = policy.inventorySkills(ctx);
+  } catch (error) {
+    emit("FAIL", `cannot inventory shared skills: ${error.message}`);
+    return;
   }
-  return output;
-}
+  const sourceDir = inventory.sourceRoot;
+  const sourceSkills = inventory.entries.map((entry) => entry.name);
+  const sharedSkills = readSkillNames(sharedSkillsDir);
 
-function skillDirFingerprint(dir) {
-  if (!fs.existsSync(path.join(dir, "SKILL.md"))) return "missing";
-  const hash = crypto.createHash("sha256");
-  for (const item of collectFileHashes(dir)) {
-    hash.update(item);
-    hash.update("\0");
-  }
-  return hash.digest("hex");
-}
-
-const settings = readJson(path.join(agentDir, "settings.json"));
-if (!settings) process.exit(0);
-
-if (!Array.isArray(settings.packages)) {
-  emit("FAIL", "settings.json packages must be an array");
-  process.exit(0);
-}
-
-const bannedSkillPackageSources = [
-  "github.com/bigKING67/design-craft",
-  "github.com/bigKING67/browser67",
-];
-for (const sourceNeedle of bannedSkillPackageSources) {
-  const spec = settings.packages.find((item) => String(item).includes(sourceNeedle));
-  if (spec) {
-    emit("FAIL", `settings.json still declares active skill package source: ${spec}`);
-  }
-}
-
-const sourceDir = path.join(repoRoot, "shared-skills");
-const sourceSkills = readSkillNames(sourceDir);
-const sharedSkills = readSkillNames(sharedSkillsDir);
-
-if (sourceSkills.length === 0) {
-  emit("FAIL", `shared skill source has no skills: ${sourceDir}`);
-} else {
-  emit("PASS", `shared skill source available: ${sourceSkills.length} skills`);
-}
-
-if (sharedSkills.length === 0) {
-  emit("FAIL", `shared skill root has no installed skills: ${sharedSkillsDir}`);
-} else {
-  emit("PASS", `shared skill root available: ${sharedSkillsDir} (${sharedSkills.length} skills)`);
-}
-
-const missing = sourceSkills.filter((name) => !sharedSkills.includes(name));
-if (missing.length > 0) {
-  emit("FAIL", `shared skills not installed in ${sharedSkillsDir}: ${missing.join(", ")}`);
-} else if (sourceSkills.length > 0) {
-  emit("PASS", "all pi-67 shared skills are installed in the shared skill root");
-}
-
-const mismatched = sourceSkills
-  .filter((name) => sharedSkills.includes(name))
-  .filter((name) => {
-    const sourceHash = skillDirFingerprint(path.join(sourceDir, name));
-    const installedHash = skillDirFingerprint(path.join(sharedSkillsDir, name));
-    return sourceHash !== installedHash;
-  });
-if (mismatched.length > 0) {
-  const inventoryHint = `run scripts/pi67-shared-skills-inventory.sh --json for details`;
-  const message = `preserved user-modified global skills differ from pi-67 source; ${inventoryHint}; keeping existing global skills: ${mismatched.join(", ")}`;
-  emit(
-    strictSharedSkills ? "FAIL" : "WARN",
-    strictSharedSkills
-      ? `preserved user-modified global skills differ from pi-67 source; ${inventoryHint}: ${mismatched.join(", ")}`
-      : message
-  );
-} else if (sourceSkills.length > 0 && missing.length === 0) {
-  emit("PASS", "all pi-67 shared skill contents match the shared skill root");
-}
-
-const legacyAgentSkills = readSkillNames(path.join(agentDir, "skills"));
-if (legacyAgentSkills.length > 0) {
-  const duplicates = intersection(legacyAgentSkills, sharedSkills);
-  if (duplicates.length > 0) {
-    emit("WARN", `legacy ${path.join(agentDir, "skills")} duplicates shared skills: ${duplicates.join(", ")}`);
+  if (sourceSkills.length === 0) {
+    emit("FAIL", `shared skill source has no skills: ${sourceDir}`);
   } else {
-    emit("WARN", `legacy ${path.join(agentDir, "skills")} still exists with ${legacyAgentSkills.length} skills; ~/.agents/skills is canonical`);
+    emit("PASS", `shared skill source available: ${sourceSkills.length} skills`);
   }
-} else {
-  emit("PASS", "no legacy active skill directory under ~/.pi/agent/skills");
+
+  if (sharedSkills.length === 0) {
+    emit("FAIL", `shared skill root has no installed skills: ${sharedSkillsDir}`);
+  } else {
+    emit("PASS", `shared skill root available: ${sharedSkillsDir} (${sharedSkills.length} skills)`);
+  }
+
+  const missing = inventory.entries.filter((entry) => !entry.targetExists).map((entry) => entry.name);
+  if (missing.length > 0) {
+    emit("FAIL", `shared skills not installed in ${sharedSkillsDir}: ${missing.join(", ")}`);
+  } else if (sourceSkills.length > 0) {
+    emit("PASS", "all pi-67 shared skills are installed in the shared skill root");
+  }
+
+  const mismatched = inventory.entries.filter((entry) => entry.conflict).map((entry) => entry.name);
+  if (mismatched.length > 0) {
+    const inventoryHint = `run scripts/pi67-shared-skills-inventory.sh --json for details`;
+    const message = `preserved user-modified global skills differ from pi-67 source; ${inventoryHint}; keeping existing global skills: ${mismatched.join(", ")}`;
+    emit(
+      strictSharedSkills ? "FAIL" : "WARN",
+      strictSharedSkills
+        ? `preserved user-modified global skills differ from pi-67 source; ${inventoryHint}: ${mismatched.join(", ")}`
+        : message
+    );
+  } else if (sourceSkills.length > 0 && missing.length === 0) {
+    emit("PASS", "all pi-67 shared skill contents match the shared skill root");
+  }
+
+  const packStatus = policy.inspectSkillPackStatus(ctx, { inventory });
+  if (!packStatus.registry.valid) {
+    emit("FAIL", `shared Skill Pack registry invalid: ${packStatus.errors.join("; ")}`);
+  } else if (packStatus.packs.length === 0) {
+    emit("WARN", "shared Skill Pack registry has no registered packs");
+  } else {
+    for (const pack of packStatus.packs) {
+      if (pack.consistent) {
+        emit("PASS", `shared Skill Pack consistent: ${pack.name}@${pack.version} (${pack.skills} skills)`);
+      } else {
+        emit(
+          strictSharedSkills ? "FAIL" : "WARN",
+          `shared Skill Pack differs: ${pack.name}@${pack.version}; missing=${pack.missing}, conflicts=${pack.conflicts}; run pi-67 skills packs; preview: ${pack.commands.preview}`
+        );
+      }
+    }
+  }
+
+  const legacyAgentSkills = readSkillNames(path.join(agentDir, "skills"));
+  if (legacyAgentSkills.length > 0) {
+    const duplicates = intersection(legacyAgentSkills, sharedSkills);
+    if (duplicates.length > 0) {
+      emit("WARN", `legacy ${path.join(agentDir, "skills")} duplicates shared skills: ${duplicates.join(", ")}`);
+    } else {
+      emit("WARN", `legacy ${path.join(agentDir, "skills")} still exists with ${legacyAgentSkills.length} skills; ~/.agents/skills is canonical`);
+    }
+  } else {
+    emit("PASS", "no legacy active skill directory under ~/.pi/agent/skills");
+  }
+
+  const packageSkillRoots = [
+    path.join(agentDir, "git", "github.com", "bigKING67", "design-craft", "skills"),
+    path.join(agentDir, "git", "github.com", "bigKING67", "browser67", "skills"),
+  ];
+  for (const root of packageSkillRoots) {
+    const packageSkills = readSkillNames(root);
+    if (packageSkills.length === 0) continue;
+    const duplicates = intersection(packageSkills, sharedSkills);
+    if (duplicates.length > 0) {
+      emit("WARN", `package skill cache duplicates shared skills and should not be active: ${root} (${duplicates.join(", ")})`);
+    }
+  }
 }
 
-const packageSkillRoots = [
-  path.join(agentDir, "git", "github.com", "bigKING67", "design-craft", "skills"),
-  path.join(agentDir, "git", "github.com", "bigKING67", "browser67", "skills"),
-];
-for (const root of packageSkillRoots) {
-  const packageSkills = readSkillNames(root);
-  if (packageSkills.length === 0) continue;
-  const duplicates = intersection(packageSkills, sharedSkills);
-  if (duplicates.length > 0) {
-    emit("WARN", `package skill cache duplicates shared skills and should not be active: ${root} (${duplicates.join(", ")})`);
-  }
-}
+main().catch((error) => emit("FAIL", `shared skill diagnostics failed: ${error.message}`));
 NODE
   run_node_report "$tmp" "$REPO_ROOT" "$PI_AGENT_DIR" "$SHARED_SKILLS_DIR" "$STRICT_SHARED_SKILLS"
   rm -f "$tmp"

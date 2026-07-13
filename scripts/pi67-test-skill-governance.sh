@@ -175,6 +175,9 @@ echo "Repository: $REPO_ROOT"
 [ -f "$REPO_ROOT/scripts/pi67-sync-external-skills.sh" ] || fail "missing scripts/pi67-sync-external-skills.sh"
 [ -f "$REPO_ROOT/scripts/pi67-check-external-skills.sh" ] || fail "missing scripts/pi67-check-external-skills.sh"
 [ -f "$REPO_ROOT/scripts/pi67-sync-commerce-growth-os.sh" ] || fail "missing scripts/pi67-sync-commerce-growth-os.sh"
+[ -f "$REPO_ROOT/scripts/pi67-sync-commerce-skill-pack.sh" ] || fail "missing scripts/pi67-sync-commerce-skill-pack.sh"
+[ -f "$REPO_ROOT/scripts/pi67-sync-commerce-skill-pack.mjs" ] || fail "missing scripts/pi67-sync-commerce-skill-pack.mjs"
+[ -f "$REPO_ROOT/shared-skill-packs.json" ] || fail "missing shared-skill-packs.json"
 command_exists node || fail "node is required"
 pass "required helpers found"
 
@@ -325,45 +328,101 @@ if [ -e "$EXTERNAL_ROOT_SHARED/root-skill/.git" ] || [ -e "$EXTERNAL_ROOT_SHARED
 fi
 pass "external sync copies root-level skills and filters repository/cache artifacts"
 
-section "Commerce growth vendored sync helper"
+section "Commerce and Marketing Skill Pack vendored sync helper"
 COMMERCE_SOURCE="$TMP_ROOT/commerce-source"
-COMMERCE_DEST="$TMP_ROOT/commerce-dest/commerce-growth-os"
-mkdir -p "$COMMERCE_SOURCE/.git" "$COMMERCE_SOURCE/node_modules/ignored" "$COMMERCE_SOURCE/eval/answers" "$COMMERCE_SOURCE/references"
-cat > "$COMMERCE_SOURCE/SKILL.md" <<'EOF'
----
-name: commerce-growth-os
-description: Commerce growth fixture.
----
-# Commerce Growth OS
+COMMERCE_DEST_ROOT="$TMP_ROOT/commerce-dest/shared-skills"
+COMMERCE_PACK_REGISTRY="$TMP_ROOT/commerce-dest/shared-skill-packs.json"
+mkdir -p "$COMMERCE_SOURCE/.git" "$COMMERCE_SOURCE/eval/answers" "$COMMERCE_SOURCE/scripts" "$COMMERCE_SOURCE/bundles"
+cat > "$COMMERCE_SOURCE/skill-pack.json" <<'EOF'
+{
+  "schema_version": 2,
+  "pack_version": "2.0.0",
+  "pack_name": "consumer-brand-commerce-marketing-suite",
+  "skills": [
+    {"name": "commerce-growth-os"},
+    {"name": "commerce-commercial-strategy"},
+    {"name": "commerce-operations"},
+    {"name": "commerce-analytics"},
+    {"name": "consumer-marketing-os"},
+    {"name": "brand-strategy-communications"},
+    {"name": "content-creative-social-marketing"},
+    {"name": "growth-performance-lifecycle-marketing"}
+  ]
+}
 EOF
-printf 'reference\n' > "$COMMERCE_SOURCE/references/business-model-and-profit.md"
+for skill in \
+  commerce-growth-os \
+  commerce-commercial-strategy \
+  commerce-operations \
+  commerce-analytics \
+  consumer-marketing-os \
+  brand-strategy-communications \
+  content-creative-social-marketing \
+  growth-performance-lifecycle-marketing; do
+  mkdir -p "$COMMERCE_SOURCE/bundles/$skill"
+  cat > "$COMMERCE_SOURCE/bundles/$skill/SKILL.md" <<EOF
+---
+name: $skill
+description: $skill fixture.
+---
+# $skill
+EOF
+done
+mkdir -p "$COMMERCE_SOURCE/bundles/commerce-growth-os/references"
+printf 'reference\n' > "$COMMERCE_SOURCE/bundles/commerce-growth-os/references/business-model-and-profit.md"
+cat > "$COMMERCE_SOURCE/scripts/install.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+OUTPUT=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --build-only) shift ;;
+    --output) OUTPUT="${2:?--output requires a path}"; shift 2 ;;
+    *) echo "unexpected fixture option: $1" >&2; exit 2 ;;
+  esac
+done
+[ -n "$OUTPUT" ] || { echo "missing --output" >&2; exit 2; }
+mkdir -p "$OUTPUT"
+cp -R "$ROOT/bundles/." "$OUTPUT/"
+EOF
 printf 'ignored git metadata\n' > "$COMMERCE_SOURCE/.git/HEAD"
-printf 'ignored dependency\n' > "$COMMERCE_SOURCE/node_modules/ignored/package.json"
 printf 'ignored private eval answer\n' > "$COMMERCE_SOURCE/eval/answers/private.txt"
-"$REPO_ROOT/scripts/pi67-sync-commerce-growth-os.sh" \
+"$REPO_ROOT/scripts/pi67-sync-commerce-skill-pack.sh" \
   --source "$COMMERCE_SOURCE" \
-  --dest "$COMMERCE_DEST" \
+  --dest-root "$COMMERCE_DEST_ROOT" \
+  --pack-registry "$COMMERCE_PACK_REGISTRY" \
   --dry-run \
   --json > "$TMP_ROOT/commerce-sync-dry.json"
-assert_json_schema_result "$TMP_ROOT/commerce-sync-dry.json" "pi67-commerce-growth-os-sync/v1" "READY_TO_APPLY"
-if [ -e "$COMMERCE_DEST" ]; then
+assert_json_schema_result "$TMP_ROOT/commerce-sync-dry.json" "pi67-commerce-skill-pack-sync/v1" "READY_TO_APPLY"
+if [ -e "$COMMERCE_DEST_ROOT" ] || [ -e "$COMMERCE_PACK_REGISTRY" ]; then
   fail "commerce sync dry-run wrote files"
+fi
+"$REPO_ROOT/scripts/pi67-sync-commerce-skill-pack.sh" \
+  --source "$COMMERCE_SOURCE" \
+  --dest-root "$COMMERCE_DEST_ROOT" \
+  --pack-registry "$COMMERCE_PACK_REGISTRY" \
+  --apply \
+  --yes \
+  --json > "$TMP_ROOT/commerce-sync-apply.json"
+assert_json_schema_result "$TMP_ROOT/commerce-sync-apply.json" "pi67-commerce-skill-pack-sync/v1" "APPLIED"
+if [ ! -f "$COMMERCE_DEST_ROOT/commerce-growth-os/SKILL.md" ] \
+  || [ ! -f "$COMMERCE_DEST_ROOT/brand-strategy-communications/SKILL.md" ] \
+  || [ ! -f "$COMMERCE_DEST_ROOT/commerce-growth-os/references/business-model-and-profit.md" ] \
+  || [ ! -f "$COMMERCE_PACK_REGISTRY" ]; then
+  fail "commerce Skill Pack sync apply did not copy the complete pack"
+fi
+if [ -e "$COMMERCE_DEST_ROOT/commerce-growth-os/.git" ] || [ -e "$COMMERCE_DEST_ROOT/commerce-growth-os/eval/answers" ]; then
+  fail "commerce sync copied ignored repository/cache/eval-answer paths"
 fi
 "$REPO_ROOT/scripts/pi67-sync-commerce-growth-os.sh" \
   --source "$COMMERCE_SOURCE" \
-  --dest "$COMMERCE_DEST" \
-  --apply \
-  --yes \
-  --no-validate \
-  --json > "$TMP_ROOT/commerce-sync-apply.json"
-assert_json_schema_result "$TMP_ROOT/commerce-sync-apply.json" "pi67-commerce-growth-os-sync/v1" "APPLIED"
-if [ ! -f "$COMMERCE_DEST/SKILL.md" ] || [ ! -f "$COMMERCE_DEST/references/business-model-and-profit.md" ]; then
-  fail "commerce sync apply did not copy expected skill files"
-fi
-if [ -e "$COMMERCE_DEST/.git" ] || [ -e "$COMMERCE_DEST/node_modules" ] || [ -e "$COMMERCE_DEST/eval/answers" ]; then
-  fail "commerce sync copied ignored repository/cache/eval-answer paths"
-fi
-pass "commerce growth vendored sync helper dry-runs, applies, and filters artifacts"
+  --dest "$COMMERCE_DEST_ROOT/commerce-growth-os" \
+  --pack-registry "$COMMERCE_PACK_REGISTRY" \
+  --dry-run \
+  --json > "$TMP_ROOT/commerce-sync-legacy-alias.json"
+assert_json_schema_result "$TMP_ROOT/commerce-sync-legacy-alias.json" "pi67-commerce-skill-pack-sync/v1" "NOOP"
+pass "commerce Skill Pack vendored sync is transactional and keeps the legacy helper compatible"
 
 section "External sync helper conflict"
 EXTERNAL_CONFLICT_REPO="$TMP_ROOT/external-conflict-repo"

@@ -6,6 +6,15 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+### Added
+
+- Added versioned shared Skill Pack governance for the eight-Skill Consumer
+  Brand Commerce and Marketing suite, including `pi-67 skills packs` and
+  explicit backed-up `pi-67 skills sync-pack <pack> --yes` upgrades.
+- Added a shared `pi67-shared-skill-packs-status/v1` diagnostic contract across
+  status, update plans, Bash/PowerShell Doctor, and Report, with non-writing
+  remediation previews and strict-mode Pack parity gates.
+
 ## [0.11.3] - 2026-07-13
 
 ### Fixed

@@ -47,19 +47,20 @@ Add a skill to `shared-skills/` only when it is suitable for other machines:
 - dependencies are either standard tools or documented optional prerequisites
 - useful beyond one local workflow
 
-`commerce-growth-os` is a public distribution skill in this bucket. Its
-upstream source repository is:
+The Consumer Brand Commerce and Marketing suite is a public distribution Skill
+Pack in this bucket. Its upstream source repository is:
 
 ```text
 https://github.com/bigKING67/commerce-growth-os
 ```
 
-pi-67 keeps a vendored distribution copy at
-`shared-skills/commerce-growth-os` so other macOS/Windows machines receive it
-through the normal pi-67 pull/update path. Do not put a maintainer's local
-checkout path or this GitHub repository into `settings.json.packages`; the
-active copy should still be installed into `~/.agents/skills` by the normal
-shared-skill sync.
+pi-67 keeps eight self-contained vendored distribution Skills under
+`shared-skills/`, registered as
+`consumer-brand-commerce-marketing-suite@2.0.0` in
+`shared-skill-packs.json`. Other macOS/Windows machines receive missing Skills
+through the normal pi-67 install/update path. Do not put a maintainer's local
+checkout path or this GitHub repository into `settings.json.packages`; active
+copies belong in `~/.agents/skills`.
 
 ### B. Personal overlay skill
 
@@ -202,41 +203,44 @@ bash scripts/pi67-sync-external-skills.sh \
 
 This command reads either `repo/SKILL.md` or `repo/skills/*/SKILL.md` from each
 repo and copies missing skills into `~/.agents/skills`. It skips identical
-skills and refuses different canonical copies. It deliberately does not modify
-Pi package cache directories or MCP config; for browser67 MCP paths, run:
+skills and refuses different canonical copies. Manifest-built monorepos with
+deeper source layouts are intentionally not flattened by this generic helper;
+use the upstream repository's own installer so materialized resources and
+validation remain authoritative. It deliberately does not modify Pi package
+cache directories or MCP config; for browser67 MCP paths, run:
 
 ```bash
 bash scripts/pi67-configure.sh --tmwd-repo /path/to/browser67 --no-prompt
 ```
 
-Root-level skill repos such as `commerce-growth-os` can be checked the same way:
+Install the Consumer Brand Commerce and Marketing suite directly from its
+upstream checkout with:
 
 ```bash
-bash scripts/pi67-check-external-skills.sh \
-  --repo /path/to/commerce-growth-os
-
-bash scripts/pi67-sync-external-skills.sh \
-  --repo /path/to/commerce-growth-os \
+bash /path/to/commerce-growth-os/scripts/install.sh \
+  --install-root ~/.agents/skills \
   --dry-run
+
+bash /path/to/commerce-growth-os/scripts/install.sh \
+  --install-root ~/.agents/skills
 ```
 
 `pi67-sync-external-skills.sh` filters repository/cache/private-eval artifacts
 when it copies root-level skill repositories, including `.git`, `.gitignore`,
 Node/Python caches, virtual environments, build output, and `eval/answers`.
 
-## Vendored commerce-growth-os sync
+## Vendored Consumer Brand Skill Pack sync
 
-`commerce-growth-os` is also vendored in pi-67 under
-`shared-skills/commerce-growth-os` so ordinary users get it through the normal
-pi-67 update path. Maintainers should refresh that vendored copy from the
-standalone upstream checkout with:
+The 8-Skill Pack is vendored in pi-67 so ordinary users get it through the
+normal install/update path. Maintainers refresh all eight self-contained
+bundles from the upstream Manifest with:
 
 ```bash
-bash scripts/pi67-sync-commerce-growth-os.sh \
+bash scripts/pi67-sync-commerce-skill-pack.sh \
   --source /path/to/commerce-growth-os \
   --dry-run
 
-bash scripts/pi67-sync-commerce-growth-os.sh \
+bash scripts/pi67-sync-commerce-skill-pack.sh \
   --source /path/to/commerce-growth-os \
   --apply --yes
 ```
@@ -248,10 +252,31 @@ $COMMERCE_GROWTH_OS_REPO
 ../commerce-growth-os next to the pi-67 checkout
 ```
 
-Use `--source DIR` when the upstream checkout lives elsewhere. The helper
-requires `SKILL.md` frontmatter `name: commerce-growth-os`, replaces only
-`shared-skills/commerce-growth-os`, filters repository/cache/private-eval
-artifacts, and does not stage or commit changes.
+Use `--source DIR` when the upstream checkout lives elsewhere. The helper runs
+the upstream Bundle Builder, requires the reviewed eight-Skill manifest,
+updates `shared-skill-packs.json`, and transactionally replaces only those eight
+vendored directories. The legacy `pi67-sync-commerce-growth-os.sh` filename is
+retained as a compatibility alias.
+
+Existing machines preserve different active copies during normal updates. Use
+the pack-aware manager command for an explicit, backed-up version alignment:
+
+```bash
+pi-67 skills packs
+pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --dry-run
+pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --yes
+```
+
+The read-only Pack contract used by status, update planning, Doctor, and Report
+can also be inspected directly:
+
+```bash
+node scripts/pi67-shared-skill-packs-status.mjs --json
+```
+
+It emits `pi67-shared-skill-packs-status/v1` with Pack versions, counts,
+missing/conflicting names, and a `sync-pack ... --dry-run` preview. It never
+writes the active root.
 
 ## Validation helpers
 
@@ -271,7 +296,8 @@ It creates temporary legacy roots and external repositories, then validates:
 - external sync apply copies missing skills
 - external sync supports both root-level `SKILL.md` and `skills/*/SKILL.md`
 - external sync conflicts return `NEEDS_REVIEW` and preserve canonical skills
-- commerce-growth-os vendored sync dry-runs/applies without copying repo/cache artifacts
+- Commerce and Marketing Pack vendored sync builds, dry-runs, applies, and keeps the legacy helper compatible
+- Pack diagnostics reject invalid registry metadata and distinguish consistent, missing, and conflicting active copies
 - migration and sync JSON outputs keep their documented schema IDs
 
 Use the optional external repo integration check before applying real

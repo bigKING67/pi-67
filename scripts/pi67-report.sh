@@ -397,6 +397,44 @@ function sharedSkillState(settings) {
   };
 }
 
+function sharedSkillPackState() {
+  const helper = path.join(scriptDir, "pi67-shared-skill-packs-status.mjs");
+  if (!fs.existsSync(helper)) {
+    return {
+      schemaId: "pi67-shared-skill-packs-status/v1",
+      registry: {
+        path: path.join(repoRoot, "shared-skill-packs.json"),
+        exists: fs.existsSync(path.join(repoRoot, "shared-skill-packs.json")),
+        valid: false,
+      },
+      skillsDir: sharedSkillsDir,
+      summary: { packs: 0, consistent: 0, attention: 1 },
+      packs: [],
+      errors: ["shared Skill Pack status helper is missing"],
+    };
+  }
+  const result = command(process.execPath, [
+    helper,
+    "--repo-root", repoRoot,
+    "--skills-dir", sharedSkillsDir,
+    "--json",
+  ], { cwd: repoRoot, timeout: 30000 });
+  const parsed = readJsonFromText(result.stdout);
+  if (parsed?.schemaId === "pi67-shared-skill-packs-status/v1") return parsed;
+  return {
+    schemaId: "pi67-shared-skill-packs-status/v1",
+    registry: {
+      path: path.join(repoRoot, "shared-skill-packs.json"),
+      exists: fs.existsSync(path.join(repoRoot, "shared-skill-packs.json")),
+      valid: false,
+    },
+    skillsDir: sharedSkillsDir,
+    summary: { packs: 0, consistent: 0, attention: 1 },
+    packs: [],
+    errors: [result.stderr || result.error || "could not parse shared Skill Pack status"],
+  };
+}
+
 const version = readText(path.join(repoRoot, "VERSION")).trim() || "unknown";
 const packageJson = readJsonIfExists(path.join(repoRoot, "package.json"));
 const settingsJson = readJsonIfExists(path.join(agentDir, "settings.json"));
@@ -406,6 +444,7 @@ const shortCommit = git(["rev-parse", "--short", "HEAD"]);
 const dirty = git(["status", "--porcelain=v1", "--untracked-files=all"]);
 const remote = git(["remote", "get-url", "origin"]);
 const sharedSkills = sharedSkillState(settingsJson);
+const sharedSkillPacks = sharedSkillPackState();
 
 const report = {
   schemaVersion: 2,
@@ -440,6 +479,7 @@ const report = {
   },
   sharedSkillsRoot: sharedSkillsDir,
   sharedSkills,
+  sharedSkillPacks,
   externalPackages: [],
   agent: {
     dir: agentDir,
