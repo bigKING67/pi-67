@@ -23,10 +23,35 @@ import type { ToolCallParseResult } from "./parser-types.ts";
 
 export type { ToolCallParseResult } from "./parser-types.ts";
 
+export type ParseJsonActionOptions = {
+  selectedToolNames?: readonly string[];
+};
+
 function exactKeySet(object: JsonObject, keys: readonly string[]): boolean {
   const actual = Object.keys(object).sort();
   const expected = [...keys].sort();
   return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+}
+
+function detectSelectedDirectKindAction(
+  parsed: JsonObject,
+  cleaned: string,
+  source: string,
+  options: ParseJsonActionOptions,
+): ToolCallParseResult | undefined {
+  if (typeof parsed.kind !== "string") return undefined;
+  const name = parsed.kind.trim();
+  if (!name || name === "tool_call" || name === "final") return undefined;
+  if (!(options.selectedToolNames ?? []).includes(name)) return undefined;
+
+  return {
+    kind: "error",
+    code: "selected_tool_direct_kind",
+    message:
+      `selected tool "${name}" was placed directly in "kind"; use kind "tool_call" with nested name and arguments`,
+    raw: cleaned,
+    text: source,
+  };
 }
 
 function parseEnvelope(raw: string, originalText: string): ToolCallParseResult {
@@ -272,7 +297,10 @@ export function parseToolCall(text: string): ToolCallParseResult {
   };
 }
 
-export function parseJsonAction(text: string): ToolCallParseResult {
+export function parseJsonAction(
+  text: string,
+  options: ParseJsonActionOptions = {},
+): ToolCallParseResult {
   const source = String(text ?? "");
   const trimmed = stripMarkdownFence(source).trim();
 
@@ -358,6 +386,8 @@ export function parseJsonAction(text: string): ToolCallParseResult {
   }
 
   if (parsed.kind !== "tool_call") {
+    const directKindAction = detectSelectedDirectKindAction(parsed, cleaned, source, options);
+    if (directKindAction) return directKindAction;
     return {
       kind: "error",
       code: "invalid_envelope",

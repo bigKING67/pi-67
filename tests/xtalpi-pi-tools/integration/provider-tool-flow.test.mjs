@@ -245,6 +245,33 @@ test("function-style pseudo calls are repaired into canonical tool calls", async
   });
 });
 
+test("repeated selected direct-kind drift gets a second bounded repair and then executes canonical output", async () => {
+  await withProviderScript([
+    completion('{"kind":"bash","command":"pi update --extensions","timeout":120}'),
+    completion('{"kind":"bash","command":"pi update --extensions","timeout":120}'),
+    completion('{"kind":"tool_call","name":"bash","arguments":{"command":"pi update --extensions","timeout":120}}'),
+  ], {}, async ({ provider, script }) => {
+    const final = await provider.streamSimple(TEST_MODEL, {
+      systemPrompt: "system base",
+      tools: [simpleTool("bash", {
+        command: { type: "string" },
+        timeout: { type: "number" },
+      })],
+      messages: [{ role: "user", content: "pi update --extensions" }],
+    }, {}).result();
+
+    assert.equal(script.count, 3);
+    assert.equal(final.stopReason, "toolUse");
+    assert.equal(toolCalls(final)[0].name, "bash");
+    assert.deepEqual(toolCalls(final)[0].arguments, {
+      command: "pi update --extensions",
+      timeout: 120,
+    });
+    assert.match(script.requests[1].messages.at(-1).content, /selected-tool-direct-kind-repair/);
+    assert.match(script.requests[2].messages.at(-1).content, /selected-tool-direct-kind-repair/);
+  });
+});
+
 test("schema-invalid arguments are repaired before tool execution", async () => {
   await withProviderScript([
     completion('{"kind":"tool_call","name":"read","arguments":{"path":42}}'),

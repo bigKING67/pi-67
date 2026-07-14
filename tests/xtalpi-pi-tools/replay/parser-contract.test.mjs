@@ -72,6 +72,33 @@ test("strict JSON action accepts only canonical tool and final envelopes", () =>
   assert.equal(legacyObject.code, "invalid_envelope");
 });
 
+test("selected direct-kind JSON actions enter targeted repair without weakening the standalone parser", () => {
+  const directKind = parseJsonAction(
+    '{"kind":"bash","command":"pi update --extensions","timeout":120}',
+    { selectedToolNames: ["bash", "read"] },
+  );
+  assert.equal(directKind.kind, "error");
+  assert.equal(directKind.code, "selected_tool_direct_kind");
+
+  const repair = buildParseErrorRepairPlan(directKind, ["bash", "read"]);
+  assert.equal(repair.event, "recovery.selected_tool_direct_kind");
+  assert.match(repair.prompt, /xtalpi-pi-tools-selected-tool-direct-kind-repair/);
+  assert.match(repair.prompt, /Move the tool name to "name"/);
+
+  const unselected = parseJsonAction(
+    '{"kind":"bash","command":"pi update --extensions","timeout":120}',
+    { selectedToolNames: ["read"] },
+  );
+  assert.equal(unselected.kind, "error");
+  assert.equal(unselected.code, "invalid_envelope");
+
+  const withoutRuntimeContext = parseJsonAction(
+    '{"kind":"bash","command":"pi update --extensions","timeout":120}',
+  );
+  assert.equal(withoutRuntimeContext.kind, "error");
+  assert.equal(withoutRuntimeContext.code, "invalid_envelope");
+});
+
 test("strict JSON action repairs malformed final text without relaxing tool calls", () => {
   const malformedFinal = parseJsonAction('{"kind":"final","text":"明白了，"洗护发"是美妆个护逻辑，不是纸品日化。"}');
   assert.equal(malformedFinal.kind, "none");

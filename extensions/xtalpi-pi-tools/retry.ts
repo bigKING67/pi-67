@@ -14,6 +14,7 @@ export {
   buildPrematureFinalRepairPrompt,
   buildRawProtocolMarkupRepairPrompt,
   buildRepeatedToolRepairPrompt,
+  buildSelectedToolDirectKindRepairPrompt,
   buildShellCommandMismatchRepairPrompt,
   buildUnknownToolRepairPrompt,
 } from "./turn/recovery-prompts.ts";

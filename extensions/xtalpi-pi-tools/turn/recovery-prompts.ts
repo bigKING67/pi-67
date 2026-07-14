@@ -70,6 +70,26 @@ If no available tool fits, return:
 ${finalShapeForPrompt()}`;
 }
 
+export function buildSelectedToolDirectKindRepairPrompt(
+  raw: string,
+  availableNames: string[],
+): string {
+  const names = formatToolNamesForPrompt(availableNames);
+  return `[xtalpi-pi-tools-selected-tool-direct-kind-repair]
+Your previous response put a selected tool name directly in the "kind" field and flattened its arguments:
+${safeBlockText(raw, 2000)}
+
+Available tool names:
+${names}
+
+That shape is not executable. If the tool is still needed, return exactly one compact canonical JSON action:
+${toolCallShapeForPrompt()}
+
+Move the tool name to "name" and move every tool argument under the "arguments" object.
+If no tool is needed, return:
+${finalShapeForPrompt()}`;
+}
+
 export function buildRawProtocolMarkupRepairPrompt(
   raw: string,
   availableNames: string[],

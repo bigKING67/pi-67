@@ -16,7 +16,7 @@ import { validateFinalAnswer } from "./final-guard.ts";
 import {
   type XtalpiChatMessage,
 } from "./protocol.ts";
-import { buildParseErrorRepairPlan } from "./recovery-decision.ts";
+import { buildParseErrorRepairPlan, parseErrorRecoveryBudget } from "./recovery-decision.ts";
 import {
   buildEmptyResponseRepairPrompt,
 } from "./turn/recovery-prompts.ts";
@@ -114,7 +114,7 @@ export async function runProviderTurn(input: {
       };
     }
 
-    const parsed = parseJsonAction(raw);
+    const parsed = parseJsonAction(raw, { selectedToolNames });
     if (parsed.kind === "error") {
       const visionDecision = decideVisionInability({
         detection: visionDetection,
@@ -186,8 +186,10 @@ export async function runProviderTurn(input: {
         };
       }
 
-      if (loopState.canRecoverFormat(debugContext)) {
-        const recovery = loopState.noteFormatRecovery();
+      const recoveryBudget = parseErrorRecoveryBudget(parsed);
+      const canRecoverParseError = recoveryBudget === "repair" ? loopState.canRecoverRepair(debugContext) : loopState.canRecoverFormat(debugContext);
+      if (canRecoverParseError) {
+        const recovery = recoveryBudget === "repair" ? loopState.noteRepairRecovery() : loopState.noteFormatRecovery();
         const repairPlan = buildParseErrorRepairPlan(parsed, selectedToolNames);
         messages.push({ role: "user", content: repairPlan.prompt });
         debugLog(repairPlan.event, {

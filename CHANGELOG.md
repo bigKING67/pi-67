@@ -6,6 +6,16 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.11.6] - 2026-07-14
+
+### Fixed
+
+- Detect the observed selected-tool direct-kind drift shape, such as
+  `{"kind":"bash","command":"..."}`, and grant it one additional targeted,
+  bounded repair within the existing total recovery budget. The flattened
+  object is never executed; only a subsequent canonical `tool_call` envelope
+  can reach the existing whitelist, schema, repeat, and shell guards.
+
 ## [0.11.5] - 2026-07-14
 
 ### Added

@@ -17,6 +17,7 @@ export type ToolCallParseResult =
       kind: "error";
       code:
         | "function_style_tool_call"
+        | "selected_tool_direct_kind"
         | "multiple_tool_calls"
         | "invalid_json"
         | "invalid_envelope"

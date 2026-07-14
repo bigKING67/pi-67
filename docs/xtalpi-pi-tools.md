@@ -157,6 +157,12 @@ envelope，Pi 本地解析、schema validate、repair、分类错误并执行工
 {"kind":"final","text":"最终回答文本"}
 ```
 
+如果模型偶发把 selected tool name 错放进 `kind`，例如
+`{"kind":"bash","command":"pi update --extensions","timeout":120}`，运行时只会在
+`bash` 确实属于本轮 selected tools 时把它分类为专用协议漂移，并在总 repair 预算内额外要求一次
+规范 `tool_call` envelope。该扁平对象本身永远不会执行；未选中的 `kind` 仍按普通无效 envelope
+fail closed。
+
 这不是信任上游 schema 的 native JSON 能力；它只是让上游在能稳定输出 `json_object` 时减少
 tag 漂移概率。未知字段、坏 `kind`、非对象 `arguments`、未展示工具、参数 schema 不匹配、
 重复工具调用和 shell 语义不匹配仍由 Pi 本地 fail closed 并进入有界 repair。

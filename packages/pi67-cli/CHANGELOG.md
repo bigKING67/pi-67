@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## [0.11.6]
+
+- Carries the bounded `xtalpi-pi-tools` recovery for selected-tool names that
+  drift into the JSON action `kind` field. The flattened response remains
+  non-executable; only a repaired canonical `tool_call` can reach local tool
+  validation and execution.
+
 ## [0.11.5]
 
 - Ships the modular `xtalpi-pi-tools` v2 reliability runtime with explicit

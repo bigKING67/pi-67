@@ -3,12 +3,14 @@ import {
   buildFunctionStyleToolRepairPrompt,
   buildInvalidToolJsonRepairPrompt,
   buildRawProtocolMarkupRepairPrompt,
+  buildSelectedToolDirectKindRepairPrompt,
 } from "./turn/recovery-prompts.ts";
 
 export type ParseErrorResult = Extract<ToolCallParseResult, { kind: "error" }>;
 
 export type ParseErrorRecoveryEvent =
   | "recovery.function_style_tool_call"
+  | "recovery.selected_tool_direct_kind"
   | "recovery.raw_protocol_markup"
   | "recovery.invalid_tool_json";
 
@@ -16,6 +18,10 @@ export type ParseErrorRepairPlan = {
   prompt: string;
   event: ParseErrorRecoveryEvent;
 };
+
+export function parseErrorRecoveryBudget(parsed: ParseErrorResult): "repair" | "format" {
+  return parsed.code === "selected_tool_direct_kind" ? "repair" : "format";
+}
 
 export function canRecoverEmptyResponse(
   counters: { emptyRetries: number; totalRecoveries: number },
@@ -42,6 +48,13 @@ export function buildParseErrorRepairPlan(
     return {
       event: "recovery.function_style_tool_call",
       prompt: buildFunctionStyleToolRepairPrompt(parsed.raw, names),
+    };
+  }
+
+  if (parsed.code === "selected_tool_direct_kind") {
+    return {
+      event: "recovery.selected_tool_direct_kind",
+      prompt: buildSelectedToolDirectKindRepairPrompt(parsed.raw, names),
     };
   }
 
