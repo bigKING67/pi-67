@@ -20,7 +20,7 @@ export type ToolExecutionObservation = {
   status: ToolExecutionStatus;
   errorCode?: string;
   resultMessageIndex: number;
-  resultToolName?: string;
+  resultToolName: string | undefined;
   resultContent: string;
   sameFingerprintExecutionCount: number;
   toolNameMismatch: boolean;
@@ -29,7 +29,7 @@ export type ToolExecutionObservation = {
 export type ToolExecutionLedger = {
   schema: "xtalpi-pi-tools.tool-execution-ledger.v2";
   observations: ToolExecutionObservation[];
-  latestObservation?: ToolExecutionObservation;
+  latestObservation: ToolExecutionObservation | undefined;
   pendingCallCount: number;
   unpairedResultCount: number;
   duplicateResultCount: number;
@@ -147,6 +147,7 @@ export function buildToolExecutionLedger(context: { messages: MessageLike[] }): 
 
   for (let messageIndex = 0; messageIndex < context.messages.length; messageIndex += 1) {
     const message = context.messages[messageIndex];
+    if (!message) continue;
     if (message.role === "assistant" && Array.isArray(message.content)) {
       for (const block of message.content) {
         if (!isObject(block)) continue;
@@ -209,6 +210,7 @@ export function latestObservationForCall(
   });
   for (let index = ledger.observations.length - 1; index >= 0; index -= 1) {
     const observation = ledger.observations[index];
+    if (!observation) continue;
     if (observation.fingerprint === fingerprint) return observation;
   }
   return undefined;

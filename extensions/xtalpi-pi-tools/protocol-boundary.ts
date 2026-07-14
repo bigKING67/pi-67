@@ -14,6 +14,8 @@ export type ProtocolBoundaryFinding =
       matchedShape: string;
     };
 
+type ProtocolBoundaryViolation = Extract<ProtocolBoundaryFinding, { ok: false }>;
+
 type JsonObject = Record<string, unknown>;
 
 const MAX_SCAN_CHARS = 12000;
@@ -160,12 +162,12 @@ function makeFinding(input: {
   code: ProtocolBoundaryFindingCode;
   matchedShape: string;
   matchedToolName?: string;
-}): ProtocolBoundaryFinding {
+}): ProtocolBoundaryViolation {
   return {
     ok: false,
     code: input.code,
     matchedShape: input.matchedShape,
-    matchedToolName: input.matchedToolName,
+    ...(input.matchedToolName === undefined ? {} : { matchedToolName: input.matchedToolName }),
     reason:
       "model returned tool-call-like JSON/protocol content in final text; " +
       "tool calls must be emitted as exactly one canonical local action object",
@@ -178,7 +180,7 @@ function detectNamedToolObject(input: {
   code: ProtocolBoundaryFindingCode;
   matchedShape: string;
   protocolWrapper?: boolean;
-}): ProtocolBoundaryFinding | undefined {
+}): ProtocolBoundaryViolation | undefined {
   if (!isPlainObject(input.value)) return undefined;
 
   const name = toolNameFromObject(input.value);
@@ -203,7 +205,7 @@ function detectProtocolObject(
   value: JsonObject,
   toolNames: Set<string>,
   fallbackCode: ProtocolBoundaryFindingCode,
-): ProtocolBoundaryFinding | undefined {
+): ProtocolBoundaryViolation | undefined {
   if (value.kind === "tool_call") {
     return detectNamedToolObject({
       value,
@@ -258,7 +260,7 @@ function detectProtocolObject(
   });
 }
 
-function detectParsedCandidate(parsed: unknown, toolNames: Set<string>): ProtocolBoundaryFinding | undefined {
+function detectParsedCandidate(parsed: unknown, toolNames: Set<string>): ProtocolBoundaryViolation | undefined {
   if (Array.isArray(parsed)) {
     for (const item of parsed) {
       if (!isPlainObject(item)) continue;

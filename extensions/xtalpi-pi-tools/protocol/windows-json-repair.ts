@@ -1,7 +1,7 @@
 export function stripMarkdownFence(value: string): string {
   const trimmed = value.trim();
   const fenceMatch = trimmed.match(/^```(?:json|JSON)?\s*([\s\S]*?)\s*```$/);
-  return fenceMatch ? fenceMatch[1].trim() : trimmed;
+  return fenceMatch ? (fenceMatch[1] ?? "").trim() : trimmed;
 }
 
 export function hasEvenBackslashPrefix(value: string, index: number): boolean {

@@ -51,7 +51,12 @@ function streamXtalpiPiTools(
     const output = startOutputMessage(stream, model);
 
     try {
-      const result = await runProviderTurn({ model, context, options, runtimeConfig });
+      const result = await runProviderTurn({
+        model,
+        context,
+        ...(options ? { options } : {}),
+        ...(runtimeConfig ? { runtimeConfig } : {}),
+      });
       finishOutputWithTurnResult(stream, output, result);
     } catch (error) {
       finishOutputWithError(stream, output, {

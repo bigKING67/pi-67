@@ -103,8 +103,8 @@ export function buildToolResultReceipt(input: {
 
   return {
     schema: "xtalpi-pi-tools.tool-result.v2",
-    tool_call_id: safeInlineText(toolCallId, 160),
-    tool_name: safeInlineText(toolName, 160),
+    tool_call_id: safeInlineText(toolCallId, 160) || "unknown",
+    tool_name: safeInlineText(toolName, 160) || "unknown",
     ...(observation ? { fingerprint: observation.fingerprint } : {}),
     ...(argumentsSummary && Object.keys(argumentsSummary).length > 0
       ? { arguments_summary: argumentsSummary }

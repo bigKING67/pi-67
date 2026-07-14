@@ -21,7 +21,7 @@ export type RuntimePolicyInput = {
 
 export class RuntimePolicyConfigurationError extends Error {
   readonly code = "configuration_invalid";
-  readonly variable?: string;
+  readonly variable: string | undefined;
 
   constructor(message: string, variable?: string) {
     super(message);
@@ -32,11 +32,11 @@ export class RuntimePolicyConfigurationError extends Error {
 
 type NumericSpec = {
   env: string;
-  legacyEnv?: string;
+  legacyEnv?: string | undefined;
   min: number;
   max: number;
   integer?: boolean;
-  optionValue?: number;
+  optionValue?: number | undefined;
 };
 
 const POLICY_LIMITS: Record<keyof RuntimePolicyValues, { min: number; max: number; integer?: boolean }> = {
@@ -120,7 +120,7 @@ export function resolveRuntimePolicy(input: RuntimePolicyInput = {}): RuntimePol
   const resolve = (
     key: keyof RuntimePolicyValues,
     envName: string,
-    options: { legacyEnv?: string; optionValue?: number } = {},
+    options: { legacyEnv?: string | undefined; optionValue?: number | undefined } = {},
   ): number => {
     const limit = POLICY_LIMITS[key];
     const result = numericValue(env, defaults[key], {

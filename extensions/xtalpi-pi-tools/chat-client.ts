@@ -42,8 +42,8 @@ import {
 export type XtalpiChatResponse = {
   content: string;
   usage: UsageSummary;
-  responseModel?: string;
-  finishReason?: string;
+  responseModel: string | undefined;
+  finishReason: string | undefined;
 };
 
 type FetchTextResult = {
@@ -58,12 +58,34 @@ type RetryDelayDecision = {
   retryAfterMs?: number;
 };
 
+type ResponseParseMetadata = {
+  contentType?: string;
+};
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function abortReason(signal: AbortSignal | undefined): unknown {
-  return signal?.reason || new Error("aborted");
+  return signal?.reason ?? new Error("aborted");
+}
+
+function responseContentType(response: Response): string | undefined {
+  const value = typeof response.headers?.get === "function"
+    ? response.headers.get("content-type")?.trim()
+    : undefined;
+  return value || undefined;
+}
+
+function isJsonContentType(contentType: string | undefined): boolean {
+  if (!contentType) return false;
+  const mediaType = contentType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+  return mediaType === "application/json" || mediaType.endsWith("+json");
+}
+
+function supportedMessagePayload(message: Record<string, unknown>): boolean {
+  if (typeof message.content === "string" || Array.isArray(message.content)) return true;
+  return Array.isArray(message.tool_calls) && message.tool_calls.length > 0;
 }
 
 function throwIfCallerAborted(signal: AbortSignal | undefined): void {
@@ -165,6 +187,7 @@ async function readResponseTextWithAbort(
   };
   const contentLength = Number(responseLike.headers?.get?.("content-length"));
   if (Number.isFinite(contentLength) && contentLength > maxResponseBytes) {
+    if (response.body) void response.body.cancel("response_too_large").catch(() => undefined);
     throw buildProviderError(
       "response_too_large",
       `xtalpi-pi-tools response exceeded ${maxResponseBytes} bytes`,
@@ -172,9 +195,22 @@ async function readResponseTextWithAbort(
     );
   }
 
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let readerFinished = false;
+  let readerCancelRequested = false;
+  const cancelReader = (reason: unknown): void => {
+    if (!reader || readerFinished || readerCancelRequested) return;
+    readerCancelRequested = true;
+    void reader.cancel(reason).catch(() => undefined);
+  };
+
   let removeAbortListener: (() => void) | undefined;
   const abortPromise = new Promise<never>((_resolve, reject) => {
-    const abortHandler = () => reject(abortReason(signal));
+    const abortHandler = () => {
+      const reason = abortReason(signal);
+      cancelReader(reason);
+      reject(reason);
+    };
     removeAbortListener = () => signal.removeEventListener("abort", abortHandler);
     signal.addEventListener("abort", abortHandler, { once: true });
   });
@@ -194,28 +230,50 @@ async function readResponseTextWithAbort(
       return { body, bodyBytes };
     }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
+    reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8", { fatal: true });
     const chunks: string[] = [];
     let bodyBytes = 0;
 
     while (true) {
       const result = await Promise.race([reader.read(), abortPromise]);
-      if (result.done) break;
+      if (result.done) {
+        readerFinished = true;
+        break;
+      }
       const chunk = result.value;
       bodyBytes += chunk.byteLength;
       if (bodyBytes > maxResponseBytes) {
-        await reader.cancel("response_too_large").catch(() => undefined);
+        cancelReader("response_too_large");
         throw buildProviderError(
           "response_too_large",
           `xtalpi-pi-tools response exceeded ${maxResponseBytes} bytes`,
           { details: { maxResponseBytes, bodyBytes, source: "stream" } },
         );
       }
-      chunks.push(decoder.decode(chunk, { stream: true }));
+      try {
+        chunks.push(decoder.decode(chunk, { stream: true }));
+      } catch (error) {
+        throw buildProviderError(
+          "malformed_response",
+          "xtalpi-pi-tools response body is not valid UTF-8",
+          { details: { bodyBytes, source: "utf8_decode" }, cause: error },
+        );
+      }
     }
-    chunks.push(decoder.decode());
+    try {
+      chunks.push(decoder.decode());
+    } catch (error) {
+      throw buildProviderError(
+        "malformed_response",
+        "xtalpi-pi-tools response body is not valid UTF-8",
+        { details: { bodyBytes, source: "utf8_decode" }, cause: error },
+      );
+    }
     return { body: chunks.join(""), bodyBytes };
+  } catch (error) {
+    cancelReader(error);
+    throw error;
   } finally {
     removeAbortListener?.();
   }
@@ -231,8 +289,17 @@ async function fetchTextWithTimeout(
   throwIfCallerAborted(signal);
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(new Error(`xtalpi-pi-tools timeout after ${timeoutMs}ms`)), timeoutMs);
-  const abortHandler = () => controller.abort(abortReason(signal));
+  let abortSource: "caller" | "timeout" | undefined;
+  const timeout = setTimeout(() => {
+    if (controller.signal.aborted) return;
+    abortSource = "timeout";
+    controller.abort(new Error(`xtalpi-pi-tools timeout after ${timeoutMs}ms`));
+  }, timeoutMs);
+  const abortHandler = () => {
+    if (controller.signal.aborted) return;
+    abortSource = "caller";
+    controller.abort(abortReason(signal));
+  };
   if (signal) signal.addEventListener("abort", abortHandler, { once: true });
 
   try {
@@ -243,13 +310,23 @@ async function fetchTextWithTimeout(
       maxResponseBytes,
     );
     return { response, body, bodyBytes };
+  } catch (error) {
+    if (error instanceof XtalpiProviderError) throw error;
+    throw classifyTransportError(error, {
+      timeoutMs,
+      callerAborted: abortSource === "caller" || (abortSource === undefined && signal?.aborted === true),
+      timedOut: abortSource === "timeout",
+    });
   } finally {
     clearTimeout(timeout);
     if (signal) signal.removeEventListener("abort", abortHandler);
   }
 }
 
-export function parseXtalpiChatResponse(body: string): XtalpiChatResponse {
+export function parseXtalpiChatResponse(
+  body: string,
+  metadata: ResponseParseMetadata = {},
+): XtalpiChatResponse {
   let json: unknown;
   try {
     json = JSON.parse(body);
@@ -261,6 +338,7 @@ export function parseXtalpiChatResponse(body: string): XtalpiChatResponse {
         details: {
           bodyExcerpt: safeBlockText(body, 1000),
           bodyChars: body.length,
+          responseContentType: metadata.contentType ?? "(missing)",
         },
         cause: error,
       },
@@ -269,16 +347,17 @@ export function parseXtalpiChatResponse(body: string): XtalpiChatResponse {
 
   const root = isObject(json) ? json : {};
   const choices = Array.isArray(root.choices) ? root.choices : [];
-  const firstChoice = choices.find(isObject);
+  const firstChoice = isObject(choices[0]) ? choices[0] : undefined;
   const message = isObject(firstChoice?.message) ? firstChoice.message : undefined;
-  if (!message) {
+  if (!message || !supportedMessagePayload(message)) {
     throw buildProviderError(
       "malformed_response",
-      "xtalpi-pi-tools returned JSON without choices[].message",
+      "xtalpi-pi-tools returned JSON without a supported choices[0].message payload",
       {
         details: {
           bodyExcerpt: safeBlockText(body, 1000),
           bodyChars: body.length,
+          responseContentType: metadata.contentType ?? "(missing)",
         },
       },
     );
@@ -381,10 +460,18 @@ export async function callXtalpiChat(input: {
           ? response.headers.get("retry-after")
           : null;
         const retryAfterMs = parseRetryAfterMs(retryAfterValue);
-        throw buildHttpError(response.status, body, { retryAfterMs });
+        throw buildHttpError(
+          response.status,
+          body,
+          retryAfterMs === undefined ? {} : { retryAfterMs },
+        );
       }
 
-      const parsed = parseXtalpiChatResponse(body);
+      const contentType = responseContentType(response);
+      const parsed = parseXtalpiChatResponse(
+        body,
+        contentType === undefined ? {} : { contentType },
+      );
       debugLog("response", {
         provider: PROVIDER_ID,
         model: model.id,
@@ -392,6 +479,8 @@ export async function callXtalpiChat(input: {
         finishReason: parsed.finishReason,
         contentChars: parsed.content.length,
         bodyBytes,
+        contentType: contentType ?? "(missing)",
+        jsonContentType: isJsonContentType(contentType),
         usage: parsed.usage,
         elapsedMs: Math.round(requestBudget.elapsedMs()),
         remainingMs: Math.round(requestBudget.remainingMs()),
@@ -405,7 +494,11 @@ export async function callXtalpiChat(input: {
       const providerError =
         error instanceof XtalpiProviderError
           ? error
-          : classifyTransportError(error, attemptTimeoutMs, options?.signal?.aborted === true);
+          : classifyTransportError(error, {
+              timeoutMs: attemptTimeoutMs,
+              callerAborted: options?.signal?.aborted === true,
+              timedOut: false,
+            });
       if (!options?.signal?.aborted && requestBudget.remainingMs() <= 0) {
         const deadlineError = buildProviderError(
           "request_deadline_exhausted",

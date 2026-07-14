@@ -1,4 +1,4 @@
-import type { ToolLike } from "./tool-selection.ts";
+import type { ToolLike } from "./tools/types.ts";
 
 export type BrowserMcpDetection = {
   isBrowserMcpTask: boolean;

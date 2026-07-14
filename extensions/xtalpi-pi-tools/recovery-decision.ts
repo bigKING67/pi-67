@@ -3,7 +3,7 @@ import {
   buildFunctionStyleToolRepairPrompt,
   buildInvalidToolJsonRepairPrompt,
   buildRawProtocolMarkupRepairPrompt,
-} from "./retry.ts";
+} from "./turn/recovery-prompts.ts";
 
 export type ParseErrorResult = Extract<ToolCallParseResult, { kind: "error" }>;
 

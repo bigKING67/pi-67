@@ -10,12 +10,9 @@ import {
   visionToolRouteForName,
 } from "./vision-bridge.ts";
 import { serializeToolParameters } from "./tools/schema-serializer.ts";
+import type { ToolLike } from "./tools/types.ts";
 
-export type ToolLike = {
-  name: string;
-  description?: string;
-  parameters?: unknown;
-};
+export type { ToolLike } from "./tools/types.ts";
 
 export type ToolSelectionItem = {
   name: string;
@@ -60,6 +57,25 @@ type RankedTool = ToolScore & {
 type ToolSelectionVisionState = ReturnType<typeof detectVisionTaskText>;
 type ToolSelectionBrowserState = ReturnType<typeof detectBrowserMcpTaskText>;
 
+type ToolMentionContext = {
+  start: number;
+  end: number;
+  leftClause: string;
+};
+
+type ToolScoringContext = {
+  prompt: string;
+  promptTokens: string[];
+  hasUrl: boolean;
+  hasPath: boolean;
+  hasEditIntent: boolean;
+  hasSearchIntent: boolean;
+  visionState: ToolSelectionVisionState;
+  browserState: ToolSelectionBrowserState;
+  boostedToolNames: ReadonlySet<string>;
+  boostReasonCode: string;
+};
+
 const MAX_TOOL_SELECTION_SUMMARY_ITEMS = 12;
 const MAX_TOOL_SELECTION_REASON_CODES = 8;
 const MAX_SERIALIZED_TOOLS_CHARS = 18_000;
@@ -86,6 +102,15 @@ const EXCLUSIVE_TOOL_CLAUSE_PATTERN =
 const NEGATIVE_TOOL_CLAUSE_PATTERN =
   /(?:do\s+not|don't|dont|must\s+not|never|without)\s+(?:call|use|execute|run|invoke|select|choose)?|(?:禁止|不要|不得|别|勿)\s*(?:调用|使用|执行|运行|选择|用)?/i;
 const TOOL_MENTION_EXCEPTION_PATTERN = /(?:except(?:\s+for)?|other\s+than|除外|除了|除非|以外|之外)/i;
+const PROMPT_TOKEN_SPLIT_PATTERN = /[^a-z0-9_\-\u4e00-\u9fff/.]+/i;
+const PROMPT_URL_PATTERN = /https?:\/\//i;
+const PROMPT_PATH_PATTERN = /[~/./][^\s]*/;
+const PROMPT_EDIT_INTENT_PATTERN = /(?:修改|编辑|修复|实现|patch|edit|write|create|delete|commit|push)/i;
+const PROMPT_SEARCH_INTENT_PATTERN = /(?:搜索|查找|grep|find|search|rg)/i;
+const WEB_TOOL_PATTERN = /web|fetch|http|url/i;
+const FILE_TOOL_PATTERN = /read|file|path|grep|find|ls|bash/i;
+const EDIT_TOOL_PATTERN = /edit|write|bash/i;
+const SEARCH_TOOL_PATTERN = /grep|find|search/i;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -98,18 +123,10 @@ function toolNameMentionPattern(toolName: string): RegExp {
   );
 }
 
-function hasToolNameMention(toolName: string, prompt: string): boolean {
-  if (!toolName) return false;
-  return toolNameMentionPattern(toolName).test(prompt);
-}
-
-function toolNameMentionContexts(toolName: string, prompt: string): Array<{
-  start: number;
-  end: number;
-  leftClause: string;
-}> {
+function toolNameMentionContexts(toolName: string, prompt: string): ToolMentionContext[] {
+  if (!toolName) return [];
   const pattern = toolNameMentionPattern(toolName);
-  const contexts: Array<{ start: number; end: number; leftClause: string }> = [];
+  const contexts: ToolMentionContext[] = [];
   for (const match of prompt.matchAll(pattern)) {
     const prefixLength = match[1]?.length ?? 0;
     const start = (match.index ?? 0) + prefixLength;
@@ -130,15 +147,14 @@ function toolNameMentionContexts(toolName: string, prompt: string): Array<{
   return contexts;
 }
 
-function hasExclusiveToolMention(toolName: string, prompt: string): boolean {
-  return toolNameMentionContexts(toolName, prompt).some((context) =>
+function hasExclusiveToolMention(contexts: readonly ToolMentionContext[]): boolean {
+  return contexts.some((context) =>
     EXCLUSIVE_TOOL_CLAUSE_PATTERN.test(context.leftClause),
   );
 }
 
-function hasForbiddenToolMention(toolName: string, prompt: string): boolean {
-  if (!toolName) return false;
-  for (const { end, leftClause } of toolNameMentionContexts(toolName, prompt)) {
+function hasForbiddenToolMention(contexts: readonly ToolMentionContext[], prompt: string): boolean {
+  for (const { end, leftClause } of contexts) {
     const rightWindow = prompt.slice(end, end + 24);
     const leftTail = leftClause.slice(-32);
 
@@ -149,16 +165,33 @@ function hasForbiddenToolMention(toolName: string, prompt: string): boolean {
   return false;
 }
 
-function scoreTool(
-  tool: ToolLike,
+function buildToolScoringContext(
   prompt: string,
   visionState: ToolSelectionVisionState,
   browserState: ToolSelectionBrowserState,
   selectionOptions: ToolSelectionOptions,
+): ToolScoringContext {
+  const promptLower = prompt.toLowerCase();
+  return {
+    prompt,
+    promptTokens: promptLower.split(PROMPT_TOKEN_SPLIT_PATTERN).filter((token) => token.length >= 2),
+    hasUrl: PROMPT_URL_PATTERN.test(prompt),
+    hasPath: PROMPT_PATH_PATTERN.test(prompt),
+    hasEditIntent: PROMPT_EDIT_INTENT_PATTERN.test(prompt),
+    hasSearchIntent: PROMPT_SEARCH_INTENT_PATTERN.test(prompt),
+    visionState,
+    browserState,
+    boostedToolNames: new Set(selectionOptions.boostedToolNames ?? []),
+    boostReasonCode: selectionOptions.boostReasonCode || "recovery_tool_boost",
+  };
+}
+
+function scoreTool(
+  tool: ToolLike,
+  context: ToolScoringContext,
 ): ToolScore {
   const description = typeof tool.description === "string" ? tool.description.slice(0, 1000) : "";
   const haystack = `${tool.name} ${description}`.toLowerCase();
-  const promptLower = prompt.toLowerCase();
   const reasonCodes = new Set<string>();
   let score = 0;
   const addScore = (points: number, reasonCode: string) => {
@@ -166,44 +199,44 @@ function scoreTool(
     reasonCodes.add(reasonCode);
   };
 
-  const forbiddenMention = hasForbiddenToolMention(tool.name, prompt);
+  const mentionContexts = toolNameMentionContexts(tool.name, context.prompt);
+  const forbiddenMention = hasForbiddenToolMention(mentionContexts, context.prompt);
   if (CORE_TOOL_NAMES.has(tool.name)) addScore(25, "core_tool");
-  if (hasExclusiveToolMention(tool.name, prompt)) addScore(160, "prompt_tool_exclusive");
-  if (hasToolNameMention(tool.name, prompt)) addScore(100, "prompt_tool_name");
+  if (hasExclusiveToolMention(mentionContexts)) addScore(160, "prompt_tool_exclusive");
+  if (mentionContexts.length > 0) addScore(100, "prompt_tool_name");
   if (forbiddenMention) addScore(FORBIDDEN_TOOL_MENTION_PENALTY, "prompt_tool_forbidden");
-  if (!forbiddenMention && selectionOptions.boostedToolNames?.includes(tool.name)) {
-    addScore(320, selectionOptions.boostReasonCode || "recovery_tool_boost");
+  if (!forbiddenMention && context.boostedToolNames.has(tool.name)) {
+    addScore(320, context.boostReasonCode);
   }
 
-  for (const token of promptLower.split(/[^a-z0-9_\-\u4e00-\u9fff/.]+/i)) {
-    if (token.length < 2) continue;
+  for (const token of context.promptTokens) {
     if (haystack.includes(token)) addScore(token.length > 4 ? 8 : 3, "prompt_token_match");
   }
 
-  if (/https?:\/\//i.test(prompt) && /web|fetch|http|url/i.test(haystack)) addScore(60, "prompt_url_web");
-  if (/[~/./][^\s]*/.test(prompt) && /read|file|path|grep|find|ls|bash/i.test(haystack)) {
+  if (context.hasUrl && WEB_TOOL_PATTERN.test(haystack)) addScore(60, "prompt_url_web");
+  if (context.hasPath && FILE_TOOL_PATTERN.test(haystack)) {
     addScore(35, "prompt_path_file");
   }
-  if (visionState.isVisionTask) {
+  if (context.visionState.isVisionTask) {
     const visionRoute = visionToolRouteForName(tool.name);
     if (visionRoute) {
       addScore(visionRoute.kind === "semantic" ? 520 : 460, "vision_bridge_route");
-      for (const reasonCode of visionState.reasonCodes) addScore(0, reasonCode);
-    } else if (visionState.hasImagePath && /read|file|path|grep|find|ls|bash/i.test(haystack)) {
+      for (const reasonCode of context.visionState.reasonCodes) addScore(0, reasonCode);
+    } else if (context.visionState.hasImagePath && FILE_TOOL_PATTERN.test(haystack)) {
       addScore(IMAGE_PATH_READ_PENALTY, "image_path_read_penalty");
     }
   }
-  if (browserState.isBrowserMcpTask) {
+  if (context.browserState.isBrowserMcpTask) {
     const browserRoute = browserMcpToolRouteForName(tool.name);
     if (browserRoute) {
       addScore(browserRoute === "mcp_gateway" ? 500 : 460, "browser_mcp_route");
-      for (const reasonCode of browserState.reasonCodes) addScore(0, reasonCode);
+      for (const reasonCode of context.browserState.reasonCodes) addScore(0, reasonCode);
     }
   }
-  if (/(修改|编辑|修复|实现|patch|edit|write|create|delete|commit|push)/i.test(prompt) && /edit|write|bash/i.test(haystack)) {
+  if (context.hasEditIntent && EDIT_TOOL_PATTERN.test(haystack)) {
     addScore(35, "prompt_edit_intent");
   }
-  if (/(搜索|查找|grep|find|search|rg)/i.test(prompt) && /grep|find|search/i.test(haystack)) {
+  if (context.hasSearchIntent && SEARCH_TOOL_PATTERN.test(haystack)) {
     addScore(35, "prompt_search_intent");
   }
 
@@ -259,10 +292,11 @@ export function selectToolsWithSummary(
   const available = collectValidTools(tools);
   const visionState = detectVisionTaskText(prompt);
   const browserState = detectBrowserMcpTaskText(prompt);
+  const scoringContext = buildToolScoringContext(prompt, visionState, browserState, selectionOptions);
   const scored = available.map((tool, index) => ({
     tool,
     index,
-    ...scoreTool(tool, prompt, visionState, browserState, selectionOptions),
+    ...scoreTool(tool, scoringContext),
   }));
   const preferredVisionName = visionState.isVisionTask && limit > 0 ? preferredVisionToolName(available) : undefined;
   const preferredBrowserMcpName = browserState.isBrowserMcpTask && limit > 0

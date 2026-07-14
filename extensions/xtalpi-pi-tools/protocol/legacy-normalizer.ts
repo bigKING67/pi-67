@@ -1,5 +1,5 @@
 import type { JsonObject } from "../protocol.ts";
-import type { ToolCallParseResult } from "./json-action-parser.ts";
+import type { ToolCallParseResult } from "./parser-types.ts";
 import {
   parseJsonWithLikelyWindowsPathRepair,
   stripMarkdownFence,
@@ -83,7 +83,7 @@ export function parseLooseNameArgumentsEnvelope(
   const argumentsMatch = cleaned.match(/(?:^|\r?\n)\s*(arguments(?:_json)?|args|input|parameters)\s*(?::|=)\s*([\s\S]+)$/i);
   if (!nameMatch || !argumentsMatch) return undefined;
 
-  const nameField = nameMatch[1].toLowerCase();
+  const nameField = (nameMatch[1] ?? "").toLowerCase();
   const name = (nameMatch[2] || nameMatch[3] || nameMatch[4] || "").trim();
   if (!name) {
     return {
@@ -95,7 +95,7 @@ export function parseLooseNameArgumentsEnvelope(
     };
   }
 
-  const argumentField = argumentsMatch[1].toLowerCase();
+  const argumentField = (argumentsMatch[1] ?? "").toLowerCase();
   const warnings = ["accepted loose name/arguments pi_tool_call body"];
   if (nameField !== "name") warnings.push(`accepted tool name alias "${nameField}"`);
   if (argumentField !== "arguments") warnings.push(`accepted tool arguments alias "${argumentField}"`);
@@ -105,7 +105,7 @@ export function parseLooseNameArgumentsEnvelope(
 
   let parsedArgumentValue: unknown;
   try {
-    const parsed = parseJsonWithLikelyWindowsPathRepair(argumentsMatch[2].trim());
+    const parsed = parseJsonWithLikelyWindowsPathRepair((argumentsMatch[2] ?? "").trim());
     parsedArgumentValue = parsed.value;
     warnings.push(...parsed.warnings);
   } catch (error) {
@@ -193,7 +193,7 @@ function normalizeNamedArgumentsObject(
   originalText: string,
   baseWarnings: string[] = [],
 ): ToolCallParseResult {
-  const metadataFields = new Set(TOOL_METADATA_FIELDS);
+  const metadataFields = new Set<string>(TOOL_METADATA_FIELDS);
   const allowed = new Set([...TOOL_NAME_ALIASES, ...TOOL_ARGUMENT_ALIASES, ...metadataFields]);
   const keys = Object.keys(parsed).sort();
   const unknown = unknownFields(parsed, allowed);
@@ -202,7 +202,8 @@ function normalizeNamedArgumentsObject(
   }
 
   const nameEntries = uniqueDefinedEntries(parsed, TOOL_NAME_ALIASES);
-  if (nameEntries.length !== 1) {
+  const nameEntry = nameEntries.at(0);
+  if (nameEntries.length !== 1 || !nameEntry) {
     return {
       kind: "error",
       code: "invalid_envelope",
@@ -212,7 +213,7 @@ function normalizeNamedArgumentsObject(
     };
   }
 
-  const rawName = nameEntries[0].value;
+  const rawName = nameEntry.value;
   if (typeof rawName !== "string" || rawName.trim() === "") {
     return {
       kind: "error",
@@ -224,7 +225,8 @@ function normalizeNamedArgumentsObject(
   }
 
   const argumentEntries = uniqueDefinedEntries(parsed, TOOL_ARGUMENT_ALIASES);
-  if (argumentEntries.length !== 1) {
+  const argumentEntry = argumentEntries.at(0);
+  if (argumentEntries.length !== 1 || !argumentEntry) {
     return {
       kind: "error",
       code: "invalid_envelope",
@@ -235,15 +237,15 @@ function normalizeNamedArgumentsObject(
   }
 
   const warnings = [...baseWarnings];
-  if (nameEntries[0].key !== "name") warnings.push(`accepted tool name alias "${nameEntries[0].key}"`);
-  if (argumentEntries[0].key !== "arguments") {
-    warnings.push(`accepted tool arguments alias "${argumentEntries[0].key}"`);
+  if (nameEntry.key !== "name") warnings.push(`accepted tool name alias "${nameEntry.key}"`);
+  if (argumentEntry.key !== "arguments") {
+    warnings.push(`accepted tool arguments alias "${argumentEntry.key}"`);
   }
   if (keys.some((key) => metadataFields.has(key))) {
     warnings.push("accepted legacy tool-call metadata fields");
   }
 
-  const parsedArguments = parseArgumentObjectValue(argumentEntries[0].value, cleaned);
+  const parsedArguments = parseArgumentObjectValue(argumentEntry.value, cleaned);
   if ("kind" in parsedArguments) return parsedArguments;
   warnings.push(...parsedArguments.warnings);
 

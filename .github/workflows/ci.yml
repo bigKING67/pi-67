@@ -27,6 +27,12 @@ jobs:
           cp package.json npm/package.json
           npm --prefix npm install --ignore-scripts
 
+      - name: Typecheck xtalpi extension
+        run: npm run -s typecheck:xtalpi
+
+      - name: Run xtalpi Node coverage floor
+        run: npm run -s test:xtalpi:coverage
+
       - name: Run pi-67 smoke
         run: bash scripts/pi67-smoke.sh --ci
 
@@ -55,6 +61,14 @@ jobs:
           New-Item -ItemType Directory -Force -Path npm | Out-Null
           Copy-Item package.json npm\package.json -Force
           npm --prefix npm install --ignore-scripts
+
+      - name: Typecheck xtalpi extension
+        shell: pwsh
+        run: npm run -s typecheck:xtalpi
+
+      - name: Run xtalpi Node coverage floor
+        shell: pwsh
+        run: npm run -s test:xtalpi:coverage
 
       - name: Run pi-67 CLI contract smoke
         shell: pwsh

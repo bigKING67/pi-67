@@ -1,6 +1,6 @@
 import type { JsonObject } from "./protocol.ts";
 import { jsonDeepEqual } from "./json-utils.ts";
-import type { ToolLike } from "./serializer.ts";
+import type { ToolLike } from "./tools/types.ts";
 
 type JsonSchema = Record<string, unknown>;
 
@@ -77,6 +77,10 @@ function numericKeyword(schema: JsonSchema, name: string): number | undefined {
 function integerKeyword(schema: JsonSchema, name: string): number | undefined {
   const value = numericKeyword(schema, name);
   return value !== undefined && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
+function validationLimit(value: number, fallback: number, minimum: number): number {
+  return Number.isFinite(value) ? Math.max(minimum, Math.floor(value)) : fallback;
 }
 
 function pushError(errors: string[], maxErrors: number, message: string): void {
@@ -241,10 +245,11 @@ function validateValue(
   const oneOf = schemaList(schema.oneOf);
   if (oneOf.length > 0) {
     const matches = oneOf.map((item) => validateSubschema(item, value, path, maxWarnings)).filter((item) => item.ok);
-    if (matches.length !== 1) {
+    const match = matches.at(0);
+    if (matches.length !== 1 || !match) {
       errors.push(`${path} must match exactly one allowed schema`);
     } else {
-      pushWarnings(warnings, maxWarnings, matches[0].warnings);
+      pushWarnings(warnings, maxWarnings, match.warnings);
     }
     return;
   }
@@ -356,6 +361,8 @@ export function validateToolArguments(
   const schema = tool.parameters;
   const errors: string[] = [];
   const warnings: ArgumentValidationWarning[] = [];
-  validateValue(schema, argumentsObject, "arguments", errors, maxErrors, warnings, maxWarnings);
+  const errorLimit = validationLimit(maxErrors, 8, 1);
+  const warningLimit = validationLimit(maxWarnings, 8, 0);
+  validateValue(schema, argumentsObject, "arguments", errors, errorLimit, warnings, warningLimit);
   return errors.length === 0 ? { ok: true, warnings } : { ok: false, errors, warnings };
 }

@@ -1,4 +1,4 @@
-import type { ToolCallParseResult } from "./json-action-parser.ts";
+import type { ToolCallParseResult } from "./parser-types.ts";
 import {
   escapeLikelyWindowsPathStringContent,
   hasEvenBackslashPrefix,
@@ -59,7 +59,9 @@ export function detectFunctionStyleToolCall(value: string): { name: string; raw:
   if (!match) return undefined;
 
   const name = match[1];
-  const args = match[2].trim();
+  const rawArgs = match[2];
+  if (!name || rawArgs === undefined) return undefined;
+  const args = rawArgs.trim();
   if (!args.startsWith("{") || !args.endsWith("}")) return undefined;
 
   return { name, raw: `${name}(${args})` };

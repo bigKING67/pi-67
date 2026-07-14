@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { callXtalpiChat } from "../../../extensions/xtalpi-pi-tools/chat-client.ts";
+import {
+  callXtalpiChat,
+  parseXtalpiChatResponse,
+} from "../../../extensions/xtalpi-pi-tools/chat-client.ts";
 import { resolveRuntimePolicy } from "../../../extensions/xtalpi-pi-tools/config/runtime-policy.ts";
 import {
   TEST_MODEL,
@@ -76,6 +79,33 @@ test("HTTP-date Retry-After is parsed and clamped", async () => {
   assert.equal(fetchCount, 2);
 });
 
+test("caller abort interrupts retry backoff without starting another request", async () => {
+  const caller = new AbortController();
+  let fetchCount = 0;
+  const started = performance.now();
+  await withFetch(async () => {
+    fetchCount += 1;
+    setTimeout(() => caller.abort(new Error("stop retry backoff")), 5);
+    return new Response("temporary", { status: 503 });
+  }, async () => {
+    await assert.rejects(
+      () => call({
+        options: { signal: caller.signal },
+        policy: policy({
+          requestAttempts: 2,
+          retryDelayMs: 1_000,
+          retryMaxDelayMs: 1_000,
+          retryJitterMs: 0,
+          totalRequestDeadlineMs: 2_000,
+        }),
+      }),
+      (error) => error.code === "request_aborted",
+    );
+  });
+  assert.equal(fetchCount, 1);
+  assert.ok(performance.now() - started < 500, "caller abort should cancel retry backoff promptly");
+});
+
 test("total request deadline bounds repeated timed-out attempts", async () => {
   let fetchCount = 0;
   const started = performance.now();
@@ -123,9 +153,15 @@ test("retry is rejected when backoff cannot fit inside the deadline", async () =
 
 test("Content-Length over the response limit fails before body parsing", async () => {
   let fetchCount = 0;
+  let cancelCount = 0;
   await withFetch(async () => {
     fetchCount += 1;
-    return new Response("{}", { status: 200, headers: { "content-length": "1024" } });
+    const stream = new ReadableStream({
+      cancel() {
+        cancelCount += 1;
+      },
+    });
+    return new Response(stream, { status: 200, headers: { "content-length": "1024" } });
   }, async () => {
     await assert.rejects(
       () => call({ policy: policy({ requestAttempts: 3, maxResponseBytes: 16 }) }),
@@ -133,6 +169,7 @@ test("Content-Length over the response limit fails before body parsing", async (
     );
   });
   assert.equal(fetchCount, 1);
+  assert.equal(cancelCount, 1);
 });
 
 test("streaming response bytes are bounded even without Content-Length", async () => {
@@ -204,4 +241,156 @@ test("caller abort and internal timeout remain distinct", async () => {
     );
   });
   assert.equal(fetchCount, 1);
+});
+
+test("body reader AbortError without a local abort is classified as a network failure", async () => {
+  let cancelCount = 0;
+  await withFetch(async () => ({
+    ok: true,
+    status: 200,
+    headers: { get: () => null },
+    body: {
+      getReader() {
+        return {
+          read: async () => {
+            const error = new Error("upstream response stream reset");
+            error.name = "AbortError";
+            throw error;
+          },
+          cancel: async () => {
+            cancelCount += 1;
+          },
+        };
+      },
+    },
+  }), async () => {
+    await assert.rejects(
+      () => call({ policy: policy({ requestAttempts: 1 }) }),
+      (error) => error.code === "network_error",
+    );
+  });
+  assert.equal(cancelCount, 1);
+});
+
+test("caller abort during body read cancels the active reader", async () => {
+  const caller = new AbortController();
+  let cancelCount = 0;
+  await withFetch(async () => {
+    setTimeout(() => caller.abort(new Error("cancel body read")), 0);
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      body: {
+        getReader() {
+          return {
+            read: () => new Promise(() => {}),
+            cancel: async () => {
+              cancelCount += 1;
+            },
+          };
+        },
+      },
+    };
+  }, async () => {
+    await assert.rejects(
+      () => call({
+        options: { signal: caller.signal },
+        policy: policy({ requestAttempts: 1, perAttemptTimeoutMs: 1_000 }),
+      }),
+      (error) => error.code === "request_aborted",
+    );
+  });
+  assert.equal(cancelCount, 1);
+});
+
+test("invalid UTF-8 response bytes fail as malformed protocol data", async () => {
+  await withFetch(async () => {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(Uint8Array.from([0x7b, 0x22, 0x78, 0x22, 0x3a, 0x22, 0xff, 0x22, 0x7d]));
+        controller.close();
+      },
+    });
+    return new Response(stream, { status: 200 });
+  }, async () => {
+    await assert.rejects(
+      () => call({ policy: policy({ requestAttempts: 1 }) }),
+      (error) => error.code === "malformed_response" && error.details?.source === "utf8_decode",
+    );
+  });
+});
+
+test("incomplete trailing UTF-8 is rejected when the decoder flushes", async () => {
+  await withFetch(async () => {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(Uint8Array.from([0xe2]));
+        controller.close();
+      },
+    });
+    return new Response(stream, { status: 200 });
+  }, async () => {
+    await assert.rejects(
+      () => call({ policy: policy({ requestAttempts: 1 }) }),
+      (error) => error.code === "malformed_response" && error.details?.source === "utf8_decode",
+    );
+  });
+});
+
+test("non-JSON success responses retain declared content-type context", async () => {
+  await withFetch(async () => new Response("token=body-secret", {
+    status: 200,
+    headers: { "content-type": "text/html; charset=utf-8" },
+  }), async () => {
+    await assert.rejects(
+      () => call({ policy: policy({ requestAttempts: 1 }) }),
+      (error) => error.code === "non_json_response" &&
+        error.details?.responseContentType === "text/html; charset=utf-8" &&
+        !JSON.stringify(error.details).includes("body-secret"),
+    );
+  });
+});
+
+test("fallback text readers enforce the same byte limit as streamed bodies", async () => {
+  await withFetch(async () => ({
+    ok: true,
+    status: 200,
+    headers: { get: () => null },
+    text: async () => "12345678",
+  }), async () => {
+    await assert.rejects(
+      () => call({ policy: policy({ requestAttempts: 1, maxResponseBytes: 6 }) }),
+      (error) => error.code === "response_too_large" && error.details?.source === "fallback_text",
+    );
+  });
+});
+
+test("response parsing requires choices[0] and a supported message payload", () => {
+  assert.throws(
+    () => parseXtalpiChatResponse(JSON.stringify({
+      choices: [null, { message: { content: "must not skip choices[0]" } }],
+    })),
+    (error) => error.code === "malformed_response",
+  );
+  assert.throws(
+    () => parseXtalpiChatResponse(JSON.stringify({
+      choices: [{ message: { content: { text: "unsupported object payload" } } }],
+    })),
+    (error) => error.code === "malformed_response" && error.details?.responseContentType === "(missing)",
+  );
+});
+
+test("missing API credentials fail before transport execution", async () => {
+  let fetchCount = 0;
+  await withFetch(async () => {
+    fetchCount += 1;
+    return new Response(chatCompletionBody("unused"), { status: 200 });
+  }, async () => {
+    await assert.rejects(
+      () => call({ runtimeConfig: { apiKey: "", baseUrl: RUNTIME_CONFIG.baseUrl } }),
+      (error) => error.code === "api_key_missing",
+    );
+  });
+  assert.equal(fetchCount, 0);
 });

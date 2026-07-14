@@ -70,14 +70,12 @@ export function finishOutputWithTurnResult(
     if (result.trailingText) emitTextBlock(stream, output, result.trailingText);
     output.stopReason = "toolUse";
     stream.push({ type: "done", reason: "toolUse", message: output });
-    stream.end(output);
     return;
   }
 
   emitTextBlock(stream, output, result.text);
   output.stopReason = "stop";
   stream.push({ type: "done", reason: "stop", message: output });
-  stream.end(output);
 }
 
 export function finishOutputWithError(
@@ -97,5 +95,4 @@ export function finishOutputWithError(
     ...toErrorTelemetry(input.error),
   });
   stream.push({ type: "error", reason: output.stopReason, error: output });
-  stream.end(output);
 }

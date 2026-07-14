@@ -60,6 +60,7 @@ function latestUserText(context: ContextLike): string {
   const messages = context.messages ?? [];
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
+    if (!message) continue;
     if (message.role === "user") {
       return contentToText(message.content).trim();
     }

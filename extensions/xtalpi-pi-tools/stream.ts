@@ -7,7 +7,6 @@ import type {
 
 type Waiter = {
   resolve: (result: IteratorResult<AssistantMessageEvent>) => void;
-  reject: (error: unknown) => void;
 };
 
 export class LocalAssistantMessageEventStream implements AsyncIterable<AssistantMessageEvent> {
@@ -29,20 +28,27 @@ export class LocalAssistantMessageEventStream implements AsyncIterable<Assistant
   push(event: AssistantMessageEvent): void {
     if (this.closed) return;
 
+    let isTerminal = false;
     if (event.type === "done") {
       this.finalResult = event.message;
       this.resolveFinal(event.message);
+      isTerminal = true;
     } else if (event.type === "error") {
       this.finalResult = event.error;
       this.resolveFinal(event.error);
+      isTerminal = true;
     }
+
+    if (isTerminal) this.closed = true;
 
     const waiter = this.waiters.shift();
     if (waiter) {
       waiter.resolve({ value: event, done: false });
-      return;
+    } else {
+      this.queue.push(event);
     }
-    this.queue.push(event);
+
+    if (isTerminal) this.resolvePendingWaiters();
   }
 
   end(result?: AssistantMessage): void {
@@ -58,9 +64,7 @@ export class LocalAssistantMessageEventStream implements AsyncIterable<Assistant
       this.rejectFinal(new Error("assistant stream ended without a final message"));
     }
 
-    for (const waiter of this.waiters.splice(0)) {
-      waiter.resolve({ value: undefined, done: true });
-    }
+    this.resolvePendingWaiters();
   }
 
   result(): Promise<AssistantMessage> {
@@ -73,11 +77,17 @@ export class LocalAssistantMessageEventStream implements AsyncIterable<Assistant
         const event = this.queue.shift();
         if (event) return Promise.resolve({ value: event, done: false });
         if (this.closed) return Promise.resolve({ value: undefined, done: true });
-        return new Promise<IteratorResult<AssistantMessageEvent>>((resolve, reject) => {
-          this.waiters.push({ resolve, reject });
+        return new Promise<IteratorResult<AssistantMessageEvent>>((resolve) => {
+          this.waiters.push({ resolve });
         });
       },
     };
+  }
+
+  private resolvePendingWaiters(): void {
+    for (const waiter of this.waiters.splice(0)) {
+      waiter.resolve({ value: undefined, done: true });
+    }
   }
 }
 
@@ -91,12 +101,10 @@ export function emitTextBlock(
   text: string,
 ): void {
   const contentIndex = output.content.length;
-  output.content.push({ type: "text", text: "" });
+  const block = { type: "text" as const, text: "" };
+  output.content.push(block);
   stream.push({ type: "text_start", contentIndex, partial: output });
-  const block = output.content[contentIndex];
-  if (block.type === "text") {
-    block.text = text;
-  }
+  block.text = text;
   if (text) {
     stream.push({ type: "text_delta", contentIndex, delta: text, partial: output });
   }

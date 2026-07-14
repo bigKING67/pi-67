@@ -14,9 +14,9 @@ import {
 import {
   selectToolsWithSummary,
   serializeSelectedTools,
-  type ToolLike,
   type ToolSelectionSummary,
 } from "./tool-selection.ts";
+import type { ToolLike } from "./tools/types.ts";
 import { serializeToolResultReceipt } from "./protocol/tool-result-receipt.ts";
 import type { ToolExecutionLedger } from "./turn/tool-execution-ledger.ts";
 import {
@@ -34,11 +34,11 @@ export {
   serializeAvailableTools,
 } from "./tool-selection.ts";
 export type {
-  ToolLike,
   ToolSelectionItem,
   ToolSelectionResult,
   ToolSelectionSummary,
 } from "./tool-selection.ts";
+export type { ToolLike } from "./tools/types.ts";
 
 export type ContextLike = {
   systemPrompt?: string;
@@ -85,6 +85,7 @@ const NEGATIVE_RETRY_CONTINUATION_PATTERN =
 function latestUserText(messages: MessageLike[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
+    if (!message) continue;
     if (message.role === "user") {
       return contentToText(message.content);
     }
@@ -108,6 +109,7 @@ function recentUserText(messages: MessageLike[]): { text: string; userMessageCou
   const chunks: string[] = [];
   for (let index = messages.length - 1; index >= 0 && chunks.length < MAX_TOOL_SELECTION_USER_MESSAGES; index -= 1) {
     const message = messages[index];
+    if (!message) continue;
     if (message.role !== "user") continue;
     const content = contentToText(message.content).trim();
     if (content) chunks.push(content);
@@ -135,8 +137,8 @@ function toolSelectionPrompt(messages: MessageLike[]): {
 }
 
 export function serializeToolResultAsUserText(message: MessageLike, maxToolResultChars: number): string {
-  const toolName = safeInlineText(typeof message.toolName === "string" ? message.toolName : "unknown", 160);
-  const toolCallId = safeInlineText(typeof message.toolCallId === "string" ? message.toolCallId : "unknown", 160);
+  const toolName = safeInlineText(typeof message.toolName === "string" ? message.toolName : "unknown", 160) || "unknown";
+  const toolCallId = safeInlineText(typeof message.toolCallId === "string" ? message.toolCallId : "unknown", 160) || "unknown";
   const content = safeBlockText(contentToText(message.content), maxToolResultChars);
 
   return `${TOOL_RESULT_OPEN}
@@ -150,6 +152,41 @@ ${content}
 ${TOOL_RESULT_CLOSE}`;
 }
 
+function normalizeCharLimit(value: number | undefined, fallback: number): number {
+  const candidate = value ?? fallback;
+  if (candidate === Number.POSITIVE_INFINITY) return candidate;
+  return Number.isFinite(candidate) ? Math.max(0, Math.floor(candidate)) : 0;
+}
+
+function serializeToolResultWithinBudget(input: {
+  message: MessageLike;
+  observation?: ToolExecutionLedger["latestObservation"];
+  useReceiptV2: boolean;
+  maxToolResultChars: number;
+  maxSerializedChars: number;
+}): string | undefined {
+  const serialize = (maxToolResultChars: number): string => input.useReceiptV2
+    ? serializeToolResultReceipt({
+        message: input.message,
+        ...(input.observation ? { observation: input.observation } : {}),
+        maxToolResultChars,
+      })
+    : serializeToolResultAsUserText(input.message, maxToolResultChars);
+
+  if (!Number.isFinite(input.maxSerializedChars)) return serialize(input.maxToolResultChars);
+
+  let contentLimit = Math.min(input.maxToolResultChars, input.maxSerializedChars);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const serialized = serialize(contentLimit);
+    if (serialized.length <= input.maxSerializedChars) return serialized;
+    if (contentLimit === 0) return undefined;
+    contentLimit = Math.max(0, contentLimit - (serialized.length - input.maxSerializedChars));
+  }
+
+  const minimal = serialize(0);
+  return minimal.length <= input.maxSerializedChars ? minimal : undefined;
+}
+
 export function serializeContextForXtalpi(
   context: ContextLike,
   options: SerializeOptions,
@@ -159,10 +196,12 @@ export function serializeContextForXtalpi(
     context.tools,
     prompt.text,
     options.maxTools,
-    {
-      boostedToolNames: options.recoveryToolNames,
-      boostReasonCode: options.recoveryToolNames?.length ? "recovery_path_discovery" : undefined,
-    },
+    options.recoveryToolNames?.length
+      ? {
+          boostedToolNames: options.recoveryToolNames,
+          boostReasonCode: "recovery_path_discovery",
+        }
+      : {},
   );
   const selectedTools = toolSelection.selectedTools;
   const selectedToolNames = toolSelection.selectedToolNames;
@@ -177,39 +216,45 @@ export function serializeContextForXtalpi(
   const observationsByResultIndex = new Map(
     (options.toolLedger?.observations ?? []).map((observation) => [observation.resultMessageIndex, observation]),
   );
-  const maxToolHistoryChars = Math.max(
-    0,
-    options.maxToolHistoryChars ?? Number.POSITIVE_INFINITY,
-  );
+  const maxToolResultChars = normalizeCharLimit(options.maxToolResultChars, 0);
+  const maxToolHistoryChars = normalizeCharLimit(options.maxToolHistoryChars, Number.POSITIVE_INFINITY);
   const serializedToolResults = new Map<number, string>();
   let remainingToolHistoryChars = maxToolHistoryChars;
+  let toolHistoryChars = 0;
   let toolHistoryOmittedCount = 0;
+  let toolHistoryExhausted = false;
 
   for (let index = context.messages.length - 1; index >= 0; index -= 1) {
     const message = context.messages[index];
+    if (!message) continue;
     if (message.role !== "toolResult") continue;
-    const serialized = useToolResultReceiptV2
-      ? serializeToolResultReceipt({
-          message,
-          observation: observationsByResultIndex.get(index),
-          maxToolResultChars: Math.min(
-            options.maxToolResultChars,
-            Number.isFinite(maxToolHistoryChars) ? Math.max(0, maxToolHistoryChars - 1600) : options.maxToolResultChars,
-          ),
-        })
-      : serializeToolResultAsUserText(message, options.maxToolResultChars);
-    if (!Number.isFinite(remainingToolHistoryChars) || serialized.length <= remainingToolHistoryChars) {
-      serializedToolResults.set(index, serialized);
-      if (Number.isFinite(remainingToolHistoryChars)) remainingToolHistoryChars -= serialized.length;
-    } else {
+    if (toolHistoryExhausted) {
       toolHistoryOmittedCount += 1;
+      continue;
     }
+    const observation = observationsByResultIndex.get(index);
+    const serialized = serializeToolResultWithinBudget({
+      message,
+      ...(observation ? { observation } : {}),
+      useReceiptV2: useToolResultReceiptV2,
+      maxToolResultChars,
+      maxSerializedChars: remainingToolHistoryChars,
+    });
+    if (serialized === undefined) {
+      toolHistoryOmittedCount += 1;
+      toolHistoryExhausted = true;
+      continue;
+    }
+    serializedToolResults.set(index, serialized);
+    toolHistoryChars += serialized.length;
+    if (Number.isFinite(remainingToolHistoryChars)) remainingToolHistoryChars -= serialized.length;
   }
 
   let toolHistoryNoticeEmitted = false;
 
   for (let index = 0; index < context.messages.length; index += 1) {
     const message = context.messages[index];
+    if (!message) continue;
     if (message.role === "user") {
       const content = contentToText(message.content).trim();
       if (content) output.push({ role: "user", content });
@@ -226,23 +271,20 @@ export function serializeContextForXtalpi(
 
     if (message.role === "toolResult") {
       const serialized = serializedToolResults.get(index);
-      if (serialized) {
-        if (toolHistoryOmittedCount > 0 && !toolHistoryNoticeEmitted) {
-          output.push({
-            role: "user",
-            content:
-              `[xtalpi-pi-tools-tool-history-truncated] omitted ${toolHistoryOmittedCount} older tool result(s) ` +
-              "to keep this turn within the configured tool-history budget.",
-          });
-          toolHistoryNoticeEmitted = true;
-        }
+      if (toolHistoryOmittedCount > 0 && !toolHistoryNoticeEmitted) {
+        output.push({
+          role: "user",
+          content:
+            `[xtalpi-pi-tools-tool-history-truncated] omitted ${toolHistoryOmittedCount} older tool result(s) ` +
+            "to keep this turn within the configured tool-history budget.",
+        });
+        toolHistoryNoticeEmitted = true;
+      }
+      if (serialized !== undefined) {
         output.push({ role: "user", content: serialized });
       }
     }
   }
-
-  const toolHistoryChars = [...serializedToolResults.values()]
-    .reduce((total, value) => total + value.length, 0);
 
   return {
     messages: output,
