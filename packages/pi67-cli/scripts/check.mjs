@@ -59,6 +59,7 @@ import {
   inventorySkillPacks,
   syncSkillPack,
 } from "../src/lib/skill-policy.mjs";
+import { acquireSkillDeployLock } from "../src/lib/skill-deploy-lock.mjs";
 import {
   SKILL_PACK_LOCK_SCHEMA,
   hashDirectory,
@@ -133,15 +134,26 @@ function runArgsSelfTests() {
 
 function runSkillPackPolicySelfTests() {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-skill-pack-policy-"));
+  const home = path.join(tmpRoot, "home");
   const repoRoot = path.join(tmpRoot, "repo");
   const skillsDir = path.join(tmpRoot, "skills");
-  const stateDir = path.join(tmpRoot, "state");
+  const stateDir = path.join(home, ".pi", "pi67");
   fs.mkdirSync(path.join(repoRoot, "shared-skills", "pack-a"), { recursive: true });
   fs.mkdirSync(path.join(repoRoot, "shared-skills", "pack-b"), { recursive: true });
   fs.mkdirSync(path.join(skillsDir, "pack-a"), { recursive: true });
   fs.writeFileSync(path.join(repoRoot, "shared-skills", "pack-a", "SKILL.md"), "source-a\n");
   fs.writeFileSync(path.join(repoRoot, "shared-skills", "pack-b", "SKILL.md"), "source-b\n");
   fs.writeFileSync(path.join(skillsDir, "pack-a", "SKILL.md"), "old-a\n");
+  const crlfSkill = path.join(tmpRoot, "crlf-skill");
+  const lfSkill = path.join(tmpRoot, "lf-skill");
+  fs.mkdirSync(crlfSkill);
+  fs.mkdirSync(lfSkill);
+  fs.writeFileSync(path.join(crlfSkill, "SKILL.md"), "line-one\r\nline-two\r\n");
+  fs.writeFileSync(path.join(lfSkill, "SKILL.md"), "line-one\nline-two\n");
+  assert(
+    hashDirectory(crlfSkill) === hashDirectory(lfSkill),
+    "Skill Pack hashes must be stable across CRLF and LF checkouts",
+  );
   fs.writeFileSync(path.join(repoRoot, "shared-skill-packs.json"), `${JSON.stringify({
     schema: "pi67.shared-skill-packs.v1",
     packs: [{
@@ -192,17 +204,92 @@ function runSkillPackPolicySelfTests() {
   const dryRun = syncSkillPack(ctx, "fixture-pack", { dryRun: true, yes: true });
   assert(dryRun.actions.some((item) => item.action === "replace-dry-run"), "skill pack dry-run must plan explicit replacement");
   assert(dryRun.actions.some((item) => item.action === "copy-dry-run"), "skill pack dry-run must plan missing skill copy");
+  assert(dryRun.recoveredTransactions.length === 0, "skill pack dry-run must not clean transaction state");
   assert(fs.readFileSync(path.join(skillsDir, "pack-a", "SKILL.md"), "utf8") === "old-a\n", "skill pack dry-run must not write");
 
-  syncSkillPack(ctx, "fixture-pack", { yes: true });
+  const syncLock = acquireSkillDeployLock(ctx, "test-holder");
+  const oldLockTime = new Date(Date.now() - 5 * 60 * 60 * 1000);
+  fs.utimesSync(syncLock.path, oldLockTime, oldLockTime);
+  let syncBlocked = false;
+  try {
+    syncSkillPack(ctx, "fixture-pack", { yes: true });
+  } catch (error) {
+    syncBlocked = String(error.message || error).includes("another pi-67 Skill deployment");
+  } finally {
+    syncLock.release();
+  }
+  assert(syncBlocked, "writing Skill Pack sync must refuse a live concurrent mutation even when its lock is old");
+  assert(fs.readFileSync(path.join(skillsDir, "pack-a", "SKILL.md"), "utf8") === "old-a\n", "blocked Skill Pack sync must not write");
+
+  const staleSkillLock = path.join(stateDir, "locks", "skills-deploy.lock");
+  fs.mkdirSync(path.dirname(staleSkillLock), { recursive: true });
+  fs.writeFileSync(staleSkillLock, `${JSON.stringify({
+    schema: "pi67.skill-deploy-lock.v1",
+    ownerId: "dead-test-owner",
+    pid: 2147483647,
+    hostname: os.hostname(),
+    operation: "dead-test-holder",
+    createdAt: new Date().toISOString(),
+  }, null, 2)}\n`);
+  const staleTransaction = path.join(skillsDir, ".pi67-skills-sync-stale-test");
+  fs.mkdirSync(path.join(staleTransaction, "previous"), { recursive: true });
+  fs.writeFileSync(path.join(staleTransaction, "previous", "marker.txt"), "stale\n");
+  const syncResult = syncSkillPack(ctx, "fixture-pack", { yes: true });
+  assert(!fs.existsSync(staleSkillLock), "Skill Pack sync must recover a dead-process lock and release its replacement");
+  assert(
+    syncResult.recoveredTransactions.includes(staleTransaction) && !fs.existsSync(staleTransaction),
+    "Skill Pack sync must remove a stale transaction before redeploying from the canonical source",
+  );
   const after = inventorySkillPacks(ctx).packs[0];
   assert(after.consistent, "explicit skill pack sync must make every pack skill consistent");
   const afterStatus = inspectSkillPackStatus(ctx);
   assert(afterStatus.summary.consistent === 1 && afterStatus.summary.attention === 0, "skill pack status must turn green after sync");
   assert(fs.readFileSync(path.join(skillsDir, "pack-b", "SKILL.md"), "utf8") === "source-b\n", "skill pack sync must copy missing skills");
   const backupsRoot = path.join(stateDir, "backups");
-  assert(fs.existsSync(backupsRoot) && fs.readdirSync(backupsRoot).length > 0, "skill pack replacement must create a backup");
+  assert(!fs.existsSync(backupsRoot), "Git-backed Skill Pack deployment must not create persistent content backups");
   assert(!fs.readdirSync(skillsDir).some((name) => name.startsWith(".pi67-skills-sync-")), "skill pack sync must clean transaction paths");
+
+  const noOpContentionLock = acquireSkillDeployLock(ctx, "test-holder");
+  let noOpBlocked = false;
+  try {
+    syncSkillPack(ctx, "fixture-pack", { yes: true });
+  } catch (error) {
+    noOpBlocked = String(error.message || error).includes("another pi-67 Skill deployment");
+  } finally {
+    noOpContentionLock.release();
+  }
+  assert(noOpBlocked, "no-op writing sync must wait for a stable inventory lock");
+  const noOp = syncSkillPack(ctx, "fixture-pack", { yes: true });
+  assert(noOp.actions.every((entry) => entry.action === "skip"), "no-op Skill Pack sync must report only identical Skills");
+  assert(!fs.existsSync(staleSkillLock), "no-op Skill Pack sync must release its transient mutation lock");
+
+  const sourceSkill = path.join(repoRoot, "shared-skills", "pack-a", "SKILL.md");
+  const originalSource = fs.readFileSync(sourceSkill, "utf8");
+  const originalLock = fs.readFileSync(path.join(repoRoot, "shared-skill-packs.lock.json"), "utf8");
+  fs.writeFileSync(sourceSkill, "source-a-v2\n");
+  const v2Lock = JSON.parse(originalLock);
+  v2Lock.packs[0].source_commit = "c".repeat(40);
+  v2Lock.packs[0].skills = ["pack-a", "pack-b"].map((name) => ({
+    name,
+    sha256: hashDirectory(path.join(repoRoot, "shared-skills", name)),
+  }));
+  v2Lock.packs[0].bundle_sha256 = hashSkillSet(v2Lock.packs[0].skills);
+  fs.writeFileSync(path.join(repoRoot, "shared-skill-packs.lock.json"), `${JSON.stringify(v2Lock, null, 2)}\n`);
+  syncSkillPack(ctx, "fixture-pack", { yes: true });
+  assert(fs.readFileSync(path.join(skillsDir, "pack-a", "SKILL.md"), "utf8") === "source-a-v2\n", "Skill Pack deploy must follow the selected Git-tracked source state");
+
+  fs.writeFileSync(sourceSkill, originalSource);
+  fs.writeFileSync(path.join(repoRoot, "shared-skill-packs.lock.json"), originalLock);
+  syncSkillPack(ctx, "fixture-pack", { yes: true });
+  assert(fs.readFileSync(path.join(skillsDir, "pack-a", "SKILL.md"), "utf8") === "source-a\n", "Git source rollback plus redeploy must restore the prior Skill state");
+  assert(!fs.existsSync(backupsRoot), "repeated Git-backed deploys must not create persistent Skill backups");
+
+  fs.writeFileSync(path.join(skillsDir, "pack-a", "SKILL.md"), "post-deploy-drift\n");
+  const driftPreview = syncSkillPack(ctx, "fixture-pack", { dryRun: true, yes: true });
+  assert(driftPreview.actions.some((entry) => entry.name === "pack-a" && entry.action === "replace-dry-run"), "drift preview must plan redeployment from Git source");
+  syncSkillPack(ctx, "fixture-pack", { yes: true });
+  assert(fs.readFileSync(path.join(skillsDir, "pack-a", "SKILL.md"), "utf8") === "source-a\n", "explicit redeploy must replace Active Skill drift from Git source");
+  assert(!fs.existsSync(backupsRoot), "drift repair must not create persistent Skill backups");
 
   const registryPath = path.join(repoRoot, "shared-skill-packs.json");
   const lockPath = path.join(repoRoot, "shared-skill-packs.lock.json");
@@ -214,7 +301,6 @@ function runSkillPackPolicySelfTests() {
   assert(missingLock.registry.valid && !missingLock.lock.valid, "skill pack status must distinguish a missing lock from an invalid registry");
   fs.writeFileSync(lockPath, validLock);
 
-  const sourceSkill = path.join(repoRoot, "shared-skills", "pack-a", "SKILL.md");
   const sourceSkillText = fs.readFileSync(sourceSkill, "utf8");
   fs.writeFileSync(sourceSkill, "tampered-source\n");
   const tamperedSource = inspectSkillPackStatus(ctx);
@@ -416,6 +502,15 @@ function runCliHelpContractSelfTests() {
         result.stdout.includes("external setup browser67") &&
           result.stdout.includes("external doctor browser67 --deep"),
         "external help must document complete browser67 setup and layered readiness",
+      );
+    }
+    if (command[0] === "skills") {
+      assert(
+        result.stdout.includes("skills sync-pack") &&
+          result.stdout.includes("do not create persistent content backups") &&
+          !result.stdout.includes("skills rollback-pack") &&
+          !result.stdout.includes("--keep-backups"),
+        "skills help must expose Git-backed deployment without persistent Skill backup commands",
       );
     }
   }

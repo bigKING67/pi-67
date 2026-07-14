@@ -22,7 +22,7 @@ export function hashDirectory(root) {
   for (const file of files.sort()) {
     hash.update(path.relative(root, file).replace(/\\/g, "/"));
     hash.update("\0");
-    hash.update(fs.readFileSync(file));
+    hash.update(canonicalHashBytes(fs.readFileSync(file)));
     hash.update("\0");
   }
   return hash.digest("hex");
@@ -30,7 +30,7 @@ export function hashDirectory(root) {
 
 export function hashFile(file) {
   const hash = crypto.createHash("sha256");
-  hash.update(fs.readFileSync(file));
+  hash.update(canonicalHashBytes(fs.readFileSync(file)));
   return hash.digest("hex");
 }
 
@@ -136,4 +136,11 @@ function walkFiles(root, output) {
     if (entry.isDirectory()) walkFiles(full, output);
     else if (entry.isFile()) output.push(full);
   }
+}
+
+function canonicalHashBytes(content) {
+  if (content.includes(0)) return content;
+  const text = content.toString("utf8");
+  if (!Buffer.from(text, "utf8").equals(content)) return content;
+  return Buffer.from(text.replace(/\r\n/g, "\n"), "utf8");
 }

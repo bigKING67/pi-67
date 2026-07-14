@@ -1,6 +1,6 @@
 {
   "name": "pi-extensions",
-  "version": "0.11.3",
+  "version": "0.11.4",
   "private": true,
   "scripts": {
     "typecheck:xtalpi": "node npm/node_modules/typescript/bin/tsc --project tsconfig.xtalpi.json --pretty false",

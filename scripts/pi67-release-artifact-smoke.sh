@@ -115,7 +115,9 @@ echo "Ref       : $REF"
 
 command_exists git || fail "git is required"
 command_exists node || fail "node is required"
-[ -d "$REPO_ROOT/.git" ] || fail "repo root is not a Git checkout: $REPO_ROOT"
+if [ "$(git -C "$REPO_ROOT" rev-parse --is-inside-work-tree 2>/dev/null || true)" != "true" ]; then
+  fail "repo root is not a Git checkout: $REPO_ROOT"
+fi
 pass "required tools found"
 
 TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/pi67-release-artifact.XXXXXX")"

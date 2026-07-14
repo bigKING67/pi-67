@@ -307,7 +307,7 @@ function moveDirectorySync(source, target) {
 }
 
 function printBackupsHelp() {
-  process.stdout.write(`pi-67 backups - inspect, restore, prune, and archive runtime backups
+  process.stdout.write(`pi-67 backups - inspect, restore, prune, and archive managed backups
 
 Usage:
   pi-67 backups list [--include-legacy] [--json]
@@ -327,7 +327,8 @@ Examples:
   pi-67 backups archive --keep-last 10 --older-than 30d --dry-run
 
 Retention:
-  --keep-last is applied per backup kind. Legacy backups are ignored unless
-  --include-legacy is provided. prune/archive require --dry-run or --yes.
+  --keep-last applies to repo-external runtime backups. Legacy backups are
+  ignored unless --include-legacy is provided. prune/archive require --dry-run
+  or --yes. Managed Skills are Git-backed deployments and are not stored here.
 `);
 }

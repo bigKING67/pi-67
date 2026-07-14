@@ -264,13 +264,40 @@ The legacy `pi67-sync-commerce-growth-os.sh` filename is retained as a
 compatibility alias.
 
 Existing machines preserve different active copies during normal updates. Use
-the pack-aware manager command for an explicit, backed-up version alignment:
+the pack-aware manager command for an explicit transactional deployment:
 
 ```bash
 pi-67 skills packs
 pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --dry-run
 pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --yes
 ```
+
+The Git-tracked `commerce-growth-os` repository and its pinned Pack provenance
+are the only content history. `~/.agents/skills` is a reproducible deployment
+root, not an independent editing database. A changed deployment copies source
+content into a temporary `.pi67-skills-sync-*/staged` tree, moves current
+targets into the same transaction's `previous/` tree, activates and verifies
+the new content, then removes the entire transaction. A failed deployment
+restores `previous/` before cleanup. The manager does not create persistent Skill content backups.
+
+Writing deployments are serialized through
+`~/.pi/pi67/locks/skills-deploy.lock` using the
+`pi67.skill-deploy-lock.v1` contract. The lock records the operation, PID, host,
+Active Skill Root, and a random owner token. A live owner blocks the second
+writer before inventory or rename operations; a dead-process lock recovers
+automatically. A live same-host PID remains authoritative even when the file is
+old, while the four-hour age threshold covers owners that cannot be checked
+locally. Release validates the owner token before unlinking the lock. Dry-runs
+remain lock-free. A non-dry-run no-op holds the lock only long enough to make a
+stable inventory decision.
+
+Rollback uses Git commit/tag history rather than local snapshots. Maintainers
+select or revert the desired upstream Commit/Tag, regenerate the vendored Pack
+and `shared-skill-packs.lock.json`, then run `pi-67 skills sync-pack <pack>
+--yes` again. Installed machines pin or reinstall the corresponding immutable
+pi-67 release before redeploying. Local changes worth keeping must be committed
+to the canonical source; uncommitted Active Skill differences are deployment
+drift.
 
 The read-only Pack contract used by status, update planning, Doctor, and Report
 can also be inspected directly:
@@ -302,6 +329,7 @@ It creates temporary legacy roots and external repositories, then validates:
 - external sync supports both root-level `SKILL.md` and `skills/*/SKILL.md`
 - external sync conflicts return `NEEDS_REVIEW` and preserve canonical skills
 - Commerce and Marketing Pack vendored sync builds, dry-runs, applies, and keeps the legacy helper compatible
+- Active Pack sync is dry-run-first, uses a clean deploy lock and transient transaction, creates no persistent Skill backup, repairs Active drift from Git source, and supports Git source rollback followed by redeployment
 - Pack diagnostics reject invalid registry metadata and distinguish consistent, missing, and conflicting active copies
 - migration and sync JSON outputs keep their documented schema IDs
 
