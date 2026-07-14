@@ -2,11 +2,19 @@
 
 ## Unreleased
 
+- Serialized writing Skill deployments with an owner-verified,
+  dead-process-recoverable `pi67.skill-deploy-lock.v1` guard. Dry-runs stay
+  lock-free.
+
+- Managed Skills now deploy transactionally from the Git-tracked Pack without
+  persistent content snapshots. Staged/previous directories exist only during
+  one deployment; rollback selects or reverts a Git commit/tag and syncs again.
+
 - Added shared Skill Pack parity to `status` and update-plan JSON through the
   `pi67-shared-skill-packs-status/v1` contract, including registry validation,
   affected Skill names, and safe `sync-pack ... --dry-run` recommendations.
 
-- Adds versioned shared Skill Pack inventory and explicit backed-up Pack sync
+- Adds versioned shared Skill Pack inventory and explicit transactional Pack sync
   commands for keeping multi-Skill distributions consistent across machines.
 
 - Adds immutable Skill Pack provenance validation, including a locked upstream

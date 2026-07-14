@@ -478,6 +478,22 @@ pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --dry-run
 pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --yes
 ```
 
+A Pack sync treats the Git-tracked, provenance-locked source as canonical.
+Changes are staged under a temporary `.pi67-skills-sync-*` transaction, current
+targets move to its `previous/` directory only while the transaction is active,
+and the whole directory is removed on success or failure. The manager does not
+create persistent Skill content backups. Writing syncs share the state-scoped
+`~/.pi/pi67/locks/skills-deploy.lock`, so an updater and an interactive
+Pi/Codex session cannot mutate the same Active Skill Root concurrently. Dry-run
+and read-only inspection remain lock-free.
+
+To roll back, select or revert the desired Git commit/tag in the canonical
+`commerce-growth-os` source, regenerate the vendored Pack and provenance lock,
+then run the same `skills sync-pack ... --yes` deployment. On an installed
+machine, pin or reinstall the corresponding immutable pi-67 release before
+syncing. `pi-67 backups` remains only for repo-external runtime configuration;
+it does not store managed Skill history.
+
 Doctor, Status, Update Plan, and `pi67-report.json` expose the same read-only
 `pi67-shared-skill-packs-status/v1` parity block. To inspect it directly:
 

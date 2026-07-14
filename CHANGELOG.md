@@ -8,15 +8,31 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ### Added
 
+- Added a state-scoped `pi67.skill-deploy-lock.v1` guard so concurrent writers
+  cannot mutate the same Active Skill root. Dry-runs remain lock-free;
+  dead-process locks recover automatically and release verifies an owner token.
+- Changed managed Skill deployment to treat the Git-tracked Pack as the only
+  content source of truth. Sync uses transient staged/previous transaction
+  directories, removes stale transaction residue, and creates no persistent
+  Skill content backups; rollback is Git commit/tag selection followed by sync.
 - Added versioned shared Skill Pack governance for the eight-Skill Consumer
   Brand Commerce and Marketing suite, including `pi-67 skills packs` and
-  explicit backed-up `pi-67 skills sync-pack <pack> --yes` upgrades.
+  explicit transactional `pi-67 skills sync-pack <pack> --yes` deployments.
 - Added a shared `pi67-shared-skill-packs-status/v1` diagnostic contract across
   status, update plans, Bash/PowerShell Doctor, and Report, with non-writing
   remediation previews and strict-mode Pack parity gates.
 - Added `shared-skill-packs.lock.json` provenance governance with a clean-source
   Git requirement, locked upstream Commit, Manifest and Pack SHA-256 values,
   per-Skill fingerprints, and blocking vendored-integrity diagnostics.
+
+### Fixed
+
+- Fixed release artifact smoke checkout detection so linked Git Worktrees are
+  accepted instead of being rejected because their `.git` marker is a file.
+- Isolated the updater smoke fixture behind its own temporary branch and bare
+  remote so release checks remain deterministic from detached Worktrees.
+- Materialized linked runtime state before the DeepSeek smoke mutation so test
+  writes cannot follow symlinks back into the source checkout.
 
 ## [0.11.3] - 2026-07-13
 

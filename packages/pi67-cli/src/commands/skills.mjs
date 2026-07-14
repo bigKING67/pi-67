@@ -104,7 +104,9 @@ function diff(ctx, argv) {
 }
 
 function sync(ctx, argv) {
-  const { options, positionals } = parseCommandOptions(argv, { bools: ["json", "dry-run", "yes"] });
+  const { options, positionals } = parseCommandOptions(argv, {
+    bools: ["json", "dry-run", "yes"],
+  });
   if (options.help) return printSkillsHelp();
   const data = syncSkills(ctx, {
     dryRun: ctx.dryRun || options.dryRun,
@@ -117,10 +119,15 @@ function sync(ctx, argv) {
     if (action.action === "warn") warn(`${action.name}: ${action.reason}`);
     else info(`${action.name}: ${action.action}`);
   }
+  for (const transaction of data.recoveredTransactions || []) {
+    warn(`removed stale Skill transaction: ${transaction}`);
+  }
 }
 
 function syncPack(ctx, argv) {
-  const { options, positionals } = parseCommandOptions(argv, { bools: ["json", "dry-run", "yes"] });
+  const { options, positionals } = parseCommandOptions(argv, {
+    bools: ["json", "dry-run", "yes"],
+  });
   if (options.help) return printSkillsHelp();
   const name = positionals[0];
   if (!name) throw new CliError("skills sync-pack requires a pack name", 2);
@@ -133,6 +140,9 @@ function syncPack(ctx, argv) {
   for (const action of data.actions) {
     if (action.action === "warn") warn(`${action.name}: ${action.reason}`);
     else info(`${action.name}: ${action.action}`);
+  }
+  for (const transaction of data.recoveredTransactions || []) {
+    warn(`removed stale Skill transaction: ${transaction}`);
   }
 }
 
@@ -168,7 +178,10 @@ Safety:
   Missing skills are copied by default. Existing different global skills are
   preserved as user-modified unless you name the skill explicitly and pass
   --yes. Bulk overwrite of preserved user-modified skills is intentionally
-  blocked.
+  blocked. Managed Skills are deployed transactionally from the Git-tracked
+  source and do not create persistent content backups. To roll back, select or
+  revert the desired Git commit/tag and run sync-pack again. Writing syncs are
+  serialized by a state-scoped deploy lock; dry-runs remain lock-free.
 
 Examples:
   pi-67 skills inventory

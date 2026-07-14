@@ -8,6 +8,7 @@ import {
   readSkillPackLock,
   validateSkillPackLock,
 } from "./skill-pack-integrity.mjs";
+import { withSkillDeployLock } from "./skill-deploy-lock.mjs";
 
 const SKILL_PACK_REGISTRY = "shared-skill-packs.json";
 const SKILL_PACK_LOCK = "shared-skill-packs.lock.json";
@@ -303,14 +304,29 @@ export function planSkills(ctx, { names = [] } = {}) {
   };
 }
 
-export function syncSkills(ctx, { dryRun = false, names = [], yes = false } = {}) {
+export function syncSkills(ctx, {
+  dryRun = false,
+  names = [],
+  yes = false,
+} = {}) {
+  if (dryRun) {
+    const plan = buildSkillSyncPlan(ctx, { dryRun: true, names, yes });
+    return finishSkillSync(ctx, plan, { dryRun: true, recoveredTransactions: [] });
+  }
+  return withSkillDeployLock(ctx, "skills-sync", () => {
+    const recoveredTransactions = cleanupStaleSkillTransactions(ctx.skillsDir);
+    const lockedPlan = buildSkillSyncPlan(ctx, { dryRun: false, names, yes });
+    return finishSkillSync(ctx, lockedPlan, { dryRun: false, recoveredTransactions });
+  });
+}
+
+function buildSkillSyncPlan(ctx, { dryRun, names, yes }) {
   const inventory = inventorySkills(ctx);
   const selected = normalizeNames(names, inventory);
   const selectedSet = new Set(selected);
   const targeted = selected.length > 0;
   const actions = [];
   const operations = [];
-  const backupRoot = path.join(ctx.stateDir, "backups", `${transactionId()}-skills-sync`);
   for (const entry of inventory.entries) {
     if (targeted && !selectedSet.has(entry.name)) continue;
     if (entry.identical) {
@@ -323,29 +339,32 @@ export function syncSkills(ctx, { dryRun = false, names = [], yes = false } = {}
           name: entry.name,
           action: "warn",
           reason: targeted
-            ? "target differs; rerun with --yes to replace this explicitly named skill after backup"
+            ? "target differs; commit desired changes to the canonical Git source or rerun with --yes to redeploy it"
             : "target differs; bulk overwrite of preserved user-modified skills is intentionally blocked",
         });
         continue;
       }
-      const backupDir = path.join(backupRoot, entry.name);
       actions.push({
         name: entry.name,
         action: dryRun ? "replace-dry-run" : "replace",
-        reason: "target differs and was explicitly named with --yes",
-        backupDir,
+        reason: "target differs and was explicitly redeployed from the canonical Git-tracked source with --yes",
       });
-      operations.push({ entry, action: "replace", backupDir });
+      operations.push({ entry, action: "replace" });
       continue;
     }
     actions.push({ name: entry.name, action: dryRun ? "copy-dry-run" : "copy", reason: "missing" });
-    operations.push({ entry, action: "copy", backupDir: "" });
+    operations.push({ entry, action: "copy" });
   }
-  if (!dryRun && operations.length > 0) applySkillOperations(ctx, operations, backupRoot);
-  return { ...inventory, selected, actions };
+  return { inventory, selected, actions, operations };
 }
 
-function applySkillOperations(ctx, operations, backupRoot) {
+function finishSkillSync(ctx, plan, { dryRun, recoveredTransactions }) {
+  const { inventory, selected, actions, operations } = plan;
+  if (!dryRun && operations.length > 0) applySkillOperations(ctx, operations);
+  return { ...inventory, selected, actions, recoveredTransactions };
+}
+
+function applySkillOperations(ctx, operations) {
   fs.mkdirSync(ctx.skillsDir, { recursive: true });
   const transactionRoot = path.join(ctx.skillsDir, `.pi67-skills-sync-${transactionId()}`);
   const stagedRoot = path.join(transactionRoot, "staged");
@@ -359,10 +378,6 @@ function applySkillOperations(ctx, operations, backupRoot) {
         recursive: true,
         errorOnExist: true,
       });
-      if (operation.action === "replace") {
-        fs.mkdirSync(path.dirname(operation.backupDir), { recursive: true, mode: 0o700 });
-        fs.cpSync(operation.entry.target, operation.backupDir, { recursive: true, errorOnExist: true });
-      }
     }
     for (const operation of operations) {
       const targetExists = fs.existsSync(operation.entry.target);
@@ -371,6 +386,12 @@ function applySkillOperations(ctx, operations, backupRoot) {
       }
       if (operation.action === "replace" && !targetExists) {
         throw new Error(`Skill sync target disappeared during transaction: ${operation.entry.name}`);
+      }
+      if (
+        operation.action === "replace"
+        && hashDirectory(operation.entry.target) !== operation.entry.targetHash
+      ) {
+        throw new Error(`Skill sync target changed during transaction: ${operation.entry.name}`);
       }
       if (!targetExists) continue;
       fs.mkdirSync(previousRoot, { recursive: true });
@@ -398,6 +419,18 @@ function applySkillOperations(ctx, operations, backupRoot) {
     fs.rmSync(transactionRoot, { recursive: true, force: true });
     throw error;
   }
+}
+
+function cleanupStaleSkillTransactions(skillsDir) {
+  if (!fs.existsSync(skillsDir)) return [];
+  const removed = [];
+  for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !entry.name.startsWith(".pi67-skills-sync-")) continue;
+    const target = path.join(skillsDir, entry.name);
+    fs.rmSync(target, { recursive: true, force: true });
+    removed.push(target);
+  }
+  return removed;
 }
 
 function listSkillDirs(root) {
@@ -485,7 +518,7 @@ function readSkillPackRegistry(file) {
 }
 
 function transactionId() {
-  return `${new Date().toISOString().replace(/[-:.]/g, "")}-${process.pid}`;
+  return `${new Date().toISOString().replace(/[-:.]/g, "")}-${process.pid}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
 function walk(dir, files) {
