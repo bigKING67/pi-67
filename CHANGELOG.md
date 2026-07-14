@@ -6,6 +6,43 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.11.5] - 2026-07-14
+
+### Added
+
+- Split the `xtalpi-pi-tools` runtime into explicit configuration, transport,
+  protocol, tool, and turn-state boundaries. `provider-turn.ts` is now a thin
+  orchestrator, while preparation, final policy, recovery prompts, request
+  budgets, and execution-ledger behavior have dedicated owners.
+- Added strict TypeScript compilation, acyclic module-graph and orchestration
+  size gates, plus Node unit, integration, replay, state-machine, and transport
+  suites with enforced line, branch, and function coverage on Node 22/24 CI.
+
+### Changed
+
+- Made the `v2` reliability engine the deterministic default with an explicit
+  runtime profile: bounded request attempts, per-attempt timeout, total request
+  deadline, Retry-After clamp, jittered backoff, response-byte limits, and
+  caller-abort ownership are now resolved and validated in one policy layer.
+- Unified continuation detection across serialization, vision routing, provider
+  preparation, and final-answer validation. Action continuations such as
+  `继续优化`, `继续修复`, `继续测试`, and `继续收口` now recover recent user
+  context instead of losing the previous task and tool-selection intent.
+- Applied explicit user tool constraints before browser and vision preferences.
+  Forbidden tools are removed from the eligible set and `only use ...`
+  constraints cannot be overridden by recovery boosts or bridge routing.
+
+### Fixed
+
+- Reduced browser-routing false positives for generic MCP, knowledge-base
+  uploads, document downloads, component/source inspection, tests, schemas,
+  databases, and queues while preserving explicit browser67, Chrome/Edge,
+  current-page, login-state, URL-open, and URL-screenshot tasks.
+- Hardened response normalization, final-answer boundaries, provider error
+  telemetry, body-read timeout classification, malformed native tool calls,
+  and bounded recovery so protocol drift cannot become a fake success or an
+  unvalidated local tool execution.
+
 ## [0.11.4] - 2026-07-14
 
 ### Added
