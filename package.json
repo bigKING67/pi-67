@@ -1,6 +1,6 @@
 {
   "name": "pi-extensions",
-  "version": "0.11.3",
+  "version": "0.11.4",
   "private": true,
   "dependencies": {
     "@feniix/pi-sequential-thinking": "^5.0.2",

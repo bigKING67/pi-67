@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.11.4]
+
 - Serialized writing Skill deployments with an owner-verified,
   dead-process-recoverable `pi67.skill-deploy-lock.v1` guard. Dry-runs stay
   lock-free.

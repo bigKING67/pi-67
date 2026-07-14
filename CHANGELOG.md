@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.11.4] - 2026-07-14
+
 ### Added
 
 - Added a state-scoped `pi67.skill-deploy-lock.v1` guard so concurrent writers
