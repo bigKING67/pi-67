@@ -4,7 +4,7 @@
 
 > 让 Windows 和 macOS 用户用尽可能少的步骤，获得公司统一、持续升级、可诊断、可回滚的 Pi 工作台。`pi` 始终是实际运行入口；`pi-67` 负责把 Pi 所需的配置、扩展、Skills、规则、脚本和公司默认 provider 封装成一键发行版。
 
-当前发行版版本：`0.11.4`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.11.5`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 项目定位
 
@@ -847,12 +847,20 @@ pi-67/
 │   ├── pi-vision-bridge/           # 本地 vision_read 桥接工具
 │   │   └── index.ts
 │   └── xtalpi-pi-tools/            # xtalpi 本地工具协议 provider
+│       ├── config/                  # Runtime profiles 与配置边界
+│       ├── protocol/                # 严格 action/parser/receipt 协议
+│       ├── tools/                   # Tool schema 与重复执行策略
+│       ├── transport/               # Request deadline 与 attempt budget
+│       ├── turn/                    # Turn preparation/final/recovery 状态机
 │       ├── index.ts
+│       ├── provider-turn.ts         # 薄编排入口
+│       ├── continuation.ts          # 承接指令统一判定
+│       ├── tool-selection.ts        # Selected-tool 约束与排序
 │       ├── parser.ts
 │       ├── serializer.ts
 │       ├── protocol.ts
-│       ├── retry.ts
 │       ├── diagnostics.ts
+│       ├── retry.ts                 # Legacy compatibility facade
 │       └── stream.ts
 ├── rules/                          # Pi 按需读取长规则
 │   ├── architecture-quality.md

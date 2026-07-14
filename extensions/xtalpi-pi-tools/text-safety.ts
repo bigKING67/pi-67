@@ -3,8 +3,11 @@ const PROTOCOL_MARKUP_TAG = /<\/?pi_tool_(?:call_history|call|result)\b(?:[^<>\r
 const INTERNAL_HISTORY_MARKER = /(?:<\/?previous_pi_tool_call\b(?:[^<>\r\n]*>|[^<>\r\n]*)|\[\/?previous_pi_tool_call\])/gi;
 
 export function truncateText(value: string, maxChars: number): string {
-  if (maxChars <= 0 || value.length <= maxChars) return value;
-  return `${value.slice(0, maxChars)}\n\n[truncated ${value.length - maxChars} chars by xtalpi-pi-tools]`;
+  if (maxChars === Number.POSITIVE_INFINITY) return value;
+  const limit = Number.isFinite(maxChars) ? Math.max(0, Math.floor(maxChars)) : 0;
+  if (value.length <= limit) return value;
+  const notice = `[truncated ${value.length - limit} chars by xtalpi-pi-tools]`;
+  return limit === 0 ? notice : `${value.slice(0, limit)}\n\n${notice}`;
 }
 
 function protocolMarkerLabel(tag: string): string {
@@ -50,7 +53,7 @@ export function formatToolNameForPrompt(name: string): string {
   return JSON.stringify(safeInlineText(name, 160));
 }
 
-export function formatToolNamesForPrompt(names: string[], maxItems = 80): string {
+export function formatToolNamesForPrompt(names: readonly string[], maxItems = 80): string {
   const items = names.slice(0, maxItems).map(formatToolNameForPrompt);
   return items.join(", ") || "(none)";
 }

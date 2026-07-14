@@ -4,9 +4,9 @@ import { fileURLToPath } from "node:url";
 import type {
   Api,
   Model,
-  ProviderModelConfig,
   SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
+import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import {
   API_ID,
   DEFAULT_BASE_URL,
@@ -19,7 +19,7 @@ import {
 import { jsonActionResponseFormat } from "./json-action-protocol.ts";
 import { readJsonFile as readCompatibleJsonFile } from "./json-file.ts";
 import { buildProviderError } from "./errors.ts";
-import { envInt } from "./retry.ts";
+import { envInt } from "./config/legacy-runtime-env.ts";
 import {
   resolveRuntimePolicy,
   RuntimePolicyConfigurationError,
@@ -204,7 +204,7 @@ export function resolveProviderRuntimePolicy(
   options?: Pick<SimpleStreamOptions, "timeoutMs" | "maxTokens" | "temperature">,
 ): RuntimePolicy {
   try {
-    return resolveRuntimePolicy({ options });
+    return resolveRuntimePolicy(options ? { options } : {});
   } catch (error) {
     if (error instanceof RuntimePolicyConfigurationError) {
       throw buildProviderError("configuration_invalid", error.message, {
@@ -253,7 +253,8 @@ export function buildChatCompletionPayload(
     payload.temperature = temperature;
   }
 
-  payload.response_format = jsonActionResponseFormat();
+  const responseFormat = jsonActionResponseFormat();
+  if (responseFormat) payload.response_format = responseFormat;
 
   return payload;
 }

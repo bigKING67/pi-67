@@ -27,8 +27,8 @@ function decodeUtf16Be(buffer: Buffer): string {
   const usableLength = buffer.length - (buffer.length % 2);
   const swapped = Buffer.allocUnsafe(usableLength);
   for (let index = 0; index < usableLength; index += 2) {
-    swapped[index] = buffer[index + 1];
-    swapped[index + 1] = buffer[index];
+    swapped[index] = buffer.readUInt8(index + 1);
+    swapped[index + 1] = buffer.readUInt8(index);
   }
   return swapped.toString("utf16le");
 }

@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## [0.11.5]
+
+- Ships the modular `xtalpi-pi-tools` v2 reliability runtime with explicit
+  configuration, request-budget, protocol, tool-selection, and turn-state
+  boundaries instead of one provider-turn monolith.
+- Adds strict TypeScript, module-graph, Node unit/integration/replay/state-machine
+  tests, and enforced coverage floors to the cross-platform release gates.
+- Adds bounded request attempts, per-attempt and total deadlines, Retry-After
+  handling, response-size limits, caller-abort ownership, and redacted provider
+  error telemetry.
+- Keeps action continuations such as `继续优化` and `继续测试` attached to recent
+  user intent, and rejects weak acknowledgements or promises that contain no
+  concrete progress.
+- Prevents browser/vision preferences or recovery boosts from restoring an
+  explicitly forbidden tool, and reduces generic MCP/code/upload/download
+  prompts being misclassified as real-browser work.
+
 ## [0.11.4]
 
 - Serialized writing Skill deployments with an owner-verified,

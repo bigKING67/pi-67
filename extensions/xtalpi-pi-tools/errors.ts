@@ -1,6 +1,9 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { redactSensitiveString } from "./diagnostics.ts";
+import {
+  redactSensitiveData,
+  redactSensitiveString,
+} from "./diagnostics.ts";
 import { readJsonFile } from "./json-file.ts";
 import { safeBlockText } from "./text-safety.ts";
 
@@ -86,11 +89,12 @@ function contractHttpStatusCode(contract: ProviderErrorContract, status: number)
   return "http_error";
 }
 
-function loadProviderErrorContract(): ProviderErrorContract {
-  const file = contractFilePath();
-  const parsed = readJsonFile(file);
+export function validateProviderErrorContract(
+  parsed: unknown,
+  source = "provider error contract",
+): void {
   if (!isObject(parsed) || parsed.schema !== "xtalpi-pi-tools.provider-error-contract.v1") {
-    throw new Error(`invalid xtalpi provider error contract schema: ${file}`);
+    throw new Error(`invalid xtalpi provider error contract schema: ${source}`);
   }
   if (
     !isStringArray(parsed.requiredCodes) ||
@@ -101,12 +105,12 @@ function loadProviderErrorContract(): ProviderErrorContract {
     !isObject(parsed.httpStatus) ||
     !Array.isArray(parsed.httpStatusRanges)
   ) {
-    throw new Error(`invalid xtalpi provider error contract shape: ${file}`);
+    throw new Error(`invalid xtalpi provider error contract shape: ${source}`);
   }
   const contract = parsed as ProviderErrorContract;
   const actualCodes = Object.keys(contract.errors);
   if (!sameSortedStrings(actualCodes, contract.requiredCodes)) {
-    throw new Error(`xtalpi provider error contract codes do not match requiredCodes: ${file}`);
+    throw new Error(`xtalpi provider error contract codes do not match requiredCodes: ${source}`);
   }
   const allowedCategories = new Set(contract.allowedCategories);
   for (const code of contract.requiredCodes) {
@@ -118,36 +122,50 @@ function loadProviderErrorContract(): ProviderErrorContract {
       typeof metadata.healthImmediateRetry !== "boolean" ||
       !["never", "backoff", "retry_after"].includes(metadata.runtimeRetryPolicy)
     ) {
-      throw new Error(`invalid xtalpi provider error metadata for ${code}: ${file}`);
+      throw new Error(`invalid xtalpi provider error metadata for ${code}: ${source}`);
     }
   }
   for (const [status, code] of Object.entries(contract.httpStatus)) {
     if (!/^[0-9]+$/.test(status) || !contract.errors[code]) {
-      throw new Error(`invalid xtalpi provider error httpStatus mapping ${status}: ${file}`);
+      throw new Error(`invalid xtalpi provider error httpStatus mapping ${status}: ${source}`);
     }
   }
   for (const [status, code] of Object.entries(contract.requiredHttpStatus)) {
     if (!/^[0-9]+$/.test(status) || contract.httpStatus[status] !== code) {
-      throw new Error(`invalid xtalpi provider error requiredHttpStatus mapping ${status}: ${file}`);
+      throw new Error(`invalid xtalpi provider error requiredHttpStatus mapping ${status}: ${source}`);
     }
   }
-  for (const range of contract.httpStatusRanges) {
+  for (const range of contract.httpStatusRanges as unknown[]) {
+    if (!isObject(range)) {
+      throw new Error(`invalid xtalpi provider error httpStatus range: ${source}`);
+    }
+    const { min, max, code } = range;
     if (
-      !Number.isInteger(range.min) ||
-      !Number.isInteger(range.max) ||
-      range.min < 100 ||
-      range.max > 599 ||
-      range.min > range.max ||
-      !contract.errors[range.code]
+      typeof min !== "number" ||
+      typeof max !== "number" ||
+      !Number.isInteger(min) ||
+      !Number.isInteger(max) ||
+      min < 100 ||
+      max > 599 ||
+      min > max ||
+      typeof code !== "string" ||
+      !contract.errors[code]
     ) {
-      throw new Error(`invalid xtalpi provider error httpStatus range: ${file}`);
+      throw new Error(`invalid xtalpi provider error httpStatus range: ${source}`);
     }
   }
   for (const [status, code] of Object.entries(contract.classificationSamples)) {
     if (!/^[0-9]+$/.test(status) || contractHttpStatusCode(contract, Number(status)) !== code) {
-      throw new Error(`invalid xtalpi provider error classification sample ${status}: ${file}`);
+      throw new Error(`invalid xtalpi provider error classification sample ${status}: ${source}`);
     }
   }
+}
+
+function loadProviderErrorContract(): ProviderErrorContract {
+  const file = contractFilePath();
+  const parsed = readJsonFile(file);
+  validateProviderErrorContract(parsed, file);
+  const contract = parsed as ProviderErrorContract;
   return contract;
 }
 
@@ -163,12 +181,18 @@ export type ClassifiedErrorOptions = {
 
 type ProviderErrorBuildOptions = Omit<ClassifiedErrorOptions, "category" | "retryable">;
 
+export type TransportErrorContext = {
+  timeoutMs: number;
+  callerAborted: boolean;
+  timedOut: boolean;
+};
+
 export class XtalpiProviderError extends Error {
   readonly code: XtalpiErrorCode;
   readonly category: XtalpiErrorCategory;
   readonly retryable: boolean;
-  readonly status?: number;
-  readonly details?: Record<string, unknown>;
+  readonly status: number | undefined;
+  readonly details: Record<string, unknown> | undefined;
 
   constructor(code: XtalpiErrorCode, message: string, options: ClassifiedErrorOptions) {
     super(redactSensitiveString(message));
@@ -177,7 +201,7 @@ export class XtalpiProviderError extends Error {
     this.category = options.category;
     this.retryable = options.retryable;
     this.status = options.status;
-    this.details = options.details;
+    this.details = options.details ? redactSensitiveData(options.details) : undefined;
     if (options.cause !== undefined) {
       (this as Error & { cause?: unknown }).cause = options.cause;
     }
@@ -185,7 +209,9 @@ export class XtalpiProviderError extends Error {
 }
 
 export function providerErrorMetadata(code: XtalpiErrorCode): ProviderErrorMetadata {
-  return PROVIDER_ERROR_CONTRACT.errors[code] || PROVIDER_ERROR_CONTRACT.errors.unknown_error;
+  const metadata = PROVIDER_ERROR_CONTRACT.errors[code] ?? PROVIDER_ERROR_CONTRACT.errors.unknown_error;
+  if (!metadata) throw new Error("xtalpi provider error contract is missing unknown_error metadata");
+  return metadata;
 }
 
 export function providerHealthImmediateRetry(code: XtalpiErrorCode): boolean {
@@ -242,22 +268,24 @@ export function buildHttpError(
   );
 }
 
-export function classifyTransportError(error: unknown, timeoutMs: number, aborted: boolean): XtalpiProviderError {
+export function classifyTransportError(
+  error: unknown,
+  context: TransportErrorContext,
+): XtalpiProviderError {
   const rawMessage = error instanceof Error ? error.message : String(error);
-  const name = error instanceof Error ? error.name : "";
 
-  if (aborted) {
+  if (context.callerAborted) {
     return buildProviderError("request_aborted", "xtalpi-pi-tools request aborted by caller", {
       cause: error,
     });
   }
 
-  if (rawMessage.includes("timeout after") || name === "AbortError") {
+  if (context.timedOut) {
     return buildProviderError(
       "request_timeout",
-      `xtalpi-pi-tools request timeout after ${timeoutMs}ms`,
+      `xtalpi-pi-tools request timeout after ${context.timeoutMs}ms`,
       {
-        details: { timeoutMs },
+        details: { timeoutMs: context.timeoutMs },
         cause: error,
       },
     );
@@ -271,12 +299,12 @@ export function classifyTransportError(error: unknown, timeoutMs: number, aborte
 export function toErrorTelemetry(error: unknown): Record<string, unknown> {
   if (error instanceof XtalpiProviderError) {
     return {
+      ...redactSensitiveData(error.details || {}),
       errorCode: error.code,
       errorCategory: error.category,
       retryable: error.retryable,
       httpStatus: error.status,
       errorMessage: error.message,
-      ...(error.details || {}),
     };
   }
 

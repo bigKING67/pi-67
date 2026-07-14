@@ -35,7 +35,7 @@ export class TurnLoopState {
   #accumulatedUsage = { ...EMPTY_USAGE };
   #responseModel: string | undefined;
 
-  addResponse(response: { usage: UsageSummary; responseModel?: string }): void {
+  addResponse(response: { usage: UsageSummary; responseModel?: string | undefined }): void {
     this.#accumulatedUsage = addUsage(this.#accumulatedUsage, response.usage);
     this.#responseModel = response.responseModel || this.#responseModel;
   }

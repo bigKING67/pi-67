@@ -31,8 +31,10 @@ export function jsonDeepEqual(left: unknown, right: unknown): boolean {
     const rightKeys = Object.keys(right).sort();
     if (leftKeys.length !== rightKeys.length) return false;
     for (let index = 0; index < leftKeys.length; index += 1) {
-      if (leftKeys[index] !== rightKeys[index]) return false;
-      if (!jsonDeepEqual(left[leftKeys[index]], right[rightKeys[index]])) return false;
+      const leftKey = leftKeys[index];
+      const rightKey = rightKeys[index];
+      if (leftKey === undefined || rightKey === undefined || leftKey !== rightKey) return false;
+      if (!jsonDeepEqual(left[leftKey], right[rightKey])) return false;
     }
     return true;
   }

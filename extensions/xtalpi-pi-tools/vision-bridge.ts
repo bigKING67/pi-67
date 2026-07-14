@@ -1,3 +1,5 @@
+import { isContinuationPrompt } from "./continuation.ts";
+
 export type VisionToolKind = "semantic" | "review";
 
 export type VisionTaskDetection = {
@@ -33,8 +35,8 @@ const IMAGE_EXTENSIONS = [
   "webp",
   "gif",
   "bmp",
-  "tif",
   "tiff",
+  "tif",
   "heic",
   "heif",
   "svg",
@@ -47,12 +49,13 @@ const IMAGE_PATH_PATTERN = new RegExp(
     `'([^'\\r\\n]*\\.(?:${IMAGE_EXTENSION_PATTERN})(?:\\?[^'\\r\\n]*)?)'`,
     "`([^`\\r\\n]*\\.(?:${IMAGE_EXTENSION_PATTERN})(?:\\?[^`\\r\\n]*)?)`",
     `((?:[A-Za-z]:[\\\\/]|~[\\\\/]|\\.{1,2}[\\\\/]|/|\\\\\\\\|[^\\s"'<>]*?(?:pi|codex)-clipboard-)[^\\s"'<>]*\\.(?:${IMAGE_EXTENSION_PATTERN})(?:\\?[^\\s"'<>]*)?)`,
+    `(https?:\\/\\/[^\\s"'<>]*\\.(?:${IMAGE_EXTENSION_PATTERN})(?:\\?[^\\s"'<>]*)?)`,
   ].join("|"),
   "gi",
 );
 
 const VISUAL_UNDERSTANDING_INTENT_PATTERN =
-  /(?:看图|读图|识图|识别图片|识别截图|图片识别|截图识别|分析图片|分析截图|解析图片|解析截图|图片内容|截图内容|图里|图中|图上|这张图|这张图片|这个截图|OCR|ocr|视觉|多模态|image\s+(?:analysis|understanding|description|ocr)|screenshot\s+(?:analysis|understanding|description|ocr)|(?:analy[sz]e|inspect|describe|read|ocr)\s+(?:this\s+)?(?:image|screenshot|picture)|what(?:'s| is)\s+(?:in|on)\s+(?:this\s+)?(?:image|screenshot|picture))/i;
+  /(?:看图|读图|识图|识别图片|识别截图|图片识别|截图识别|分析图片|分析截图|解析图片|解析截图|图片内容|截图内容|图里|图中|图上|这张图|这张图片|这个截图|(?:分析|解析|识别|读取|查看|检查).{0,16}(?:图片|截图|图像|照片)|OCR|ocr|视觉|多模态|image\s+(?:analysis|understanding|description|ocr)|screenshot\s+(?:analysis|understanding|description|ocr)|(?:analy[sz]e|inspect|describe|read|ocr)\s+(?:this\s+)?(?:image|screenshot|picture)|what(?:'s| is)\s+(?:in|on)\s+(?:this\s+)?(?:image|screenshot|picture))/i;
 
 const CURRENT_IMAGE_REFERENCE_PATTERN =
   /(?:这张图|这张图片|这个图|这个图片|这个截图|这张截图|上面(?:的)?图|上面(?:的)?截图|刚才(?:的)?图|刚才(?:的)?截图|附件(?:图片|截图)?|attached\s+(?:image|screenshot|picture)|this\s+(?:image|screenshot|picture)|current\s+(?:image|screenshot|picture))/i;
@@ -62,11 +65,6 @@ const IMAGE_CONTENT_MARKER_PATTERN =
 
 const IMAGE_OUTPUT_OR_MUTATION_PATTERN =
   /(?:生成|画一张|绘制|文生图|图生图|改图|修图|换背景|换风格|保存为|输出到|删除|移动|复制|重命名|上传|download|upload|delete|remove|rename|move|copy|save as|generate\s+(?:an?\s+)?image|create\s+(?:an?\s+)?image|draw\s+(?:an?\s+)?image|edit\s+(?:the\s+)?image)/i;
-
-const CONTINUATION_PROMPT_PATTERN = new RegExp(
-  "^\\s*(?:继续上一轮|继续上一步|继续(?:呀|吧)?|接着(?:来|吧)?|下一步|然后呢|再来|往下|go on|continue|next|proceed)(?:\\s|$|[，。,.!！?？])",
-  "i",
-);
 
 const VISION_INABILITY_FINAL_PATTERN =
   /(?:(?:无法|不能|不支持|没法|没有能力|看不到|无法实际处理|无法解析|无法读取|纯文本|text-only|text only|can't|cannot|unable|not able|do not have)\s*[\s\S]{0,140}(?:图片|截图|图像|照片|image|screenshot|picture|vision)|(?:图片|截图|图像|照片|image|screenshot|picture)\s*[\s\S]{0,140}(?:无法|不能|不支持|看不到|无法实际处理|无法解析|纯文本|text-only|text only|can't|cannot|unable|not able)|(?:请|麻烦|please)\s*[\s\S]{0,80}(?:描述|提供|粘贴|describe)\s*[\s\S]{0,80}(?:图片|截图|image|screenshot|picture))/i;
@@ -119,11 +117,17 @@ function contentBlockReference(block: ContentBlock): string | undefined {
   return undefined;
 }
 
+function serializedImageReference(ref: string): string {
+  const truncated = ref.length > 500 ? `${ref.slice(0, 500)}...` : ref;
+  return JSON.stringify(truncated)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e");
+}
+
 export function imageContentBlockToText(block: ContentBlock): string {
   const ref = contentBlockReference(block);
   if (ref) {
-    const safeRef = ref.length > 500 ? `${ref.slice(0, 500)}...` : ref;
-    return `[image omitted: xtalpi-pi-tools is text-only; Pi must route image tasks through a local vision bridge before asking this text model. image_ref=${safeRef}]`;
+    return `[image omitted: xtalpi-pi-tools is text-only; Pi must route image tasks through a local vision bridge before asking this text model. image_ref_json=${serializedImageReference(ref)}]`;
   }
   return "[image omitted: xtalpi-pi-tools is text-only; Pi must route image tasks through a local vision bridge before asking this text model.]";
 }
@@ -147,6 +151,7 @@ function contentToVisionText(content: unknown): string {
 function latestUserVisionText(messages: readonly MessageLike[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
+    if (!message) continue;
     if (message.role === "user") return contentToVisionText(message.content);
   }
   return "";
@@ -156,6 +161,7 @@ function recentUserVisionText(messages: readonly MessageLike[]): string {
   const chunks: string[] = [];
   for (let index = messages.length - 1; index >= 0 && chunks.length < 4; index -= 1) {
     const message = messages[index];
+    if (!message) continue;
     if (message.role !== "user") continue;
     const text = contentToVisionText(message.content).trim();
     if (text) chunks.push(text);
@@ -166,7 +172,7 @@ function recentUserVisionText(messages: readonly MessageLike[]): string {
 export function visionTaskPromptText(messages: readonly MessageLike[] | undefined): string {
   const safeMessages = messages ?? [];
   const latest = latestUserVisionText(safeMessages);
-  if (CONTINUATION_PROMPT_PATTERN.test(latest.trim())) {
+  if (isContinuationPrompt(latest)) {
     return recentUserVisionText(safeMessages) || latest;
   }
   return latest;
@@ -190,7 +196,9 @@ export function detectVisionTaskText(text: string): VisionTaskDetection {
   const hasCurrentImageReference = CURRENT_IMAGE_REFERENCE_PATTERN.test(safeText);
   const hasImageContent = IMAGE_CONTENT_MARKER_PATTERN.test(safeText);
   const hasOutputOrMutationIntent = IMAGE_OUTPUT_OR_MUTATION_PATTERN.test(safeText);
-  const isVisionTask = hasImageContent || (hasImagePath && !hasOutputOrMutationIntent) || (hasImageIntent && hasCurrentImageReference);
+  const isVisionTask = hasImageContent ||
+    (hasImagePath && (!hasOutputOrMutationIntent || hasImageIntent)) ||
+    (hasImageIntent && hasCurrentImageReference);
   const reasonCodes: string[] = [];
 
   if (hasImagePath) reasonCodes.push("prompt_image_path");
@@ -290,14 +298,19 @@ export function buildVisionBridgeReadinessFinal(input: {
     ? input.detection.imagePaths.map((item) => `- ${item}`).join("\n")
     : "- (未从当前 prompt 中解析到可直接传给工具的图片路径；可能是内联图片块)";
   const availableVisionNames = input.availableToolNames.filter((name) => VISION_TOOL_NAMES.includes(name));
+  const selectedVisionNames = input.selectedToolNames.filter((name) => VISION_TOOL_NAMES.includes(name));
   const reason = input.preferredToolName
     ? `本机存在视觉工具 ${input.preferredToolName}，但它没有进入本轮 selected-tool 白名单；当前 XTALPI_PI_TOOLS_MAX_TOOLS=${input.maxTools}。`
-    : `本轮 Pi runtime 没有注册任何可用视觉工具：${VISION_TOOL_NAMES.join(", ")}。`;
+    : availableVisionNames.length > 0
+      ? `Pi runtime 报告了视觉工具 ${availableVisionNames.join(", ")}，但没有解析出可执行的 preferred/selected vision route。`
+      : `本轮 Pi runtime 没有注册任何可用视觉工具：${VISION_TOOL_NAMES.join(", ")}。`;
 
   return [
     "检测到图片/截图理解任务，但 Pi 本地 vision bridge 当前未 ready，已在本地停止，避免把图片路径误交给 read 后产生假成功。",
     "",
     `原因：${reason}`,
+    `可用视觉工具：${availableVisionNames.length > 0 ? availableVisionNames.join(", ") : "(none)"}`,
+    `本轮已选视觉工具：${selectedVisionNames.length > 0 ? selectedVisionNames.join(", ") : "(none)"}`,
     "",
     "已识别的图片输入：",
     imageList,

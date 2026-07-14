@@ -75,6 +75,8 @@ RELEASE_SCRIPT="$REPO_ROOT/scripts/pi67-release.sh"
 XTALPI_PI_TOOLS_SCRIPT="$REPO_ROOT/scripts/pi67-xtalpi-pi-tools.sh"
 XTALPI_PI_TOOLS_SCRIPT_PS="$REPO_ROOT/scripts/pi67-xtalpi-pi-tools.ps1"
 XTALPI_PI_TOOLS_TEST="$REPO_ROOT/scripts/pi67-test-xtalpi-pi-tools.sh"
+XTALPI_PI_TOOLS_PROVIDER_FLOW_TEST="$REPO_ROOT/tests/xtalpi-pi-tools/integration/provider-tool-flow.test.mjs"
+XTALPI_PI_TOOLS_RESPONSE_NORMALIZER_TEST="$REPO_ROOT/tests/xtalpi-pi-tools/unit/response-normalizer.test.mjs"
 XTALPI_PI_TOOLS_SMOKE="$REPO_ROOT/scripts/pi67-xtalpi-pi-tools-smoke.sh"
 XTALPI_PI_TOOLS_SMOKE_PS="$REPO_ROOT/scripts/pi67-xtalpi-pi-tools-smoke.ps1"
 XTALPI_PI_TOOLS_DEBUG_SUMMARY="$REPO_ROOT/scripts/pi67-xtalpi-pi-tools-debug-summary.sh"
@@ -609,7 +611,7 @@ else
   fail "release artifact smoke is not documented"
 fi
 
-if [ -f "$XTALPI_PI_TOOLS_SCRIPT" ] && [ -f "$XTALPI_PI_TOOLS_SCRIPT_PS" ] && [ -f "$XTALPI_PI_TOOLS_TEST" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_PS" ] && [ -f "$XTALPI_PI_TOOLS_DEBUG_SUMMARY" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_STATUS_CORE" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_PLAN" ] && [ -f "$XTALPI_PI_TOOLS_PROVIDER_HEALTH" ] && [ -f "$XTALPI_PI_TOOLS_CAPABILITY_PROBE" ] && [ -f "$XTALPI_PI_TOOLS_ERROR_CONTRACT_CHECK" ] && [ -f "$XTALPI_PI_TOOLS_COVERAGE_AUDIT" ] && [ -f "$XTALPI_PI_TOOLS_REPLAY_FIXTURES" ] && [ -f "$XTALPI_PI_TOOLS_ERROR_CONTRACT" ] && [ -f "$XTALPI_PI_TOOLS_JSON_FILE" ] && [ -f "$XTALPI_PI_TOOLS_JSON_ACTION_PROTOCOL" ] && [ -f "$XTALPI_PI_TOOLS_DOC" ] && [ -f "$UNTIL_DONE_QUEUE_PATCH_MJS" ] && [ -f "$UNTIL_DONE_QUEUE_PATCH_SH" ] && [ -f "$UNTIL_DONE_QUEUE_PATCH_PS" ]; then
+if [ -f "$XTALPI_PI_TOOLS_SCRIPT" ] && [ -f "$XTALPI_PI_TOOLS_SCRIPT_PS" ] && [ -f "$XTALPI_PI_TOOLS_TEST" ] && [ -f "$XTALPI_PI_TOOLS_PROVIDER_FLOW_TEST" ] && [ -f "$XTALPI_PI_TOOLS_RESPONSE_NORMALIZER_TEST" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_PS" ] && [ -f "$XTALPI_PI_TOOLS_DEBUG_SUMMARY" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_STATUS_CORE" ] && [ -f "$XTALPI_PI_TOOLS_SMOKE_PLAN" ] && [ -f "$XTALPI_PI_TOOLS_PROVIDER_HEALTH" ] && [ -f "$XTALPI_PI_TOOLS_CAPABILITY_PROBE" ] && [ -f "$XTALPI_PI_TOOLS_ERROR_CONTRACT_CHECK" ] && [ -f "$XTALPI_PI_TOOLS_COVERAGE_AUDIT" ] && [ -f "$XTALPI_PI_TOOLS_REPLAY_FIXTURES" ] && [ -f "$XTALPI_PI_TOOLS_ERROR_CONTRACT" ] && [ -f "$XTALPI_PI_TOOLS_JSON_FILE" ] && [ -f "$XTALPI_PI_TOOLS_JSON_ACTION_PROTOCOL" ] && [ -f "$XTALPI_PI_TOOLS_DOC" ] && [ -f "$UNTIL_DONE_QUEUE_PATCH_MJS" ] && [ -f "$UNTIL_DONE_QUEUE_PATCH_SH" ] && [ -f "$UNTIL_DONE_QUEUE_PATCH_PS" ]; then
   pass "xtalpi-pi-tools and pi-until-done compatibility helpers exist"
 else
   fail "xtalpi-pi-tools or pi-until-done compatibility helpers are missing"
@@ -780,7 +782,7 @@ else
   fail "xtalpi-pi-tools provider error contract is not documented"
 fi
 
-if grep -q "dyn_echo_ping" "$XTALPI_PI_TOOLS_TEST" && grep -q "DYN_ECHO_PING_SENTINEL" "$XTALPI_PI_TOOLS_TEST" && grep -q "pi-mcp-adapter-src" "$XTALPI_PI_TOOLS_TEST" && grep -q "mcp-cache.json" "$XTALPI_PI_TOOLS_TEST" && grep -q "round-trip" "$REPO_ROOT/README.md" && grep -q "PI_CODING_AGENT_DIR" "$REPO_ROOT/README.md" && grep -q "DYN_ECHO_PING_SENTINEL" "$XTALPI_PI_TOOLS_DOC" && grep -q "mcp-cache.json" "$XTALPI_PI_TOOLS_DOC"; then
+if grep -q "dyn_echo_ping" "$XTALPI_PI_TOOLS_PROVIDER_FLOW_TEST" && grep -q "DYN_ECHO_PING_SENTINEL" "$XTALPI_PI_TOOLS_PROVIDER_FLOW_TEST" && grep -q "pi-mcp-adapter-src" "$XTALPI_PI_TOOLS_TEST" && grep -q "mcp-cache.json" "$XTALPI_PI_TOOLS_TEST" && grep -q "round-trip" "$REPO_ROOT/README.md" && grep -q "PI_CODING_AGENT_DIR" "$REPO_ROOT/README.md" && grep -q "DYN_ECHO_PING_SENTINEL" "$XTALPI_PI_TOOLS_DOC" && grep -q "mcp-cache.json" "$XTALPI_PI_TOOLS_DOC"; then
   pass "xtalpi-pi-tools dynamic MCP direct-tool round-trip and adapter registration regressions are documented"
 else
   fail "xtalpi-pi-tools dynamic MCP direct-tool round-trip or adapter registration regression is missing or not documented"

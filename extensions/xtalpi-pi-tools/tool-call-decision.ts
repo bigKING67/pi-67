@@ -9,13 +9,13 @@ import {
   buildRepeatedToolRepairPrompt,
   buildShellCommandMismatchRepairPrompt,
   buildUnknownToolRepairPrompt,
-} from "./retry.ts";
+} from "./turn/recovery-prompts.ts";
 import { validateShellCommandRequest } from "./shell-command-guard.ts";
-import type { ToolLike } from "./serializer.ts";
 import {
   repeatPolicyForObservation,
   type RepeatPolicyDecision,
 } from "./tools/repeat-policy.ts";
+import type { ToolLike } from "./tools/types.ts";
 import type { ToolExecutionObservation } from "./turn/tool-execution-ledger.ts";
 
 type ToolCallRequest = {
@@ -120,7 +120,9 @@ export function decideToolCallRequest(input: {
 
   const shellCommandGuard = validateShellCommandRequest({
     requestedCall,
-    toolSelectionPromptText: input.toolSelectionPromptText,
+    ...(input.toolSelectionPromptText === undefined
+      ? {}
+      : { toolSelectionPromptText: input.toolSelectionPromptText }),
     selectedToolNames: selectedToolNamesList,
   });
   if (!shellCommandGuard.ok) {
@@ -169,9 +171,13 @@ export function decideToolCallRequest(input: {
         event: "recovery.repeated_tool",
         prompt: buildRepeatedToolRepairPrompt(requestedCall.name, {
           status: input.lastObservation.status,
-          errorCode: input.lastObservation.errorCode,
           reason: repeatDecision.reason,
-          discoveryToolNames: input.discoveryToolNames,
+          ...(input.lastObservation.errorCode === undefined
+            ? {}
+            : { errorCode: input.lastObservation.errorCode }),
+          ...(input.discoveryToolNames === undefined
+            ? {}
+            : { discoveryToolNames: input.discoveryToolNames }),
         }),
         toolName: requestedCall.name,
       };

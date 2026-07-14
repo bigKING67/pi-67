@@ -60,7 +60,7 @@ function stringArrayField(data: Record<string, unknown>, name: string): string[]
   return value.map(String).filter(Boolean).slice(0, 16);
 }
 
-function sanitizeData(data: Record<string, unknown>): Record<string, unknown> {
+export function redactSensitiveData(data: Record<string, unknown>): Record<string, unknown> {
   try {
     const raw = JSON.stringify(data, (key, value) => {
       if (key && SENSITIVE_DATA_KEY.test(key)) {
@@ -172,7 +172,7 @@ export function debugLog(event: string, data: Record<string, unknown>): void {
   if (!envFlag("XTALPI_PI_TOOLS_DEBUG")) return;
   const file = process.env.XTALPI_PI_TOOLS_DEBUG_PATH || DEFAULT_DEBUG_PATH;
   const [eventCategory, ...eventKindParts] = event.split(".");
-  const safeData = sanitizeData(data);
+  const safeData = redactSensitiveData(data);
 
   try {
     const line = `${JSON.stringify({

@@ -1,7 +1,6 @@
 import {
   TOOL_CALL_OPEN,
   type JsonObject,
-  type PiToolCallEnvelope,
 } from "../protocol.ts";
 import {
   containsRawProtocolMarkup,
@@ -20,35 +19,9 @@ import {
   parseJsonWithLikelyWindowsPathRepair,
   stripMarkdownFence,
 } from "./windows-json-repair.ts";
+import type { ToolCallParseResult } from "./parser-types.ts";
 
-export type ToolCallParseResult =
-  | {
-      kind: "none";
-      text: string;
-    }
-  | {
-      kind: "tool_call";
-      call: PiToolCallEnvelope;
-      before: string;
-      after: string;
-      rawJson: string;
-      warnings: string[];
-    }
-  | {
-      kind: "error";
-      code:
-        | "function_style_tool_call"
-        | "multiple_tool_calls"
-        | "invalid_json"
-        | "invalid_envelope"
-        | "invalid_name"
-        | "invalid_arguments"
-        | "raw_protocol_markup"
-        | "unknown_top_level_field";
-      message: string;
-      raw: string;
-      text: string;
-    };
+export type { ToolCallParseResult } from "./parser-types.ts";
 
 function exactKeySet(object: JsonObject, keys: readonly string[]): boolean {
   const actual = Object.keys(object).sort();
@@ -206,8 +179,8 @@ export function parseToolCall(text: string): ToolCallParseResult {
     };
   }
 
-  if (taggedCalls.length === 1) {
-    const tagged = taggedCalls[0];
+  const tagged = taggedCalls.at(0);
+  if (tagged) {
     const parsed = parseAttributedEnvelope(tagged.openTag, tagged.body, source);
     if (parsed.kind !== "tool_call") return parsed;
 
