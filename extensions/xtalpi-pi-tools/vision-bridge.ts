@@ -1,3 +1,5 @@
+import { isContinuationPrompt } from "./continuation.ts";
+
 export type VisionToolKind = "semantic" | "review";
 
 export type VisionTaskDetection = {
@@ -63,11 +65,6 @@ const IMAGE_CONTENT_MARKER_PATTERN =
 
 const IMAGE_OUTPUT_OR_MUTATION_PATTERN =
   /(?:生成|画一张|绘制|文生图|图生图|改图|修图|换背景|换风格|保存为|输出到|删除|移动|复制|重命名|上传|download|upload|delete|remove|rename|move|copy|save as|generate\s+(?:an?\s+)?image|create\s+(?:an?\s+)?image|draw\s+(?:an?\s+)?image|edit\s+(?:the\s+)?image)/i;
-
-const CONTINUATION_PROMPT_PATTERN = new RegExp(
-  "^\\s*(?:继续上一轮|继续上一步|继续(?:呀|吧)?|接着(?:来|吧)?|下一步|然后呢|再来|往下|go on|continue|next|proceed)(?:\\s|$|[，。,.!！?？])",
-  "i",
-);
 
 const VISION_INABILITY_FINAL_PATTERN =
   /(?:(?:无法|不能|不支持|没法|没有能力|看不到|无法实际处理|无法解析|无法读取|纯文本|text-only|text only|can't|cannot|unable|not able|do not have)\s*[\s\S]{0,140}(?:图片|截图|图像|照片|image|screenshot|picture|vision)|(?:图片|截图|图像|照片|image|screenshot|picture)\s*[\s\S]{0,140}(?:无法|不能|不支持|看不到|无法实际处理|无法解析|纯文本|text-only|text only|can't|cannot|unable|not able)|(?:请|麻烦|please)\s*[\s\S]{0,80}(?:描述|提供|粘贴|describe)\s*[\s\S]{0,80}(?:图片|截图|image|screenshot|picture))/i;
@@ -175,7 +172,7 @@ function recentUserVisionText(messages: readonly MessageLike[]): string {
 export function visionTaskPromptText(messages: readonly MessageLike[] | undefined): string {
   const safeMessages = messages ?? [];
   const latest = latestUserVisionText(safeMessages);
-  if (CONTINUATION_PROMPT_PATTERN.test(latest.trim())) {
+  if (isContinuationPrompt(latest)) {
     return recentUserVisionText(safeMessages) || latest;
   }
   return latest;

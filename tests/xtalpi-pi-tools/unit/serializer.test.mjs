@@ -60,6 +60,9 @@ function truncationNotices(serialized) {
 
 test("continuation selection uses at most four recent user messages and a bounded prompt", () => {
   assert.equal(isContinuationPrompt("继续"), true);
+  assert.equal(isContinuationPrompt("继续优化"), true);
+  assert.equal(isContinuationPrompt("继续完善一下"), true);
+  assert.equal(isContinuationPrompt("继续教育是什么？"), false);
   assert.equal(isContinuationPrompt("retry please"), true);
   assert.equal(isContinuationPrompt("不要重试"), false);
   assert.equal(isContinuationPrompt(`${"x".repeat(161)} retry`), false);
@@ -81,6 +84,19 @@ test("continuation selection uses at most four recent user messages and a bounde
   assert.equal(serialized.toolSelectionPromptChars, 4_000);
   assert.match(serialized.toolSelectionPromptText, /fourth\n继续$/);
   assert.equal(serialized.toolSelectionPromptText.includes("oldest-"), false);
+
+  const actionContinuation = serializeContextForXtalpi({
+    messages: [
+      { role: "user", content: "检查 provider-turn.ts 的恢复逻辑" },
+      { role: "assistant", content: "previous result" },
+      { role: "user", content: "继续优化" },
+    ],
+  }, { maxTools: 0, maxToolResultChars: 0 });
+  assert.equal(actionContinuation.toolSelectionPromptSource, "recent_user_continuation");
+  assert.equal(
+    actionContinuation.toolSelectionPromptText,
+    "检查 provider-turn.ts 的恢复逻辑\n继续优化",
+  );
 
   const empty = serializeContextForXtalpi(
     { messages: [{ role: "assistant", content: "history only" }] },

@@ -64,6 +64,32 @@ test("ordinary tool turns produce one prepared state", async () => {
   });
 });
 
+test("continue-action prompts reuse recent user context for tool selection", async () => {
+  await withEnv({
+    XTALPI_PI_TOOLS_ENGINE: "v2",
+    XTALPI_PI_TOOLS_MAX_TOOLS: "8",
+    XTALPI_PI_TOOLS_DEBUG: undefined,
+  }, () => {
+    const result = prepareProviderTurn({
+      model: MODEL,
+      context: {
+        systemPrompt: "system base",
+        tools: [tool("read", "Read a file"), tool("bash", "Run shell commands")],
+        messages: [
+          { role: "user", content: "read package.json and verify the version" },
+          { role: "assistant", content: "previous result" },
+          { role: "user", content: "继续优化" },
+        ],
+      },
+    });
+
+    assert.equal(result.kind, "ready");
+    assert.equal(result.state.serializedContext.toolSelectionPromptSource, "recent_user_continuation");
+    assert.match(result.state.serializedContext.toolSelectionPromptText, /read package\.json/);
+    assert.ok(result.state.names.has("read"));
+  });
+});
+
 test("vision tasks fail closed before provider execution when no bridge is registered", async () => {
   await withEnv({
     XTALPI_PI_TOOLS_ENGINE: "v2",

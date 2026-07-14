@@ -23,6 +23,7 @@ import {
   contentToText,
   type MessageLike,
 } from "./protocol/message-content.ts";
+import { isContinuationPrompt } from "./continuation.ts";
 
 export { contentToText } from "./protocol/message-content.ts";
 export type { MessageLike } from "./protocol/message-content.ts";
@@ -74,13 +75,6 @@ export type SerializedXtalpiContext = {
 const MAX_ASSISTANT_HISTORY_CHARS = 20000;
 const MAX_TOOL_SELECTION_CONTEXT_CHARS = 4000;
 const MAX_TOOL_SELECTION_USER_MESSAGES = 4;
-const CONTINUATION_PROMPT_PATTERN = new RegExp(
-  "^\\s*(?:继续上一轮|继续上一步|继续(?:呀|吧)?|接着(?:来|吧)?|下一步|然后呢|再来|往下|go on|continue|next|proceed)(?:\\s|$|[，。,.!！?？])",
-  "i",
-);
-const RETRY_CONTINUATION_PATTERN = /(?:再试(?:一下|下)?|重试|重新试(?:一下|下)?|try\s+again|retry)/i;
-const NEGATIVE_RETRY_CONTINUATION_PATTERN =
-  /(?:不要|不用|无需|别|禁止|do\s+not|don't|dont|without|no).{0,16}(?:再试|重试|重新试|try\s+again|retry)/i;
 
 function latestUserText(messages: MessageLike[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -93,12 +87,7 @@ function latestUserText(messages: MessageLike[]): string {
   return "";
 }
 
-export function isContinuationPrompt(value: string): boolean {
-  const text = value.trim();
-  if (CONTINUATION_PROMPT_PATTERN.test(text)) return true;
-  if (NEGATIVE_RETRY_CONTINUATION_PATTERN.test(text)) return false;
-  return text.length <= 160 && RETRY_CONTINUATION_PATTERN.test(text);
-}
+export { isContinuationPrompt };
 
 function truncateSelectionContext(value: string): string {
   if (value.length <= MAX_TOOL_SELECTION_CONTEXT_CHARS) return value;

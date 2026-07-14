@@ -80,6 +80,13 @@ test("message prompt extraction supports inline images and bounded continuations
   ]);
   assert.equal(continuation, "second\nthird\nfourth\n继续");
 
+  const actionContinuation = visionTaskPromptText([
+    { role: "user", content: "分析这张截图中的错误" },
+    { role: "assistant", content: "previous" },
+    { role: "user", content: "继续检查" },
+  ]);
+  assert.equal(actionContinuation, "分析这张截图中的错误\n继续检查");
+
   assert.equal(visionTaskPromptText([{ role: "assistant", content: "none" }]), "");
   assert.equal(visionTaskPromptText([{ role: "user", content: { unsupported: true } }]), "");
   assert.equal(visionTaskPromptText(undefined), "");

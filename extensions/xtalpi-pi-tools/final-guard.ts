@@ -2,6 +2,7 @@ import {
   contentToText,
   type ContextLike,
 } from "./serializer.ts";
+import { isContinuationPrompt } from "./continuation.ts";
 import {
   detectToolCallLikeFinal,
 } from "./protocol-boundary.ts";
@@ -22,9 +23,6 @@ export type FinalGuardResult =
       reason: string;
       latestUserText: string;
     };
-
-const CONTINUATION_PROMPT_PATTERN =
-  /^\s*(?:继续上一轮|继续上一步|继续(?:呀|吧)?|接着(?:来|吧)?|下一步|然后呢|再来|往下|go on|continue|next|proceed)(?:\s|$|[，。,.!！?？])/i;
 
 const PLAN_MODE_ACTIVE_MARKER_PATTERN =
   /(?:Plan mode:\s*planning|Produce\s+a\s+<proposed_plan>\s+block)/i;
@@ -76,10 +74,6 @@ function isPlanModeActive(context: ContextLike, latestUser: string): boolean {
   if (PLAN_MODE_DISABLED_IMPLEMENT_PATTERN.test(latestUser)) return false;
   const activeText = `${context.systemPrompt ?? ""}\n${latestUser}`;
   return PLAN_MODE_ACTIVE_MARKER_PATTERN.test(activeText);
-}
-
-function isContinuationPrompt(value: string): boolean {
-  return CONTINUATION_PROMPT_PATTERN.test(value);
 }
 
 export function validateFinalAnswer(input: {

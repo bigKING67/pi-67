@@ -56,6 +56,14 @@ test("a forbidden tool cannot be restored by a recovery boost", () => {
   const omittedFind = result.summary.omitted.find((item) => item.name === "fffind");
   assert.ok(omittedFind?.reasonCodes.includes("prompt_tool_forbidden"));
   assert.ok(!omittedFind?.reasonCodes.includes("recovery_path_discovery"));
+
+  const noEligibleTool = selectToolsWithSummary(
+    [tool("mcp", "Connect to an MCP server")],
+    "Do not use mcp.",
+    1,
+  );
+  assert.deepEqual(noEligibleTool.selectedTools, []);
+  assert.ok(noEligibleTool.summary.omitted[0].reasonCodes.includes("prompt_tool_forbidden"));
 });
 
 test("image paths prefer the semantic vision bridge and penalize ordinary file tools", () => {
@@ -80,6 +88,38 @@ test("browser tasks prefer the MCP gateway instead of bash", () => {
   assert.deepEqual(result.selectedTools.map((item) => item.name), ["mcp"]);
   assert.ok(result.summary.selected[0].reasonCodes.includes("browser_mcp_route"));
   assert.ok(result.summary.selected[0].reasonCodes.includes("prompt_browser_url_open"));
+});
+
+test("browser preference never restores an explicitly forbidden MCP gateway", () => {
+  const result = selectToolsWithSummary(
+    [
+      tool("mcp", "Connect to browser67"),
+      tool("browser_execute_js", "Inspect a browser67 managed tab"),
+      tool("bash", "Run shell commands"),
+    ],
+    "Do not use mcp; use browser67 direct tools to inspect the current tab.",
+    1,
+  );
+
+  assert.deepEqual(result.selectedTools.map((item) => item.name), ["browser_execute_js"]);
+  const omittedMcp = result.summary.omitted.find((item) => item.name === "mcp");
+  assert.ok(omittedMcp?.reasonCodes.includes("prompt_tool_forbidden"));
+});
+
+test("explicit exclusive constraints outrank browser and vision preferences", () => {
+  const browserResult = selectToolsWithSummary(
+    [tool("bash"), tool("mcp", "Connect to browser67"), tool("browser_execute_js")],
+    "Only use bash to inspect the browser67 current tab. Do not use mcp.",
+    2,
+  );
+  assert.deepEqual(browserResult.selectedTools.map((item) => item.name), ["bash"]);
+
+  const visionResult = selectToolsWithSummary(
+    [tool("read", "Read a file"), tool("vision_read", "Analyze an image")],
+    "Only use read to inspect screenshot /tmp/image.png.",
+    2,
+  );
+  assert.deepEqual(visionResult.selectedTools.map((item) => item.name), ["read"]);
 });
 
 test("tool serialization remains bounded for large selected schemas", () => {

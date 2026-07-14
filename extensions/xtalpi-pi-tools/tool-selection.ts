@@ -298,31 +298,37 @@ export function selectToolsWithSummary(
     index,
     ...scoreTool(tool, scoringContext),
   }));
-  const preferredVisionName = visionState.isVisionTask && limit > 0 ? preferredVisionToolName(available) : undefined;
+  const eligibleScored = scored.filter((item) => !item.reasonCodes.includes("prompt_tool_forbidden"));
+  const eligibleTools = eligibleScored.map((item) => item.tool);
+  const preferredVisionName = visionState.isVisionTask && limit > 0
+    ? preferredVisionToolName(eligibleTools)
+    : undefined;
   const preferredBrowserMcpName = browserState.isBrowserMcpTask && limit > 0
-    ? preferredBrowserMcpToolName(available)
+    ? preferredBrowserMcpToolName(eligibleTools)
     : undefined;
   const exclusiveToolNames = new Set(
-    scored
+    eligibleScored
       .filter((item) => item.reasonCodes.includes("prompt_tool_exclusive"))
       .map((item) => item.tool.name),
   );
   const ranked = [...scored].sort((a, b) => b.score - a.score || a.index - b.index);
+  const eligibleRanked = ranked.filter((item) => !item.reasonCodes.includes("prompt_tool_forbidden"));
   const selectedRanked = (() => {
-    if (preferredVisionName) {
-      return ranked.filter((item) => item.tool.name === preferredVisionName).slice(0, 1);
-    }
-    if (preferredBrowserMcpName) {
-      return ranked.filter((item) => item.tool.name === preferredBrowserMcpName).slice(0, 1);
-    }
     if (exclusiveToolNames.size > 0) {
-      const exclusiveRanked = ranked.filter((item) => exclusiveToolNames.has(item.tool.name));
+      const exclusiveRanked = eligibleRanked.filter((item) => exclusiveToolNames.has(item.tool.name));
       return exclusiveRanked.length > limit ? exclusiveRanked.slice(0, limit) : exclusiveRanked;
     }
-    return scored.length > limit ? ranked.slice(0, limit) : scored;
+    if (preferredVisionName) {
+      return eligibleRanked.filter((item) => item.tool.name === preferredVisionName).slice(0, 1);
+    }
+    if (preferredBrowserMcpName) {
+      return eligibleRanked.filter((item) => item.tool.name === preferredBrowserMcpName).slice(0, 1);
+    }
+    return eligibleScored.length > limit ? eligibleRanked.slice(0, limit) : eligibleScored;
   })();
   const selectedToolNameSet = availableToolNames(selectedRanked.map((item) => item.tool));
-  const omittedRanked = preferredVisionName || preferredBrowserMcpName || exclusiveToolNames.size > 0 || scored.length > limit
+  const omittedRanked = preferredVisionName || preferredBrowserMcpName || exclusiveToolNames.size > 0 ||
+    eligibleScored.length !== scored.length || eligibleScored.length > limit
     ? ranked.filter((item) => !selectedToolNameSet.has(item.tool.name))
     : [];
   const clipped = omittedRanked.length > 0;
