@@ -8,6 +8,8 @@
   drift into the JSON action `kind` field. The flattened response remains
   non-executable; only a repaired canonical `tool_call` can reach local tool
   validation and execution.
+- Ensures the packed-artifact self-test still writes and installs its nested
+  tarball when invoked from an outer `npm publish --dry-run` lifecycle.
 
 ## [0.11.5]
 

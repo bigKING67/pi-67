@@ -396,10 +396,12 @@ function runBrowser67RuntimeSelfTests() {
 function runPackedArtifactSelfTests() {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-packed-artifact-"));
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+  const npmChildEnv = npmLifecycleChildEnv();
   try {
     const pack = spawnSync(npm, ["pack", root, "--ignore-scripts", "--json", "--pack-destination", tmpRoot], {
       cwd: tmpRoot,
       encoding: "utf8",
+      env: npmChildEnv,
       shell: process.platform === "win32",
     });
     assert(pack.status === 0, `packed artifact creation failed: ${pack.error?.message || pack.stderr || pack.stdout}`);
@@ -419,6 +421,7 @@ function runPackedArtifactSelfTests() {
     ], {
       cwd: tmpRoot,
       encoding: "utf8",
+      env: npmChildEnv,
       shell: process.platform === "win32",
     });
     assert(install.status === 0, `packed artifact install failed: ${install.error?.message || install.stderr || install.stdout}`);
@@ -436,6 +439,15 @@ function runPackedArtifactSelfTests() {
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }
+}
+
+function npmLifecycleChildEnv() {
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (key.toLowerCase() === "npm_config_dry_run") delete env[key];
+  }
+  env.npm_config_dry_run = "false";
+  return env;
 }
 
 function runCliHelpContractSelfTests() {

@@ -15,6 +15,10 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
   bounded repair within the existing total recovery budget. The flattened
   object is never executed; only a subsequent canonical `tool_call` envelope
   can reach the existing whitelist, schema, repeat, and shell guards.
+- Isolated the packed-artifact self-test from an outer
+  `npm publish --dry-run` lifecycle so inherited `npm_config_dry_run=true`
+  cannot suppress the nested tarball that `prepublishOnly` must install and
+  execute before publication.
 
 ## [0.11.5] - 2026-07-14
 
