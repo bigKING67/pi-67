@@ -1230,6 +1230,12 @@ pass "doctor reports READY after configure"
 
 DEEPSEEK_AGENT="$TMP_ROOT/deepseek-only-agent"
 cp -Rp "$AGENT_DIR" "$DEEPSEEK_AGENT"
+for state_file in settings.json models.json auth.json; do
+  detached_state="$TMP_ROOT/deepseek-$state_file"
+  cp -L "$DEEPSEEK_AGENT/$state_file" "$detached_state"
+  rm -f "$DEEPSEEK_AGENT/$state_file"
+  mv "$detached_state" "$DEEPSEEK_AGENT/$state_file"
+done
 node - "$DEEPSEEK_AGENT" <<'NODE'
 const fs = require("fs");
 const path = require("path");
@@ -1465,7 +1471,16 @@ pass "doctor deep MCP probe completed and rejects adapter-incompatible placehold
 
 section "Update helper"
 UPDATE_REPO="$TMP_ROOT/update-repo"
+UPDATE_REMOTE="$TMP_ROOT/update-remote.git"
 git clone "$REPO_ROOT" "$UPDATE_REPO" >"${SMOKE_LOG_DIR}/update-clone.log" 2>&1
+if [ "$(git -C "$UPDATE_REPO" rev-parse --abbrev-ref HEAD)" = "HEAD" ]; then
+  git -C "$UPDATE_REPO" switch -q -c pi67-smoke-update
+fi
+UPDATE_BRANCH="$(git -C "$UPDATE_REPO" rev-parse --abbrev-ref HEAD)"
+git clone --bare "$UPDATE_REPO" "$UPDATE_REMOTE" >>"${SMOKE_LOG_DIR}/update-clone.log" 2>&1
+git -C "$UPDATE_REPO" remote set-url origin "$UPDATE_REMOTE"
+git -C "$UPDATE_REPO" fetch -q origin "$UPDATE_BRANCH"
+git -C "$UPDATE_REPO" branch --set-upstream-to="origin/$UPDATE_BRANCH" "$UPDATE_BRANCH" >/dev/null
 cp "$REPO_ROOT/scripts/pi67-report.sh" "$UPDATE_REPO/scripts/pi67-report.sh"
 cp "$REPO_ROOT/scripts/pi67-configure.sh" "$UPDATE_REPO/scripts/pi67-configure.sh"
 chmod +x "$UPDATE_REPO/scripts/pi67-report.sh"

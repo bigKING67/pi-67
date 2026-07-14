@@ -461,6 +461,99 @@ if ! grep -q 'source Git worktree must be clean' "$TMP_ROOT/commerce-sync-dirty-
 fi
 pass "commerce Skill Pack vendored sync is transactional, provenance-locked, and keeps the legacy helper compatible"
 
+section "Skill Pack Git-backed active deployment"
+PACK_HOME="$TMP_ROOT/pack-home"
+PACK_ACTIVE="$PACK_HOME/.agents/skills"
+PACK_CLI="$REPO_ROOT/packages/pi67-cli/bin/pi-67.mjs"
+PACK_NAME="consumer-brand-commerce-marketing-suite"
+mkdir -p "$PACK_ACTIVE/commerce-growth-os"
+printf '# pre-sync local commerce-growth-os\n' > "$PACK_ACTIVE/commerce-growth-os/SKILL.md"
+PACK_ARGS=(
+  --agent-dir "$TMP_ROOT/commerce-dest"
+  --repo-root "$TMP_ROOT/commerce-dest"
+  --skills-dir "$PACK_ACTIVE"
+)
+HOME="$PACK_HOME" USERPROFILE="$PACK_HOME" node "$PACK_CLI" \
+  "${PACK_ARGS[@]}" skills sync-pack "$PACK_NAME" --dry-run --yes --json \
+  > "$TMP_ROOT/pack-active-sync-dry.json"
+if [ -e "$PACK_HOME/.pi/pi67" ]; then
+  fail "Skill Pack active sync dry-run wrote runtime state"
+fi
+HOME="$PACK_HOME" USERPROFILE="$PACK_HOME" node "$PACK_CLI" \
+  "${PACK_ARGS[@]}" skills sync-pack "$PACK_NAME" --yes --json \
+  > "$TMP_ROOT/pack-active-sync.json"
+HOME="$PACK_HOME" USERPROFILE="$PACK_HOME" node "$PACK_CLI" \
+  "${PACK_ARGS[@]}" skills sync-pack "$PACK_NAME" --yes --json \
+  > "$TMP_ROOT/pack-active-sync-noop.json"
+printf '# post-sync user drift\n' > "$PACK_ACTIVE/commerce-growth-os/SKILL.md"
+HOME="$PACK_HOME" USERPROFILE="$PACK_HOME" node "$PACK_CLI" \
+  "${PACK_ARGS[@]}" skills sync-pack "$PACK_NAME" --dry-run --yes --json \
+  > "$TMP_ROOT/pack-active-drift-dry.json"
+HOME="$PACK_HOME" USERPROFILE="$PACK_HOME" node "$PACK_CLI" \
+  "${PACK_ARGS[@]}" skills sync-pack "$PACK_NAME" --yes --json \
+  > "$TMP_ROOT/pack-active-drift-sync.json"
+node - \
+  "$TMP_ROOT/pack-active-sync-dry.json" \
+  "$TMP_ROOT/pack-active-sync.json" \
+  "$TMP_ROOT/pack-active-sync-noop.json" \
+  "$TMP_ROOT/pack-active-drift-dry.json" \
+  "$TMP_ROOT/pack-active-drift-sync.json" \
+  "$PACK_ACTIVE" \
+  "$COMMERCE_PACK_REGISTRY" \
+  "$COMMERCE_DEST_ROOT/commerce-growth-os/SKILL.md" <<'NODE'
+const fs = require("fs");
+const path = require("path");
+const [, , syncDryFile, syncFile, noOpFile, driftDryFile, driftSyncFile, skillsDir, registryFile, sourceSkillFile] = process.argv;
+const read = (file) => JSON.parse(fs.readFileSync(file, "utf8"));
+const syncDry = read(syncDryFile);
+const sync = read(syncFile);
+const noOp = read(noOpFile);
+const driftDry = read(driftDryFile);
+const driftSync = read(driftSyncFile);
+if (syncDry.schema !== "pi67.skill-pack-sync.v1") {
+  throw new Error("unexpected active sync dry-run contract");
+}
+for (const payload of [syncDry, sync, noOp, driftDry, driftSync]) {
+  if ("backup" in payload || "backupRetention" in payload) {
+    throw new Error("Git-backed Skill deployment exposed a persistent backup contract");
+  }
+}
+if (!syncDry.actions.some((entry) => entry.action === "replace-dry-run") || !syncDry.actions.some((entry) => entry.action === "copy-dry-run")) {
+  throw new Error("initial dry-run did not plan both replacement and missing Skill deployment");
+}
+if (!noOp.actions.every((entry) => entry.action === "skip")) {
+  throw new Error("second deploy was not a no-op");
+}
+if (!driftDry.actions.some((entry) => entry.name === "commerce-growth-os" && entry.action === "replace-dry-run")) {
+  throw new Error("drift dry-run did not plan redeployment from the canonical source");
+}
+if (!driftSync.actions.some((entry) => entry.name === "commerce-growth-os" && entry.action === "replace")) {
+  throw new Error("drift redeploy did not replace the Active Skill");
+}
+const registry = read(registryFile);
+const expectedNames = [...registry.packs[0].skills].sort();
+const activeNames = fs.readdirSync(skillsDir).filter((name) => !name.startsWith(".")).sort();
+if (JSON.stringify(activeNames) !== JSON.stringify(expectedNames)) {
+  throw new Error(`unexpected post-deploy active Skills: ${activeNames.join(", ")}`);
+}
+const activeSkill = fs.readFileSync(path.join(skillsDir, "commerce-growth-os", "SKILL.md"), "utf8");
+const sourceSkill = fs.readFileSync(sourceSkillFile, "utf8");
+if (activeSkill !== sourceSkill) {
+  throw new Error("Active Skill does not match the canonical Git-tracked source");
+}
+if (fs.readdirSync(skillsDir).some((name) => name.startsWith(".pi67-skills-"))) {
+  throw new Error("Skill deploy transaction residue remains");
+}
+const home = path.dirname(path.dirname(skillsDir));
+if (fs.existsSync(path.join(home, ".pi", "pi67", "backups"))) {
+  throw new Error("Git-backed Skill deployment created persistent content backups");
+}
+if (fs.existsSync(path.join(home, ".pi", "pi67", "locks", "skills-deploy.lock"))) {
+  throw new Error("Skill deploy lock residue remains");
+}
+NODE
+pass "Skill Pack active sync deploys transactionally from Git source without persistent backups and repairs drift by redeploying"
+
 section "External sync helper conflict"
 EXTERNAL_CONFLICT_REPO="$TMP_ROOT/external-conflict-repo"
 EXTERNAL_CONFLICT_SHARED="$TMP_ROOT/external-conflict-shared"

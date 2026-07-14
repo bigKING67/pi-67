@@ -556,7 +556,8 @@ bash scripts/pi67-release-artifact-smoke.sh --ref v0.9.0
 ```
 
 `WORKTREE` is for pre-commit local candidates and copies Git-tracked plus
-non-ignored candidate files into a temporary Git repo. `HEAD` and tag refs use a
+non-ignored candidate files into a temporary Git repo. Both primary checkouts
+and linked `git worktree` checkouts are supported. `HEAD` and tag refs use a
 normal clone checkout, which is the right shape for post-commit or published
 release validation.
 

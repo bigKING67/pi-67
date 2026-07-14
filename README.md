@@ -4,7 +4,7 @@
 
 > 让 Windows 和 macOS 用户用尽可能少的步骤，获得公司统一、持续升级、可诊断、可回滚的 Pi 工作台。`pi` 始终是实际运行入口；`pi-67` 负责把 Pi 所需的配置、扩展、Skills、规则、脚本和公司默认 provider 封装成一键发行版。
 
-当前发行版版本：`0.11.3`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.11.4`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 项目定位
 
@@ -260,7 +260,13 @@ pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --yes
 ```
 
 默认更新只复制缺失 Skill，并保留内容不同的 active Skill。`sync-pack
---yes` 才会为不同内容创建备份并显式对齐全部 8 个 Skill，避免静默降级。
+--yes` 把 Git 跟踪且 provenance-locked 的 Pack 事务部署到 `~/.agents/skills`：
+`staged/previous` 只存在于一次同步事务中，成功或失败后立即删除，不创建持久 Skill
+内容备份。写入式同步由 `~/.pi/pi67/locks/skills-deploy.lock` 串行化，避免两个
+Pi/Codex 或更新进程同时改写同一 Active Skill Root；Dry-run 不创建锁。若需回滚，
+维护者在 `commerce-growth-os` Git 仓库选择或 revert 目标 Commit/Tag，重新生成 Pack
+provenance 后再次同步；普通机器使用对应的固定版本重新部署。Git 保存版本历史，
+Active Skill 始终是可重建的安装产物。
 `pi-67 status`、`pi-67 update --check`、Bash/PowerShell Doctor 和
 `pi67-report.json` 会自动暴露同一份
 `pi67-shared-skill-packs-status/v1` 状态；发现差异时只建议先运行

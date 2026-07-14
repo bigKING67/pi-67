@@ -304,8 +304,15 @@ consistency for registered multi-Skill suites. `shared-skill-packs.json`
 declares Pack ownership while `shared-skill-packs.lock.json` pins the upstream
 Commit and SHA-256 fingerprints used by the distribution.
 Normal update preserves different active Skills; `skills sync-pack ... --yes`
-is the explicit backed-up operation for aligning every Skill in a registered
-Pack to the pi-67 vendored version.
+is the explicit transactional operation for aligning every Skill in a
+registered Pack to the Git-tracked, provenance-locked distribution source.
+`staged/previous` directories exist only for one deployment and are removed on
+success or failure; no persistent Skill content backup is created. Writing
+syncs share `~/.pi/pi67/locks/skills-deploy.lock`, preventing concurrent
+mutation of the active root. Dry-runs stay lock-free and dead-process locks
+recover automatically. Rollback selects or reverts the desired upstream Git
+commit/tag, regenerates the Pack lock, and runs `sync-pack` again; Active Skills
+remain reproducible deployment output rather than an independent history store.
 `pi-67 status` and `pi-67 update --check --json` include the same compact
 `pi67-shared-skill-packs-status/v1` block used by Bash/PowerShell Doctor and
 Report. Inconsistent Packs recommend inspection and `sync-pack ... --dry-run`;

@@ -1064,14 +1064,42 @@ bash ~/.pi/agent/scripts/pi67-sync-commerce-skill-pack.sh \
   --apply --yes
 ```
 
-If `pi-67 update` preserved an older active Pack, inspect and align it with a
-backup before replacement:
+If `pi-67 update` preserved an older or locally changed Active Pack, inspect and
+redeploy it from the canonical Git-tracked source:
 
 ```bash
 pi-67 skills packs
 pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --dry-run
 pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --yes
 ```
+
+Managed Skill deployment does not create `*-skills-sync` content backups.
+`~/.agents/skills` is rebuilt from the Git-tracked, provenance-locked Pack. The
+temporary `.pi67-skills-sync-*` transaction directory is removed on success or
+failure; a later deploy removes stale transaction residue from an interrupted
+process before continuing.
+
+If a writing command reports `another pi-67 Skill deployment appears to be
+running`, do not delete `~/.pi/pi67/locks/skills-deploy.lock` while the reported
+PID is active. Wait for the current sync to finish and retry. A dead-process
+lock and a lock older than four hours are recovered by the next writing command
+when no live same-host owner can be proven. Dry-run inspection remains
+available while the lock is held.
+
+To undo a Pack alignment, do not manually copy individual Active Skill
+directories. Select or revert the desired Git commit/tag in the canonical
+`commerce-growth-os` source, regenerate the vendored Pack plus
+`shared-skill-packs.lock.json`, and redeploy:
+
+```bash
+pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --dry-run
+pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --yes
+```
+
+On another machine, pin or reinstall the pi-67 release containing that exact
+Pack commit before syncing. `pi-67 backups` remains a separate recovery path for
+repo-external runtime configuration such as settings; it does not store or
+restore managed Skill history.
 
 The same mismatch is visible without writing through:
 
