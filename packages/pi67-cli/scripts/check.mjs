@@ -22,13 +22,6 @@ import { parseCommandOptions, splitGlobalArgs } from "../src/lib/args.mjs";
 import { readExtensionRegistry, validateExtensionRegistry } from "../src/lib/extension-registry.mjs";
 import { buildPlanDecisions, classifyGitShort } from "../src/lib/update-plan.mjs";
 import {
-  migrateSettingsRuntimeState,
-  mergeSettingsRuntimeMarkerIntoState,
-  refreshSettingsGitIndex,
-  settingsRuntimeMarkerFromObject,
-  stripSettingsRuntimeMarkerText,
-} from "../src/lib/settings-runtime-state.mjs";
-import {
   beginUpdateLifecycle,
   inspectLegacyConflictBackup,
   inspectRuntimeBackup,
@@ -66,6 +59,8 @@ import {
   hashDirectory,
   hashSkillSet,
 } from "../src/lib/skill-pack-integrity.mjs";
+import { runPackedArtifactSelfTests } from "./checks/installed-artifact.mjs";
+import { runSettingsRuntimeStateSelfTests } from "./checks/settings-runtime-state.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const files = [];
@@ -84,7 +79,7 @@ await runNpmRegistrySelfTests();
 await runUpstreamPiRuntimeSelfTests();
 runBrowser67RuntimeSelfTests();
 runExternalLifecycleSelfTests();
-runPackedArtifactSelfTests();
+runPackedArtifactSelfTests(root);
 runArgsSelfTests();
 runCliHelpContractSelfTests();
 runXtalpiConfigureSelfTests();
@@ -526,65 +521,6 @@ function runExternalLifecycleSelfTests() {
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }
-}
-
-function runPackedArtifactSelfTests() {
-  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-packed-artifact-"));
-  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  const npmChildEnv = npmLifecycleChildEnv();
-  try {
-    const pack = spawnSync(npm, ["pack", root, "--ignore-scripts", "--json", "--pack-destination", tmpRoot], {
-      cwd: tmpRoot,
-      encoding: "utf8",
-      env: npmChildEnv,
-      shell: process.platform === "win32",
-    });
-    assert(pack.status === 0, `packed artifact creation failed: ${pack.error?.message || pack.stderr || pack.stdout}`);
-    const packed = JSON.parse(pack.stdout);
-    const tarball = path.join(tmpRoot, packed[0]?.filename || "");
-    assert(fs.existsSync(tarball), "packed artifact tarball was not created");
-
-    fs.writeFileSync(path.join(tmpRoot, "package.json"), '{"private":true}\n', "utf8");
-    const install = spawnSync(npm, [
-      "install",
-      "--ignore-scripts",
-      "--no-audit",
-      "--no-fund",
-      "--no-package-lock",
-      "--no-save",
-      tarball,
-    ], {
-      cwd: tmpRoot,
-      encoding: "utf8",
-      env: npmChildEnv,
-      shell: process.platform === "win32",
-    });
-    assert(install.status === 0, `packed artifact install failed: ${install.error?.message || install.stderr || install.stdout}`);
-
-    const bin = path.join(tmpRoot, "node_modules", "@bigking67", "pi-67", "bin", "pi-67.mjs");
-    const help = spawnSync(process.execPath, [bin, "external", "--help"], {
-      cwd: tmpRoot,
-      encoding: "utf8",
-    });
-    assert(help.status === 0, `packed artifact CLI failed to start: ${help.stderr || help.stdout}`);
-    assert(
-      help.stdout.includes("external install <browser67|design-craft>") &&
-        help.stdout.includes("browser67 install performs the complete first-time") &&
-        help.stdout.includes("external doctor <browser67|design-craft> [--deep]"),
-      "packed artifact external help is missing the complete install/update/setup lifecycle",
-    );
-  } finally {
-    fs.rmSync(tmpRoot, { recursive: true, force: true });
-  }
-}
-
-function npmLifecycleChildEnv() {
-  const env = { ...process.env };
-  for (const key of Object.keys(env)) {
-    if (key.toLowerCase() === "npm_config_dry_run") delete env[key];
-  }
-  env.npm_config_dry_run = "false";
-  return env;
 }
 
 function runCliHelpContractSelfTests() {
@@ -1655,70 +1591,6 @@ function runExtensionRegistrySelfTests() {
     validateExtensionRegistry(registry, { manifest: missingManagedManifest }).problems.some((item) => item.includes("managed local extension missing registry entry")),
     "managed local extensions must be registered",
   );
-}
-
-function runSettingsRuntimeStateSelfTests() {
-  const input = "{\n  \"lastChangelogVersion\": \"0.80.3\",\n  \"theme\": \"gruvbox-dark\"\n}\n";
-  const stripped = JSON.parse(stripSettingsRuntimeMarkerText(input));
-  assert(
-    stripped.lastChangelogVersion === undefined && stripped.theme === "gruvbox-dark",
-    "settings runtime clean filter must remove only lastChangelogVersion",
-  );
-  const marker = settingsRuntimeMarkerFromObject({ lastChangelogVersion: "0.80.3" });
-  const state = mergeSettingsRuntimeMarkerIntoState({ schema: "pi67.state.v1" }, marker, "2026-07-08T00:00:00.000Z");
-  assert(
-    state.runtimeMarkers?.lastChangelogVersion?.value === "0.80.3" &&
-      state.runtimeMarkers.lastChangelogVersion.storage === "state.json",
-    "settings runtime marker must migrate into state runtimeMarkers",
-  );
-  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-settings-runtime-state-"));
-  const agentDir = path.join(tmpRoot, "agent");
-  const stateDir = path.join(tmpRoot, "state");
-  fs.mkdirSync(agentDir, { recursive: true });
-  fs.writeFileSync(path.join(agentDir, "settings.json"), "{\r\n  \"theme\": \"gruvbox-dark\"\r\n}\r\n", "utf8");
-  const lineEndingResult = migrateSettingsRuntimeState(
-    { agentDir, repoRoot: agentDir, stateDir },
-    { normalizeSettingsJson: true },
-  );
-  const normalizedSettings = fs.readFileSync(path.join(agentDir, "settings.json"), "utf8");
-  assert(lineEndingResult.markerFound === false, "line-ending normalization must not require runtime marker");
-  assert(lineEndingResult.settingsNormalized === true, "CRLF settings.json must be normalized under --normalize");
-  assert(
-    lineEndingResult.settingsNormalizeReasons.includes("line-endings"),
-    "settings normalization must classify CRLF as line-endings",
-  );
-  assert(
-    normalizedSettings === "{\n  \"theme\": \"gruvbox-dark\"\n}\n",
-    "settings line-ending normalization must preserve JSON content and indentation",
-  );
-  fs.rmSync(tmpRoot, { recursive: true, force: true });
-
-  if (spawnSync("git", ["--version"], { encoding: "utf8" }).status === 0) {
-    const gitRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-settings-index-refresh-"));
-    const gitStateDir = path.join(gitRoot, "state");
-    fs.writeFileSync(path.join(gitRoot, ".gitattributes"), "settings.json text eol=lf\n");
-    fs.writeFileSync(path.join(gitRoot, "settings.json"), "{\n  \"theme\": \"gruvbox-dark\"\n}\n");
-    for (const args of [
-      ["-C", gitRoot, "init", "-q"],
-      ["-C", gitRoot, "config", "user.email", "pi67-check@example.invalid"],
-      ["-C", gitRoot, "config", "user.name", "pi67-check"],
-      ["-C", gitRoot, "add", ".gitattributes", "settings.json"],
-      ["-C", gitRoot, "commit", "-q", "-m", "init"],
-    ]) {
-      const result = spawnSync("git", args, { encoding: "utf8" });
-      assert(result.status === 0, `git setup failed for settings index refresh self-test: git ${args.join(" ")}\n${result.stderr}`);
-    }
-    fs.writeFileSync(path.join(gitRoot, "settings.json"), "{\r\n  \"theme\": \"gruvbox-dark\"\r\n}\r\n");
-    const statusBefore = spawnSync("git", ["-C", gitRoot, "status", "--short", "--", "settings.json"], { encoding: "utf8" });
-    const diffBefore = spawnSync("git", ["-C", gitRoot, "diff", "--quiet", "--", "settings.json"], { encoding: "utf8" });
-    assert(statusBefore.stdout.includes("settings.json"), "settings index refresh self-test must start with false-dirty status");
-    assert(diffBefore.status === 0, "settings index refresh self-test must have no real content diff");
-    const refreshResult = refreshSettingsGitIndex({ agentDir: gitRoot, repoRoot: gitRoot, stateDir: gitStateDir });
-    const statusAfter = spawnSync("git", ["-C", gitRoot, "status", "--short", "--", "settings.json"], { encoding: "utf8" });
-    assert(refreshResult.refreshed === true, "settings index refresh must classify cleared false-dirty status");
-    assert(!statusAfter.stdout.trim(), `settings index refresh must clear false-dirty status\n${statusAfter.stdout}`);
-    fs.rmSync(gitRoot, { recursive: true, force: true });
-  }
 }
 
 function runUpdatePreflightMigrationSelfTests() {

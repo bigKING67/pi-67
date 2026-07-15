@@ -17,6 +17,7 @@ CI_MODE=false
 KEEP_TMP=false
 TMP_ROOT=""
 SMOKE_LOG_DIR=""
+SMOKE_CREATED_REPO_SETTINGS=false
 
 usage() {
   cat <<'USAGE'
@@ -73,6 +74,9 @@ section() {
 }
 
 cleanup() {
+  if [ "$SMOKE_CREATED_REPO_SETTINGS" = true ]; then
+    rm -f "$REPO_ROOT/settings.json"
+  fi
   if [ "$KEEP_TMP" = true ]; then
     warn "kept temp directory: $TMP_ROOT"
     return
@@ -86,6 +90,12 @@ trap cleanup EXIT
 TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/pi67-smoke.XXXXXX")"
 SMOKE_LOG_DIR="$TMP_ROOT/logs"
 mkdir -p "$SMOKE_LOG_DIR"
+
+if [ ! -f "$REPO_ROOT/settings.json" ] && [ -f "$REPO_ROOT/settings.example.json" ]; then
+  cp "$REPO_ROOT/settings.example.json" "$REPO_ROOT/settings.json"
+  chmod 600 "$REPO_ROOT/settings.json" 2>/dev/null || true
+  SMOKE_CREATED_REPO_SETTINGS=true
+fi
 
 command_exists() {
   command -v "$1" >/dev/null 2>&1
@@ -227,7 +237,7 @@ fi
 pass "shell scripts parse"
 
 section "JSON"
-for file in settings.json auth.example.json image-gen.example.json models.example.json mcp.example.json package.json shared-skill-packs.json shared-skill-packs.lock.json packages/pi67-cli/package.json; do
+for file in settings.example.json auth.example.json image-gen.example.json models.example.json mcp.example.json package.json package-lock.json shared-skill-packs.json shared-skill-packs.lock.json packages/pi67-cli/package.json; do
   json_valid "$REPO_ROOT/$file"
   pass "valid JSON: $file"
 done
@@ -244,18 +254,24 @@ pass "JSON compatibility utility self-test completed"
 node --check "$REPO_ROOT/scripts/pi67-mcp-config-utils.cjs" >"${SMOKE_LOG_DIR}/mcp-config-utils.log"
 pass "MCP config utility syntax check completed"
 
-if grep -qx 'settings\.json text eol=lf filter=pi67-settings-runtime-state' "$REPO_ROOT/.gitattributes"; then
-  pass "settings.json git attributes pin LF and runtime clean filter"
-else
-  fail "settings.json git attributes must pin LF and runtime clean filter"
+if git -C "$REPO_ROOT" ls-files --error-unmatch settings.json >/dev/null 2>&1; then
+  fail "settings.json must be ignored runtime state, not a tracked repository file"
 fi
+git -C "$REPO_ROOT" ls-files --error-unmatch settings.example.json >/dev/null 2>&1 \
+  || fail "settings.example.json must be tracked"
+git -C "$REPO_ROOT" check-ignore -q settings.json \
+  || fail "settings.json must be ignored"
+if grep -q 'filter=pi67-settings-runtime-state' "$REPO_ROOT/.gitattributes"; then
+  fail "legacy settings.json Git clean filter must not remain in .gitattributes"
+fi
+pass "settings.json is ignored runtime state with a tracked template"
 
 section "Shared skill defaults"
 node - "$REPO_ROOT" <<'NODE'
 const fs = require("fs");
 const path = require("path");
 const repoRoot = process.argv[2];
-const settings = JSON.parse(fs.readFileSync(path.join(repoRoot, "settings.json"), "utf8"));
+const settings = JSON.parse(fs.readFileSync(path.join(repoRoot, "settings.example.json"), "utf8"));
 const packages = Array.isArray(settings.packages) ? settings.packages : [];
 for (const spec of packages) {
   const value = String(spec);
@@ -378,7 +394,7 @@ if [ -n "$REAL_PI" ] && command_exists expect; then
   mkdir -p "$ZERO_KEY_AGENT/extensions"
   cp -R "$REPO_ROOT/extensions/xtalpi-pi-tools" "$ZERO_KEY_AGENT/extensions/xtalpi-pi-tools"
   cp "$REPO_ROOT/models.example.json" "$ZERO_KEY_AGENT/models.json"
-  node - "$REPO_ROOT/settings.json" "$ZERO_KEY_AGENT/settings.json" "$ZERO_KEY_AGENT/auth.json" <<'NODE'
+  node - "$REPO_ROOT/settings.example.json" "$ZERO_KEY_AGENT/settings.json" "$ZERO_KEY_AGENT/auth.json" <<'NODE'
 const fs = require("fs");
 const settings = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 settings.defaultProvider = "xtalpi-pi-tools";
@@ -478,9 +494,13 @@ PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/install.sh" \
   --no-doctor \
   --no-report \
   --yes >"${SMOKE_LOG_DIR}/install-conflict.log" 2>&1
-if ! grep -q "keeping existing global skill: $FIRST_SHARED_SKILL_NAME" "${SMOKE_LOG_DIR}/install-conflict.log"; then
+if ! grep -q "preserved 1 user-modified global Skills: $FIRST_SHARED_SKILL_NAME" "${SMOKE_LOG_DIR}/install-conflict.log"; then
   cat "${SMOKE_LOG_DIR}/install-conflict.log" >&2
   fail "install did not keep existing different shared skill"
+fi
+if grep -q 'dirHash=' "${SMOKE_LOG_DIR}/install-conflict.log"; then
+  cat "${SMOKE_LOG_DIR}/install-conflict.log" >&2
+  fail "default install drift output exposed verbose per-Skill hashes"
 fi
 if ! grep -q "Existing newer global skill" "$INSTALL_CONFLICT_SKILLS/$FIRST_SHARED_SKILL_NAME/SKILL.md"; then
   cat "$INSTALL_CONFLICT_SKILLS/$FIRST_SHARED_SKILL_NAME/SKILL.md" >&2
@@ -1049,7 +1069,7 @@ if find "$INPLACE_AGENT" -maxdepth 1 -name 'backup-*' -print -quit | grep -q .; 
 fi
 pass "in-place tracked assets preserved"
 
-for path in models.json mcp.json auth.json image-gen.json pi67-report.json; do
+for path in settings.json models.json mcp.json auth.json image-gen.json pi67-report.json; do
   if [ ! -e "$INPLACE_AGENT/$path" ]; then
     fail "in-place install did not create local file: $path"
   fi
@@ -1057,12 +1077,15 @@ for path in models.json mcp.json auth.json image-gen.json pi67-report.json; do
 done
 pass "in-place local files created and ignored"
 
-PATH="$FAKE_BIN:$PATH" "$INPLACE_AGENT/scripts/pi67-doctor.sh" \
+if ! PATH="$FAKE_BIN:$PATH" "$INPLACE_AGENT/scripts/pi67-doctor.sh" \
   --repo-root "$INPLACE_AGENT" \
   --agent-dir "$INPLACE_AGENT" \
   --skills-dir "$TMP_ROOT/inplace-shared-skills" \
   --no-skill-list \
-  --json >"${SMOKE_LOG_DIR}/inplace-doctor-json.log"
+  --json >"${SMOKE_LOG_DIR}/inplace-doctor-json.log"; then
+  cat "${SMOKE_LOG_DIR}/inplace-doctor-json.log" >&2
+  fail "in-place doctor command failed"
+fi
 node -e '
 const fs = require("fs");
 const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -1473,6 +1496,23 @@ section "Update helper"
 UPDATE_REPO="$TMP_ROOT/update-repo"
 UPDATE_REMOTE="$TMP_ROOT/update-remote.git"
 git clone "$REPO_ROOT" "$UPDATE_REPO" >"${SMOKE_LOG_DIR}/update-clone.log" 2>&1
+while IFS= read -r -d '' file; do
+  if [ ! -e "$REPO_ROOT/$file" ] && [ ! -L "$REPO_ROOT/$file" ]; then
+    continue
+  fi
+  mkdir -p "$UPDATE_REPO/$(dirname "$file")"
+  cp -p "$REPO_ROOT/$file" "$UPDATE_REPO/$file"
+done < <(git -C "$REPO_ROOT" ls-files -z --cached --others --exclude-standard)
+while IFS= read -r -d '' file; do
+  rm -f "$UPDATE_REPO/$file"
+done < <(git -C "$REPO_ROOT" diff --cached --name-only --diff-filter=D -z)
+git -C "$UPDATE_REPO" config user.email "pi67-smoke@example.invalid"
+git -C "$UPDATE_REPO" config user.name "pi67 smoke"
+git -C "$UPDATE_REPO" add .
+git -C "$UPDATE_REPO" add -u
+if ! git -C "$UPDATE_REPO" diff --cached --quiet; then
+  git -C "$UPDATE_REPO" commit -q -m "pi67 smoke update candidate"
+fi
 if [ "$(git -C "$UPDATE_REPO" rev-parse --abbrev-ref HEAD)" = "HEAD" ]; then
   git -C "$UPDATE_REPO" switch -q -c pi67-smoke-update
 fi
@@ -1503,27 +1543,37 @@ if ! grep -q 'check-only completed without writing files' "${SMOKE_LOG_DIR}/upda
 fi
 pass "update check-only completed"
 
-"$REPO_ROOT/scripts/pi67-update.sh" \
+if ! "$REPO_ROOT/scripts/pi67-update.sh" \
   --repo-root "$UPDATE_REPO" \
   --agent-dir "$AGENT_DIR" \
   --skills-dir "$TMP_ROOT/shared-skills" \
   --no-npm \
   --no-doctor \
   --allow-dirty \
-  --dry-run >"${SMOKE_LOG_DIR}/update-dry.log" 2>&1
+  --dry-run >"${SMOKE_LOG_DIR}/update-dry.log" 2>&1; then
+  cat "${SMOKE_LOG_DIR}/update-dry.log" >&2
+  fail "update dry-run failed"
+fi
 pass "update dry-run completed"
 
-"$REPO_ROOT/scripts/pi67-update.sh" \
+if ! "$REPO_ROOT/scripts/pi67-update.sh" \
   --repo-root "$UPDATE_REPO" \
   --agent-dir "$AGENT_DIR" \
   --skills-dir "$TMP_ROOT/shared-skills" \
   --no-npm \
   --no-doctor \
-  --allow-dirty >"${SMOKE_LOG_DIR}/update.log" 2>&1
+  --allow-dirty >"${SMOKE_LOG_DIR}/update.log" 2>&1; then
+  cat "${SMOKE_LOG_DIR}/update.log" >&2
+  fail "update helper command failed"
+fi
 
 if ! grep -q 'already up to date\|update finished' "${SMOKE_LOG_DIR}/update.log"; then
   cat "${SMOKE_LOG_DIR}/update.log" >&2
   fail "update helper did not complete cleanly"
+fi
+if ! grep -Eq 'git=[0-9]+s config=[0-9]+s skills=[0-9]+s npm=[0-9]+s verify=[0-9]+s total=[0-9]+s' "${SMOKE_LOG_DIR}/update.log"; then
+  cat "${SMOKE_LOG_DIR}/update.log" >&2
+  fail "update helper did not report phase timings"
 fi
 pass "update helper completed on temp checkout"
 
@@ -1532,8 +1582,8 @@ mkdir -p "$UPDATE_HOME"
 UPDATE_BACKUP_ROOT="$UPDATE_HOME/.pi/pi67/backups"
 backup_count_before="$(count_backup_dirs "$UPDATE_BACKUP_ROOT")"
 for runtime_state_file in \
-  .gitattributes \
-  settings.json \
+  .gitignore \
+  settings.example.json \
   packages/pi67-cli/src/lib/settings-runtime-clean.mjs \
   packages/pi67-cli/src/lib/settings-runtime-state.mjs \
   packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs
@@ -1543,10 +1593,13 @@ do
 done
 git -C "$UPDATE_REPO" config user.email pi67-smoke@example.invalid
 git -C "$UPDATE_REPO" config user.name pi67-smoke
-git -C "$UPDATE_REPO" add .gitattributes settings.json scripts/pi67-configure.sh scripts/pi67-report.sh packages/pi67-cli/src/lib/settings-runtime-clean.mjs packages/pi67-cli/src/lib/settings-runtime-state.mjs packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs
+git -C "$UPDATE_REPO" add .gitignore settings.example.json scripts/pi67-configure.sh scripts/pi67-report.sh packages/pi67-cli/src/lib/settings-runtime-clean.mjs packages/pi67-cli/src/lib/settings-runtime-state.mjs packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs
 if ! git -C "$UPDATE_REPO" diff --cached --quiet; then
   git -C "$UPDATE_REPO" commit -q -m "smoke runtime-state baseline"
 fi
+cp "$UPDATE_REPO/settings.example.json" "$UPDATE_REPO/settings.json"
+git -C "$UPDATE_REPO" check-ignore -q settings.json \
+  || fail "settings runtime fixture is not ignored"
 node -e '
 const fs = require("fs");
 const file = process.argv[1];
@@ -1570,9 +1623,9 @@ if [ "$backup_count_after" != "$backup_count_before" ]; then
   cat "${SMOKE_LOG_DIR}/update-runtime-no-backup.log" >&2
   fail "up-to-date dirty runtime update created a backup"
 fi
-if ! grep -q 'leaving them in place without creating a runtime backup' "${SMOKE_LOG_DIR}/update-runtime-no-backup.log"; then
+if ! grep -q 'settings runtime state (preflight)' "${SMOKE_LOG_DIR}/update-runtime-no-backup.log"; then
   cat "${SMOKE_LOG_DIR}/update-runtime-no-backup.log" >&2
-  fail "up-to-date dirty runtime update did not report preserve-in-place behavior"
+  fail "ignored settings update did not run runtime-state migration"
 fi
 node -e '
 const fs = require("fs");
@@ -1587,11 +1640,15 @@ if (state.runtimeMarkers?.lastChangelogVersion?.value !== "pi67-smoke-runtime-ma
   throw new Error("state.json did not preserve runtime marker");
 }
 ' "$UPDATE_REPO/settings.json" "$UPDATE_HOME/.pi/pi67/state.json"
-if ! git -C "$UPDATE_REPO" diff --quiet -- settings.json; then
-  git -C "$UPDATE_REPO" diff -- settings.json >&2
-  fail "settings runtime migration did not normalize settings.json"
+git -C "$UPDATE_REPO" check-ignore -q settings.json \
+  || fail "settings.json stopped being ignored after runtime migration"
+if [ -n "$(git -C "$UPDATE_REPO" status --short -- settings.json)" ]; then
+  fail "ignored settings runtime state appeared in Git status"
 fi
-pass "up-to-date dirty runtime update migrated settings runtime marker without backup"
+if git -C "$UPDATE_REPO" config --local --get-regexp '^filter\.pi67-settings-runtime-state\.' >/dev/null 2>&1; then
+  fail "legacy settings Git filter remained after untracked runtime migration"
+fi
+pass "ignored settings runtime marker migrated without backup or Git dirtiness"
 
 cat > "$UPDATE_REPO/scripts/pi67-report.sh" <<'SH'
 #!/usr/bin/env bash
@@ -1669,9 +1726,8 @@ if (state.runtimeMarkers?.lastChangelogVersion?.value !== "pi67-smoke-final-mark
   throw new Error("state.json did not preserve final runtime marker");
 }
 ' "$UPDATE_REPO/settings.json" "$UPDATE_HOME/.pi/pi67/state.json"
-if ! git -C "$UPDATE_REPO" diff --quiet -- settings.json; then
-  git -C "$UPDATE_REPO" diff -- settings.json >&2
-  fail "final settings runtime migration did not normalize settings.json"
+if [ -n "$(git -C "$UPDATE_REPO" status --short -- settings.json)" ]; then
+  fail "final ignored settings migration dirtied Git status"
 fi
 pass "update final step normalizes settings runtime marker written after preflight"
 
@@ -1686,9 +1742,13 @@ printf '# Existing newer global skill\n' > "$UPDATE_CONFLICT_SKILLS/$FIRST_SHARE
   --no-doctor \
   --no-report \
   --allow-dirty >"${SMOKE_LOG_DIR}/update-conflict.log" 2>&1
-if ! grep -q "keeping existing global skill: $FIRST_SHARED_SKILL_NAME" "${SMOKE_LOG_DIR}/update-conflict.log"; then
+if ! grep -q "preserved 1 user-modified global Skills: $FIRST_SHARED_SKILL_NAME" "${SMOKE_LOG_DIR}/update-conflict.log"; then
   cat "${SMOKE_LOG_DIR}/update-conflict.log" >&2
   fail "update did not keep existing different shared skill"
+fi
+if grep -q 'dirHash=' "${SMOKE_LOG_DIR}/update-conflict.log"; then
+  cat "${SMOKE_LOG_DIR}/update-conflict.log" >&2
+  fail "default update drift output exposed verbose per-Skill hashes"
 fi
 pass "update keeps existing different shared skills by default"
 

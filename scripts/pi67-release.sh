@@ -22,6 +22,8 @@ REPLACE_EXISTING=false
 REMOTE="origin"
 GH_REPO=""
 NPM_MANAGER_PACKAGE="@bigking67/pi-67"
+RELEASE_RUNTIME_CREATED=false
+NOTES_DIR=""
 
 usage() {
   cat <<'USAGE'
@@ -124,6 +126,15 @@ fail() {
 
 command_exists() {
   command -v "$1" >/dev/null 2>&1
+}
+
+cleanup() {
+  if [ -n "$NOTES_DIR" ] && [ -d "$NOTES_DIR" ]; then
+    rm -rf "$NOTES_DIR"
+  fi
+  if [ "$RELEASE_RUNTIME_CREATED" = true ] && [ -d "$REPO_ROOT/npm" ]; then
+    rm -rf "$REPO_ROOT/npm"
+  fi
 }
 
 run_or_show() {
@@ -318,6 +329,39 @@ NODE
   fi
 }
 
+prepare_release_runtime() {
+  local runtime_dir="$REPO_ROOT/npm"
+  local runtime_package="$runtime_dir/package.json"
+  local runtime_lock="$runtime_dir/package-lock.json"
+
+  if [ -f "$runtime_package" ] \
+    && [ -f "$runtime_lock" ] \
+    && cmp -s "$REPO_ROOT/package.json" "$runtime_package" \
+    && cmp -s "$REPO_ROOT/package-lock.json" "$runtime_lock" \
+    && [ -d "$runtime_dir/node_modules/pi-mcp-adapter" ] \
+    && [ -f "$runtime_dir/node_modules/typescript/bin/tsc" ]; then
+    pass "release runtime dependencies already match the committed lockfile"
+    return
+  fi
+
+  command_exists npm || fail "npm is required to prepare release runtime dependencies"
+  [ -f "$REPO_ROOT/package-lock.json" ] || fail "tracked package-lock.json is required for a reproducible release runtime"
+
+  if [ ! -e "$runtime_dir" ]; then
+    RELEASE_RUNTIME_CREATED=true
+  fi
+  mkdir -p "$runtime_dir"
+  cp "$REPO_ROOT/package.json" "$runtime_package"
+  cp "$REPO_ROOT/package-lock.json" "$runtime_lock"
+  npm --prefix "$runtime_dir" ci --ignore-scripts --no-audit --no-fund --prefer-offline
+
+  [ -d "$runtime_dir/node_modules/pi-mcp-adapter" ] \
+    || fail "release runtime preparation did not install pi-mcp-adapter"
+  [ -f "$runtime_dir/node_modules/typescript/bin/tsc" ] \
+    || fail "release runtime preparation did not install TypeScript"
+  pass "release runtime dependencies prepared from the committed lockfile"
+}
+
 delete_existing_same_version() {
   local tag="$1"
 
@@ -372,7 +416,7 @@ NOTES_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pi67-release-notes.XXXXXX")"
 NOTES_FILE="$NOTES_DIR/release-notes.md"
 BOOTSTRAP_ASSET="$NOTES_DIR/pi67-bootstrap.ps1"
 BOOTSTRAP_CHECKSUM="$NOTES_DIR/pi67-bootstrap.ps1.sha256"
-trap 'rm -rf "$NOTES_DIR"' EXIT
+trap cleanup EXIT
 
 say "Version    : ${GREEN}$VERSION${NC}"
 say "Tag        : ${GREEN}$TAG${NC}"
@@ -394,6 +438,10 @@ fi
 
 check_release_head_contract
 make_notes "$NOTES_FILE"
+
+say ""
+say "${CYAN}--- release runtime ---${NC}"
+prepare_release_runtime
 
 say ""
 say "${CYAN}--- release checks ---${NC}"

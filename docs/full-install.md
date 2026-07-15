@@ -12,7 +12,8 @@ Default installation deploys the complete configuration:
 - `docs/`
 - `templates/`
 - `scripts/`
-- `settings.json`
+- `settings.example.json` tracked as the distribution template; copied to an
+  ignored machine-local `settings.json` only when missing
 - local config templates for `models.json`, `mcp.json`, `auth.json`, and `image-gen.json`
 - npm packages listed in `package.json`
 
@@ -184,8 +185,10 @@ Update boundary:
 - If someone ran `pi update --extensions`, run `pi-67 update --repair` to
   restore the pi-67 managed state.
 
-`pi-67 update` preserves local choices by default. It does not overwrite
-existing `settings.json`, `models.json`, `auth.json`, `mcp.json`,
+`settings.json` is ignored machine-owned runtime state; the repository tracks
+only `settings.example.json`. Fresh installation copies the template only when
+local settings are missing. `pi-67 update` preserves local choices by default.
+It does not overwrite existing `settings.json`, `models.json`, `auth.json`, `mcp.json`,
 `image-gen.json`, user-added packages, user-added global skills, or the selected
 theme value. A real update/repair first writes a repo-external lock and blocks
 unsafe non-runtime dirty worktrees:
@@ -235,7 +238,7 @@ pi-67 themes set gruvbox-dark
 The manager writes lightweight state outside the checkout at
 `~/.pi/pi67/state.json`. It records versions, paths, theme, provider/model, and
 commit information. It also stores runtime-only UI markers such as
-`settings.json.lastChangelogVersion` after migrating them out of tracked config.
+`settings.json.lastChangelogVersion` after migrating them out of local settings.
 It never stores API keys.
 
 `pi-67 update --check` also checks whether the npm manager package is outdated
@@ -669,6 +672,7 @@ To regenerate the current report manually on Windows:
 The following files are local runtime configuration and are not committed:
 
 ```text
+~/.pi/agent/settings.json
 ~/.pi/agent/models.json
 ~/.pi/agent/mcp.json
 ~/.pi/agent/auth.json
@@ -678,6 +682,7 @@ The following files are local runtime configuration and are not committed:
 On a fresh install they are copied from:
 
 ```text
+settings.example.json
 models.example.json
 mcp.example.json
 auth.example.json
@@ -818,7 +823,14 @@ Static protocol test:
 bash ~/.pi/agent/scripts/pi67-test-xtalpi-pi-tools.sh
 ```
 
-In linked mode, `settings.json` is symlinked by default so updates from pi-67 continue to apply. If you request a provider/model change that differs from the repository default, the configure helper detaches `settings.json` into a local file before writing, so personal defaults do not dirty the repo. In in-place mode, `settings.json` is tracked by the current checkout; keep personal secrets and machine paths in the ignored local config files instead. The Pi changelog marker `lastChangelogVersion` is runtime-only: update/repair migrates it into `~/.pi/pi67/state.json`, removes it from `settings.json`, and installs a local Git clean filter so the marker cannot be accidentally carried into normal diffs or commits.
+In both in-place and linked installations, `settings.json` is a machine-local
+file created from `settings.example.json` only when missing. Provider, model,
+theme, package, and runtime marker changes therefore do not dirty the
+distribution checkout and are never overwritten by later template changes.
+The Pi changelog marker `lastChangelogVersion` is runtime-only: update/repair
+migrates it into `~/.pi/pi67/state.json` and removes it from `settings.json`.
+Upgrades from older tracked-settings releases also remove the obsolete local
+Git clean filter after preserving the existing settings bytes.
 
 ## Readiness levels
 
@@ -965,6 +977,12 @@ For an in-place checkout, the Git update portion is equivalent to:
 git -C ~/.pi/agent pull --ff-only
 ```
 
+The updater does not guess that every checkout should pull `main`. It resolves
+the target in this order: explicit `--branch` / `-Branch`, a configured
+upstream on the selected remote, a matching remote branch, or the remote
+default branch only when that branch has exactly the same commit as local
+`HEAD`. Detached or divergent checkouts fail closed until a branch is supplied.
+
 The PowerShell updater:
 
 1. Runs `git pull --ff-only` in the pi-67 checkout.
@@ -974,15 +992,18 @@ The PowerShell updater:
 5. Leaves upstream Pi authentication and provider/model selection unchanged.
 6. Normalizes `mcp.json` so MCP `command` / `args` do not depend on shell-only
    `$HOME` expansion.
-7. Syncs npm dependencies when `package.json` differs from `~/.pi/agent/npm/package.json`.
+7. Copies tracked `package.json` and `package-lock.json`, then runs `npm ci`
+   when either file differs from the ignored `npm/` runtime or dependencies are
+   missing.
 8. Applies the `pi-until-done` runtime queue/progress compatibility patch when needed.
 9. Runs `scripts\pi67-smoke.ps1 -Ci` after the update.
 10. Writes `~/.pi/agent/pi67-report.json` and embeds `scripts\pi67-doctor.ps1 -Json` unless `-NoDoctor` is used.
 
-`npm sync` is skipped when the copied `npm/package.json` already matches the
-repo `package.json`. When it does run, the updater uses npm's local cache first
-and disables audit/fund checks for a faster day-to-day update. To skip npm for a
-known-good local dependency set:
+`npm sync` is skipped when the copied `npm/package.json` and
+`npm/package-lock.json` already match the tracked pair and required dependencies
+exist. When it does run, the updater uses deterministic `npm ci`, prefers npm's
+local cache, and disables audit/fund checks. To skip npm for a known-good local
+dependency set:
 
 ```powershell
 .\scripts\pi67-update.ps1 -NoNpm
@@ -995,6 +1016,13 @@ bash ~/.pi/agent/scripts/pi67-update.sh
 ```
 
 The Bash updater also runs doctor and writes `~/.pi/agent/pi67-report.json`.
+Both platform updaters print phase timings for Git, configuration, Skills, npm,
+verification, and total runtime after a successful update.
+
+Preserved user-modified global Skills are summarized in one line by default.
+Use `pi-67 update --verbose` or Bash `--verbose` for per-Skill paths and hashes;
+PowerShell uses `-SkillDriftDetails`. `--strict-shared-skills` /
+`-StrictSharedSkills` remains fail-closed and includes the detailed mismatch.
 
 If you want the PowerShell updater to skip report generation:
 

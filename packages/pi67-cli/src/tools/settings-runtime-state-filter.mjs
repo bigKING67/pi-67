@@ -50,6 +50,9 @@ function printHuman(result) {
   } else {
     console.log("PASS settings.json runtime marker is already absent");
   }
+  if (result.settingsCreatedFromTemplate) {
+    console.log(`PASS created ignored settings.json from ${result.templatePath}`);
+  }
   if (result.settingsNormalized) {
     console.log("PASS normalized settings.json runtime marker/line endings");
   }
@@ -58,6 +61,9 @@ function printHuman(result) {
   }
   if (result.gitFilterInstalled) {
     console.log("PASS installed local git clean filter for settings.json runtime marker");
+  }
+  if (result.gitFilterRemoved) {
+    console.log("PASS removed legacy settings.json git clean filter");
   }
   for (const item of result.skipped) {
     console.log(`INFO ${item}`);

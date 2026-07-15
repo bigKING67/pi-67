@@ -42,6 +42,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -72,7 +74,8 @@ jobs:
         run: |
           mkdir -p npm
           cp package.json npm/package.json
-          npm --prefix npm install --ignore-scripts
+          cp package-lock.json npm/package-lock.json
+          npm --prefix npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Validate requested version
         shell: bash

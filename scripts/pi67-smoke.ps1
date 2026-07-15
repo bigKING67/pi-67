@@ -259,7 +259,7 @@ Section "Required files"
 $RequiredFiles = @(
   ".gitattributes",
   "AGENTS.md",
-  "settings.json",
+  "settings.example.json",
   "models.example.json",
   "mcp.example.json",
   "auth.example.json",
@@ -343,7 +343,7 @@ Run-Check "required release files exist" {
 
 Section "JSON"
 $JsonFiles = @(
-  "settings.json",
+  "settings.example.json",
   "auth.example.json",
   "image-gen.example.json",
   "models.example.json",
@@ -412,10 +412,22 @@ Run-Check "JSON compatibility reader handles Windows encodings" {
   }
 }
 
-Run-Check "settings.json git attributes pin LF and runtime clean filter" {
-  $attributeLines = @(Get-Content -LiteralPath (RepoPath ".gitattributes") | ForEach-Object { $_.Trim() })
-  if ($attributeLines -notcontains "settings.json text eol=lf filter=pi67-settings-runtime-state") {
-    throw "settings.json must declare text eol=lf and pi67-settings-runtime-state filter"
+Run-Check "settings.json is ignored runtime state with a tracked template" {
+  $trackedSettings = @(& git -C $RepoRoot ls-files --error-unmatch settings.json 2>$null)
+  if ($LASTEXITCODE -eq 0 -or $trackedSettings.Count -gt 0) {
+    throw "settings.json must not be tracked"
+  }
+  & git -C $RepoRoot ls-files --error-unmatch settings.example.json *> $null
+  if ($LASTEXITCODE -ne 0) {
+    throw "settings.example.json must be tracked"
+  }
+  & git -C $RepoRoot check-ignore -q settings.json
+  if ($LASTEXITCODE -ne 0) {
+    throw "settings.json must be ignored"
+  }
+  $attributes = Get-Content -LiteralPath (RepoPath ".gitattributes") -Raw
+  if ($attributes.Contains("filter=pi67-settings-runtime-state")) {
+    throw "legacy settings.json Git clean filter must not remain"
   }
 }
 

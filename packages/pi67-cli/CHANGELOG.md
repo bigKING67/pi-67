@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## [0.12.0]
+
+- Moves `settings.json` to ignored machine-owned runtime state and tracks
+  `settings.example.json` as the immutable distribution template. Existing
+  settings are preserved; old tracked installations migrate their runtime
+  marker and remove the legacy local Git clean filter during update.
+- Uses the tracked root `package-lock.json` with `npm ci` across install,
+  update, CI, and release preparation so a clean checkout can reproduce the
+  manager runtime without pre-existing ignored dependencies.
+- Resolves updater target branches through explicit branch, compatible
+  upstream, matching remote branch, or exact remote-default commit equivalence,
+  and otherwise fails closed.
+- Summarizes preserved shared-Skill drift by default, exposes detailed paths
+  and hashes through verbose flags, reports update phase timings, and adds a
+  native macOS smoke job.
+- Splits packed-artifact and settings-runtime ownership checks into focused,
+  package-contained `scripts/checks` modules while retaining
+  `scripts/check.mjs` as the stable lifecycle entrypoint.
+
 ## [0.11.7]
 
 - Makes `external install browser67` the complete first-time lifecycle: clone,

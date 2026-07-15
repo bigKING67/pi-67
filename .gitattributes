@@ -1,1 +1,2 @@
-settings.json text eol=lf filter=pi67-settings-runtime-state
+# settings.json is ignored machine runtime; no repository clean filter is required.
+settings.example.json text eol=lf

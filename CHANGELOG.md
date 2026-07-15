@@ -6,6 +6,52 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-07-15
+
+### Added
+
+- Added a tracked root `package-lock.json` and made install, update, CI, and
+  release preparation use deterministic `npm ci` installs. Release tooling can
+  now prepare its ignored `npm/` runtime directly from the tracked lock in a
+  clean checkout and removes task-created runtime state on exit.
+- Added fail-closed updater branch discovery for Bash and PowerShell. An
+  explicit branch wins; otherwise the updater uses a compatible configured
+  upstream, a matching remote branch, or a remote-default branch only when its
+  commit exactly matches local `HEAD`. Divergent and detached checkouts require
+  an explicit branch.
+- Added aggregate update phase timings for Git, configuration, Skills, npm,
+  verification, and total duration, plus a native macOS smoke job alongside
+  the existing Ubuntu and Windows CI matrix.
+- Added focused integration coverage for branch resolution and the
+  `v0.11.7` tracked-to-ignored settings migration. Packed-artifact and settings
+  ownership tests now live in focused, package-contained modules under
+  `packages/pi67-cli/scripts/checks/`, while the existing CLI check remains the
+  single lifecycle entrypoint.
+
+### Changed
+
+- Moved `settings.json` from version-controlled distribution content to
+  ignored per-machine runtime state. `settings.example.json` is now the tracked
+  default template; fresh installs copy it only when local settings are
+  missing, while updates preserve existing provider, model, theme, packages,
+  and runtime markers.
+- Removed the legacy repository-local settings clean filter for current
+  installs. Updates from older releases still migrate
+  `lastChangelogVersion` into `~/.pi/pi67/state.json`, remove the obsolete Git
+  filter, and preserve both clean and locally modified legacy settings.
+- Reduced default shared-Skill drift output to one compact summary. Use
+  `pi-67 install --verbose`, `pi-67 update --verbose`, or PowerShell
+  `-SkillDriftDetails` for per-Skill paths and hashes; strict mode remains
+  detailed and fail-closed.
+
+### Fixed
+
+- Prevented feature or maintenance checkouts from accidentally pulling a
+  guessed branch such as `main` when branch ownership is ambiguous.
+- Removed the clean-checkout release dependency on an already-populated,
+  ignored `npm/node_modules` directory or a pre-existing local
+  `settings.json`.
+
 ## [0.11.7] - 2026-07-15
 
 ### Changed

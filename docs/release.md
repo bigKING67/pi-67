@@ -8,6 +8,8 @@ pi-67 is a full-stack Pi workspace distribution. A release should communicate ex
 - `package.json.version` mirrors `VERSION` for tooling visibility.
 - `packages/pi67-cli/package.json.version` mirrors `VERSION` for the
   `@bigking67/pi-67` npm manager package.
+- root `package-lock.json` mirrors the root version and is the deterministic
+  dependency source for install, update, CI, and release preparation.
 - `CHANGELOG.md` records user-visible changes.
 
 Do not use the upstream Pi CLI version as the pi-67 release version. Pi itself has its own lifecycle.
@@ -106,6 +108,18 @@ bash scripts/pi67-release.sh --dry-run
 npm pack --dry-run ./packages/pi67-cli
 git status --short
 ```
+
+The same Bash smoke runs natively on Ubuntu and macOS CI. Windows-facing
+PowerShell contracts run on the Windows Node 22/24 matrix. A release that
+changes platform scripts is not complete until the corresponding hosted job is
+green; the maintainer's fresh Windows workstation acceptance remains a
+separate final manual proof when that guide or workstation contract changes.
+
+Also prove the release from a clean checkout/worktree with no ignored `npm/`
+directory and no local `settings.json`. `pi67-release.sh --dry-run` must prepare
+dependencies from tracked `package-lock.json`, create temporary settings from
+`settings.example.json`, run the gates, and remove only the runtime state it
+created before exit. The checkout must remain clean.
 
 Expected result:
 
@@ -321,19 +335,26 @@ The manager update path is preserve-first. A real `pi-67 update` / `pi-67
 update --repair` builds the update plan, blocks unsafe non-runtime dirty
 worktrees, and acquires `~/.pi/pi67/locks/update.lock` before dispatching the
 Bash or PowerShell updater. Runtime config backup/restore is owned by the
-platform updater script and only runs when an in-place checkout needs to
-temporarily clear dirty preserved runtime files. The updater fetches first,
-compares incoming `HEAD..FETCH_HEAD` changed paths, and backs up dirty runtime
-files only when the incoming update touches those paths.
+platform updater script. Current `settings.json` is ignored machine-owned state
+created from tracked `settings.example.json`; it is not overwritten by update
+and does not dirty the checkout. The old incoming-path backup/restore path is
+retained only to migrate pre-0.12.0 tracked settings without losing either
+clean defaults or user modifications.
 Those script-level snapshots live under
 `~/.pi/pi67/backups/pre-update-runtime-*`. The selected theme lives in the
-`settings.json` `theme` field and must not be changed by update. In-place
-checkouts with only dirty user runtime config are preserved in place when the
-incoming update is already current or changes non-overlapping paths; unrelated
+`settings.json` `theme` field and must not be changed by update. Unrelated
 tracked edits still block. Runtime snapshots are deduplicated by preserved-file
-content, so repeated no-change updates do not create new timestamped backup
+content, so repeated no-change migrations do not create new timestamped backup
 directories. `--help`, blocked update plans, already-up-to-date updates, and
 the manager orchestration layer must not create runtime backup directories.
+
+Both platform updaters must copy `package.json` and `package-lock.json` together
+and use `npm ci`. Branch selection must follow explicit branch, compatible
+upstream, matching remote branch, then exact remote-default commit equivalence;
+ambiguous, detached, or divergent checkouts fail closed. Default Skill-drift
+logs stay compact, while verbose/strict modes retain diagnostic paths and
+hashes. Successful real updates expose phase timings for Git, config, Skills,
+npm, verification, and total duration.
 
 Before publishing the npm package:
 

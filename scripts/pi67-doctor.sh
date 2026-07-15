@@ -316,6 +316,17 @@ check_asset() {
       return
     fi
 
+    if [ "$local_mode" = "local-ok" ]; then
+      if git_tracks_path "$rel"; then
+        fail "in-place local runtime file must not be tracked by Git: $rel"
+      elif git -C "$REPO_ROOT" check-ignore -q -- "$rel"; then
+        pass "installed ignored local file: $rel"
+      else
+        fail "in-place local runtime file is not ignored by Git: $rel"
+      fi
+      return
+    fi
+
     if ! git_tracks_path "$rel"; then
       fail "in-place asset exists but is not tracked by Git: $rel"
       return
@@ -1131,7 +1142,7 @@ check_repo_secret_scan() {
     "$REPO_ROOT/scripts"
     "$REPO_ROOT/install.sh"
     "$REPO_ROOT/.github"
-    "$REPO_ROOT/settings.json"
+    "$REPO_ROOT/settings.example.json"
     "$REPO_ROOT/models.example.json"
     "$REPO_ROOT/mcp.example.json"
     "$REPO_ROOT/auth.example.json"
@@ -1297,7 +1308,7 @@ else
 fi
 
 section "Repository hygiene"
-json_valid "$REPO_ROOT/settings.json"
+json_valid "$REPO_ROOT/settings.example.json"
 json_valid "$REPO_ROOT/models.example.json"
 json_valid "$REPO_ROOT/mcp.example.json"
 json_valid "$REPO_ROOT/auth.example.json"

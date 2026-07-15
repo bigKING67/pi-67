@@ -21,6 +21,7 @@ param(
   [switch]$NoDoctor,
   [switch]$AllowDirty,
   [switch]$StrictSharedSkills,
+  [switch]$SkillDriftDetails,
   [switch]$NoAutoResolveKnownConflicts,
   [switch]$Help
 )
@@ -39,11 +40,12 @@ Options:
   -AgentDir DIR       Pi agent dir. Defaults to `$HOME\.pi\agent.
   -SkillsDir DIR      Shared skills dir. Defaults to `$HOME\.agents\skills.
   -Remote NAME        Git remote to pull from. Defaults to origin.
-  -Branch NAME        Git branch to pull. Defaults to current branch.
+  -Branch NAME        Git branch to pull. Otherwise use the configured upstream,
+                      a matching remote branch, or an equivalent remote default branch.
   -DryRun             Print planned actions without changing files.
   -CheckOnly          Inspect update status without pulling or writing files.
   -NoNpm              Skip npm dependency sync.
-  -ForceNpm           Run npm install even when package.json did not change.
+  -ForceNpm           Run npm ci even when package.json/package-lock.json did not change.
   -NoConfigure        Skip workspace template sync and config normalization.
   -NoSmoke            Skip PowerShell smoke after update.
   -NoReport           Skip pi67-report.json generation.
@@ -52,6 +54,7 @@ Options:
   -StrictSharedSkills Stop when a preserved user-modified global shared skill
                       differs from the pi-67 bundled baseline. Default keeps
                       the existing global skill and continues.
+  -SkillDriftDetails  Print per-Skill paths and hashes for preserved drift.
   -NoAutoResolveKnownConflicts
                        Do not auto-backup/restore dirty user runtime config
                        files when incoming changed paths overlap them.
@@ -115,7 +118,7 @@ if (-not $SkillsDir) {
 }
 
 $NpmDir = Join-Path $AgentDir "npm"
-$NpmInstallArgs = @("install", "--ignore-scripts", "--no-audit", "--no-fund", "--prefer-offline")
+$NpmInstallArgs = @("ci", "--ignore-scripts", "--no-audit", "--no-fund", "--prefer-offline")
 $UserPreservedTrackedUpdatePaths = @(
   "settings.json",
   "models.json",
@@ -124,6 +127,15 @@ $UserPreservedTrackedUpdatePaths = @(
   "image-gen.json",
   "settings.json.theme"
 )
+$PreservedSkillDrifts = [System.Collections.Generic.List[string]]::new()
+$UpdateStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+$UpdateTimings = [ordered]@{
+  gitMs = 0
+  configMs = 0
+  skillsMs = 0
+  npmMs = 0
+  verifyMs = 0
+}
 
 function Write-Info {
   param([string]$Message)
@@ -258,15 +270,71 @@ function Get-GitStatusLines {
   return @(Invoke-Git @("status", "--porcelain=v1", $mode))
 }
 
-function Get-CurrentBranch {
-  $branch = (Invoke-Git @("rev-parse", "--abbrev-ref", "HEAD") | Select-Object -First 1)
-  if ($branch -eq "HEAD" -and -not $Branch) {
+function Get-RemoteBranchCommit {
+  param([string]$Name)
+  try {
+    $line = Invoke-Git @("ls-remote", $Remote, "refs/heads/$Name") | Select-Object -First 1
+    if ($line) {
+      return ($line -split "\s+")[0]
+    }
+  } catch {
+    return ""
+  }
+  return ""
+}
+
+function Get-RemoteDefaultBranch {
+  try {
+    foreach ($line in @(Invoke-Git @("ls-remote", "--symref", $Remote, "HEAD"))) {
+      if ($line -match '^ref:\s+refs/heads/(\S+)\s+HEAD$') {
+        return $Matches[1]
+      }
+    }
+  } catch {
+    return ""
+  }
+  return ""
+}
+
+function Get-TargetBranchInfo {
+  $current = (Invoke-Git @("rev-parse", "--abbrev-ref", "HEAD") | Select-Object -First 1)
+  if ($current -eq "HEAD" -and -not $Branch) {
     Write-Fail "detached HEAD; pass -Branch explicitly"
   }
-  if (-not $Branch) {
-    return $branch
+  if ($Branch) {
+    return [pscustomobject]@{ Name = $Branch; Source = "explicit -Branch"; Current = $current }
   }
-  return $Branch
+
+  try {
+    $upstream = (Invoke-Git @("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}") | Select-Object -First 1)
+    $prefix = "$Remote/"
+    if ($upstream -and $upstream.StartsWith($prefix)) {
+      $candidate = $upstream.Substring($prefix.Length)
+      if (Get-RemoteBranchCommit $candidate) {
+        return [pscustomobject]@{ Name = $candidate; Source = "upstream $upstream"; Current = $current }
+      }
+    }
+  } catch {
+    # Continue with deterministic remote discovery.
+  }
+
+  if (Get-RemoteBranchCommit $current) {
+    return [pscustomobject]@{ Name = $current; Source = "matching remote branch $Remote/$current"; Current = $current }
+  }
+
+  $defaultBranch = Get-RemoteDefaultBranch
+  $localFull = (Invoke-Git @("rev-parse", "HEAD") | Select-Object -First 1)
+  $defaultFull = if ($defaultBranch) { Get-RemoteBranchCommit $defaultBranch } else { "" }
+  if ($defaultFull -and $localFull -eq $defaultFull) {
+    return [pscustomobject]@{
+      Name = $defaultBranch
+      Source = "remote default equivalence at $localFull"
+      Current = $current
+    }
+  }
+
+  $hint = if ($defaultBranch) { $defaultBranch } else { "the remote default branch" }
+  Write-Fail ("current branch '{0}' has no usable {1} branch; switch to {2} or rerun with -Branch NAME" -f $current, $Remote, $hint)
 }
 
 function Get-FileHashValue {
@@ -345,6 +413,7 @@ function Read-JsonFile {
 
 function Sync-LocalConfigTemplates {
   Write-Section "local config templates"
+  Copy-FileIfMissing (Join-Path $RepoRoot "settings.example.json") (Join-Path $AgentDir "settings.json") "settings.json"
   Copy-FileIfMissing (Join-Path $RepoRoot "models.example.json") (Join-Path $AgentDir "models.json") "models.json"
   Copy-FileIfMissing (Join-Path $RepoRoot "mcp.example.json") (Join-Path $AgentDir "mcp.json") "mcp.json"
   Copy-FileIfMissing (Join-Path $RepoRoot "auth.example.json") (Join-Path $AgentDir "auth.json") "auth.json"
@@ -514,9 +583,12 @@ function Sync-SharedSkills {
       if ($StrictSharedSkills) {
         Write-Fail ("preserved user-modified shared skill differs from pi-67 baseline: {0} (existing={1} dirHash={2} source={3} dirHash={4}). Strict mode enabled; resolve manually or choose a different -SkillsDir." -f $skill.Name, $target, $targetHash, $skill.FullName, $sourceHash)
       }
-      Write-Warn ("preserved user-modified shared skill; keeping existing global skill: {0}" -f $skill.Name)
-      Write-Warn ("existing={0} dirHash={1}" -f $target, $targetHash)
-      Write-Warn ("source skipped={0} dirHash={1}" -f $skill.FullName, $sourceHash)
+      $PreservedSkillDrifts.Add($skill.Name)
+      if ($SkillDriftDetails) {
+        Write-Warn ("preserved user-modified shared skill; keeping existing global skill: {0}" -f $skill.Name)
+        Write-Warn ("existing={0} dirHash={1}" -f $target, $targetHash)
+        Write-Warn ("source skipped={0} dirHash={1}" -f $skill.FullName, $sourceHash)
+      }
       continue
     }
 
@@ -526,6 +598,10 @@ function Sync-SharedSkills {
       Copy-Item -LiteralPath $skill.FullName -Destination $target -Recurse
     }
     Write-Pass ("synced shared skill: {0}" -f $skill.Name)
+  }
+  if ($PreservedSkillDrifts.Count -gt 0) {
+    Write-Warn ("preserved {0} user-modified global Skills: {1}" -f $PreservedSkillDrifts.Count, ($PreservedSkillDrifts -join ", "))
+    Write-Warn "details: pi-67 skills inventory --json (or rerun with -SkillDriftDetails)"
   }
 }
 
@@ -542,27 +618,31 @@ function Sync-Npm {
   }
 
   $repoPackage = Join-Path $RepoRoot "package.json"
+  $repoLock = Join-Path $RepoRoot "package-lock.json"
   $agentPackage = Join-Path $NpmDir "package.json"
-  if (-not (Test-Path -LiteralPath $repoPackage -PathType Leaf)) {
-    Write-Warn "package.json missing; skipped npm sync"
+  $agentLock = Join-Path $NpmDir "package-lock.json"
+  if (-not (Test-Path -LiteralPath $repoPackage -PathType Leaf) -or -not (Test-Path -LiteralPath $repoLock -PathType Leaf)) {
+    Write-Warn "package.json/package-lock.json missing; skipped npm sync"
     return
   }
 
-  $repoHash = Get-FileHashValue $repoPackage
-  $agentHash = Get-FileHashValue $agentPackage
+  $repoHash = "$(Get-FileHashValue $repoPackage):$(Get-FileHashValue $repoLock)"
+  $agentHash = "$(Get-FileHashValue $agentPackage):$(Get-FileHashValue $agentLock)"
   if (-not $ForceNpm -and $repoHash -eq $agentHash) {
-    Write-Pass "npm package.json already synced"
+    Write-Pass "npm package.json/package-lock.json already synced"
     return
   }
 
   if ($DryRun) {
     Write-Host ("  DRY-RUN copy {0} -> {1}" -f $repoPackage, $agentPackage) -ForegroundColor Cyan
+    Write-Host ("  DRY-RUN copy {0} -> {1}" -f $repoLock, $agentLock) -ForegroundColor Cyan
     Write-Host ("  DRY-RUN npm {0} in {1}" -f ($NpmInstallArgs -join " "), $NpmDir) -ForegroundColor Cyan
     return
   }
 
   New-Item -ItemType Directory -Force -Path $NpmDir | Out-Null
   Copy-Item -LiteralPath $repoPackage -Destination $agentPackage -Force
+  Copy-Item -LiteralPath $repoLock -Destination $agentLock -Force
   Invoke-PlannedExternal "npm" $NpmInstallArgs -WorkingDirectory $NpmDir | Out-Null
   Write-Pass ("npm packages synced in {0}" -f $NpmDir)
 }
@@ -992,13 +1072,15 @@ function Show-CheckOnly {
   }
   Invoke-Git @("rev-parse", "--is-inside-work-tree") | Out-Null
 
-  $targetBranch = Get-CurrentBranch
+  $target = Get-TargetBranchInfo
+  $targetBranch = $target.Name
   $localShort = (Invoke-Git @("rev-parse", "--short", "HEAD") | Select-Object -First 1)
   $trackedStatus = Get-GitStatusLines
   $allStatus = Get-GitStatusLines -IncludeUntracked
 
-  Write-Info ("Local branch : {0}" -f ((Invoke-Git @("rev-parse", "--abbrev-ref", "HEAD") | Select-Object -First 1)))
+  Write-Info ("Local branch : {0}" -f $target.Current)
   Write-Info ("Target branch: {0}" -f $targetBranch)
+  Write-Info ("Target source: {0}" -f $target.Source)
   Write-Info ("Local commit : {0}" -f $localShort)
 
   if ($trackedStatus.Count -eq 0) {
@@ -1047,11 +1129,15 @@ function Show-CheckOnly {
     Write-Warn "npm sync would be skipped"
   } else {
     $repoPackage = Join-Path $RepoRoot "package.json"
+    $repoLock = Join-Path $RepoRoot "package-lock.json"
     $agentPackage = Join-Path $NpmDir "package.json"
-    if ((Get-FileHashValue $repoPackage) -eq (Get-FileHashValue $agentPackage) -and -not $ForceNpm) {
-      Write-Pass "npm package.json already synced"
+    $agentLock = Join-Path $NpmDir "package-lock.json"
+    $repoHash = "$(Get-FileHashValue $repoPackage):$(Get-FileHashValue $repoLock)"
+    $agentHash = "$(Get-FileHashValue $agentPackage):$(Get-FileHashValue $agentLock)"
+    if ($repoHash -eq $agentHash -and -not $ForceNpm) {
+      Write-Pass "npm package.json/package-lock.json already synced"
     } else {
-      Write-Warn "npm package.json differs or -ForceNpm is set; npm sync would run"
+      Write-Warn "npm package.json/package-lock.json differs or -ForceNpm is set; npm sync would run"
     }
   }
   Test-UntilDoneRuntimeQueueStatus
@@ -1074,7 +1160,9 @@ function Update-Repo {
   }
   Invoke-Git @("rev-parse", "--is-inside-work-tree") | Out-Null
 
-  $targetBranch = Get-CurrentBranch
+  $target = Get-TargetBranchInfo
+  $targetBranch = $target.Name
+  Write-Info ("Target branch: {0}/{1} ({2})" -f $Remote, $targetBranch, $target.Source)
   $trackedStatus = Get-GitStatusLines
   $runtimeBackup = $null
   $dirtyPaths = @(Get-DirtyPathsFromTrackedStatus -TrackedStatus $trackedStatus)
@@ -1177,7 +1265,12 @@ try {
     exit 0
   }
 
+  $phase = [System.Diagnostics.Stopwatch]::StartNew()
   Update-Repo
+  $phase.Stop()
+  $UpdateTimings.gitMs = $phase.ElapsedMilliseconds
+
+  $phase.Restart()
   if ($NoConfigure) {
     Write-Warn "local config template sync skipped by -NoConfigure"
   } else {
@@ -1186,12 +1279,36 @@ try {
     Invoke-WorkspaceConfigNormalization
   }
   Invoke-SettingsRuntimeStateMigration "preflight"
+  $phase.Stop()
+  $UpdateTimings.configMs = $phase.ElapsedMilliseconds
+
+  $phase.Restart()
   Sync-SharedSkills
+  $phase.Stop()
+  $UpdateTimings.skillsMs = $phase.ElapsedMilliseconds
+
+  $phase.Restart()
   Sync-Npm
   Invoke-UntilDoneRuntimeQueuePatch
+  $phase.Stop()
+  $UpdateTimings.npmMs = $phase.ElapsedMilliseconds
+
+  $phase.Restart()
   Invoke-Smoke
   Invoke-Report
   Invoke-SettingsRuntimeStateMigration "final"
+  $phase.Stop()
+  $UpdateTimings.verifyMs = $phase.ElapsedMilliseconds
+  $UpdateStopwatch.Stop()
+
+  Write-Section "update timings"
+  Write-Info ("git={0}ms config={1}ms skills={2}ms npm={3}ms verify={4}ms total={5}ms" -f `
+    $UpdateTimings.gitMs,
+    $UpdateTimings.configMs,
+    $UpdateTimings.skillsMs,
+    $UpdateTimings.npmMs,
+    $UpdateTimings.verifyMs,
+    $UpdateStopwatch.ElapsedMilliseconds)
 
   Write-Host ""
   Write-Host "pi-67 PowerShell update finished" -ForegroundColor Green

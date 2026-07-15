@@ -30,6 +30,8 @@ RUN_REPORT=true
 BACKUP_CREATED=false
 DEV_LINK_SKILLS=false
 STRICT_SHARED_SKILLS=false
+VERBOSE=false
+PRESERVED_SKILL_DRIFTS=()
 
 usage() {
   cat <<'USAGE'
@@ -50,6 +52,7 @@ Options:
                         Stop when a preserved user-modified global shared
                         skill differs from the pi-67 bundled baseline. Default
                         keeps the existing global skill and continues.
+      --verbose         Print per-Skill paths and hashes for preserved drift.
       --backup-dir DIR Write overwritten files into DIR.
       --no-npm         Skip npm package installation.
       --no-doctor      Skip scripts/pi67-doctor.sh after installation.
@@ -95,6 +98,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --strict-shared-skills)
       STRICT_SHARED_SKILLS=true
+      shift
+      ;;
+    --verbose)
+      VERBOSE=true
       shift
       ;;
     --backup-dir)
@@ -339,19 +346,19 @@ install_one_shared_skill() {
     fi
     if [ "$STRICT_SHARED_SKILLS" = true ]; then
       say "  ${RED}FAIL${NC} preserved user-modified shared skill differs from pi-67 baseline: $name" >&2
-    else
-      say "  ${YELLOW}WARN${NC} preserved user-modified shared skill differs from pi-67 baseline: $name" >&2
-    fi
-    say "       existing: $dest" >&2
-    say "       source  : $src" >&2
-    say "       existing dir hash: $dest_hash" >&2
-    say "       source   dir hash: $src_hash" >&2
-    if [ "$STRICT_SHARED_SKILLS" = true ]; then
+      say "       existing: $dest" >&2
+      say "       source  : $src" >&2
+      say "       existing dir hash: $dest_hash" >&2
+      say "       source   dir hash: $src_hash" >&2
       say "       strict mode enabled; resolve manually or choose a different --skills-dir" >&2
       exit 1
     fi
-    warn "preserved user-modified shared skill; keeping existing global skill: $name"
-    warn "source skipped: $src"
+    PRESERVED_SKILL_DRIFTS+=("$name")
+    if [ "$VERBOSE" = true ]; then
+      warn "preserved user-modified shared skill; keeping existing global skill: $name"
+      warn "existing=$dest dirHash=$dest_hash"
+      warn "source skipped=$src dirHash=$src_hash"
+    fi
     return
   fi
 
@@ -392,6 +399,10 @@ install_shared_skills() {
     warn "no shared skills found in $SKILL_SOURCE_DIR"
   else
     pass "shared skills target: $SHARED_SKILLS_DIR"
+  fi
+  if [ "${#PRESERVED_SKILL_DRIFTS[@]}" -gt 0 ]; then
+    warn "preserved ${#PRESERVED_SKILL_DRIFTS[@]} user-modified global Skills: ${PRESERVED_SKILL_DRIFTS[*]}"
+    warn "details: pi-67 skills inventory --json (or rerun install with --verbose)"
   fi
 }
 
@@ -462,14 +473,15 @@ install_npm_packages() {
 
   ensure_dir "$PI_NPM_DIR"
   if [ "$DRY_RUN" = true ]; then
-    say "  ${CYAN}DRY-RUN${NC} copy package.json and run npm install --ignore-scripts in $PI_NPM_DIR"
+    say "  ${CYAN}DRY-RUN${NC} copy package.json/package-lock.json and run npm ci --ignore-scripts in $PI_NPM_DIR"
     return
   fi
 
   cp "$REPO_ROOT/package.json" "$PI_NPM_DIR/package.json"
+  cp "$REPO_ROOT/package-lock.json" "$PI_NPM_DIR/package-lock.json"
   (
     cd "$PI_NPM_DIR"
-    npm install --ignore-scripts
+    npm ci --ignore-scripts --no-audit --no-fund --prefer-offline
   )
   pass "npm packages installed in $PI_NPM_DIR"
 }
@@ -593,7 +605,7 @@ ensure_dir "$PI_AGENT_DIR"
 say ""
 if [ "$INSTALL_MODE" = "in-place" ]; then
   say "${CYAN}--- verifying in-place tracked assets ---${NC}"
-  verify_in_place_asset "settings.json"
+  verify_in_place_asset "settings.example.json"
   verify_in_place_asset "AGENTS.md"
   verify_in_place_asset "extensions"
   verify_in_place_asset "shared-skills"
@@ -604,7 +616,6 @@ if [ "$INSTALL_MODE" = "in-place" ]; then
   verify_in_place_asset "templates"
 else
   say "${CYAN}--- linking full pi-67 assets ---${NC}"
-  replace_with_symlink "settings.json" "settings.json"
   replace_with_symlink "AGENTS.md" "AGENTS.md"
   replace_with_symlink "extensions" "extensions"
   replace_with_symlink "docs" "docs"
@@ -621,6 +632,7 @@ migrate_settings_runtime_state
 say ""
 say "${CYAN}--- local config templates ---${NC}"
 
+copy_example_if_missing "settings.example.json" "settings.json"
 copy_example_if_missing "models.example.json" "models.json"
 copy_example_if_missing "mcp.example.json" "mcp.json"
 copy_example_if_missing "auth.example.json" "auth.json"

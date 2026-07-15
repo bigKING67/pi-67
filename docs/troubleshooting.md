@@ -1262,8 +1262,12 @@ If npm dependencies were skipped or failed:
 
 ```bash
 cd ~/.pi/agent/npm
-npm install --ignore-scripts
+npm ci --ignore-scripts --no-audit --no-fund --prefer-offline
 ```
+
+The tracked `package.json` and `package-lock.json` must already have been copied
+into `~/.pi/agent/npm/`; normally `pi-67 update` does this and is safer than a
+manual dependency repair.
 
 Do not use the removed `pi skill list` form with upstream Pi 0.80.6. It is no
 longer a package/skill listing command; Pi interprets `skill list` as an
@@ -1334,14 +1338,19 @@ When `~/.agents/skills/<name>` already exists but differs from the pi-67
 bundled copy, current installers keep the existing global skill by default:
 
 ```text
-WARN preserved user-modified shared skill differs from pi-67 baseline: lark-approval
-WARN preserved user-modified shared skill; keeping existing global skill: lark-approval
+WARN preserved 1 user-modified global Skills: lark-approval
+WARN details: pi-67 skills inventory --json
 ```
 
 This is usually the right behavior. `~/.agents/skills` is the active global
 registry shared by Pi and Codex, and a hash mismatch only means "different",
 not "pi-67 is newer". If the existing skill came from a trusted update or a
 maintained external repository, keep it.
+
+The compact summary avoids repeating local absolute paths and hashes during
+every normal update. Use `pi-67 install --verbose`, `pi-67 update --verbose`,
+Bash `--verbose`, or PowerShell `-SkillDriftDetails` only when you need the
+per-Skill source path and directory hashes.
 
 Use strict mode only when you intentionally want the install/update to stop on
 any bundled-skill mismatch:
@@ -1405,6 +1414,11 @@ smoke/release gates.
 
 `pi-67 update` preserves `settings.json` and the selected theme value; it may
 update the installed theme package, but it will not change the selected theme.
+Current releases keep `settings.json` ignored and track only
+`settings.example.json`, so normal provider/model/theme changes do not dirty
+the repository. Upgrades from pre-0.12.0 tracked settings preserve both clean
+and locally modified files, migrate the runtime marker, and remove the legacy
+repository-local clean filter.
 Before a real update/repair, the npm manager writes
 `~/.pi/pi67/locks/update.lock` and blocks unsafe non-runtime dirty worktrees.
 Runtime config backup/restore is delegated to the Bash or PowerShell updater
@@ -1433,6 +1447,23 @@ runtime config files. Change theme only with:
 ```bash
 pi-67 themes set gruvbox-dark
 ```
+
+If update reports that the current branch has no usable remote branch, do not
+force a guessed `main` pull. Either switch to the intended tracking branch or
+pass the target explicitly:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-update.sh --branch main
+```
+
+```powershell
+.\scripts\pi67-update.ps1 -Branch main
+```
+
+Without an explicit branch, the updater accepts only a compatible configured
+upstream, an existing same-name remote branch, or a remote-default branch whose
+commit exactly equals local `HEAD`. Divergent and detached checkouts fail
+closed by design.
 
 If `pi-67 update --check` says the npm manager is outdated, update it explicitly:
 

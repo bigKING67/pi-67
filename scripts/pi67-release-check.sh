@@ -15,6 +15,14 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PASS_COUNT=0
 WARN_COUNT=0
 FAIL_COUNT=0
+CHECK_CREATED_REPO_SETTINGS=false
+
+cleanup() {
+  if [ "$CHECK_CREATED_REPO_SETTINGS" = true ]; then
+    rm -f "$REPO_ROOT/settings.json"
+  fi
+}
+trap cleanup EXIT
 
 pass() {
   PASS_COUNT=$((PASS_COUNT + 1))
@@ -35,6 +43,12 @@ command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
+if [ ! -f "$REPO_ROOT/settings.json" ] && [ -f "$REPO_ROOT/settings.example.json" ]; then
+  cp "$REPO_ROOT/settings.example.json" "$REPO_ROOT/settings.json"
+  chmod 600 "$REPO_ROOT/settings.json" 2>/dev/null || true
+  CHECK_CREATED_REPO_SETTINGS=true
+fi
+
 echo ""
 echo -e "${CYAN}pi-67 release check${NC}"
 echo "Repository: $REPO_ROOT"
@@ -42,6 +56,7 @@ echo "Repository: $REPO_ROOT"
 VERSION_FILE="$REPO_ROOT/VERSION"
 CHANGELOG="$REPO_ROOT/CHANGELOG.md"
 PACKAGE_JSON="$REPO_ROOT/package.json"
+PACKAGE_LOCK="$REPO_ROOT/package-lock.json"
 PI67_CLI_DIR="$REPO_ROOT/packages/pi67-cli"
 PI67_CLI_PACKAGE_JSON="$PI67_CLI_DIR/package.json"
 PI67_CLI_BIN="$PI67_CLI_DIR/bin/pi-67.mjs"
@@ -74,6 +89,8 @@ SHARED_SKILL_PACK_INTEGRITY="$REPO_ROOT/packages/pi67-cli/src/lib/skill-pack-int
 SKILL_DEPLOY_LOCK_LIB="$REPO_ROOT/packages/pi67-cli/src/lib/skill-deploy-lock.mjs"
 RELEASE_ARTIFACT_SMOKE="$REPO_ROOT/scripts/pi67-release-artifact-smoke.sh"
 RELEASE_SCRIPT="$REPO_ROOT/scripts/pi67-release.sh"
+UPDATE_BRANCH_TEST="$REPO_ROOT/tests/pi67-cli/update-branch-resolution.sh"
+SETTINGS_UNTRACK_UPGRADE_TEST="$REPO_ROOT/tests/pi67-cli/settings-untrack-upgrade.sh"
 XTALPI_PI_TOOLS_SCRIPT="$REPO_ROOT/scripts/pi67-xtalpi-pi-tools.sh"
 XTALPI_PI_TOOLS_SCRIPT_PS="$REPO_ROOT/scripts/pi67-xtalpi-pi-tools.ps1"
 XTALPI_PI_TOOLS_TEST="$REPO_ROOT/scripts/pi67-test-xtalpi-pi-tools.sh"
@@ -135,6 +152,38 @@ if command_exists node; then
   fi
 else
   warn "node not found; skipped package.json version check"
+fi
+
+if command_exists node && [ -f "$PACKAGE_LOCK" ]; then
+  if node - "$PACKAGE_JSON" "$PACKAGE_LOCK" "$VERSION" <<'NODE'
+const fs = require("fs");
+const [packageFile, lockFile, version] = process.argv.slice(2);
+const pkg = JSON.parse(fs.readFileSync(packageFile, "utf8"));
+const lock = JSON.parse(fs.readFileSync(lockFile, "utf8"));
+const root = lock.packages?.[""] || {};
+const stable = (value) => JSON.stringify(value || {}, Object.keys(value || {}).sort());
+if (lock.lockfileVersion !== 3) throw new Error(`unexpected lockfileVersion: ${lock.lockfileVersion}`);
+if (root.version !== version) throw new Error(`package-lock root version ${root.version} does not match ${version}`);
+if (stable(root.dependencies) !== stable(pkg.dependencies)) throw new Error("package-lock dependencies do not match package.json");
+if (stable(root.devDependencies) !== stable(pkg.devDependencies)) throw new Error("package-lock devDependencies do not match package.json");
+NODE
+  then
+    pass "tracked package-lock.json matches package.json and VERSION"
+  else
+    fail "tracked package-lock.json is stale or invalid"
+  fi
+else
+  fail "tracked package-lock.json is required for reproducible installs and releases"
+fi
+
+if git -C "$REPO_ROOT" ls-files --error-unmatch settings.json >/dev/null 2>&1; then
+  fail "settings.json must be ignored user runtime state"
+elif git -C "$REPO_ROOT" ls-files --error-unmatch settings.example.json >/dev/null 2>&1 \
+  && git -C "$REPO_ROOT" check-ignore -q settings.json \
+  && ! grep -q 'filter=pi67-settings-runtime-state' "$REPO_ROOT/.gitattributes"; then
+  pass "settings.json runtime ownership is separated from the tracked template"
+else
+  fail "settings.example.json/.gitignore/.gitattributes do not enforce untracked settings runtime ownership"
 fi
 
 if [ -d "$PI67_CLI_DIR" ] && [ -f "$PI67_CLI_PACKAGE_JSON" ] && [ -f "$PI67_CLI_BIN" ]; then
@@ -246,6 +295,17 @@ if command_exists npm; then
   pass "pi-67 npm CLI package packs cleanly"
 else
   warn "npm not found; skipped pi-67 npm CLI pack dry-run"
+fi
+
+if [ -f "$UPDATE_BRANCH_TEST" ] && bash "$UPDATE_BRANCH_TEST" >/dev/null; then
+  pass "updater branch resolution matrix passed"
+else
+  fail "updater branch resolution matrix failed"
+fi
+if [ -f "$SETTINGS_UNTRACK_UPGRADE_TEST" ] && bash "$SETTINGS_UNTRACK_UPGRADE_TEST" >/dev/null; then
+  pass "settings.json tracked-to-ignored upgrade compatibility passed"
+else
+  fail "settings.json tracked-to-ignored upgrade compatibility failed"
 fi
 
 if [ -f "$NPM_PUBLISH_WORKFLOW" ]; then
@@ -1034,7 +1094,7 @@ if command_exists git && git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/d
     fail "git diff --check failed"
   fi
 
-  if git -C "$REPO_ROOT" ls-files --error-unmatch .gitattributes VERSION CHANGELOG.md shared-skill-packs.json shared-skill-packs.lock.json .github/workflows/ci.yml .github/workflows/npm-publish.yml docs/release.md docs/windows-fresh-install.md docs/report-schema.md docs/doctor-schema.md docs/status.md docs/skill-migration-schema.md docs/external-skill-sync-schema.md docs/skill-governance.md docs/troubleshooting.md docs/xtalpi-pi-tools.md packages/pi67-cli/package.json packages/pi67-cli/README.md packages/pi67-cli/CHANGELOG.md packages/pi67-cli/bin/pi-67.mjs packages/pi67-cli/scripts/check.mjs packages/pi67-cli/src/cli.mjs packages/pi67-cli/src/commands/backups.mjs packages/pi67-cli/src/commands/extensions.mjs packages/pi67-cli/src/commands/manifest.mjs packages/pi67-cli/src/commands/publish-check.mjs packages/pi67-cli/src/commands/self-update.mjs packages/pi67-cli/src/commands/skills.mjs packages/pi67-cli/src/commands/xtalpi.mjs packages/pi67-cli/src/data/distro-manifest.json packages/pi67-cli/src/data/extension-registry.json packages/pi67-cli/src/lib/distro-manifest.mjs packages/pi67-cli/src/lib/extension-registry.mjs packages/pi67-cli/src/lib/npm-registry.mjs packages/pi67-cli/src/lib/settings-runtime-clean.mjs packages/pi67-cli/src/lib/settings-runtime-state.mjs packages/pi67-cli/src/lib/skill-deploy-lock.mjs packages/pi67-cli/src/lib/skill-policy.mjs packages/pi67-cli/src/lib/skill-pack-integrity.mjs packages/pi67-cli/src/lib/update-safety.mjs packages/pi67-cli/src/lib/upstream-pi-runtime.mjs packages/pi67-cli/src/lib/xtalpi-config.mjs packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs packages/pi67-cli/schemas/pi67-distro-manifest.schema.json packages/pi67-cli/schemas/pi67-extension-registry.schema.json packages/pi67-cli/schemas/pi67-publish-check.schema.json packages/pi67-cli/schemas/pi67-state.schema.json packages/pi67-cli/schemas/pi67-update-plan.schema.json scripts/pi67-bootstrap.ps1 scripts/pi67-check-external-skills.sh scripts/pi67-doctor.sh scripts/pi67-doctor.ps1 scripts/pi67-json-utils.cjs scripts/pi67-json-utils.ps1 scripts/pi67-mcp-config-utils.cjs scripts/pi67-upstream-pi-status.mjs scripts/pi67-migrate-skills.sh scripts/pi67-release-artifact-smoke.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-report.ps1 scripts/pi67-status.sh scripts/pi67-shared-skills-inventory.sh scripts/pi67-shared-skill-packs-status.mjs scripts/pi67-sync-commerce-growth-os.sh scripts/pi67-sync-commerce-skill-pack.sh scripts/pi67-sync-commerce-skill-pack.mjs scripts/pi67-sync-external-skills.sh scripts/pi67-test-skill-governance.sh scripts/pi67-update.sh scripts/pi67-update.ps1 scripts/pi67-windows-acceptance.ps1 scripts/pi67-smoke.ps1 scripts/pi67-zero-key-startup-probe.ts scripts/pi67-zero-key-startup-smoke.ps1 scripts/pi67-xtalpi-pi-tools.sh scripts/pi67-xtalpi-pi-tools.ps1 scripts/pi67-test-xtalpi-pi-tools.sh scripts/pi67-fuzz-xtalpi-parser.mjs scripts/pi67-patch-pi-until-done-runtime-queue.mjs scripts/pi67-patch-pi-until-done-runtime-queue.sh scripts/pi67-patch-pi-until-done-runtime-queue.ps1 scripts/pi67-xtalpi-pi-tools-smoke.sh scripts/pi67-xtalpi-pi-tools-smoke.ps1 scripts/pi67-xtalpi-pi-tools-debug-summary.sh scripts/pi67-xtalpi-tool-coverage-audit.sh scripts/pi67-xtalpi-smoke-status-core.cjs scripts/pi67-xtalpi-smoke-plan.mjs scripts/pi67-xtalpi-provider-health.mjs scripts/pi67-xtalpi-provider-capability-probe.mjs scripts/pi67-validate-xtalpi-provider-error-contract.mjs extensions/xtalpi-pi-tools/json-file.ts extensions/xtalpi-pi-tools/json-action-protocol.ts extensions/xtalpi-pi-tools/vision-bridge.ts extensions/xtalpi-pi-tools/browser-bridge.ts extensions/pi-vision-bridge/index.ts extensions/xtalpi-pi-tools/fixtures/replay-cases.json extensions/xtalpi-pi-tools/provider-error-contract.json >/dev/null 2>&1; then
+  if git -C "$REPO_ROOT" ls-files --error-unmatch .gitignore .gitattributes VERSION CHANGELOG.md package-lock.json settings.example.json shared-skill-packs.json shared-skill-packs.lock.json .github/workflows/ci.yml .github/workflows/npm-publish.yml docs/release.md docs/windows-fresh-install.md docs/report-schema.md docs/doctor-schema.md docs/status.md docs/skill-migration-schema.md docs/external-skill-sync-schema.md docs/skill-governance.md docs/troubleshooting.md docs/xtalpi-pi-tools.md tests/pi67-cli/update-branch-resolution.sh tests/pi67-cli/settings-untrack-upgrade.sh packages/pi67-cli/package.json packages/pi67-cli/README.md packages/pi67-cli/CHANGELOG.md packages/pi67-cli/bin/pi-67.mjs packages/pi67-cli/scripts/check.mjs packages/pi67-cli/scripts/checks/installed-artifact.mjs packages/pi67-cli/scripts/checks/settings-runtime-state.mjs packages/pi67-cli/src/cli.mjs packages/pi67-cli/src/commands/backups.mjs packages/pi67-cli/src/commands/extensions.mjs packages/pi67-cli/src/commands/manifest.mjs packages/pi67-cli/src/commands/publish-check.mjs packages/pi67-cli/src/commands/self-update.mjs packages/pi67-cli/src/commands/skills.mjs packages/pi67-cli/src/commands/xtalpi.mjs packages/pi67-cli/src/data/distro-manifest.json packages/pi67-cli/src/data/extension-registry.json packages/pi67-cli/src/lib/distro-manifest.mjs packages/pi67-cli/src/lib/extension-registry.mjs packages/pi67-cli/src/lib/npm-registry.mjs packages/pi67-cli/src/lib/settings-runtime-clean.mjs packages/pi67-cli/src/lib/settings-runtime-state.mjs packages/pi67-cli/src/lib/skill-deploy-lock.mjs packages/pi67-cli/src/lib/skill-policy.mjs packages/pi67-cli/src/lib/skill-pack-integrity.mjs packages/pi67-cli/src/lib/update-safety.mjs packages/pi67-cli/src/lib/upstream-pi-runtime.mjs packages/pi67-cli/src/lib/xtalpi-config.mjs packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs packages/pi67-cli/schemas/pi67-distro-manifest.schema.json packages/pi67-cli/schemas/pi67-extension-registry.schema.json packages/pi67-cli/schemas/pi67-publish-check.schema.json packages/pi67-cli/schemas/pi67-state.schema.json packages/pi67-cli/schemas/pi67-update-plan.schema.json scripts/pi67-bootstrap.ps1 scripts/pi67-check-external-skills.sh scripts/pi67-doctor.sh scripts/pi67-doctor.ps1 scripts/pi67-json-utils.cjs scripts/pi67-json-utils.ps1 scripts/pi67-mcp-config-utils.cjs scripts/pi67-upstream-pi-status.mjs scripts/pi67-migrate-skills.sh scripts/pi67-release-artifact-smoke.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-report.ps1 scripts/pi67-status.sh scripts/pi67-shared-skills-inventory.sh scripts/pi67-shared-skill-packs-status.mjs scripts/pi67-sync-commerce-growth-os.sh scripts/pi67-sync-commerce-skill-pack.sh scripts/pi67-sync-commerce-skill-pack.mjs scripts/pi67-sync-external-skills.sh scripts/pi67-test-skill-governance.sh scripts/pi67-update.sh scripts/pi67-update.ps1 scripts/pi67-windows-acceptance.ps1 scripts/pi67-smoke.ps1 scripts/pi67-zero-key-startup-probe.ts scripts/pi67-zero-key-startup-smoke.ps1 scripts/pi67-xtalpi-pi-tools.sh scripts/pi67-xtalpi-pi-tools.ps1 scripts/pi67-test-xtalpi-pi-tools.sh scripts/pi67-fuzz-xtalpi-parser.mjs scripts/pi67-patch-pi-until-done-runtime-queue.mjs scripts/pi67-patch-pi-until-done-runtime-queue.sh scripts/pi67-patch-pi-until-done-runtime-queue.ps1 scripts/pi67-xtalpi-pi-tools-smoke.sh scripts/pi67-xtalpi-pi-tools-smoke.ps1 scripts/pi67-xtalpi-pi-tools-debug-summary.sh scripts/pi67-xtalpi-tool-coverage-audit.sh scripts/pi67-xtalpi-smoke-status-core.cjs scripts/pi67-xtalpi-smoke-plan.mjs scripts/pi67-xtalpi-provider-health.mjs scripts/pi67-xtalpi-provider-capability-probe.mjs scripts/pi67-validate-xtalpi-provider-error-contract.mjs extensions/xtalpi-pi-tools/json-file.ts extensions/xtalpi-pi-tools/json-action-protocol.ts extensions/xtalpi-pi-tools/vision-bridge.ts extensions/xtalpi-pi-tools/browser-bridge.ts extensions/pi-vision-bridge/index.ts extensions/xtalpi-pi-tools/fixtures/replay-cases.json extensions/xtalpi-pi-tools/provider-error-contract.json >/dev/null 2>&1; then
     pass "release metadata files are tracked or staged"
   else
     warn "release metadata files are not all tracked yet; expected before final commit"

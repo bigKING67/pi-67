@@ -124,7 +124,9 @@ TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/pi67-release-artifact.XXXXXX")"
 ARTIFACT_DIR="$TMP_ROOT/artifact"
 
 copy_worktree_candidate() {
-  mkdir -p "$ARTIFACT_DIR"
+  if ! git clone --no-hardlinks --no-checkout "$REPO_ROOT" "$ARTIFACT_DIR" > "$TMP_ROOT/worktree-clone.log" 2>&1; then
+    fail "could not clone local history for the worktree candidate"
+  fi
   while IFS= read -r -d '' file; do
     if [ ! -e "$REPO_ROOT/$file" ] && [ ! -L "$REPO_ROOT/$file" ]; then
       continue
@@ -133,17 +135,22 @@ copy_worktree_candidate() {
     cp -p "$REPO_ROOT/$file" "$ARTIFACT_DIR/$file"
   done < <(git -C "$REPO_ROOT" ls-files -z --cached --others --exclude-standard)
 
-  git -C "$ARTIFACT_DIR" init -q
   git -C "$ARTIFACT_DIR" config user.email "pi67-release-artifact@example.invalid"
   git -C "$ARTIFACT_DIR" config user.name "pi67 release artifact smoke"
   git -C "$ARTIFACT_DIR" add .
-  git -C "$ARTIFACT_DIR" commit -q -m "pi67 release artifact smoke candidate"
+  if ! git -C "$ARTIFACT_DIR" diff --cached --quiet; then
+    git -C "$ARTIFACT_DIR" commit -q -m "pi67 release artifact smoke candidate"
+  fi
+
+  if ! git -C "$ARTIFACT_DIR" rev-parse --verify --quiet refs/tags/v0.11.7 >/dev/null; then
+    fail "worktree artifact is missing the v0.11.7 settings-migration baseline tag"
+  fi
 }
 
 section "Build artifact"
 if [ "$REF" = "WORKTREE" ]; then
   copy_worktree_candidate
-  pass "copied current worktree candidate"
+  pass "copied current worktree candidate with local history and tags"
 else
   CLONE_SOURCE="${REPO_URL:-$REPO_ROOT}"
   git clone --no-hardlinks "$CLONE_SOURCE" "$ARTIFACT_DIR" > "$TMP_ROOT/clone.log" 2>&1

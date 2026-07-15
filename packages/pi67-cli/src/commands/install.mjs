@@ -13,7 +13,7 @@ import { migrateSettingsRuntimeState } from "../lib/settings-runtime-state.mjs";
 export async function installCommand(ctx, argv) {
   const { options } = parseCommandOptions(argv, {
     strings: ["repo", "branch"],
-    bools: ["dry-run", "yes", "repair"],
+    bools: ["dry-run", "yes", "repair", "verbose"],
   });
   if (options.help) {
     printInstallHelp();
@@ -88,10 +88,12 @@ export async function installCommand(ctx, argv) {
     const args = ["-AgentDir", ctx.agentDir, "-RepoRoot", ctx.repoRoot, "-SkillsDir", ctx.skillsDir];
     if (dryRun) args.push("-DryRun");
     if (options.repair) args.push("-ForceNpm");
+    if (options.verbose) args.push("-SkillDriftDetails");
     runDistroScript(ctx, { sh: "pi67-update.sh", ps1: "pi67-update.ps1" }, args, { dryRun: false });
   } else {
     const args = ["--agent-dir", ctx.agentDir, "--skills-dir", ctx.skillsDir, "--yes"];
     if (dryRun) args.push("--dry-run");
+    if (options.verbose) args.push("--verbose");
     runCommand("bash", [path.join(ctx.repoRoot, "install.sh"), ...args], { cwd: ctx.repoRoot, dryRun: false });
   }
   if (!dryRun) {
@@ -106,11 +108,17 @@ export async function installCommand(ctx, argv) {
     if (runtimeState.settingsNormalized) {
       info("Normalized settings.json runtime marker/line endings.");
     }
+    if (runtimeState.settingsCreatedFromTemplate) {
+      info("Created ignored settings.json from settings.example.json.");
+    }
     if (runtimeState.gitIndexRefreshed) {
       info("Refreshed settings.json Git index stat cache.");
     }
     if (runtimeState.gitFilterInstalled) {
       info("Installed local git clean filter for future settings.json runtime markers.");
+    }
+    if (runtimeState.gitFilterRemoved) {
+      info("Removed legacy settings.json Git clean filter.");
     }
     for (const error of runtimeState.errors) {
       warn(`settings runtime marker migration skipped: ${error}`);
@@ -183,7 +191,7 @@ function printInstallHelp() {
   process.stdout.write(`pi-67 install - clone/install pi-67 safely
 
 Usage:
-  pi-67 install [--repo URL] [--branch NAME] [--dry-run] [--repair]
+  pi-67 install [--repo URL] [--branch NAME] [--dry-run] [--repair] [--verbose]
 
 Options:
   --repo URL      Git repository URL. Defaults to the pi-67 upstream repo.
@@ -193,6 +201,7 @@ Options:
                   With --yes, also backs up a non-git agent dir before recloning.
                   On Windows, also repairs installed Git-for-Windows PATH.
   --yes           Confirm explicit non-git agent dir backup/reclone repair.
+  --verbose       Print per-Skill paths and hashes for preserved drift.
 
 Examples:
   pi-67 install

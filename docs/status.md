@@ -113,15 +113,14 @@ Stable top-level fields:
 | `warnings` | array | Non-blocking issues. |
 | `recommendations` | array | Concrete next commands/actions. |
 
-`repository.localState` further classifies local dirty files. A checkout whose
-only change is the `settings.json` runtime marker (`lastChangelogVersion`) and
-trailing-newline churn is reported as `benignRuntimeOnly`; this is shown in text
-output as `local runtime state only` and does not become a blocking update
-warning. Current update/repair also migrates that runtime-only marker into
-ignored manager state at `~/.pi/pi67/state.json`, removes it from
-`settings.json`, and installs a local Git clean filter so the marker is not
-carried into normal diffs or commits. Any other tracked or untracked change
-still appears as a normal dirty worktree warning.
+`settings.json` is ignored machine-owned runtime state in current releases, so
+provider/model/theme changes and `lastChangelogVersion` do not appear in Git
+status. During upgrades from older tracked-settings releases, update/repair
+migrates the marker into `~/.pi/pi67/state.json`, removes it from
+`settings.json`, and removes the obsolete local Git clean filter. The
+`benignRuntimeOnly` classification remains for inspecting an old checkout
+before that migration. Other tracked or non-ignored changes still appear as a
+normal dirty worktree warning.
 
 ## Shared Skill Pack status
 

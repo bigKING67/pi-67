@@ -19,6 +19,7 @@ export async function updateCommand(ctx, argv) {
       "allow-dirty",
       "include-external",
       "strict-shared-skills",
+      "verbose",
     ],
   });
   if (options.help) {
@@ -98,11 +99,17 @@ function reportSettingsRuntimeStateMigration(ctx, options = {}) {
   if (result.settingsNormalized) {
     info(`${phase}${dryRun ? "would normalize" : "Normalized"} settings.json runtime marker/line endings.`);
   }
+  if (result.settingsCreatedFromTemplate) {
+    info(`${phase}${dryRun ? "would create" : "Created"} ignored settings.json from settings.example.json.`);
+  }
   if (result.gitIndexRefreshed) {
     info(`${phase}${dryRun ? "would refresh" : "Refreshed"} settings.json Git index stat cache.`);
   }
   if (result.gitFilterInstalled) {
     info(`${phase}${dryRun ? "would install" : "Installed"} local git clean filter for future settings.json runtime markers.`);
+  }
+  if (result.gitFilterRemoved) {
+    info(`${phase}${dryRun ? "would remove" : "Removed"} legacy settings.json Git clean filter.`);
   }
   for (const error of result.errors) {
     warn(`settings runtime marker migration skipped: ${error}`);
@@ -116,6 +123,7 @@ function buildBashUpdateArgs(ctx, options, dryRun, forceNpm) {
   if (options.noNpm) args.push("--no-npm");
   if (options.allowDirty) args.push("--allow-dirty");
   if (options.strictSharedSkills) args.push("--strict-shared-skills");
+  if (options.verbose) args.push("--verbose");
   return args;
 }
 
@@ -140,6 +148,7 @@ function buildWindowsUpdateArgs(ctx, options, dryRun, forceNpm) {
   if (options.noNpm) args.push("-NoNpm");
   if (options.allowDirty) args.push("-AllowDirty");
   if (options.strictSharedSkills) args.push("-StrictSharedSkills");
+  if (options.verbose) args.push("-SkillDriftDetails");
   return args;
 }
 
@@ -221,6 +230,7 @@ Options:
   --no-npm                Skip npm package sync in the distro updater.
   --allow-dirty           Let the script-level updater handle non-runtime dirty files.
   --strict-shared-skills  Treat preserved user-modified shared skills as blocking.
+  --verbose               Print per-Skill paths and hashes for preserved drift.
   --include-external      Report explicit external repo update commands.
   --json                  Emit JSON for --check.
 

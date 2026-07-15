@@ -328,6 +328,12 @@ already installed runtime and repoint MCP to the managed checkout.
 - user-added global skills
 - dirty external repos such as browser67 or design-craft
 
+`settings.json` is ignored machine-owned runtime state. The distribution tracks
+`settings.example.json`; install copies it only when settings are missing, and
+update never overwrites a user's provider, model, theme, or package choices.
+Upgrades from older tracked-settings versions preserve the existing file,
+migrate runtime markers, and remove the legacy repository-local clean filter.
+
 Before a real `update` or `repair`, the npm manager builds the update plan,
 blocks unsafe non-runtime dirty worktrees, and acquires
 `~/.pi/pi67/locks/update.lock`. Runtime config backup/restore is delegated to
@@ -378,7 +384,14 @@ The explicit theme setter also writes a runtime backup before changing
 The manager writes lightweight state outside the repo at `~/.pi/pi67/state.json`.
 It records versions, paths, theme, provider/model, commit information, and
 runtime-only UI markers such as `settings.json.lastChangelogVersion` after
-migrating them out of tracked config; it does not store API keys.
+migrating them out of local settings; it does not store API keys.
+
+Update target discovery is fail-closed: explicit branch, compatible configured
+upstream, matching remote branch, then exact remote-default commit equivalence.
+Detached or divergent checkouts require an explicit branch. Successful updates
+also report Git/config/Skills/npm/verification phase timings. Preserved global
+Skill drift is summarized by default; use `--verbose` for per-Skill paths and
+hashes.
 
 ## Main commands
 

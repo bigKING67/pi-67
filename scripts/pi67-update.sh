@@ -30,10 +30,11 @@ PI_AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
 PI_NPM_DIR="$PI_AGENT_DIR/npm"
 SHARED_SKILLS_DIR="${SHARED_SKILLS_DIR:-$HOME/.agents/skills}"
 SKILL_SOURCE_DIR="$REPO_ROOT/shared-skills"
-NPM_INSTALL_ARGS=(install --ignore-scripts --no-audit --no-fund --prefer-offline)
+NPM_INSTALL_ARGS=(ci --ignore-scripts --no-audit --no-fund --prefer-offline)
 
 REMOTE="origin"
 BRANCH=""
+BRANCH_SOURCE=""
 DRY_RUN=false
 CHECK_ONLY=false
 RUN_NPM=true
@@ -44,6 +45,8 @@ ALLOW_DIRTY=false
 FORCE_NPM=false
 DEV_LINK_SKILLS=false
 STRICT_SHARED_SKILLS=false
+VERBOSE=false
+PRESERVED_SKILL_DRIFTS=()
 PRESERVED_RUNTIME_FILES=(
   "settings.json"
   "models.json"
@@ -54,6 +57,12 @@ PRESERVED_RUNTIME_FILES=(
 )
 PRESERVED_RUNTIME_BACKUP_DIR=""
 PRESERVED_RUNTIME_BACKUP_PATHS=()
+UPDATE_STARTED_AT="$(date +%s)"
+TIMING_GIT_SECONDS=0
+TIMING_CONFIG_SECONDS=0
+TIMING_SKILLS_SECONDS=0
+TIMING_NPM_SECONDS=0
+TIMING_VERIFY_SECONDS=0
 
 usage() {
   cat <<'USAGE'
@@ -71,12 +80,14 @@ Options:
                         Stop when a preserved user-modified global shared
                         skill differs from the pi-67 bundled baseline. Default
                         keeps the existing global skill and continues.
+      --verbose         Print per-Skill paths and hashes for preserved drift.
       --remote NAME     Git remote to pull from. Defaults to origin.
-      --branch NAME     Git branch to pull. Defaults to current branch.
+      --branch NAME     Git branch to pull. Otherwise use the configured upstream,
+                        a matching remote branch, or an equivalent remote default branch.
       --dry-run         Print planned actions without changing files.
       --check-only      Inspect update/report status without pulling or writing files.
       --no-npm          Skip npm dependency sync.
-      --force-npm       Run npm install even when package.json did not change.
+      --force-npm       Run npm ci even when package.json/package-lock.json did not change.
       --no-configure    Skip workspace template/normalization work after update.
       --no-doctor       Skip doctor after update.
       --no-report       Skip ~/.pi/agent/pi67-report.json generation.
@@ -119,6 +130,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --strict-shared-skills)
       STRICT_SHARED_SKILLS=true
+      shift
+      ;;
+    --verbose)
+      VERBOSE=true
       shift
       ;;
     --remote)
@@ -200,6 +215,61 @@ run_cmd() {
 
 command_exists() {
   command -v "$1" >/dev/null 2>&1
+}
+
+remote_branch_commit() {
+  local branch="$1"
+  git -C "$REPO_ROOT" ls-remote "$REMOTE" "refs/heads/$branch" 2>/dev/null \
+    | awk 'NR == 1 {print $1}'
+}
+
+remote_default_branch() {
+  git -C "$REPO_ROOT" ls-remote --symref "$REMOTE" HEAD 2>/dev/null \
+    | awk '$1 == "ref:" && $2 ~ /^refs\/heads\// {sub(/^refs\/heads\//, "", $2); print $2; exit}'
+}
+
+resolve_target_branch() {
+  local current_branch="$1"
+  local local_full="$2"
+  local upstream candidate candidate_full default_branch default_full
+
+  if [ -n "$BRANCH" ]; then
+    BRANCH_SOURCE="explicit --branch"
+    return
+  fi
+
+  if upstream="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"; then
+    case "$upstream" in
+      "$REMOTE"/*)
+        candidate="${upstream#"$REMOTE"/}"
+        candidate_full="$(remote_branch_commit "$candidate")"
+        if [ -n "$candidate_full" ]; then
+          BRANCH="$candidate"
+          BRANCH_SOURCE="upstream $upstream"
+          return
+        fi
+        ;;
+    esac
+  fi
+
+  candidate_full="$(remote_branch_commit "$current_branch")"
+  if [ -n "$candidate_full" ]; then
+    BRANCH="$current_branch"
+    BRANCH_SOURCE="matching remote branch $REMOTE/$current_branch"
+    return
+  fi
+
+  default_branch="$(remote_default_branch)"
+  if [ -n "$default_branch" ]; then
+    default_full="$(remote_branch_commit "$default_branch")"
+    if [ -n "$default_full" ] && [ "$local_full" = "$default_full" ]; then
+      BRANCH="$default_branch"
+      BRANCH_SOURCE="remote default equivalence at $local_full"
+      return
+    fi
+  fi
+
+  fail "current branch '$current_branch' has no usable $REMOTE branch; switch to ${default_branch:-the remote default branch} or rerun with --branch NAME"
 }
 
 real_dir() {
@@ -461,9 +531,12 @@ sync_one_shared_skill() {
     if [ "$STRICT_SHARED_SKILLS" = true ]; then
       fail "preserved user-modified shared skill differs from pi-67 baseline: $name (existing=$dest dirHash=$dest_hash source=$src dirHash=$src_hash). Strict mode enabled; resolve manually or choose a different --skills-dir."
     fi
-    warn "preserved user-modified shared skill; keeping existing global skill: $name"
-    warn "existing=$dest dirHash=$dest_hash"
-    warn "source skipped=$src dirHash=$src_hash"
+    PRESERVED_SKILL_DRIFTS+=("$name")
+    if [ "$VERBOSE" = true ]; then
+      warn "preserved user-modified shared skill; keeping existing global skill: $name"
+      warn "existing=$dest dirHash=$dest_hash"
+      warn "source skipped=$src dirHash=$src_hash"
+    fi
     return
   fi
 
@@ -503,6 +576,10 @@ sync_shared_skills() {
     warn "no shared skills found in $SKILL_SOURCE_DIR"
   else
     pass "shared skills target: $SHARED_SKILLS_DIR"
+  fi
+  if [ "${#PRESERVED_SKILL_DRIFTS[@]}" -gt 0 ]; then
+    warn "preserved ${#PRESERVED_SKILL_DRIFTS[@]} user-modified global Skills: ${PRESERVED_SKILL_DRIFTS[*]}"
+    warn "details: pi-67 skills inventory --json (or rerun update with --verbose)"
   fi
 }
 
@@ -642,6 +719,7 @@ copy_example_if_missing() {
 sync_local_config_templates() {
   say ""
   say "${CYAN}--- local config templates ---${NC}"
+  copy_example_if_missing "settings.example.json" "settings.json"
   copy_example_if_missing "models.example.json" "models.json"
   copy_example_if_missing "mcp.example.json" "mcp.json"
   copy_example_if_missing "auth.example.json" "auth.json"
@@ -660,18 +738,20 @@ sync_npm() {
   fi
 
   local repo_pkg="$REPO_ROOT/package.json"
+  local repo_lock="$REPO_ROOT/package-lock.json"
   local agent_pkg="$PI_NPM_DIR/package.json"
-  if [ ! -f "$repo_pkg" ]; then
-    warn "package.json missing; skipped npm sync"
+  local agent_lock="$PI_NPM_DIR/package-lock.json"
+  if [ ! -f "$repo_pkg" ] || [ ! -f "$repo_lock" ]; then
+    warn "package.json/package-lock.json missing; skipped npm sync"
     return
   fi
 
   local repo_hash agent_hash
-  repo_hash="$(file_hash "$repo_pkg")"
-  agent_hash="$(file_hash "$agent_pkg")"
+  repo_hash="$(file_hash "$repo_pkg"):$(file_hash "$repo_lock")"
+  agent_hash="$(file_hash "$agent_pkg"):$(file_hash "$agent_lock")"
 
   if [ "$FORCE_NPM" != true ] && [ "$repo_hash" = "$agent_hash" ]; then
-    pass "npm package.json already synced"
+    pass "npm package.json/package-lock.json already synced"
     return
   fi
 
@@ -680,11 +760,13 @@ sync_npm() {
   run_cmd mkdir -p "$PI_NPM_DIR"
   if [ "$DRY_RUN" = true ]; then
     say "  ${CYAN}DRY-RUN${NC} copy $repo_pkg -> $agent_pkg"
+    say "  ${CYAN}DRY-RUN${NC} copy $repo_lock -> $agent_lock"
     say "  ${CYAN}DRY-RUN${NC} npm ${NPM_INSTALL_ARGS[*]} in $PI_NPM_DIR"
     return
   fi
 
   cp "$repo_pkg" "$agent_pkg"
+  cp "$repo_lock" "$agent_lock"
   (
     cd "$PI_NPM_DIR"
     npm "${NPM_INSTALL_ARGS[@]}"
@@ -728,22 +810,24 @@ check_npm_status() {
   fi
 
   local repo_pkg="$REPO_ROOT/package.json"
+  local repo_lock="$REPO_ROOT/package-lock.json"
   local agent_pkg="$PI_NPM_DIR/package.json"
-  if [ ! -f "$repo_pkg" ]; then
-    warn "package.json missing; update would skip npm sync"
+  local agent_lock="$PI_NPM_DIR/package-lock.json"
+  if [ ! -f "$repo_pkg" ] || [ ! -f "$repo_lock" ]; then
+    warn "package.json/package-lock.json missing; update would skip npm sync"
     return
   fi
 
   local repo_hash agent_hash
-  repo_hash="$(file_hash "$repo_pkg")"
-  agent_hash="$(file_hash "$agent_pkg")"
+  repo_hash="$(file_hash "$repo_pkg"):$(file_hash "$repo_lock")"
+  agent_hash="$(file_hash "$agent_pkg"):$(file_hash "$agent_lock")"
 
   if [ "$FORCE_NPM" = true ]; then
     warn "npm sync would run because --force-npm is set"
   elif [ "$repo_hash" = "$agent_hash" ]; then
-    pass "npm package.json already synced"
+    pass "npm package.json/package-lock.json already synced"
   else
-    warn "npm package.json differs; update would run npm ${NPM_INSTALL_ARGS[*]}"
+    warn "npm package.json/package-lock.json differs; update would run npm ${NPM_INSTALL_ARGS[*]}"
   fi
 }
 
@@ -827,6 +911,7 @@ check_local_config_templates() {
   local missing=0
   local pair example_rel target_rel example target
   for pair in \
+    "settings.example.json:settings.json" \
     "models.example.json:models.json" \
     "mcp.example.json:mcp.json" \
     "auth.example.json:auth.json" \
@@ -926,17 +1011,16 @@ check_update_plan() {
   if [ "$current_branch" = "HEAD" ] && [ -z "$BRANCH" ]; then
     fail "detached HEAD; pass --branch explicitly"
   fi
-  if [ -z "$BRANCH" ]; then
-    BRANCH="$current_branch"
-  fi
 
   dirty="$(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all)"
   local_full="$(git -C "$REPO_ROOT" rev-parse HEAD)"
   local_short="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
   current_version="$(tr -d '[:space:]' < "$REPO_ROOT/VERSION" 2>/dev/null || true)"
+  resolve_target_branch "$current_branch" "$local_full"
 
   say "Local branch : ${GREEN}$current_branch${NC}"
   say "Target branch: ${GREEN}$BRANCH${NC}"
+  say "Target source: ${GREEN}$BRANCH_SOURCE${NC}"
   say "Local commit : ${GREEN}$local_short${NC}"
   if [ -n "$current_version" ]; then
     say "Local version: ${GREEN}$current_version${NC}"
@@ -1013,7 +1097,7 @@ check_update_plan() {
   say "  migrate settings.json lastChangelogVersion into ~/.pi/pi67/state.json before local update side effects"
   say "  sync shared skills into $SHARED_SKILLS_DIR"
   if [ "$RUN_NPM" = true ]; then
-    say "  sync npm dependencies when package.json differs"
+    say "  sync npm dependencies with npm ci when package.json/package-lock.json differ"
     say "  apply pi-until-done runtime queue/progress compatibility patch when needed"
   else
     say "  skip npm sync (--no-npm)"
@@ -1047,16 +1131,13 @@ update_repo() {
     fail "not a git checkout: $REPO_ROOT"
   fi
 
-  local current_branch dirty before after old_version new_version target_ref incoming_changed_paths_text
+  local current_branch dirty before after old_version new_version target_ref incoming_changed_paths_text local_full
   local -a dirty_tracked_paths=()
   local -a unsafe_dirty_paths=()
   local line rel
   current_branch="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD)"
   if [ "$current_branch" = "HEAD" ] && [ -z "$BRANCH" ]; then
     fail "detached HEAD; pass --branch explicitly"
-  fi
-  if [ -z "$BRANCH" ]; then
-    BRANCH="$current_branch"
   fi
 
   dirty="$(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all)"
@@ -1073,7 +1154,10 @@ update_repo() {
   done < <(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=no)
 
   before="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
+  local_full="$(git -C "$REPO_ROOT" rev-parse HEAD)"
   old_version="$(tr -d '[:space:]' < "$REPO_ROOT/VERSION" 2>/dev/null || true)"
+  resolve_target_branch "$current_branch" "$local_full"
+  say "  ${CYAN}INFO${NC} target branch: $REMOTE/$BRANCH ($BRANCH_SOURCE)"
 
   if [ "$DRY_RUN" = true ]; then
     if [ "${#dirty_tracked_paths[@]}" -gt 0 ] && [ "$ALLOW_DIRTY" != true ]; then
@@ -1168,17 +1252,35 @@ if [ "$CHECK_ONLY" = true ]; then
   exit 0
 fi
 
+phase_started="$(date +%s)"
 update_repo
+TIMING_GIT_SECONDS=$(( $(date +%s) - phase_started ))
+
+phase_started="$(date +%s)"
 sync_local_config_templates
 run_configure
 migrate_settings_runtime_state "preflight"
+TIMING_CONFIG_SECONDS=$(( $(date +%s) - phase_started ))
+
+phase_started="$(date +%s)"
 sync_shared_skills
 retire_legacy_agent_skills
+TIMING_SKILLS_SECONDS=$(( $(date +%s) - phase_started ))
+
+phase_started="$(date +%s)"
 sync_npm
 patch_until_done_runtime_queue
+TIMING_NPM_SECONDS=$(( $(date +%s) - phase_started ))
+
+phase_started="$(date +%s)"
 run_doctor
 write_report
 migrate_settings_runtime_state "final"
+TIMING_VERIFY_SECONDS=$(( $(date +%s) - phase_started ))
+
+say ""
+say "${CYAN}--- update timings ---${NC}"
+say "  git=${TIMING_GIT_SECONDS}s config=${TIMING_CONFIG_SECONDS}s skills=${TIMING_SKILLS_SECONDS}s npm=${TIMING_NPM_SECONDS}s verify=${TIMING_VERIFY_SECONDS}s total=$(( $(date +%s) - UPDATE_STARTED_AT ))s"
 
 say ""
 say "${GREEN}pi-67 update finished${NC}"

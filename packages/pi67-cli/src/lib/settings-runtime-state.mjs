@@ -12,6 +12,7 @@ import {
 
 export const SETTINGS_RUNTIME_FILTER_NAME = "pi67-settings-runtime-state";
 export const SETTINGS_RUNTIME_FILTER_SCRIPT = "packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs";
+export const SETTINGS_TEMPLATE_FILE = "settings.example.json";
 
 export { SETTINGS_RUNTIME_MARKER_KEY, stripSettingsRuntimeMarker, stripSettingsRuntimeMarkerText };
 
@@ -58,11 +59,14 @@ export function migrateSettingsRuntimeState(ctx, options = {}) {
   const installGitFilter = Boolean(options.installGitFilter);
   const dryRun = Boolean(options.dryRun);
   const settingsPath = path.join(ctx.agentDir, "settings.json");
+  const templatePath = path.join(ctx.repoRoot, SETTINGS_TEMPLATE_FILE);
   const statePath = path.join(ctx.stateDir, "state.json");
   const result = {
     schema: "pi67.settings-runtime-state.v1",
     settingsPath,
+    templatePath,
     statePath,
+    settingsCreatedFromTemplate: false,
     markerFound: false,
     markerValue: "",
     stateWritten: false,
@@ -71,12 +75,28 @@ export function migrateSettingsRuntimeState(ctx, options = {}) {
     gitIndexRefreshed: false,
     gitIndexRefreshSkipped: "",
     gitFilterInstalled: false,
+    gitFilterRemoved: false,
     skipped: [],
     errors: [],
   };
 
+  if (!fs.existsSync(settingsPath) && fs.existsSync(templatePath)) {
+    if (!dryRun) {
+      fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+      fs.copyFileSync(templatePath, settingsPath);
+      try {
+        fs.chmodSync(settingsPath, 0o600);
+      } catch {
+        // Windows and restricted filesystems may not support POSIX modes.
+      }
+    }
+    result.settingsCreatedFromTemplate = true;
+  }
+
   if (!fs.existsSync(settingsPath)) {
-    result.skipped.push("settings.json missing");
+    result.skipped.push(result.settingsCreatedFromTemplate
+      ? "settings.json would be created from template"
+      : `${SETTINGS_TEMPLATE_FILE} missing; settings.json was not created`);
   } else {
     let rawSettingsText = "";
     let settingsText = "";
@@ -129,6 +149,7 @@ export function migrateSettingsRuntimeState(ctx, options = {}) {
   if (installGitFilter) {
     const filterResult = installSettingsRuntimeGitFilter(ctx, { dryRun });
     result.gitFilterInstalled = filterResult.installed;
+    result.gitFilterRemoved = filterResult.removed;
     if (filterResult.skipped) result.skipped.push(filterResult.skipped);
     if (filterResult.error) result.errors.push(filterResult.error);
   }
@@ -161,6 +182,10 @@ export function refreshSettingsGitIndex(ctx, options = {}) {
   }
   if (!isGitRepo(ctx.repoRoot)) {
     result.skipped = "repo root is not a git checkout";
+    return result;
+  }
+  if (!settingsTrackedByGit(ctx)) {
+    result.skipped = "settings.json is untracked runtime state; Git index refresh is not needed";
     return result;
   }
 
@@ -209,6 +234,7 @@ export function refreshSettingsGitIndex(ctx, options = {}) {
 export function installSettingsRuntimeGitFilter(ctx, options = {}) {
   const result = {
     installed: false,
+    removed: false,
     skipped: "",
     error: "",
   };
@@ -219,6 +245,9 @@ export function installSettingsRuntimeGitFilter(ctx, options = {}) {
   if (!isGitRepo(ctx.repoRoot)) {
     result.skipped = "repo root is not a git checkout";
     return result;
+  }
+  if (!settingsTrackedByGit(ctx)) {
+    return removeSettingsRuntimeGitFilter(ctx, { dryRun: options.dryRun });
   }
   const scriptPath = path.join(ctx.repoRoot, SETTINGS_RUNTIME_FILTER_SCRIPT);
   if (!fs.existsSync(scriptPath)) {
@@ -279,4 +308,58 @@ export function installSettingsRuntimeGitFilter(ctx, options = {}) {
   }
   result.installed = true;
   return result;
+}
+
+export function removeSettingsRuntimeGitFilter(ctx, options = {}) {
+  const result = {
+    installed: false,
+    removed: false,
+    skipped: "",
+    error: "",
+  };
+  if (!isGitRepo(ctx.repoRoot)) {
+    result.skipped = "repo root is not a git checkout";
+    return result;
+  }
+
+  const keys = [
+    `filter.${SETTINGS_RUNTIME_FILTER_NAME}.clean`,
+    `filter.${SETTINGS_RUNTIME_FILTER_NAME}.required`,
+  ];
+  const configured = keys.some((key) =>
+    captureCommand("git", ["-C", ctx.repoRoot, "config", "--local", "--get", key]).ok);
+  if (!configured) {
+    result.skipped = "settings.json is ignored runtime state; legacy git filter is not configured";
+    return result;
+  }
+  if (options.dryRun) {
+    result.removed = true;
+    return result;
+  }
+
+  for (const key of keys) {
+    const unset = captureCommand("git", ["-C", ctx.repoRoot, "config", "--local", "--unset-all", key]);
+    if (!unset.ok && unset.status !== 5) {
+      result.error = unset.stderr || unset.error || `failed to remove ${key}`;
+      return result;
+    }
+  }
+  result.removed = true;
+  return result;
+}
+
+export function settingsTrackedByGit(ctx) {
+  if (!isGitRepo(ctx.repoRoot)) return false;
+  const settingsPath = path.join(ctx.agentDir, "settings.json");
+  const relativePath = path.relative(ctx.repoRoot, settingsPath);
+  if (!relativePath || relativePath.startsWith("..") || path.isAbsolute(relativePath)) return false;
+  const gitPath = relativePath.split(path.sep).join("/");
+  return captureCommand("git", [
+    "-C",
+    ctx.repoRoot,
+    "ls-files",
+    "--error-unmatch",
+    "--",
+    gitPath,
+  ]).ok;
 }

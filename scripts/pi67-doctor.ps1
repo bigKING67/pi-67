@@ -451,7 +451,7 @@ if (Test-JsonFile $packagePath "package.json") {
 Section "Tracked assets"
 $requiredFiles = @(
   "AGENTS.md",
-  "settings.json",
+  "settings.example.json",
   "models.example.json",
   "mcp.example.json",
   "auth.example.json",
@@ -616,10 +616,14 @@ if ($activeProvider) {
 
 Section "npm sync"
 $agentPackage = Join-Path $NpmDir "package.json"
-if ((Get-FileHashValue $packagePath) -eq (Get-FileHashValue $agentPackage)) {
-  Pass "npm package.json already synced"
+$packageLockPath = RepoPath "package-lock.json"
+$agentPackageLock = Join-Path $NpmDir "package-lock.json"
+$repoNpmHash = "$(Get-FileHashValue $packagePath):$(Get-FileHashValue $packageLockPath)"
+$agentNpmHash = "$(Get-FileHashValue $agentPackage):$(Get-FileHashValue $agentPackageLock)"
+if ($repoNpmHash -eq $agentNpmHash) {
+  Pass "npm package.json/package-lock.json already synced"
 } else {
-  Warn "npm package.json differs; run pi67-update.ps1 without -NoNpm"
+  Warn "npm package.json/package-lock.json differs; run pi67-update.ps1 without -NoNpm"
 }
 
 if (Test-Path -LiteralPath $packagePath -PathType Leaf) {
