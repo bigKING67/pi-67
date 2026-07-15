@@ -267,6 +267,18 @@ function displayPath(value) {
   return value === home ? "~" : value.startsWith(`${home}${path.sep}`) ? `~${value.slice(home.length)}` : value;
 }
 
+function resolveSettingsFile(options) {
+  const runtimeSettingsFile = path.join(options.agentDir, "settings.json");
+  if (fs.existsSync(runtimeSettingsFile)) return runtimeSettingsFile;
+
+  const templateSettingsFile = path.join(options.repoRoot, "settings.example.json");
+  if (fs.existsSync(templateSettingsFile)) return templateSettingsFile;
+
+  throw new Error(
+    `settings runtime/template missing: ${displayPath(runtimeSettingsFile)}, ${displayPath(templateSettingsFile)}`,
+  );
+}
+
 function normalizeSpec(target) {
   if (!target) return target;
   if (target.startsWith("npm:") || target.startsWith("git:") || target.startsWith("local:")) return target;
@@ -470,7 +482,7 @@ function planEntry(entry) {
 }
 
 function buildPlan(options) {
-  const settingsFile = path.join(options.repoRoot, "settings.json");
+  const settingsFile = resolveSettingsFile(options);
   const settings = readJson(settingsFile);
   const settingsSpecs = Array.isArray(settings.packages) ? settings.packages.map(String) : [];
   const includeSpecs = options.include.map(normalizeSpec);
@@ -523,6 +535,7 @@ function renderText(plan) {
   lines.push("pi67 xtalpi smoke plan");
   lines.push(`repository: ${plan.repository}`);
   lines.push(`agent_dir: ${plan.agentDir}`);
+  lines.push(`settings: ${plan.settings}`);
   lines.push(
     `summary: packages=${plan.summary.packages} installed=${plan.summary.installed} missing=${plan.summary.missing} model_callable=${plan.summary.modelCallablePackages} windows_full=${plan.summary.windowsFullyCovered} windows_partial=${plan.summary.windowsPartiallyCovered} manual_or_static=${plan.summary.manualOrStatic} unknown_policy=${plan.summary.unknownPolicyPackages}`,
   );

@@ -20,6 +20,8 @@
 - Splits packed-artifact and settings-runtime ownership checks into focused,
   package-contained `scripts/checks` modules while retaining
   `scripts/check.mjs` as the stable lifecycle entrypoint.
+- Makes xtalpi smoke planning prefer machine-owned runtime settings and fall
+  back to the tracked settings template in clean CI and release checkouts.
 
 ## [0.11.7]
 

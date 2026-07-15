@@ -51,6 +51,9 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 - Removed the clean-checkout release dependency on an already-populated,
   ignored `npm/node_modules` directory or a pre-existing local
   `settings.json`.
+- Made the xtalpi smoke planner read machine-owned settings from the configured
+  agent directory and fall back to tracked `settings.example.json` in a clean
+  checkout, while still failing closed when neither source exists.
 
 ## [0.11.7] - 2026-07-15
 

@@ -995,6 +995,34 @@ if (!visionBridge || visionBridge.smokePolicy !== "manual_artifact") throw new E
 ' "${SMOKE_LOG_DIR}/xtalpi-smoke-plan-json.log"
 pass "xtalpi-pi-tools smoke plan JSON output parsed"
 
+XTALPI_TEMPLATE_ONLY_ROOT="$TMP_ROOT/xtalpi-smoke-plan-template-only"
+mkdir -p "$XTALPI_TEMPLATE_ONLY_ROOT"
+cp "$REPO_ROOT/settings.example.json" "$XTALPI_TEMPLATE_ONLY_ROOT/settings.example.json"
+node "$REPO_ROOT/scripts/pi67-xtalpi-smoke-plan.mjs" \
+  --repo-root "$XTALPI_TEMPLATE_ONLY_ROOT" \
+  --agent-dir "$XTALPI_TEMPLATE_ONLY_ROOT" \
+  --json >"${SMOKE_LOG_DIR}/xtalpi-smoke-plan-template-only.json"
+node -e '
+const fs = require("fs");
+const path = require("path");
+const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+const expected = path.join(process.argv[2], "settings.example.json");
+if (data.settings !== expected) throw new Error(`smoke plan did not use tracked settings template: ${data.settings}`);
+' "${SMOKE_LOG_DIR}/xtalpi-smoke-plan-template-only.json" "$XTALPI_TEMPLATE_ONLY_ROOT"
+pass "xtalpi-pi-tools smoke plan uses tracked settings template in a clean checkout"
+
+XTALPI_MISSING_SETTINGS_ROOT="$TMP_ROOT/xtalpi-smoke-plan-missing-settings"
+mkdir -p "$XTALPI_MISSING_SETTINGS_ROOT"
+if node "$REPO_ROOT/scripts/pi67-xtalpi-smoke-plan.mjs" \
+  --repo-root "$XTALPI_MISSING_SETTINGS_ROOT" \
+  --agent-dir "$XTALPI_MISSING_SETTINGS_ROOT" \
+  --json >"${SMOKE_LOG_DIR}/xtalpi-smoke-plan-missing-settings.log" 2>&1; then
+  fail "xtalpi-pi-tools smoke plan accepted missing runtime and template settings"
+fi
+grep -q "settings runtime/template missing" "${SMOKE_LOG_DIR}/xtalpi-smoke-plan-missing-settings.log" \
+  || fail "xtalpi-pi-tools smoke plan did not explain missing runtime and template settings"
+pass "xtalpi-pi-tools smoke plan fails closed without runtime or template settings"
+
 section "Skill governance helper tests"
 "$REPO_ROOT/scripts/pi67-test-skill-governance.sh" \
   --repo-root "$REPO_ROOT" >"${SMOKE_LOG_DIR}/skill-governance.log"
