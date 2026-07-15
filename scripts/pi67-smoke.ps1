@@ -508,7 +508,7 @@ if ($NodeAvailable) {
     ) | Out-Null
   }
 
-  Run-Check "Windows fresh-machine bootstrap self-test passed" {
+  Run-Check "Windows pi-67 manager/workspace bootstrap self-test passed" {
     $psExe = ""
     if (Test-CommandExists "pwsh") {
       $psExe = "pwsh"
@@ -904,19 +904,71 @@ Run-Check "PowerShell update/doctor/report/smoke entrypoints are documented" {
   Assert-ContentContains (RepoPath "docs/skill-governance.md") "pi67-shared-skills-inventory.sh"
 }
 
-Run-Check "Windows fresh-install product contract is documented" {
+Run-Check "Windows manual fresh-install product contract is documented" {
   $freshInstall = RepoPath "docs/windows-fresh-install.md"
   Assert-ContentContains $freshInstall "Node.js 24 LTS"
   Assert-ContentContains $freshInstall "22.19.0"
-  Assert-ContentContains $freshInstall "Repair-WinGetPackageManager -AllUsers"
+  Assert-ContentContains $freshInstall "App Installer"
   Assert-ContentContains $freshInstall "Microsoft.WindowsTerminal"
+  Assert-ContentContains $freshInstall "Add-AppxPackage"
+  Assert-ContentContains $freshInstall "Microsoft.DesktopAppInstaller_8wekyb3d8bbwe"
+  Assert-ContentContains $freshInstall "Microsoft.WinGet.Client"
+  Assert-ContentContains $freshInstall "Repair-WinGetPackageManager -AllUsers"
   Assert-ContentContains $freshInstall "Microsoft.PowerShell"
+  Assert-ContentContains $freshInstall "pwsh --version"
   Assert-ContentContains $freshInstall "zufuliu.notepad4"
+  Assert-ContentContains $freshInstall "设置 -> 高级设置 -> 系统集成"
+  Assert-ContentContains $freshInstall "Windows 资源管理器的右键菜单"
+  Assert-ContentContains $freshInstall "通过注册表替换 Windows 记事本"
+  Assert-ContentContains $freshInstall 'HKCR\*\shell\Notepad4\command'
+  Assert-ContentContains $freshInstall 'Image File Execution Options\notepad.exe'
+  Assert-ContentContains $freshInstall "Start-Process notepad.exe"
+  Assert-ContentContains $freshInstall "where.exe git"
+  Assert-ContentContains $freshInstall "GetEnvironmentVariable('Path', 'Machine')"
+  Assert-ContentContains $freshInstall "GetEnvironmentVariable('Path', 'User')"
+  Assert-ContentContains $freshInstall "GitPersisted"
+  Assert-ContentContains $freshInstall "SetEnvironmentVariable"
+  Assert-ContentContains $freshInstall "'Git\cmd'"
+  Assert-ContentContains $freshInstall "defaultProfile"
+  Assert-ContentContains $freshInstall "574e775e-4f2a-5b96-ac1e-a2962a402336"
+  Assert-ContentContains $freshInstall '"elevate": true'
+  Assert-ContentContains $freshInstall "Automatically run as Administrator"
+  Assert-ContentContains $freshInstall "Pi67-WindowsTerminal-Admin"
+  Assert-ContentContains $freshInstall "New-ScheduledTaskPrincipal"
+  Assert-ContentContains $freshInstall "-RunLevel Highest"
+  Assert-ContentContains $freshInstall "Windows Terminal (Administrator).lnk"
+  Assert-ContentContains $freshInstall "Unregister-ScheduledTask"
+  Assert-ContentContains $freshInstall "PSEdition = Core"
   Assert-ContentContains $freshInstall "Git.Git"
   Assert-ContentContains $freshInstall "Schniz.fnm"
   Assert-ContentContains $freshInstall "lts/krypton"
-  Assert-ContentContains $freshInstall "defaultProfile"
-  Assert-ContentContains $freshInstall '"elevate": true'
+  Assert-ContentContains $freshInstall "We can't find the necessary environment variables"
+  Assert-ContentContains $freshInstall '$ProfileDir'
+  Assert-ContentContains $freshInstall 'New-Item -Path $PROFILE -ItemType File -Force'
+  Assert-ContentContains $freshInstall 'notepad $PROFILE'
+  Assert-ContentContains $freshInstall "fnm env --use-on-cd --shell powershell"
+  Assert-ContentContains $freshInstall '. $PROFILE'
+  Assert-ContentContains $freshInstall "fnm default lts/krypton"
+  Assert-ContentContains $freshInstall "npm config set registry https://registry.npmmirror.com"
+  Assert-ContentContains $freshInstall "npm config get registry"
+  Assert-ContentContains $freshInstall "https://registry.npmjs.org/"
+  Assert-ContentContains $freshInstall "JanDeDobbeleer.OhMyPosh"
+  Assert-ContentContains $freshInstall "MapleMono-NF-CN.zip"
+  Assert-ContentContains $freshInstall "MapleMono-NF-CN.sha256"
+  Assert-ContentContains $freshInstall 'Get-FileHash -LiteralPath $MapleZip -Algorithm SHA256'
+  Assert-ContentContains $freshInstall 'oh-my-posh font install $MapleZip --headless'
+  Assert-ContentContains $freshInstall "Maple Mono NF CN"
+  Assert-ContentContains $freshInstall "oh-my-posh font install meslo"
+  Assert-ContentContains $freshInstall "MesloLGM Nerd Font"
+  Assert-ContentContains $freshInstall "subframe7536/maple-font/blob/variable/README_CN.md"
+  Assert-ContentContains $freshInstall "oh-my-posh init pwsh | Invoke-Expression"
+  Assert-ContentContains $freshInstall "oh-my-posh init pwsh --eval | Invoke-Expression"
+  Assert-ContentContains $freshInstall "https://ohmyposh.dev/docs/themes"
+  Assert-ContentContains $freshInstall "@earendil-works/pi-coding-agent@latest"
+  Assert-ContentContains $freshInstall "pi-67 不会安装或更新 upstream Pi"
+  Assert-ContentContains $freshInstall "pi67-bootstrap.ps1"
+  Assert-ContentContains $freshInstall "-Mode Auto"
+  Assert-ContentContains $freshInstall "不会安装 Windows Terminal"
   Assert-ContentContains $freshInstall "pi-67 xtalpi configure --verify"
   Assert-ContentContains $freshInstall "/login"
   Assert-ContentContains $freshInstall "/model"
@@ -925,6 +977,27 @@ Run-Check "Windows fresh-install product contract is documented" {
   Assert-ContentContains $freshInstall "Invoke-WebRequest"
   Assert-ContentContains $freshInstall "UseBasicParsing"
   Assert-ContentNotContains $freshInstall "irm | iex"
+}
+
+Run-Check "upstream Pi and pi-67 lifecycle ownership is enforced" {
+  $updateCommand = RepoPath "packages/pi67-cli/src/commands/update.mjs"
+  $manifest = RepoPath "packages/pi67-cli/src/data/distro-manifest.json"
+  Assert-ContentContains $updateCommand "@earendil-works/pi-coding-agent@latest"
+  Assert-ContentNotContains $updateCommand '"include-pi"'
+  Assert-ContentNotContains $updateCommand "options.includePi"
+  Assert-ContentNotContains $updateCommand 'runCommand("pi"'
+  Assert-ContentNotContains $updateCommand "pi update --all"
+  Assert-ContentNotContains $updateCommand '      "yes",'
+  Assert-ContentContains $updateCommand "pi-67 update does not use --yes"
+  Assert-ContentContains $updateCommand "shouldForceNpmSync"
+  Assert-ContentContains $updateCommand "managed-npm-packages"
+  Assert-ContentContains $manifest '"owner": "upstream-pi"'
+  Assert-ContentContains $manifest '"mutationPolicy": "report-only-never-install-or-update-through-pi67"'
+  Assert-ContentContains (RepoPath "README.md") "pi-67 不会安装或更新 upstream Pi"
+  Assert-ContentContains (RepoPath "packages/pi67-cli/README.md") "never installs or updates upstream Pi"
+  Assert-ContentNotContains (RepoPath "README.md") "pi-67 update --repair --yes"
+  Assert-ContentNotContains (RepoPath "packages/pi67-cli/README.md") "pi-67 update --repair --yes"
+  Assert-ContentNotContains (RepoPath "docs/windows-fresh-install.md") "pi-67 update --repair --yes"
 }
 
 Run-Check "PowerShell xtalpi targeted smoke expanded cases are documented" {

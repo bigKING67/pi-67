@@ -73,7 +73,7 @@ function buildVersionRecommendations(ctx, data, git, settings) {
     .split(/\r?\n/)
     .some((line) => line.trim().endsWith("settings.json"));
   const hasRuntimeMarker = settings && Object.prototype.hasOwnProperty.call(settings, "lastChangelogVersion");
-  const updateCommand = `pi-67 --agent-dir "${ctx.agentDir}" --repo-root "${ctx.repoRoot}" update --repair`;
+  const updateCommand = `pi-67 --agent-dir "${ctx.agentDir}" --repo-root "${ctx.repoRoot}" update`;
 
   if (managerVsDistro > 0) {
     recommendations.push({
@@ -94,7 +94,7 @@ function buildVersionRecommendations(ctx, data, git, settings) {
   if (settingsDirty && hasRuntimeMarker) {
     recommendations.push({
       level: "INFO",
-      message: "settings.json has Pi runtime changelog marker state; update --repair migrates it into ~/.pi/pi67/state.json and normalizes settings.json.",
+      message: "settings.json has Pi runtime changelog marker state; update migrates it into ~/.pi/pi67/state.json and normalizes settings.json.",
     });
   } else if (settingsDirty) {
     recommendations.push({

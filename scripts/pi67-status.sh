@@ -583,7 +583,7 @@ function deriveResult(repository, remote, report, xtalpiSmoke, skillPacks) {
 
   if (repository.dirty) {
     if (repository.localState?.benignRuntimeOnly) {
-      recommendations.push("Run pi-67 update --repair to migrate settings runtime marker into ignored state.");
+      recommendations.push("Run pi-67 update to migrate settings runtime marker into ignored state.");
     } else {
       warnings.push(`worktree has ${repository.dirtyCount} local change(s)`);
       recommendations.push("Commit or stash local pi-67 checkout changes before updating.");

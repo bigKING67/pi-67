@@ -54,7 +54,7 @@ export function installExternal(ctx, name, { dryRun = false, quiet = false } = {
 export function updateExternal(ctx, name, { dryRun = false, quiet = false } = {}) {
   const status = externalStatus(ctx, name);
   if (!status.exists) {
-    return installExternal(ctx, name, { dryRun, quiet });
+    throw new CliError(`external repo is not installed; run: pi-67 external install ${name}`);
   }
   if (!status.git?.isRepo) {
     throw new CliError(`external path is not a git repo: ${status.path}`);
@@ -66,6 +66,14 @@ export function updateExternal(ctx, name, { dryRun = false, quiet = false } = {}
   if (!branch) {
     throw new CliError(`external repo is detached; not updating: ${status.path}`);
   }
+  const fromCommit = status.git.commit;
   runCommand("git", ["-C", status.path, "pull", "--ff-only"], { dryRun, quiet });
-  return { action: dryRun ? "pull-dry-run" : "pull", status: externalStatus(ctx, name) };
+  const nextStatus = externalStatus(ctx, name);
+  return {
+    action: dryRun ? "pull-dry-run" : "pull",
+    changed: dryRun ? null : fromCommit !== nextStatus.git?.commit,
+    fromCommit,
+    toCommit: nextStatus.git?.commit || "",
+    status: nextStatus,
+  };
 }

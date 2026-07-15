@@ -41,7 +41,8 @@ PowerShell smoke for Windows-facing changes:
 ```powershell
 .\scripts\pi67-bootstrap.ps1 -SelfTest
 .\scripts\pi67-bootstrap.ps1 -DryRun
-.\scripts\pi67-bootstrap.ps1 -DryRun -Minimal
+.\scripts\pi67-bootstrap.ps1 -DryRun -Mode Install
+.\scripts\pi67-bootstrap.ps1 -DryRun -Mode Update
 .\scripts\pi67-smoke.ps1 -Ci
 .\scripts\pi67-doctor.ps1 -Json
 .\scripts\pi67-report.ps1 -Operation manual
@@ -112,15 +113,16 @@ Expected result:
 - registered shared Skill Pack metadata and all eight vendored bundles are
   internally consistent
 - Windows PowerShell smoke passes on a PowerShell runtime when Windows-facing files changed
-- Windows fresh-machine bootstrap self-test and dry-run pass without changing
-  the host
-- bootstrap source and Windows CI cover WinGet repair, Terminal profile
-  mutation, Notepad4 integration, Git persistent PATH, fnm profile idempotency,
-  and the rule that upstream Pi installs only after every prerequisite stage
+- Windows manager/workspace bootstrap self-test and dry-run pass without
+  changing the host
+- bootstrap source and Windows CI prove that system/runtime prerequisites are
+  fail-fast checks only; the script installs the npm manager, selects
+  install/update deterministically, and validates version/doctor JSON without
+  UAC, Terminal/profile, registry, provider-key, or upstream-Pi installation
 - Windows PowerShell doctor/report run on a PowerShell runtime when Windows install/update diagnostics changed
 - Windows one-command acceptance self-test passes; a credentialed Windows host
   passes `pi67-windows-acceptance.ps1 -ValidateWorkstation -SkipUpdate` before
-  release when the workstation bootstrap contract changed
+  release when the separate workstation acceptance contract changed
 - upstream runtime registration passes `pi --version` plus discovery-only
   `--list-models` checks with non-secret fixture credentials; zero-key startup
   independently passes `pi67-zero-key-startup-smoke.ps1` and reaches real
@@ -178,7 +180,8 @@ Expected result:
 ```powershell
 .\scripts\pi67-bootstrap.ps1 -SelfTest
 .\scripts\pi67-bootstrap.ps1 -DryRun
-.\scripts\pi67-bootstrap.ps1 -DryRun -Minimal
+.\scripts\pi67-bootstrap.ps1 -DryRun -Mode Install
+.\scripts\pi67-bootstrap.ps1 -DryRun -Mode Update
 .\scripts\pi67-smoke.ps1 -Ci
 .\scripts\pi67-doctor.ps1 -Json
 .\scripts\pi67-report.ps1 -Operation manual
@@ -287,9 +290,32 @@ pi-67 update
 pi-67 doctor
 ```
 
-It does not replace or shadow the upstream `pi` binary. `pi update` and
-`pi update --extensions` remain upstream Pi commands; `pi-67 update` is the
-pi-67 distribution update command.
+It does not replace or shadow the upstream `pi` binary. The two release
+lifecycles are intentionally independent:
+
+```bash
+# Update only upstream Pi runtime.
+npm install -g @earendil-works/pi-coding-agent@latest
+pi --version
+
+# Update only pi-67 manager, workspace, and managed capabilities.
+pi-67 self-update
+pi-67 update
+pi-67 doctor
+```
+
+The normal update path must automatically resynchronize managed npm packages
+when the plan detects missing or stale installs. `--repair` is reserved for a
+forced npm reinstall when the plan appears current but the local dependency
+tree remains damaged. The command-level `pi-67 update --yes` option is not a
+valid release contract; install recovery retains `pi-67 install --repair --yes`.
+
+`pi-67 update` may report upstream Pi installed/tested/latest compatibility,
+but must never install, update, or repair that runtime. `pi update
+--extensions` remains limited to user-managed upstream Pi extensions. The
+retired `--include-pi` and cross-owner `--all` paths must fail closed and the
+release gate must reject any reintroduction of `runCommand("pi", ...)` in the
+pi-67 updater.
 
 The manager update path is preserve-first. A real `pi-67 update` / `pi-67
 update --repair` builds the update plan, blocks unsafe non-runtime dirty
@@ -595,14 +621,15 @@ Do not tag before CI passes on the release commit.
 
 ### Install / update
 
-Fresh install:
+Fresh install after completing the Windows prerequisites in
+`docs/windows-fresh-install.md`:
 
 Windows PowerShell:
 
 ```powershell
 $Bootstrap = Join-Path $env:TEMP "pi67-bootstrap.ps1"
 Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/bigKING67/pi-67/releases/latest/download/pi67-bootstrap.ps1" -OutFile $Bootstrap
-powershell -NoProfile -ExecutionPolicy Bypass -File $Bootstrap
+powershell -NoProfile -ExecutionPolicy Bypass -File $Bootstrap -Mode Auto
 ```
 
 macOS/Linux:
@@ -618,8 +645,9 @@ Update existing install:
 Windows PowerShell:
 
 ```powershell
-Set-Location $env:USERPROFILE\.pi\agent
-.\scripts\pi67-update.ps1
+$Bootstrap = Join-Path $env:TEMP "pi67-bootstrap.ps1"
+Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/bigKING67/pi-67/releases/latest/download/pi67-bootstrap.ps1" -OutFile $Bootstrap
+powershell -NoProfile -ExecutionPolicy Bypass -File $Bootstrap -Mode Update
 ```
 
 macOS/Linux:
@@ -642,17 +670,40 @@ bash ~/.pi/agent/scripts/pi67-configure.sh --prompt-secrets
 
 - `.\scripts\pi67-bootstrap.ps1 -SelfTest` on Windows PowerShell / PowerShell Core
 - `.\scripts\pi67-bootstrap.ps1 -DryRun` on Windows PowerShell / PowerShell Core
+- `.\scripts\pi67-bootstrap.ps1 -DryRun -Mode Install` and `-Mode Update`
 - `.\scripts\pi67-smoke.ps1 -Ci` on Windows PowerShell / PowerShell Core
 - `.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest` on Windows PowerShell / PowerShell Core
 - `.\scripts\pi67-windows-acceptance.ps1 -SelfTest` on Windows PowerShell / PowerShell Core
-- `.\scripts\pi67-windows-acceptance.ps1 -ValidateWorkstation -SkipUpdate` on a credentialed Windows workstation when bootstrap behavior changed
+- `.\scripts\pi67-windows-acceptance.ps1 -ValidateWorkstation -SkipUpdate` on a credentialed Windows workstation when the separate workstation acceptance behavior changed
 - `bash scripts/pi67-smoke.sh --ci`
 - GitHub Actions CI: passed
 
 ### Notes
 
 - pi-67 remains full-install by default.
-- Fresh Windows machines use fnm `lts/krypton`; acceptance requires Node.js 24
-  LTS, `>=22.19.0`, and an active fnm-managed `node.exe`.
+- Fresh Windows machines install Windows Terminal, PowerShell 7, Notepad4 with
+  Explorer/Windows Notepad integration, Git, fnm, Node.js 24 LTS, npm, and
+  upstream Pi manually before the lightweight pi-67 bootstrap runs.
+- Git acceptance requires `where.exe git` and `git --version` to work after a
+  Terminal restart, with the resolved Git `cmd` directory present in persistent
+  User or Machine PATH.
+- The manager bootstrap requires Node.js `>=22.19.0`; the recommended manual
+  path uses fnm `lts/krypton` for Node.js 24 LTS.
+- The fnm stage creates the PowerShell 7 `$PROFILE` when missing, edits it with
+  `notepad $PROFILE`, loads
+  `fnm env --use-on-cd --shell powershell | Out-String | Invoke-Expression`,
+  and runs `fnm install/default/use lts/krypton` only after reopening Terminal.
+- The final workstation npm registry is `https://registry.npmmirror.com/`.
+  `pi67-windows-acceptance.ps1 -ValidateWorkstation` reads and validates this
+  setting but never writes it; a temporary official-registry fallback must be
+  switched back before final acceptance.
+- Oh My Posh remains optional UI polish. The manual guide uses
+  `JanDeDobbeleer.OhMyPosh`, the SHA-256-verified official
+  `MapleMono-NF-CN.zip`, and the standard
+  `oh-my-posh init pwsh | Invoke-Expression` profile initializer. Terminal uses
+  `Maple Mono NF CN` for Nerd Font icons, CJK coverage, and 2:1 alignment;
+  Meslo is only a compatibility fallback. The slower `--eval` form is retained
+  only as an ExecutionPolicy fallback. Release and acceptance gates verify that
+  bootstrap does not take ownership of the appearance layer.
 - Missing API keys, local MCP paths, or optional binaries are reported by doctor as readiness warnings.
 ````

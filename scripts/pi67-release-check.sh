@@ -47,6 +47,8 @@ PI67_CLI_PACKAGE_JSON="$PI67_CLI_DIR/package.json"
 PI67_CLI_BIN="$PI67_CLI_DIR/bin/pi-67.mjs"
 PI67_CLI_SOURCE="$PI67_CLI_DIR/src/cli.mjs"
 PI67_XTALPI_COMMAND="$PI67_CLI_DIR/src/commands/xtalpi.mjs"
+PI67_UPDATE_COMMAND="$PI67_CLI_DIR/src/commands/update.mjs"
+PI67_DISTRO_MANIFEST="$PI67_CLI_DIR/src/data/distro-manifest.json"
 RELEASE_DOC="$REPO_ROOT/docs/release.md"
 WINDOWS_FRESH_INSTALL_DOC="$REPO_ROOT/docs/windows-fresh-install.md"
 NPM_PUBLISH_WORKFLOW="$REPO_ROOT/.github/workflows/npm-publish.yml"
@@ -177,7 +179,7 @@ NODE
   node "$PI67_CLI_BIN" --agent-dir "$REPO_ROOT" --repo-root "$REPO_ROOT" publish-check --json --no-remote >/dev/null
   node "$PI67_CLI_BIN" --agent-dir "$REPO_ROOT" --repo-root "$REPO_ROOT" themes current --json >/dev/null
   node "$PI67_CLI_BIN" --agent-dir "$REPO_ROOT" --repo-root "$REPO_ROOT" external list --json >/dev/null
-  node "$PI67_CLI_BIN" --agent-dir "$REPO_ROOT" --repo-root "$REPO_ROOT" external setup browser67 --dry-run --json >/dev/null
+  node "$PI67_CLI_BIN" --agent-dir "$REPO_ROOT" --repo-root "$REPO_ROOT" external install browser67 --dry-run --json >/dev/null
   node "$PI67_CLI_BIN" --agent-dir "$REPO_ROOT" --repo-root "$REPO_ROOT" backups list --json >/dev/null
   node "$PI67_CLI_BIN" --dry-run self-update >/dev/null
   pass "pi-67 npm CLI smoke commands passed"
@@ -323,44 +325,112 @@ else
 fi
 
 if grep -q '\[switch\]\$SelfTest' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q '\[ValidateSet("Auto", "Install", "Update")\]' "$POWERSHELL_BOOTSTRAP" \
   && grep -q 'Node.js 24 LTS' "$POWERSHELL_BOOTSTRAP" \
   && grep -q '22.19.0' "$POWERSHELL_BOOTSTRAP" \
-  && grep -q 'Repair-WinGetPackageManager -AllUsers' "$POWERSHELL_BOOTSTRAP" \
-  && grep -q 'Microsoft.WindowsTerminal' "$POWERSHELL_BOOTSTRAP" \
-  && grep -q 'Microsoft.PowerShell' "$POWERSHELL_BOOTSTRAP" \
-  && grep -q 'zufuliu.notepad4' "$POWERSHELL_BOOTSTRAP" \
-  && grep -q 'Git.Git' "$POWERSHELL_BOOTSTRAP" \
-  && grep -q 'Schniz.fnm' "$POWERSHELL_BOOTSTRAP" \
-  && grep -q 'lts/krypton' "$POWERSHELL_BOOTSTRAP" \
-  && grep -q 'fnm env --use-on-cd --shell powershell' "$POWERSHELL_BOOTSTRAP" \
-  && grep -q 'defaultProfile' "$POWERSHELL_BOOTSTRAP" \
-  && grep -q 'Notepad4SystemIntegration' "$POWERSHELL_BOOTSTRAP" \
-  && grep -q 'Start-Process.*-Verb RunAs' "$POWERSHELL_BOOTSTRAP" \
-  && grep -q '\[switch\]\$NoXtalpiPrompt' "$POWERSHELL_BOOTSTRAP" \
-  && grep -Fq '"xtalpi", "configure", "--verify"' "$POWERSHELL_BOOTSTRAP" \
-  && grep -q 'pi67.windows-bootstrap.v4' "$POWERSHELL_BOOTSTRAP" \
-  && grep -q 'selectionManagedByPi67 = \$false' "$POWERSHELL_BOOTSTRAP" \
-  && grep -q 'persistenceOwner = "upstream-pi"' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q '@bigking67/pi-67@latest' "$POWERSHELL_BOOTSTRAP" \
+  && grep -Fq '"install", "--repair", "--yes"' "$POWERSHELL_BOOTSTRAP" \
+  && grep -Fq 'return @($arguments + @("update"))' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -Fq '"update", "--repair", "--yes"' "$POWERSHELL_BOOTSTRAP" \
+  && grep -Fq '"version", "--json"' "$POWERSHELL_BOOTSTRAP" \
+  && grep -Fq '"doctor", "--json"' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q 'pi67.manager-bootstrap.v1' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q 'Administrator access: not required' "$POWERSHELL_BOOTSTRAP" \
+  && grep -q 'windows-fresh-install.md' "$POWERSHELL_BOOTSTRAP" \
   && grep -q 'RESULT: PASS' "$POWERSHELL_BOOTSTRAP" \
-  && ! grep -q 'READY_WITHOUT_PROVIDER' "$POWERSHELL_BOOTSTRAP" \
-  && ! grep -q 'READY_WITHOUT_XTALPI' "$POWERSHELL_BOOTSTRAP" \
-  && ! grep -q '"configure", "--provider"' "$POWERSHELL_BOOTSTRAP" \
-  && ! grep -q 'OpenJS.NodeJS.LTS' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -q 'Repair-WinGetPackageManager' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -q 'Microsoft.WindowsTerminal' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -q 'Microsoft.PowerShell' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -q 'zufuliu.notepad4' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -q 'Schniz.fnm' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -q 'Git.Git' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -q '@earendil-works/pi-coding-agent' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -q 'Start-Process' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -q 'Set-ExecutionPolicy' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -q 'pi67-windows-acceptance' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -q '\[switch\]\$Minimal' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -q '\[switch\]\$NoXtalpiPrompt' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -q -- '-UseNpmMirror' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -Fq '"config", "set", "registry"' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -q 'registry.npmmirror.com' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -q 'JanDeDobbeleer.OhMyPosh' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -q 'oh-my-posh init' "$POWERSHELL_BOOTSTRAP" \
+  && ! grep -q 'MapleMono-NF-CN' "$POWERSHELL_BOOTSTRAP" \
   && ! grep -Fq 'pi-67 launch' "$POWERSHELL_BOOTSTRAP" \
   && ! grep -q -- '-SkipUpdate' "$POWERSHELL_BOOTSTRAP"; then
-  pass "Windows fresh-machine bootstrap contract is complete"
+  pass "Windows pi-67 manager/workspace bootstrap contract is complete"
 else
-  fail "Windows fresh-machine bootstrap contract is incomplete"
+  fail "Windows pi-67 manager/workspace bootstrap contract is incomplete"
 fi
 
 if grep -q 'Node.js 24 LTS' "$WINDOWS_FRESH_INSTALL_DOC" \
   && grep -q '22.19.0' "$WINDOWS_FRESH_INSTALL_DOC" \
-  && grep -q 'Repair-WinGetPackageManager -AllUsers' "$WINDOWS_FRESH_INSTALL_DOC" \
   && grep -q 'Windows Terminal' "$WINDOWS_FRESH_INSTALL_DOC" \
-  && grep -q 'PowerShell 7' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'Microsoft.WindowsTerminal' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'App Installer' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'Add-AppxPackage' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'Microsoft.DesktopAppInstaller_8wekyb3d8bbwe' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'Microsoft.WinGet.Client' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'Repair-WinGetPackageManager -AllUsers' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'learn.microsoft.com/windows/package-manager/winget/' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'Microsoft.PowerShell' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'pwsh --version' "$WINDOWS_FRESH_INSTALL_DOC" \
   && grep -q 'zufuliu.notepad4' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q '设置 -> 高级设置 -> 系统集成' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'Windows 资源管理器的右键菜单' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q '通过注册表替换 Windows 记事本' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -Fq 'HKCR\*\shell\Notepad4\command' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -Fq 'Image File Execution Options\notepad.exe' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'Start-Process notepad.exe' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'where.exe git' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -Fq "GetEnvironmentVariable('Path', 'Machine')" "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -Fq "GetEnvironmentVariable('Path', 'User')" "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'GitPersisted' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'SetEnvironmentVariable' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -Fq "'Git\cmd'" "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'defaultProfile' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q '574e775e-4f2a-5b96-ac1e-a2962a402336' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q '"elevate": true' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'Automatically run as Administrator' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'Pi67-WindowsTerminal-Admin' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'New-ScheduledTaskPrincipal' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q -- '-RunLevel Highest' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'Windows Terminal (Administrator).lnk' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'Unregister-ScheduledTask' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'PSEdition = Core' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'WindowsBuiltInRole.*Administrator' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'windows/terminal/customize-settings/profile-general' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'scheduledtasks/register-scheduledtask' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'Git.Git' "$WINDOWS_FRESH_INSTALL_DOC" \
   && grep -q 'Schniz.fnm' "$WINDOWS_FRESH_INSTALL_DOC" \
   && grep -q 'lts/krypton' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -Fq "We can't find the necessary environment variables" "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -Fq '$ProfileDir' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -Fq 'New-Item -Path $PROFILE -ItemType File -Force' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -Fq 'notepad $PROFILE' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'fnm env --use-on-cd --shell powershell' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -Fq '. $PROFILE' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'fnm default lts/krypton' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'npm config set registry https://registry.npmmirror.com' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'npm config get registry' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'https://registry.npmjs.org/' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'JanDeDobbeleer.OhMyPosh' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'MapleMono-NF-CN.zip' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'MapleMono-NF-CN.sha256' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'Get-FileHash -LiteralPath \$MapleZip -Algorithm SHA256' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'oh-my-posh font install \$MapleZip --headless' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'Maple Mono NF CN' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'oh-my-posh font install meslo' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'MesloLGM Nerd Font' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'subframe7536/maple-font/blob/variable/README_CN.md' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'oh-my-posh init pwsh | Invoke-Expression' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'oh-my-posh init pwsh --eval | Invoke-Expression' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'https://ohmyposh.dev/docs/themes' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'workstation acceptance 的阻断项' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q '@earendil-works/pi-coding-agent@latest' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q 'pi67-bootstrap.ps1' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q -- '-Mode Auto' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -q '不会安装 Windows Terminal' "$WINDOWS_FRESH_INSTALL_DOC" \
   && grep -Fq 'pi-67 xtalpi configure --verify' "$WINDOWS_FRESH_INSTALL_DOC" \
   && grep -q '/login' "$WINDOWS_FRESH_INSTALL_DOC" \
   && grep -q '/model' "$WINDOWS_FRESH_INSTALL_DOC" \
@@ -372,19 +442,34 @@ if grep -q 'Node.js 24 LTS' "$WINDOWS_FRESH_INSTALL_DOC" \
   && grep -q 'Invoke-WebRequest' "$WINDOWS_FRESH_INSTALL_DOC" \
   && grep -q 'UseBasicParsing' "$WINDOWS_FRESH_INSTALL_DOC" \
   && ! grep -Fq 'irm | iex' "$WINDOWS_FRESH_INSTALL_DOC"; then
-  pass "Windows fresh-install documentation preserves the runtime and security contract"
+  pass "Windows manual fresh-install documentation preserves the runtime and security contract"
 else
-  fail "Windows fresh-install documentation contract is incomplete"
+  fail "Windows manual fresh-install documentation contract is incomplete"
 fi
 
 if grep -q '\[switch\]\$SkipUpdate' "$POWERSHELL_ACCEPTANCE" \
   && grep -q '\[switch\]\$SelfTest' "$POWERSHELL_ACCEPTANCE" \
   && grep -q '\[switch\]\$ValidateWorkstation' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q '\[switch\]\$SkipTerminalAdminLauncher' "$POWERSHELL_ACCEPTANCE" \
   && grep -q '\[string\]\$ProviderProfile = "auto"' "$POWERSHELL_ACCEPTANCE" \
   && grep -q 'Assert-WorkstationContract' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q 'Assert-TerminalAdminLauncherContract' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q 'Find-Notepad4Executable' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q 'Assert-Notepad4IntegrationContract' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q 'Test-PersistentPathContains' "$POWERSHELL_ACCEPTANCE" \
+  && grep -Fq '*\shell\Notepad4\command' "$POWERSHELL_ACCEPTANCE" \
+  && grep -Fq 'Image File Execution Options\notepad.exe' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q 'Pi67-WindowsTerminal-Admin' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q 'Windows Terminal (Administrator).lnk' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q '574e775e-4f2a-5b96-ac1e-a2962a402336' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q 'terminalProfilesElevated = -not \[bool\]\$NoTerminalAdmin' "$POWERSHELL_ACCEPTANCE" \
   && grep -q 'fnm env --use-on-cd --shell powershell' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q 'Assert-NpmRegistryContract' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q 'https://registry.npmmirror.com/' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q 'npmRegistry = \$script:NpmRegistry' "$POWERSHELL_ACCEPTANCE" \
   && grep -q 'Arguments = @("self-update")' "$POWERSHELL_ACCEPTANCE" \
-  && grep -q '"update", "--repair", "--yes"' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q '"update"' "$POWERSHELL_ACCEPTANCE" \
+  && ! grep -q '"update", "--repair", "--yes"' "$POWERSHELL_ACCEPTANCE" \
   && grep -Fq 'Invoke-CommandStage "pi-runtime" "pi" @("--version")' "$POWERSHELL_ACCEPTANCE" \
   && grep -Fq 'Invoke-CommandStage "pi-extension-load" $script:ChildPowerShell' "$POWERSHELL_ACCEPTANCE" \
   && ! grep -Fq 'Invoke-CommandStage "launch"' "$POWERSHELL_ACCEPTANCE" \
@@ -397,7 +482,7 @@ if grep -q '\[switch\]\$SkipUpdate' "$POWERSHELL_ACCEPTANCE" \
   && grep -q 'pi67-provider-status.mjs' "$POWERSHELL_ACCEPTANCE" \
   && grep -q 'pi67-zero-key-startup-smoke.ps1' "$POWERSHELL_ACCEPTANCE" \
   && grep -q 'upstream-pi-default-request' "$POWERSHELL_ACCEPTANCE" \
-  && grep -q 'pi67.windows-acceptance.v4' "$POWERSHELL_ACCEPTANCE" \
+  && grep -q 'pi67.windows-acceptance.v5' "$POWERSHELL_ACCEPTANCE" \
   && ! grep -q 'READY_WITHOUT_PROVIDER' "$POWERSHELL_ACCEPTANCE" \
   && ! grep -q 'READY_WITHOUT_XTALPI' "$POWERSHELL_ACCEPTANCE" \
   && grep -q 'RESULT: PASS' "$POWERSHELL_ACCEPTANCE"; then
@@ -521,14 +606,38 @@ else
   fail "upstream Pi release compatibility diagnostics are incomplete"
 fi
 
-if [ -f "$BROWSER67_RUNTIME_LIB" ] \
-  && grep -q 'external setup browser67' "$REPO_ROOT/README.md" \
-  && grep -q 'external doctor browser67 --deep' "$CLI_README" \
-  && grep -q 'external setup browser67' "$FULL_INSTALL_DOC" \
-  && grep -q 'external doctor browser67 --deep' "$TROUBLESHOOTING_DOC"; then
-  pass "browser67 explicit setup and layered doctor are implemented and documented"
+if [ -f "$PI67_UPDATE_COMMAND" ] \
+  && [ -f "$PI67_DISTRO_MANIFEST" ] \
+  && ! grep -Fq '"include-pi"' "$PI67_UPDATE_COMMAND" \
+  && ! grep -Fq 'options.includePi' "$PI67_UPDATE_COMMAND" \
+  && ! grep -Fq 'runCommand("pi"' "$PI67_UPDATE_COMMAND" \
+  && ! grep -Fq 'pi update --all' "$PI67_UPDATE_COMMAND" \
+  && ! grep -Fq '      "yes",' "$PI67_UPDATE_COMMAND" \
+  && grep -Fq 'pi-67 update does not use --yes' "$PI67_UPDATE_COMMAND" \
+  && grep -Fq 'shouldForceNpmSync' "$PI67_UPDATE_COMMAND" \
+  && grep -Fq 'managed-npm-packages' "$PI67_UPDATE_COMMAND" \
+  && grep -Fq '@earendil-works/pi-coding-agent@latest' "$PI67_UPDATE_COMMAND" \
+  && grep -Fq '"owner": "upstream-pi"' "$PI67_DISTRO_MANIFEST" \
+  && grep -Fq '"mutationPolicy": "report-only-never-install-or-update-through-pi67"' "$PI67_DISTRO_MANIFEST" \
+  && grep -Fq 'pi-67 不会安装或更新 upstream Pi' "$REPO_ROOT/README.md" \
+  && grep -Fq 'never installs or updates upstream Pi' "$CLI_README" \
+  && ! grep -Fq 'pi-67 update --repair --yes' "$REPO_ROOT/README.md" \
+  && ! grep -Fq 'pi-67 update --repair --yes' "$CLI_README" \
+  && ! grep -Fq 'pi-67 update --repair --yes' "$WINDOWS_FRESH_INSTALL_DOC" \
+  && grep -Fq 'normal update will resync them automatically' "$PI67_UPDATE_COMMAND"; then
+  pass "upstream Pi ownership and smart default pi-67 update lifecycle are enforced"
 else
-  fail "browser67 explicit setup or layered doctor documentation is incomplete"
+  fail "upstream Pi ownership or smart default pi-67 update contract is incomplete"
+fi
+
+if [ -f "$BROWSER67_RUNTIME_LIB" ] \
+  && grep -q 'external install browser67' "$REPO_ROOT/README.md" \
+  && grep -q 'external doctor browser67 --deep' "$CLI_README" \
+  && grep -q 'external install browser67' "$FULL_INSTALL_DOC" \
+  && grep -q 'external doctor browser67 --deep' "$TROUBLESHOOTING_DOC"; then
+  pass "browser67 install-first lifecycle and layered doctor are implemented and documented"
+else
+  fail "browser67 install-first lifecycle or layered doctor documentation is incomplete"
 fi
 
 if grep -q "pi67-test-skill-governance.sh" "$SKILL_GOV_DOC" \

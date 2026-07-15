@@ -3,7 +3,6 @@ import { buildUpdatePlan } from "../lib/update-plan.mjs";
 import { CliError, printJson, section, keyValue, pass, warn, info } from "../lib/output.mjs";
 import { runDistroScript } from "../lib/distro-scripts.mjs";
 import { isWindows } from "../lib/platform.mjs";
-import { runCommand } from "../lib/shell-runner.mjs";
 import { writeState } from "../lib/state-store.mjs";
 import { beginUpdateLifecycle } from "../lib/update-safety.mjs";
 import { migrateSettingsRuntimeState } from "../lib/settings-runtime-state.mjs";
@@ -18,16 +17,16 @@ export async function updateCommand(ctx, argv) {
       "no-remote",
       "no-npm",
       "allow-dirty",
-      "include-pi",
       "include-external",
-      "all",
-      "yes",
       "strict-shared-skills",
     ],
   });
   if (options.help) {
     printUpdateHelp();
     return;
+  }
+  if (ctx.yes) {
+    throw new CliError("pi-67 update does not use --yes; run `pi-67 update` or `pi-67 update --repair` without it", 2);
   }
   const dryRun = ctx.dryRun || options.dryRun;
   const json = ctx.json || options.json;
@@ -63,9 +62,13 @@ export async function updateCommand(ctx, argv) {
 
   reportSettingsRuntimeStateMigration(ctx, { dryRun, phase: "Preflight" });
 
+  const forceNpm = shouldForceNpmSync(plan, { repair: options.repair });
+  if (forceNpm && !options.repair) {
+    info("Managed npm packages are stale or missing; normal update will resync them automatically.");
+  }
   const args = isWindows()
-    ? buildWindowsUpdateArgs(ctx, options, dryRun)
-    : buildBashUpdateArgs(ctx, options, dryRun);
+    ? buildWindowsUpdateArgs(ctx, options, dryRun, forceNpm)
+    : buildBashUpdateArgs(ctx, options, dryRun, forceNpm);
   try {
     runDistroScript(ctx, { sh: "pi67-update.sh", ps1: "pi67-update.ps1" }, args, { dryRun: false });
     if (!dryRun) {
@@ -76,14 +79,7 @@ export async function updateCommand(ctx, argv) {
     lifecycle.release();
   }
 
-  if (options.includePi || options.all) {
-    if (ctx.yes || options.yes) {
-      runCommand("pi", ["update", "--all"], { dryRun });
-    } else {
-      warn("Pi upstream update skipped; rerun with --include-pi --yes if you really want `pi update --all`.");
-    }
-  }
-  if (options.includeExternal || options.all) {
+  if (options.includeExternal) {
     warn("External repo updates are explicit; run `pi-67 external update browser67` or `pi-67 external update design-craft`.");
   }
 }
@@ -113,10 +109,10 @@ function reportSettingsRuntimeStateMigration(ctx, options = {}) {
   }
 }
 
-function buildBashUpdateArgs(ctx, options, dryRun) {
+function buildBashUpdateArgs(ctx, options, dryRun, forceNpm) {
   const args = ["--agent-dir", ctx.agentDir, "--repo-root", ctx.repoRoot, "--skills-dir", ctx.skillsDir];
   if (dryRun) args.push("--dry-run");
-  if (options.repair) args.push("--force-npm");
+  if (forceNpm) args.push("--force-npm");
   if (options.noNpm) args.push("--no-npm");
   if (options.allowDirty) args.push("--allow-dirty");
   if (options.strictSharedSkills) args.push("--strict-shared-skills");
@@ -130,21 +126,27 @@ function assertPlanCanProceed(plan, options = {}) {
   for (const item of remaining) warn(`${item.id}: ${item.reason}`);
   if (remaining.some((item) => item.id === "pi67-manager")) {
     throw new CliError(
-      `pi-67 manager is outdated; run \`pi-67 self-update\` or \`npm install -g ${plan.manager.package}@latest\`, then rerun \`pi-67 update --repair --yes\``,
+      `pi-67 manager is outdated; run \`pi-67 self-update\` or \`npm install -g ${plan.manager.package}@latest\`, then rerun \`pi-67 update\``,
       2,
     );
   }
   throw new CliError("pi-67 update is blocked; run `pi-67 update --check` for the full plan or rerun with --allow-dirty if you accept the repo-root dirty risk", 2);
 }
 
-function buildWindowsUpdateArgs(ctx, options, dryRun) {
+function buildWindowsUpdateArgs(ctx, options, dryRun, forceNpm) {
   const args = ["-AgentDir", ctx.agentDir, "-RepoRoot", ctx.repoRoot, "-SkillsDir", ctx.skillsDir];
   if (dryRun) args.push("-DryRun");
-  if (options.repair) args.push("-ForceNpm");
+  if (forceNpm) args.push("-ForceNpm");
   if (options.noNpm) args.push("-NoNpm");
   if (options.allowDirty) args.push("-AllowDirty");
   if (options.strictSharedSkills) args.push("-StrictSharedSkills");
   return args;
+}
+
+export function shouldForceNpmSync(plan, options = {}) {
+  return Boolean(options.repair) || Boolean(
+    plan?.actions?.some((action) => action.id === "managed-npm-packages"),
+  );
 }
 
 function printPlan(plan) {
@@ -213,17 +215,21 @@ Usage:
 
 Options:
   --check                 Print the read-only update plan and exit.
-  --repair                Re-run owned asset/config repair during update.
+  --repair                Force reinstall managed workspace npm dependencies.
   --dry-run               Print planned script actions without changing files.
   --no-remote             Skip remote git/npm registry checks where supported.
   --no-npm                Skip npm package sync in the distro updater.
   --allow-dirty           Let the script-level updater handle non-runtime dirty files.
   --strict-shared-skills  Treat preserved user-modified shared skills as blocking.
-  --include-pi            Also run upstream \`pi update --all\` when paired with --yes.
   --include-external      Report explicit external repo update commands.
-  --all                   Alias for --include-pi --include-external.
-  --yes                   Confirm explicit opt-in actions.
   --json                  Emit JSON for --check.
+
+Ownership:
+  This command updates only the pi-67 distribution, managed extensions, Skills,
+  rules, prompts, templates, MCP/provider templates, configuration migrations,
+  owned-asset reconciliation, and workspace dependencies. It never installs or
+  updates the upstream Pi runtime. Update Pi separately with:
+  npm install -g @earendil-works/pi-coding-agent@latest
 
 Safety:
   Runtime config backup/restore is owned by the platform updater script when

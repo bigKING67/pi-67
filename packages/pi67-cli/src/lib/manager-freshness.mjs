@@ -23,7 +23,7 @@ export async function inspectManagerFreshness(ctx, options = {}) {
     blocking,
     updateCommand: `npm install -g ${pkg.name}@latest`,
     selfUpdateCommand: "pi-67 self-update",
-    oneShotCommand: `npx -y ${pkg.name}@latest update --repair`,
+    oneShotCommand: `npx -y ${pkg.name}@latest update`,
   };
 }
 

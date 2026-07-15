@@ -19,7 +19,7 @@ export async function doctorCommand(ctx, argv) {
       section("pi-67 manager preflight");
       warn(managerFreshnessBlockReason(freshness));
       info(`Run: ${freshness.updateCommand}`);
-      info("Then rerun: pi-67 update --repair --yes");
+      info("Then rerun: pi-67 update");
     }
   }
   const args = isWindows()

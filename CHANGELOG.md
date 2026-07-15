@@ -6,6 +6,87 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.11.7] - 2026-07-15
+
+### Changed
+
+- Unified the external companion lifecycle around user-facing intent.
+  `pi-67 external install browser67` now owns both the first checkout and full
+  runtime preparation; `external update browser67` pulls an existing clean
+  checkout and reruns preparation only after a real revision change or when
+  deterministic readiness is incomplete. `external setup browser67` is now an
+  explicit rebuild for an already installed checkout, while update no longer
+  silently installs missing external repositories. Automated update setup
+  preserves an existing valid alternate MCP checkout; dirty repos continue to
+  fail closed without reset, clean, or overwrite.
+- Simplified the normal pi-67 maintenance path to `pi-67 update`. The updater
+  now automatically forces managed npm dependency synchronization when its
+  read-only plan detects missing or stale pi-67-managed packages. `--repair`
+  is reserved for explicitly forcing npm reinstall when the plan appears
+  current but the installation is damaged, and the ineffective command-level
+  `pi-67 update --yes` option has been removed. Fresh-install recovery keeps
+  `pi-67 install --repair --yes` because moving an existing non-Git workspace
+  still requires explicit consent.
+- Removed `pi-67 update --include-pi`, `pi-67 update --all`, and the underlying
+  `pi update --all` execution path. Upstream Pi is now a strict separate
+  lifecycle: pi-67 may report installed/tested/latest compatibility and the
+  standalone npm update command, but install/update/repair never mutates the Pi
+  runtime. pi-67 update remains responsible for its manager-adjacent
+  distribution, managed extensions, Skills, rules, prompts, templates,
+  configuration repair, and workspace dependencies.
+- Reduced the Windows `pi67-bootstrap.ps1` release asset to a focused
+  pi-67 manager/workspace installer and updater. Windows Terminal, PowerShell 7, Git, fnm,
+  Node.js/npm, and upstream Pi are now explicit manual prerequisites; the
+  script no longer requests UAC or mutates workstation, shell, registry,
+  provider, or npm-registry configuration.
+- Reworked the Windows fresh-install guide into a complete zero-to-ready
+  sequence beginning with Administrator Windows PowerShell and a WinGet
+  command-line installation of Windows Terminal, followed by manual runtime
+  preparation and the lightweight pi-67 bootstrap.
+- Corrected the true fresh-machine prerequisite chain so a missing WinGet is
+  recovered before Windows Terminal installation: App Installer registration
+  first, Microsoft Store installation/update when absent, and the official
+  Microsoft.WinGet.Client repair flow as a command-line fallback.
+- Documented the required Windows Terminal post-install contract: use the
+  newly installed PowerShell 7 profile as the default, enable profile-level
+  administrator startup, and use a fixed highest-privilege scheduled task plus
+  pinned shortcut for daily launches without repeated UAC prompts. The guide
+  retains system UAC for the original Terminal icon and other elevation paths,
+  and includes verification and rollback steps. Windows workstation acceptance
+  schema v5 validates PowerShell 7, its elevated default profile, and the fixed
+  highest-privilege launcher.
+- Added Notepad4 as the manual prerequisite immediately after PowerShell 7.
+  The fresh-install and acceptance contracts require the Windows Explorer
+  context-menu integration and registry-based replacement of Windows Notepad;
+  the taskbar jump-list option remains optional. The lightweight pi-67
+  bootstrap still does not install or configure Notepad4.
+- Moved Git for Windows into the manual sequence immediately after Notepad4.
+  The guide now reloads User/Machine PATH, verifies `where.exe git` and
+  `git --version`, proves the resolved Git `cmd` directory is persistent, and
+  provides a deduplicating User PATH repair only when WinGet did not persist
+  the directory. Windows acceptance retains the same persistent-PATH gate.
+- Made the fnm/Node stage reproducible from a missing PowerShell 7 profile:
+  close all Terminal windows after installing `Schniz.fnm`, create `$PROFILE`,
+  edit it through Notepad4, load the canonical `fnm env --use-on-cd` line into
+  the current shell, and select `lts/krypton`. The manual contract now persists
+  `https://registry.npmmirror.com/` as the final npm registry; workstation
+  acceptance validates that value without modifying user configuration.
+- Added an optional Oh My Posh workstation-polish step with the user-scoped
+  WinGet package, profile initialization, theme gallery, and reversible
+  removal. `Maple Mono NF CN` is the primary team font because it combines Nerd
+  Font icons with CJK coverage and 2:1 terminal alignment; the guide downloads
+  the official latest archive and checksum, verifies SHA-256, and retains Meslo
+  only as a compatibility fallback. The faster standard PowerShell initializer
+  is the default; `--eval` is documented only as the slower ExecutionPolicy
+  fallback. Bootstrap and workstation acceptance remain independent of this
+  appearance layer.
+
+### Fixed
+
+- Made Windows bootstrap dry-run output render the exact workspace command for
+  the selected mode, so update previews show `pi-67 update` instead of the
+  install-only `--repair --yes` consent flags.
+
 ## [0.11.6] - 2026-07-14
 
 ### Fixed

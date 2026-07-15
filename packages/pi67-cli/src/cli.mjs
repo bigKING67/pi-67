@@ -106,7 +106,7 @@ Examples:
   pi-67 backups list
   pi-67 backups prune --keep-last 10 --dry-run
   pi-67 extensions doctor
-  pi-67 external setup browser67 --dry-run
+  pi-67 external install browser67 --dry-run
   pi-67 external doctor browser67 --deep
   pi-67 skills plan
   pi-67 xtalpi configure --verify

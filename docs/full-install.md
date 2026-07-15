@@ -20,31 +20,117 @@ Missing API keys, local MCP repositories, or optional binaries are expected on a
 
 ## Install
 
-### Windows fresh-machine bootstrap (recommended)
+### Windows fresh-machine manual prerequisites (recommended)
 
-For a Windows computer without Windows Terminal, PowerShell 7, Notepad4, Git,
-Node.js, upstream Pi, or pi-67, use the release bootstrap instead of asking the
-user to assemble prerequisites by hand:
+On a completely fresh Windows computer, start from the built-in Administrator
+Windows PowerShell. Ensure WinGet is available, then install Windows Terminal:
 
 ```powershell
-$Bootstrap = Join-Path $env:TEMP "pi67-bootstrap.ps1"
-Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/bigKING67/pi-67/releases/latest/download/pi67-bootstrap.ps1" -OutFile $Bootstrap
-powershell -NoProfile -ExecutionPolicy Bypass -File $Bootstrap
+if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+  Add-AppxPackage -RegisterByFamilyName -MainPackage Microsoft.DesktopAppInstaller_8wekyb3d8bbwe
+}
+winget --version
+winget install --id Microsoft.WindowsTerminal -e --source winget --accept-package-agreements --accept-source-agreements
+winget install --id Microsoft.PowerShell -e --source winget --accept-package-agreements --accept-source-agreements
+winget install --id zufuliu.notepad4 -e --source winget --accept-package-agreements --accept-source-agreements
 ```
 
-The bootstrap runs on Windows PowerShell 5.1+, requests one Administrator/UAC
-session, repairs a missing WinGet installation, installs and configures Windows
-Terminal, PowerShell 7 and Notepad4, persists Git PATH, and installs fnm. It
-then resolves `lts/krypton` to Node.js 24 LTS and verifies Node.js
-`>=22.19.0` from fnm. Only after every workstation prerequisite passes does it
-install the real upstream Pi package, followed by pi-67. The company
-`xtalpi-pi-tools` key prompt is optional; leaving it blank does not block the
-complete Windows acceptance gate. `pi` remains the daily entrypoint.
+Run the App Installer registration command only when `winget` is missing. If
+the package is absent or registration still fails, the canonical Windows guide
+documents both the Microsoft Store App Installer path and the official
+`Microsoft.WinGet.Client` / `Repair-WinGetPackageManager -AllUsers` PowerShell
+Gallery fallback.
 
-See [`windows-fresh-install.md`](windows-fresh-install.md) for checksum
-verification, WinGet repair, Terminal `defaultProfile` / `elevate`, Notepad4
-registry integration, Git PATH, fnm profile management, `-Minimal`,
-`-NoXtalpiPrompt`, logs, and network troubleshooting.
+After Terminal installation, install PowerShell 7 and Notepad4. Run Notepad4 as
+Administrator, open **Settings -> Advanced Settings -> System Integration**,
+enable the Windows Explorer context-menu entry, and enable the registry-based
+Windows Notepad replacement. The taskbar jump-list option is optional.
+Install Git only after that integration is complete:
+
+```powershell
+winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements
+```
+
+Verify `where.exe git`, `git --version`, and that Git's `cmd` directory is in
+the persistent User or Machine PATH; close and reopen Terminal and repeat the
+Git checks before continuing.
+
+Then set **Startup -> Default profile** to **PowerShell**. Enable **Profiles ->
+PowerShell -> Advanced -> Automatically run as Administrator** as the profile
+contract. Follow the canonical guide once to register the fixed
+highest-privilege scheduled task and pin its
+`Windows Terminal (Administrator)` shortcut. Daily launches through that entry
+start PowerShell 7 with an Administrator token without repeated UAC. Launching
+the original Terminal icon still requests UAC; UAC remains enabled for other
+elevation requests.
+
+Continue in a newly opened PowerShell 7 terminal and install fnm. Close every
+existing Terminal window after WinGet finishes so the new shell inherits the
+persistent PATH:
+
+```powershell
+winget install --id Schniz.fnm -e --source winget
+$ProfileDir = Split-Path -Parent $PROFILE
+New-Item -Path $ProfileDir -ItemType Directory -Force | Out-Null
+New-Item -Path $PROFILE -ItemType File -Force | Out-Null
+notepad $PROFILE
+```
+
+Save the following single initialization line in the PowerShell 7 profile:
+
+```powershell
+fnm env --use-on-cd --shell powershell | Out-String | Invoke-Expression
+```
+
+Load the profile in the current shell, install and select Node.js 24 LTS, then
+persist and verify the npm mirror:
+
+```powershell
+. $PROFILE
+fnm install lts/krypton
+fnm default lts/krypton
+fnm use lts/krypton
+node --version
+npm --version
+npm config set registry https://registry.npmmirror.com
+npm config get registry
+```
+
+The final registry value must be `https://registry.npmmirror.com/`. If the
+mirror temporarily lacks a package, use `https://registry.npmjs.org/` only for
+that query or installation, then switch back to the required mirror and verify
+it again. Manually install the real upstream Pi package after these checks;
+only then run the release `pi67-bootstrap.ps1 -Mode Auto`. The bootstrap now manages only
+the latest `@bigking67/pi-67` manager and the `~/.pi/agent` workspace. It does
+not request UAC, install system/runtime prerequisites, edit Terminal or shell
+profiles, configure provider credentials, or run full workstation acceptance.
+
+For the optional segmented prompt shown in the Windows guide, install Oh My
+Posh after the runtime prerequisites:
+
+```powershell
+winget install JanDeDobbeleer.OhMyPosh --source winget --scope user --force
+notepad $PROFILE
+```
+
+Append `oh-my-posh init pwsh | Invoke-Expression` exactly once as the last
+profile line and reload with `. $PROFILE`. The primary team font is
+`Maple Mono NF CN`, which combines Nerd Font glyphs with CJK coverage and 2:1
+terminal alignment. The canonical Windows guide downloads
+`MapleMono-NF-CN.zip` and `MapleMono-NF-CN.sha256` from the official latest
+release, verifies SHA-256, installs the local archive through Oh My Posh, and
+selects `Maple Mono NF CN` in Terminal. Meslo is only the download-failure
+fallback. Use
+`oh-my-posh init pwsh --eval | Invoke-Expression` only as the documented
+ExecutionPolicy fallback because it initializes more slowly. Theme previews
+are available at <https://ohmyposh.dev/docs/themes>; Maple Mono documentation
+is at <https://github.com/subframe7536/maple-font/blob/variable/README_CN.md>.
+This appearance layer is optional and is intentionally excluded from bootstrap
+and workstation acceptance.
+
+See [`windows-fresh-install.md`](windows-fresh-install.md) for the complete
+zero-to-ready command sequence, App Installer fallback, SHA-256 verification,
+fnm profile setup, Auto/Install/Update modes, logs, and troubleshooting.
 
 ### npm manager path for machines with Node/Git
 
@@ -56,7 +142,7 @@ available for CI, bootstrap, and advanced troubleshooting.
 Windows PowerShell:
 
 ```powershell
-npm install -g @earendil-works/pi-coding-agent
+npm install -g @earendil-works/pi-coding-agent@latest
 npm install -g @bigking67/pi-67
 pi --version
 pi-67 install --repair --yes
@@ -166,37 +252,33 @@ moved forward. Update the manager first:
 
 ```bash
 npm install -g @bigking67/pi-67@latest
-pi-67 update --repair --yes
+pi-67 update
 ```
 
 To bypass a stale local manager for one run:
 
 ```bash
-npx -y @bigking67/pi-67@latest update --repair
+npx -y @bigking67/pi-67@latest update
 ```
 
 ### Windows PowerShell first path
 
 On Windows, use PowerShell as the primary entrypoint. Do not assume an extra
-Unix-like shell is available. On a completely fresh machine, use
-`scripts/pi67-bootstrap.ps1` through the stable GitHub Release asset described
-above. The manual sequence below is for machines that already have a supported
-Node.js and Git installation.
+Unix-like shell is available. On a completely fresh machine, first complete
+the manual prerequisite sequence in `docs/windows-fresh-install.md`. The
+manager bootstrap intentionally fails fast until Git, Node.js, npm, and
+upstream `pi` are available.
 
 ```powershell
 npm install -g @earendil-works/pi-coding-agent
 git --version
-# pi-67 0.10.19+ can auto-detect common Git for Windows install paths when
-# PowerShell PATH is stale. install --repair --yes also persists the discovered
-# Git directory into Windows User PATH and broadcasts the environment change.
-# If Git is genuinely not installed:
-# winget install --id Git.Git -e --source winget
-
-npm install -g @bigking67/pi-67@latest
-pi-67 install --repair --yes
-pi-67 doctor
+node --version
+npm --version
 pi --version
-pi-67 smoke
+
+$Bootstrap = Join-Path $env:TEMP "pi67-bootstrap.ps1"
+Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/bigKING67/pi-67/releases/latest/download/pi67-bootstrap.ps1" -OutFile $Bootstrap
+powershell -NoProfile -ExecutionPolicy Bypass -File $Bootstrap -Mode Auto
 ```
 
 `pi-67 install --repair --yes` is safe for first install and for the common
@@ -246,8 +328,8 @@ Set-Location $env:USERPROFILE\.pi\agent
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\pi67-windows-acceptance.ps1
 ```
 
-The acceptance entrypoint runs `pi-67 self-update` first, then
-`pi-67 update --repair --yes`, and finally validates manager/distro version
+The acceptance entrypoint runs `pi-67 self-update` first, then the smart default
+`pi-67 update`, and finally validates manager/distro version
 parity, doctor, repository smoke, the real `pi --version` runtime entrypoint,
 discovery-only `xtalpi-pi-tools` model registration, and a separate real
 zero-credential Pi `session_start` probe. If the current
@@ -275,16 +357,17 @@ it is temporarily cleared for fast-forward and restored after the merge.
 Already-up-to-date or non-overlapping updates keep it in place without writing
 a backup. Unrelated tracked edits still block.
 
-The canonical fresh-machine orchestration lives in
-`scripts/pi67-bootstrap.ps1`; `docs/windows-fresh-install.md` is the canonical
-user-facing explanation of the same ordered stages. Release checks must keep
-the implementation and documentation synchronized. Maintainers can test the
-deterministic contract without changing a computer:
+The canonical fresh-machine prerequisite sequence lives in
+`docs/windows-fresh-install.md`. `scripts/pi67-bootstrap.ps1` begins only after
+those prerequisites and owns the manager/workspace install-or-update stages.
+Release checks must keep both contracts synchronized. Maintainers can test the
+deterministic manager bootstrap without changing a computer:
 
 ```powershell
 .\scripts\pi67-bootstrap.ps1 -SelfTest
 .\scripts\pi67-bootstrap.ps1 -DryRun
-.\scripts\pi67-bootstrap.ps1 -DryRun -Minimal
+.\scripts\pi67-bootstrap.ps1 -DryRun -Mode Install
+.\scripts\pi67-bootstrap.ps1 -DryRun -Mode Update
 ```
 
 This keeps Windows usage on native PowerShell and prevents the README,
@@ -516,21 +599,36 @@ bash ~/.pi/agent/scripts/pi67-check-external-skills.sh \
 ```
 
 The default pi-67 install intentionally leaves browser67 absent. For the
-managed checkout, use the complete opt-in workflow rather than treating a Git
-clone as runtime readiness:
+managed checkout, use `external install` as the complete first-time opt-in
+workflow:
 
 ```bash
-pi-67 external setup browser67 --dry-run
-pi-67 external setup browser67
+pi-67 external install browser67 --dry-run
+pi-67 external install browser67
 pi-67 external doctor browser67 --deep
 ```
 
-This clones the repo when needed, installs dependencies, prepares the unpacked
-extension, synchronizes active skills, and writes adapter-compatible browser67
-MCP entries. It does not silently load a Chrome/Edge extension, grant OS
-permissions, or take over an existing browser profile. Use
+Install clones the repo, installs dependencies, prepares the unpacked extension,
+synchronizes active skills, and writes adapter-compatible browser67 MCP entries.
+It does not silently load a Chrome/Edge extension, grant OS permissions, or take
+over an existing browser profile. Use
 `scripts/pi67-configure.sh --tmwd-repo /path/to/browser67` only when MCP should
 point at a separate local development checkout.
+
+For later updates, one explicit command safely pulls the existing clean repo and
+automatically reruns runtime setup only when the checkout changed or readiness
+is incomplete:
+
+```bash
+pi-67 external update browser67
+pi-67 external doctor browser67 --deep
+```
+
+Update fails when the repo is missing or dirty; it never silently installs,
+resets, cleans, or overwrites an external checkout. Automated update setup also
+preserves a valid alternate checkout when both MCP servers already point to it.
+`pi-67 external setup browser67` is reserved for explicitly rebuilding an
+already installed runtime and repointing MCP to the managed checkout.
 
 ## Install/update report
 
@@ -807,13 +905,32 @@ the server process.
 
 ## Updating
 
-Recommended cross-platform entrypoint:
+The upstream Pi runtime and pi-67 have separate install/update lifecycles.
+
+Update only upstream Pi:
 
 ```bash
-pi-67 update
-pi-67 update --check
-pi-67 update --repair
+npm install -g @earendil-works/pi-coding-agent@latest
+pi --version
 ```
+
+Update the pi-67 workspace and managed capabilities:
+
+```bash
+pi-67 update --check
+pi-67 update
+pi-67 doctor
+```
+
+Normal update checks manager freshness and automatically resynchronizes missing
+or stale managed npm packages. Run `pi-67 self-update` only when the manager is
+reported outdated. Reserve `pi-67 update --repair` for forcing npm dependency
+reinstall when the plan looks current but the installation is still damaged.
+
+pi-67 never installs, updates, or repairs the upstream Pi runtime. Its doctor
+and update-check paths may report Pi installed/tested/latest compatibility,
+but that observation is read-only. The retired `--include-pi` and cross-owner
+`--all` options fail closed with `unknown option`.
 
 `pi update --extensions` is intentionally not the pi-67 update path. It only
 updates upstream Pi extensions according to Pi's own semantics. Use
@@ -825,12 +942,12 @@ If Pi shows `Package Updates Available`, run `pi-67 update --check` or
 `pi-67 extensions doctor` first. pi-67 classifies whether the local
 `npm/node_modules` install is stale, or whether the pi-67 release baseline has
 not yet adopted a newer upstream package. Local stale installs are fixed by
-`pi-67 update --repair`; baseline drift should be handled by a new pi-67
+`pi-67 update`; baseline drift should be handled by a new pi-67
 release after smoke gates, not by asking every user to run the upstream
 `pi update --extensions` path.
 
 If `Manager latest` says `update available`, run `npm install -g
-@bigking67/pi-67@latest` or `pi-67 self-update` before repair. The manager owns
+@bigking67/pi-67@latest` or `pi-67 self-update` before update. The manager owns
 the safety gate, so keeping it current comes before updating the distro.
 
 If your installed pi-67 already includes the updater:
@@ -908,25 +1025,9 @@ For an older install that does not have the updater yet:
 Windows PowerShell, one-time bootstrap:
 
 ```powershell
-Set-Location $env:USERPROFILE\.pi\agent
-$Stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$BackupDir = Join-Path $env:USERPROFILE ".pi\pi67\backups\pre-update-bootstrap-$Stamp"
-New-Item -ItemType Directory -Force $BackupDir | Out-Null
-$KnownPaths = @("settings.json", "models.json", "auth.json", "mcp.json", "image-gen.json")
-$RestorePaths = @()
-foreach ($Path in $KnownPaths) {
-  git ls-files --error-unmatch $Path *> $null
-  if ($LASTEXITCODE -eq 0) { $RestorePaths += $Path }
-}
-if ($RestorePaths.Count -gt 0) {
-  git diff -- $RestorePaths | Set-Content -Path (Join-Path $BackupDir "local.diff") -Encoding UTF8
-  foreach ($Path in $RestorePaths) {
-    Copy-Item $Path (Join-Path $BackupDir ($Path -replace "[\\/]", "__")) -ErrorAction SilentlyContinue
-  }
-  git restore -- $RestorePaths
-}
-git pull --ff-only
-.\scripts\pi67-update.ps1
+$Bootstrap = Join-Path $env:TEMP "pi67-bootstrap.ps1"
+Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/bigKING67/pi-67/releases/latest/download/pi67-bootstrap.ps1" -OutFile $Bootstrap
+powershell -NoProfile -ExecutionPolicy Bypass -File $Bootstrap -Mode Auto
 ```
 
 macOS/Linux:

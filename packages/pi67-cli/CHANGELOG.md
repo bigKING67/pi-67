@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## [0.11.7]
+
+- Makes `external install browser67` the complete first-time lifecycle: clone,
+  dependencies, extension preparation, active Skills, and MCP configuration.
+  `external update browser67` now requires an installed clean checkout and
+  automatically reruns preparation only after a changed revision or incomplete
+  deterministic readiness. `external setup browser67` remains the explicit
+  rebuild path and no longer silently performs first-time installation.
+  Automated update setup preserves an existing valid alternate MCP checkout.
+- Makes `pi-67 update` the smart default: missing or stale managed npm packages
+  detected by the update plan trigger npm resynchronization automatically.
+  `--repair` now means force npm reinstall even when the plan looks current,
+  while the ineffective command-level `update --yes` option is removed.
+- Removes `pi-67 update --include-pi` and the cross-owner `--all` alias. The
+  pi-67 updater now manages only the distribution, extensions, Skills, rules,
+  prompts, templates, configuration repair, and workspace dependencies.
+  Upstream Pi installation and updates remain separate explicit npm operations;
+  pi-67 retains read-only compatibility diagnostics only.
+
 ## [0.11.6]
 
 - Carries the bounded `xtalpi-pi-tools` recovery for selected-tool names that

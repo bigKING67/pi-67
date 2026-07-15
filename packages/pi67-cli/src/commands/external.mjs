@@ -29,14 +29,33 @@ function list(ctx, argv) {
 }
 
 function install(ctx, argv) {
-  const { options, positionals } = parseCommandOptions(argv, { bools: ["json", "dry-run"] });
+  const { options, positionals } = parseCommandOptions(argv, { bools: ["json", "dry-run", "start-hub"] });
   if (options.help) return printExternalHelp();
   const name = positionals[0];
   assertExternalName(name);
+  if (name !== "browser67" && options.startHub) {
+    throw new CliError("--start-hub is only supported for browser67", 2);
+  }
+  const dryRun = ctx.dryRun || options.dryRun;
   const json = ctx.json || options.json;
-  const data = installExternal(ctx, name, { dryRun: ctx.dryRun || options.dryRun, quiet: json });
+  const repository = installExternal(ctx, name, { dryRun, quiet: json });
+  const runtimeSetup = name === "browser67"
+    ? prepareBrowser67Runtime(ctx, {
+        dryRun,
+        quiet: json,
+        startHub: options.startHub,
+        repositoryChanged: repository.action !== "skip",
+      })
+    : null;
+  const data = {
+    schema: "pi67.external-install.v1",
+    name,
+    ...repository,
+    ...(runtimeSetup ? { runtimeSetup } : {}),
+  };
   if (json) return printJson(data);
-  info(`${name}: ${data.action}`);
+  info(`${name}: ${repository.action}`);
+  if (runtimeSetup) printBrowser67RuntimeSetup(runtimeSetup, "browser67 install");
 }
 
 function update(ctx, argv) {
@@ -44,10 +63,26 @@ function update(ctx, argv) {
   if (options.help) return printExternalHelp();
   const name = positionals[0];
   assertExternalName(name);
+  const dryRun = ctx.dryRun || options.dryRun;
   const json = ctx.json || options.json;
-  const data = updateExternal(ctx, name, { dryRun: ctx.dryRun || options.dryRun, quiet: json });
+  const repository = updateExternal(ctx, name, { dryRun, quiet: json });
+  const runtimeSetup = name === "browser67"
+    ? prepareBrowser67Runtime(ctx, {
+        dryRun,
+        quiet: json,
+        repositoryChanged: repository.changed !== false,
+        preserveValidAlternateMcp: true,
+      })
+    : null;
+  const data = {
+    schema: "pi67.external-update.v1",
+    name,
+    ...repository,
+    ...(runtimeSetup ? { runtimeSetup } : {}),
+  };
   if (json) return printJson(data);
-  info(`${name}: ${data.action}`);
+  info(`${name}: ${repository.action}`);
+  if (runtimeSetup) printBrowser67RuntimeSetup(runtimeSetup, "browser67 update");
 }
 
 function doctor(ctx, argv) {
@@ -75,7 +110,7 @@ function doctor(ctx, argv) {
   keyValue("Path", data.path);
   keyValue("Exists", data.exists ? "yes" : "no");
   if (!data.exists) {
-    warn(`Run: pi-67 external ${name === "browser67" ? "setup" : "install"} ${name}`);
+    warn(`Run: pi-67 external install ${name}`);
     return;
   }
   keyValue("Git", data.git?.isRepo ? "yes" : "no");
@@ -108,21 +143,67 @@ function setup(ctx, argv) {
   }
   const dryRun = ctx.dryRun || options.dryRun;
   const json = ctx.json || options.json;
-  const installed = installExternal(ctx, name, { dryRun, quiet: json });
+  const status = externalStatus(ctx, name);
+  if (!status.exists) {
+    throw new CliError("browser67 is not installed; run: pi-67 external install browser67");
+  }
+  const runtimeSetup = prepareBrowser67Runtime(ctx, {
+    dryRun,
+    quiet: json,
+    startHub: options.startHub,
+    force: true,
+  });
   const data = {
-    install: installed,
-    setup: setupBrowser67(ctx, {
+    schema: "pi67.external-setup.v2",
+    name,
+    status,
+    runtimeSetup,
+  };
+  if (json) return printJson(data);
+  printBrowser67RuntimeSetup(runtimeSetup, "browser67 setup");
+}
+
+function prepareBrowser67Runtime(ctx, options = {}) {
+  const dryRun = Boolean(options.dryRun);
+  const force = Boolean(options.force);
+  const repositoryChanged = Boolean(options.repositoryChanged);
+  const readiness = dryRun ? null : inspectBrowser67Runtime(ctx);
+  const needsSetup = dryRun || force || repositoryChanged || options.startHub || !readiness?.deterministicReady;
+
+  if (!needsSetup) {
+    return {
+      action: "skip",
+      reason: "repository and deterministic runtime are already current",
+      deterministicReady: true,
+    };
+  }
+
+  return {
+    action: dryRun ? "setup-dry-run" : "setup",
+    reason: force
+      ? "explicit setup requested"
+      : repositoryChanged
+        ? "repository installed or updated"
+        : "deterministic runtime is incomplete",
+    result: setupBrowser67(ctx, {
       dryRun,
-      quiet: json,
+      quiet: options.quiet,
       startHub: options.startHub,
+      preserveValidAlternateMcp: options.preserveValidAlternateMcp,
     }),
   };
-  if (json) return printJson({ schema: "pi67.external-setup.v1", name, ...data });
-  section("browser67 setup");
-  keyValue("Checkout", data.setup.root);
-  for (const step of data.setup.steps) info(`${step.id}: ${step.action}`);
+}
+
+function printBrowser67RuntimeSetup(runtimeSetup, title) {
+  section(title);
+  if (runtimeSetup.action === "skip") {
+    info(`runtime-setup: skip (${runtimeSetup.reason})`);
+    return;
+  }
+  keyValue("Checkout", runtimeSetup.result.root);
+  for (const step of runtimeSetup.result.steps) info(`${step.id}: ${step.action}`);
   section("Manual completion");
-  for (const step of data.setup.manualSteps) info(step);
+  for (const step of runtimeSetup.result.manualSteps) info(step);
 }
 
 function assertExternalName(name) {
@@ -135,22 +216,27 @@ function printExternalHelp() {
 
 Usage:
   pi-67 external list [--json]
-  pi-67 external install <browser67|design-craft> [--dry-run] [--json]
+  pi-67 external install <browser67|design-craft> [--dry-run] [--start-hub] [--json]
   pi-67 external setup browser67 [--dry-run] [--start-hub] [--json]
   pi-67 external update <browser67|design-craft> [--dry-run] [--json]
   pi-67 external doctor <browser67|design-craft> [--deep] [--timeout-ms N] [--json]
 
 Safety:
   External repos are explicit opt-in. Dirty external repos block update instead
-  of being overwritten. browser67 setup prepares dependencies, active skills,
-  extension files, and MCP config, but browser loading and OS permissions stay
-  explicit manual steps.
+  of being overwritten. browser67 install performs the complete first-time
+  runtime setup; browser67 update reruns setup only after a changed checkout or
+  when deterministic readiness is incomplete. setup explicitly rebuilds an
+  installed browser67 runtime. Browser loading and OS permissions stay manual.
 
 Examples:
   pi-67 external list
   pi-67 external install browser67 --dry-run
-  pi-67 external setup browser67 --dry-run
+  pi-67 external install browser67
+  pi-67 external update browser67
+  pi-67 external setup browser67
   pi-67 external doctor browser67 --deep
+  pi-67 external install design-craft
+  pi-67 external update design-craft
   pi-67 external doctor design-craft
 `);
 }

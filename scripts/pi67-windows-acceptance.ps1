@@ -6,6 +6,7 @@ param(
   [switch]$SkipUpdate,
   [switch]$ValidateWorkstation,
   [switch]$SkipDesktopPrerequisites,
+  [switch]$SkipTerminalAdminLauncher,
   [switch]$SkipNotepad4Integration,
   [switch]$NoTerminalAdmin,
   [ValidateSet("auto", "unconfigured", "xtalpi-pi-tools", "deepseek")]
@@ -35,15 +36,23 @@ Usage:
 Options:
   -SkipUpdate  Skip both manager and distro updates; validate the current install.
   -ValidateWorkstation
-               Also validate WinGet, Terminal/PowerShell 7, Notepad4, Git,
-               fnm, the PowerShell profile, and the active Node.js source.
+               Also validate WinGet, Terminal, PowerShell 7, Notepad4 system
+               integration, the elevated default profile, the fixed no-prompt
+               admin launcher, Git, fnm, the PowerShell profile, Node.js, and
+               the final npm registry.
   -SkipDesktopPrerequisites
-               With -ValidateWorkstation, skip Terminal, PowerShell 7, and
-               Notepad4 checks. Git, fnm, Node.js, Pi, and pi-67 remain required.
+               With -ValidateWorkstation, skip Terminal, PowerShell 7,
+               Notepad4, and the admin-launcher checks. Git, fnm, Node.js, Pi,
+               and pi-67 remain required.
+  -SkipTerminalAdminLauncher
+               With -ValidateWorkstation, skip only the fixed highest-privilege
+               scheduled-task and Start-menu shortcut checks.
   -SkipNotepad4Integration
-               Require Notepad4 but skip Explorer/Notepad registry checks.
+               Require Notepad4 but skip Explorer context-menu and Windows
+               Notepad replacement registry checks.
   -NoTerminalAdmin
-               Expect Terminal profiles to have elevate=false instead of true.
+               Expect the PowerShell 7 profile to have elevate=false and skip
+               the fixed administrator launcher check.
   -ProviderProfile
                Validate auto, unconfigured, xtalpi-pi-tools, or DeepSeek
                official. Auto observes the provider selected by upstream Pi
@@ -57,7 +66,7 @@ Options:
 
 Default update order:
   1. pi-67 self-update
-  2. pi-67 update --repair --yes
+  2. pi-67 update
   3. Bare pi runtime, pi-67 workspace, and selected-provider acceptance checks
 "@
 }
@@ -77,9 +86,11 @@ $DefaultProviderModel = "deepseek-v4-pro"
 $ExpectedLiveCases = @("read-package", "read-enoent-recovery")
 $MinimumNodeVersion = [version]"22.19.0"
 $PreferredNodeMajor = 24
-$WindowsPowerShellProfileGuid = "{61c54bbd-c2c6-5271-96e7-009a87ff44bf}"
 $PowerShell7ProfileGuid = "{574e775e-4f2a-5b96-ac1e-a2962a402336}"
+$TerminalAdminTaskName = "Pi67-WindowsTerminal-Admin"
+$TerminalAdminShortcutName = "Windows Terminal (Administrator).lnk"
 $FnmProfileLine = "fnm env --use-on-cd --shell powershell | Out-String | Invoke-Expression"
+$ExpectedNpmRegistry = "https://registry.npmmirror.com/"
 
 function Get-HomePath {
   if ($env:USERPROFILE) { return $env:USERPROFILE }
@@ -245,6 +256,61 @@ function Assert-TerminalProfileContract {
   }
 }
 
+function Assert-TerminalAdminLauncherContract {
+  if (-not (Test-CommandExists "Get-ScheduledTask")) {
+    throw "ScheduledTasks module is unavailable"
+  }
+
+  $task = Get-ScheduledTask -TaskName $TerminalAdminTaskName -ErrorAction Stop
+  if ([string]$task.Principal.RunLevel -ne "Highest") {
+    throw "Windows Terminal admin task does not use RunLevel Highest"
+  }
+  if ([string]$task.Principal.LogonType -notmatch "Interactive") {
+    throw "Windows Terminal admin task is not limited to an interactive logon"
+  }
+
+  $actions = @($task.Actions)
+  if ($actions.Count -ne 1) {
+    throw "Windows Terminal admin task must contain exactly one fixed action"
+  }
+  $action = $actions[0]
+  if ([System.IO.Path]::GetFileName([string]$action.Execute) -ne "wt.exe") {
+    throw "Windows Terminal admin task action does not execute wt.exe"
+  }
+  if ([string]$action.Arguments -ne '-p "PowerShell"') {
+    throw "Windows Terminal admin task arguments drifted"
+  }
+
+  $shortcutPath = Join-Path ([Environment]::GetFolderPath("Programs")) $TerminalAdminShortcutName
+  if (-not (Test-Path -LiteralPath $shortcutPath -PathType Leaf)) {
+    throw "Windows Terminal admin Start-menu shortcut is missing"
+  }
+
+  $wshShell = New-Object -ComObject WScript.Shell
+  $shortcut = $null
+  try {
+    $shortcut = $wshShell.CreateShortcut($shortcutPath)
+    if ([System.IO.Path]::GetFileName([string]$shortcut.TargetPath) -ne "schtasks.exe") {
+      throw "Windows Terminal admin shortcut does not execute schtasks.exe"
+    }
+    if ([string]$shortcut.Arguments -notmatch [regex]::Escape($TerminalAdminTaskName)) {
+      throw "Windows Terminal admin shortcut does not target the canonical task"
+    }
+  } finally {
+    if ($shortcut) {
+      [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shortcut)
+    }
+    if ($wshShell) {
+      [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($wshShell)
+    }
+  }
+
+  return [pscustomobject]@{
+    taskName = $TerminalAdminTaskName
+    shortcutPath = $shortcutPath
+  }
+}
+
 function Assert-FnmPowerShellProfileContract {
   $matchedPath = ""
   foreach ($profilePath in @(Get-PowerShellProfileCandidates)) {
@@ -261,25 +327,68 @@ function Assert-FnmPowerShellProfileContract {
   return $matchedPath
 }
 
-function Assert-Notepad4IntegrationContract {
-  param([Parameter(Mandatory = $true)][string]$Notepad4Path)
+function Assert-NpmRegistryContract {
+  $npmPath = Resolve-CommandPath @("npm.cmd", "npm")
+  if (-not $npmPath) { throw "npm command not found during registry validation" }
 
+  $output = @(& $npmPath config get registry 2>&1)
+  if ($LASTEXITCODE -ne 0) {
+    throw "npm config get registry failed during workstation validation"
+  }
+
+  $registryLines = @($output | ForEach-Object { ([string]$_).Trim() } | Where-Object {
+    $_ -match '^https?://'
+  })
+  if ($registryLines.Count -eq 0) {
+    throw "npm config get registry returned no registry URL"
+  }
+
+  $registry = $registryLines[-1].TrimEnd('/') + "/"
+  if (-not [string]::Equals(
+    $registry,
+    $ExpectedNpmRegistry,
+    [System.StringComparison]::OrdinalIgnoreCase
+  )) {
+    throw "npm registry must be $ExpectedNpmRegistry but resolved to $registry"
+  }
+  return $registry
+}
+
+function Assert-Notepad4IntegrationContract {
   $contextMenu = [Microsoft.Win32.Registry]::ClassesRoot.OpenSubKey("*\shell\Notepad4")
   $contextCommand = [Microsoft.Win32.Registry]::ClassesRoot.OpenSubKey("*\shell\Notepad4\command")
   $notepadIfeo = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\notepad.exe")
   try {
-    if ($null -eq $contextMenu -or $contextMenu.GetValue("icon") -ne $Notepad4Path) {
+    if ($null -eq $contextMenu -or $null -eq $contextCommand) {
       throw "Notepad4 Explorer context-menu registry contract failed"
     }
-    if ($null -eq $contextCommand -or $contextCommand.GetValue("") -ne ('"{0}" "%1"' -f $Notepad4Path)) {
-      throw "Notepad4 Explorer command registry contract failed"
+    if ($null -eq $notepadIfeo) {
+      throw "Notepad4 Windows Notepad replacement registry contract failed"
     }
-    if ($null -eq $notepadIfeo -or $notepadIfeo.GetValue("Debugger") -ne ('"{0}" /z' -f $Notepad4Path)) {
-      throw "Notepad4 notepad.exe replacement registry contract failed"
+
+    $debugger = [string]$notepadIfeo.GetValue("Debugger", "")
+    $match = [regex]::Match(
+      $debugger,
+      '^"([^"]+\\Notepad4\.exe)"\s+/z$',
+      [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+    )
+    if (-not $match.Success) {
+      throw "Notepad4 notepad.exe replacement Debugger contract failed"
+    }
+    $integratedPath = $match.Groups[1].Value
+    if (-not (Test-Path -LiteralPath $integratedPath -PathType Leaf)) {
+      throw "Notepad4 integrated executable does not exist: $integratedPath"
+    }
+    if ([string]$contextMenu.GetValue("icon", "") -ne $integratedPath) {
+      throw "Notepad4 Explorer context-menu icon contract failed"
+    }
+    if ([string]$contextCommand.GetValue("", "") -ne ('"{0}" "%1"' -f $integratedPath)) {
+      throw "Notepad4 Explorer command registry contract failed"
     }
     if ([int]$notepadIfeo.GetValue("UseFilter", -1) -ne 0) {
       throw "Notepad4 UseFilter registry contract failed"
     }
+    return $integratedPath
   } finally {
     if ($contextCommand) { $contextCommand.Dispose() }
     if ($contextMenu) { $contextMenu.Dispose() }
@@ -315,6 +424,7 @@ function Assert-WorkstationContract {
   }
   $script:WorkstationNodePath = $nodePath
   $script:FnmProfilePath = Assert-FnmPowerShellProfileContract
+  $script:NpmRegistry = Assert-NpmRegistryContract
 
   if ($SkipDesktopPrerequisites) { return }
   if (-not (Find-WindowsTerminalExecutable)) { throw "desktop prerequisite command not found: wt.exe" }
@@ -325,13 +435,18 @@ function Assert-WorkstationContract {
   $settingsPath = Get-WindowsTerminalSettingsPath
   $settings = Read-Pi67JsonFile $settingsPath
   $elevate = -not [bool]$NoTerminalAdmin
-  Assert-TerminalProfileContract $settings $WindowsPowerShellProfileGuid $elevate $false
   Assert-TerminalProfileContract $settings $PowerShell7ProfileGuid $elevate $true
-  if (-not $SkipNotepad4Integration) {
-    Assert-Notepad4IntegrationContract $notepad4
+  if (-not ($SkipTerminalAdminLauncher -or $NoTerminalAdmin)) {
+    $launcher = Assert-TerminalAdminLauncherContract
+    $script:TerminalAdminTaskName = $launcher.taskName
+    $script:TerminalAdminShortcutPath = $launcher.shortcutPath
+  }
+  $script:Notepad4Path = if ($SkipNotepad4Integration) {
+    $notepad4
+  } else {
+    Assert-Notepad4IntegrationContract
   }
   $script:TerminalSettingsPath = $settingsPath
-  $script:Notepad4Path = $notepad4
 }
 
 function Get-ChildPowerShell {
@@ -401,7 +516,7 @@ function Get-UpdateCommands {
       Arguments = @(
         "--agent-dir", $ResolvedAgentDir,
         "--repo-root", $ResolvedRepoRoot,
-        "update", "--repair", "--yes"
+        "update"
       )
     }
   )
@@ -412,16 +527,16 @@ function Get-RecoverySuggestion {
 
   switch -Wildcard ($Stage) {
     "preflight" {
-      return "Run the published pi67-bootstrap.ps1 to install WinGet readiness, Git, fnm/Node.js 24 LTS, upstream Pi, and pi-67; reopen PowerShell and retry."
+      return "Complete docs/windows-fresh-install.md manually for Windows Terminal, Git, fnm/Node.js 24 LTS, and upstream Pi; then run pi67-bootstrap.ps1 for only the pi-67 manager/workspace and retry acceptance."
     }
     "workstation-prerequisites" {
-      return "Rerun pi67-bootstrap.ps1. It repairs WinGet, Terminal/PowerShell 7, Notepad4, Git PATH, fnm, and the PowerShell profile before Pi acceptance."
+      return "Repair the failing workstation prerequisite manually using docs/windows-fresh-install.md. pi67-bootstrap.ps1 does not install or modify workstation prerequisites."
     }
     "manager-self-update" {
       return "Run: npm install -g @bigking67/pi-67@latest"
     }
     "distro-update" {
-      return "Run: pi-67 update --check; resolve the reported blocker; then run pi-67 update --repair --yes"
+      return "Run: pi-67 update --check; resolve the reported blocker; then run pi-67 update. Use pi-67 update --repair only if npm dependencies remain damaged."
     }
     "version-and-config" {
       return "Inspect settings.json/models.json syntax, then run pi. Provider credentials are optional for startup and can be added later with /login."
@@ -671,7 +786,7 @@ function Run-SelfTest {
   if ($plan.Count -ne 2 -or ($plan[0].Arguments -join " ") -ne "self-update") {
     throw "self-update must be the first acceptance update command"
   }
-  if (($plan[1].Arguments -join " ") -notmatch 'update --repair --yes$') {
+  if (($plan[1].Arguments -join " ") -notmatch 'update$') {
     throw "distro update command contract drifted"
   }
 
@@ -786,32 +901,39 @@ function Run-SelfTest {
     defaultProfile = $PowerShell7ProfileGuid
     profiles = [pscustomobject]@{
       list = @(
-        [pscustomobject]@{ guid = $WindowsPowerShellProfileGuid; elevate = $true; hidden = $false },
         [pscustomobject]@{ guid = $PowerShell7ProfileGuid; elevate = $true; hidden = $false }
       )
     }
   }
-  Assert-TerminalProfileContract $terminalFixture $WindowsPowerShellProfileGuid $true $false
   Assert-TerminalProfileContract $terminalFixture $PowerShell7ProfileGuid $true $true
 
   $source = [System.IO.File]::ReadAllText($ScriptPath)
   foreach ($required in @(
     '[switch]$ValidateWorkstation',
     '[switch]$SkipDesktopPrerequisites',
+    '[switch]$SkipTerminalAdminLauncher',
     '[switch]$SkipNotepad4Integration',
     '[switch]$NoTerminalAdmin',
     '[string]$ProviderProfile = "auto"',
     'ValidateSet("auto", "unconfigured", "xtalpi-pi-tools", "deepseek")',
     'Assert-WorkstationContract',
+    'Assert-TerminalAdminLauncherContract',
+    'Assert-Notepad4IntegrationContract',
+    '*\shell\Notepad4\command',
+    'Image File Execution Options\notepad.exe',
     $FnmProfileLine,
     $PowerShell7ProfileGuid,
+    $TerminalAdminTaskName,
+    $TerminalAdminShortcutName,
+    $ExpectedNpmRegistry,
+    'RunLevel Highest',
     'Invoke-CommandStage "pi-runtime" "pi"',
     'Invoke-CommandStage "pi-extension-load" $script:ChildPowerShell',
     'Invoke-CommandStage "daily-pi-live" "pi"',
     'pi67-provider-status.mjs',
     'pi67-zero-key-startup-smoke.ps1',
     'upstream-pi-default-request',
-    'pi67.windows-acceptance.v4'
+    'pi67.windows-acceptance.v5'
   )) {
     if (-not $source.Contains($required)) {
       throw "acceptance source is missing required workstation contract: $required"
@@ -882,7 +1004,10 @@ $script:XtalpiSmokeData = $null
 $script:ProviderVerificationData = $null
 $script:WorkstationNodePath = ""
 $script:FnmProfilePath = ""
+$script:NpmRegistry = ""
 $script:TerminalSettingsPath = ""
+$script:TerminalAdminTaskName = ""
+$script:TerminalAdminShortcutPath = ""
 $script:Notepad4Path = ""
 
 function Add-StageResult {
@@ -1040,7 +1165,7 @@ $exitCode = 0
 try {
   Invoke-CheckStage "preflight" {
     if (-not (Test-IsWindows)) {
-      throw "this acceptance entrypoint must run on Windows PowerShell"
+      throw "this acceptance entrypoint must run on Windows"
     }
     if ($PSVersionTable.PSVersion.Major -lt 5) {
       throw "PowerShell 5.1 or newer is required"
@@ -1356,7 +1481,7 @@ if ($null -ne $script:XtalpiSmokeData) {
 }
 
 $summary = [pscustomobject][ordered]@{
-  schema = "pi67.windows-acceptance.v4"
+  schema = "pi67.windows-acceptance.v5"
   createdAt = (Get-Date).ToUniversalTime().ToString("o")
   result = $script:Result
   failedStage = $script:FailedStage
@@ -1368,6 +1493,7 @@ $summary = [pscustomobject][ordered]@{
     validateWorkstation = [bool]$ValidateWorkstation
     skipDesktopPrerequisites = [bool]$SkipDesktopPrerequisites
     skipNotepad4Integration = [bool]$SkipNotepad4Integration
+    skipTerminalAdminLauncher = [bool]($SkipTerminalAdminLauncher -or $NoTerminalAdmin)
     terminalProfilesElevated = -not [bool]$NoTerminalAdmin
   }
   paths = [pscustomobject][ordered]@{
@@ -1386,7 +1512,10 @@ $summary = [pscustomobject][ordered]@{
     validated = [bool]$ValidateWorkstation
     nodePath = $script:WorkstationNodePath
     fnmPowerShellProfile = $script:FnmProfilePath
+    npmRegistry = $script:NpmRegistry
     windowsTerminalSettings = $script:TerminalSettingsPath
+    terminalAdminTaskName = $script:TerminalAdminTaskName
+    terminalAdminShortcut = $script:TerminalAdminShortcutPath
     notepad4 = $script:Notepad4Path
   }
   config = [pscustomobject][ordered]@{
@@ -1433,7 +1562,7 @@ if ($script:Result -eq "PASS" -and $exitCode -eq 0) {
   Write-Host ("Version: {0}" -f $distroVersion)
   Write-Host ("Pi runtime: {0}" -f $script:PiRuntimeVersion)
   if ($ValidateWorkstation) {
-    Write-Host ("Workstation: validated (Node via fnm: {0})" -f $script:WorkstationNodePath)
+    Write-Host ("Workstation: validated (Node via fnm: {0}; npm registry: {1})" -f $script:WorkstationNodePath, $script:NpmRegistry)
   }
   Write-Host "Pi startup: verified with no provider credential, including xtalpi-pi-tools registration"
   if ($script:ModelRequestReady) {

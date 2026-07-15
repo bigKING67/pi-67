@@ -40,121 +40,117 @@ bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp
 bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp --mcp-timeout-ms 5000
 ```
 
-## Windows fresh-machine bootstrap failed
+## Windows pi-67 manager/workspace bootstrap failed
 
-The supported fresh Windows entrypoint is the GitHub Release asset
-`pi67-bootstrap.ps1`, documented in
-[`windows-fresh-install.md`](windows-fresh-install.md):
+On a completely fresh computer, first finish the manual Windows Terminal,
+PowerShell 7, Notepad4 system integration, Git,
+fnm, Node.js/npm, and upstream Pi steps in
+[`windows-fresh-install.md`](windows-fresh-install.md). The GitHub Release asset
+`pi67-bootstrap.ps1` starts only after those prerequisites:
 
 ```powershell
 $Bootstrap = Join-Path $env:TEMP "pi67-bootstrap.ps1"
 Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/bigKING67/pi-67/releases/latest/download/pi67-bootstrap.ps1" -OutFile $Bootstrap
-powershell -NoProfile -ExecutionPolicy Bypass -File $Bootstrap
+powershell -NoProfile -ExecutionPolicy Bypass -File $Bootstrap -Mode Auto
 ```
 
 Each run writes a summary and bounded stage logs under:
 
 ```text
-%USERPROFILE%\.pi\pi67\logs\bootstrap-<timestamp>-<pid>\
+%USERPROFILE%\.pi\pi67\logs\manager-bootstrap-<timestamp>-<pid>\
 ```
 
 Start with `bootstrap-summary.json`. Its `failedStage` distinguishes
-Administrator/UAC, WinGet repair, Windows Terminal, PowerShell 7, Notepad4
-integration, Git PATH, fnm/profile, Node.js, npm runtime, pi-67 workspace,
-optional xtalpi configuration, and full Windows acceptance failures. Do not send
-`models.json` or any API key when reporting a problem.
+Git, Node.js, npm, upstream Pi, npm manager installation, workspace
+install/update, version JSON, and doctor JSON failures. Do not send
+`models.json`, `auth.json`, or any API key when reporting a problem.
 
 Offline contract checks:
 
 ```powershell
 .\scripts\pi67-bootstrap.ps1 -SelfTest
 .\scripts\pi67-bootstrap.ps1 -DryRun
-.\scripts\pi67-bootstrap.ps1 -DryRun -Minimal
+.\scripts\pi67-bootstrap.ps1 -DryRun -Mode Install
+.\scripts\pi67-bootstrap.ps1 -DryRun -Mode Update
 ```
 
-No provider key is required for bootstrap success. With `-NoXtalpiPrompt`, or
-when the hidden xtalpi prompt is left blank, Windows acceptance must still end
-with:
+No provider key is required for manager/workspace bootstrap success. A
+successful run ends with:
 
 ```text
 RESULT: PASS
 ```
 
-After installation, start upstream Pi and configure any provider through its
-native flow:
+The bootstrap does not request UAC, repair WinGet, install Windows Terminal,
+PowerShell 7, or Notepad4,
+edit Terminal settings, install Git/fnm/Node/upstream Pi, modify shell profiles
+or registry keys, or configure xtalpi. Those are intentionally separate manual
+or acceptance concerns.
+
+After installing `Git.Git`, close all Terminal windows and verify both
+`where.exe git` and `git --version` in a newly opened Terminal. If the current
+window works but the new window does not, follow the canonical guide's
+deduplicating `C:\Program Files\Git\cmd` User PATH repair; do not rely on a
+temporary `$env:PATH` assignment.
+
+### `failedStage = prerequisite-git|prerequisite-node|prerequisite-npm|prerequisite-pi`
+
+Close all Windows Terminal windows, open a new PowerShell 7 profile, and
+run the failing command directly:
 
 ```powershell
-pi
-```
-
-Inside Pi, use `/login`, then `/model`. Upstream Pi owns authentication and
-selected-model persistence. pi-67 does not switch the provider based on which
-key happens to exist.
-
-### `failedStage = winget`
-
-Run the same repair contract manually from an Administrator Windows PowerShell
-only when diagnosing the bootstrap stage:
-
-```powershell
-$progressPreference = 'silentlyContinue'
-Install-PackageProvider -Name NuGet -Force | Out-Null
-Install-Module -Name Microsoft.WinGet.Client -Force -Repository PSGallery | Out-Null
-Import-Module Microsoft.WinGet.Client -Force
-Repair-WinGetPackageManager -AllUsers
-winget --version
-```
-
-If PowerShell Gallery is blocked by company policy, this is an IT/package-source
-problem. Do not continue to Terminal/Git/fnm stages without a working
-`winget --version`.
-
-### `failedStage = terminal-windows-powershell` or `terminal-powershell-7`
-
-The bootstrap backs up Windows Terminal `settings.json` before changing it.
-Check the summary fields `paths.windowsTerminalSettings` and
-`workstation.terminalSettingsBackups`. The final full-mode contract is:
-
-```text
-defaultProfile = {574e775e-4f2a-5b96-ac1e-a2962a402336}
-Windows PowerShell elevate = true
-PowerShell 7 elevate       = true
-```
-
-When `-NoTerminalAdmin` was explicitly used, both expected values are `false`.
-Do not delete the whole settings file; restore the recorded backup or rerun the
-idempotent bootstrap.
-
-### `failedStage = notepad4-integration`
-
-The integration stage writes only the documented Notepad4 context-menu and
-`notepad.exe` IFEO keys. Its pre-change `.reg` backups are stored in the current
-bootstrap log directory. Read-only checks:
-
-```powershell
-reg query "HKCR\*\shell\Notepad4" /s
-reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\notepad.exe" /s
-```
-
-### `failedStage = fnm-powershell-profile` or `node-lts-krypton`
-
-Open a new PowerShell 7 window and run:
-
-```powershell
-fnm --version
-fnm current
-fnm list
+git --version
 node --version
 npm --version
-Get-Command node | Format-List Source
-Get-Content $PROFILE -Raw
+pi --version
 ```
 
-Expected Node is major 24, `>=22.19.0`, and its source path belongs to fnm. The
-profile must contain exactly one official initialization line:
+If a command is missing, return to the corresponding step in
+`docs/windows-fresh-install.md`. Do not repeatedly rerun bootstrap while a
+prerequisite still fails.
+
+### `Update mode requires an existing pi-67 Git checkout`
+
+Explicit `-Mode Update` requires `%USERPROFILE%\.pi\agent\.git`. On a new
+computer, use Auto or Install:
 
 ```powershell
-fnm env --use-on-cd --shell powershell | Out-String | Invoke-Expression
+powershell -NoProfile -ExecutionPolicy Bypass -File $Bootstrap -Mode Auto
+# or
+powershell -NoProfile -ExecutionPolicy Bypass -File $Bootstrap -Mode Install
+```
+
+### `failedStage = pi-67-manager`
+
+Open `install-pi-67-manager.log`. The script deliberately does not change npm
+registry, proxy, TLS, or certificate settings. Verify the environment directly:
+
+```powershell
+npm --version
+npm view @bigking67/pi-67@latest version
+```
+
+### `failedStage = pi-67-workspace-install|pi-67-workspace-update`
+
+Read the matching workspace log and run the same operation explicitly:
+
+```powershell
+pi-67 install --repair --yes
+# or, for an existing checkout
+pi-67 update
+```
+
+Dirty checkout protection is intentional. Inspect `git status --short` before
+deciding how to handle local changes.
+
+### `failedStage = pi-67-version|pi-67-doctor`
+
+The workspace command completed, but machine-readable verification failed.
+Run both commands directly and preserve their logs:
+
+```powershell
+pi-67 version --json
+pi-67 doctor --json
 ```
 
 ## `pi` command not found
@@ -162,7 +158,7 @@ fnm env --use-on-cd --shell powershell | Out-String | Invoke-Expression
 Install Pi:
 
 ```bash
-npm install -g @earendil-works/pi-coding-agent
+npm install -g @earendil-works/pi-coding-agent@latest
 pi --version
 ```
 
@@ -305,17 +301,91 @@ The current upstream Pi runtime requires Node.js `>=22.19.0`; the pi-67 fresh
 Windows contract uses fnm and requires Node.js 24 LTS through `lts/krypton`.
 It does not install a second unmanaged MSI Node through `OpenJS.NodeJS.LTS`.
 
-On a fresh Windows machine, rerun the bootstrap so it can repair fnm, the
-PowerShell profile, the default version, and the active Node.js source:
+On a fresh Windows machine, the manager bootstrap cannot repair fnm or Node.js.
+Return to the manual prerequisite steps, close every Windows Terminal window,
+reopen PowerShell 7, and verify. If `$PROFILE` does not exist, create it before
+opening it in Notepad4:
 
 ```powershell
-$Bootstrap = Join-Path $env:TEMP "pi67-bootstrap.ps1"
-Invoke-WebRequest `
-  -UseBasicParsing `
-  -Uri "https://github.com/bigKING67/pi-67/releases/latest/download/pi67-bootstrap.ps1" `
-  -OutFile $Bootstrap
-powershell -NoProfile -ExecutionPolicy Bypass -File $Bootstrap
+$ProfileDir = Split-Path -Parent $PROFILE
+New-Item -Path $ProfileDir -ItemType Directory -Force | Out-Null
+New-Item -Path $PROFILE -ItemType File -Force | Out-Null
+notepad $PROFILE
 ```
+
+Save this line exactly once:
+
+```powershell
+fnm env --use-on-cd --shell powershell | Out-String | Invoke-Expression
+```
+
+Then load the profile and finish the runtime setup:
+
+```powershell
+. $PROFILE
+fnm install lts/krypton
+fnm default lts/krypton
+fnm use lts/krypton
+node --version
+npm --version
+npm config set registry https://registry.npmmirror.com
+npm config get registry
+```
+
+If `fnm use lts/krypton` reports `We can't find the necessary environment
+variables`, the profile line was not loaded in the current shell. Run
+`Select-String -LiteralPath $PROFILE -SimpleMatch 'fnm env --use-on-cd --shell powershell'`,
+then `. $PROFILE`, and retry `fnm use lts/krypton`.
+
+The final `npm config get registry` value must be
+`https://registry.npmmirror.com/`. If `https://registry.npmjs.org/` was used
+temporarily because a package had not synchronized, switch back to the mirror
+before running workstation acceptance.
+
+## Oh My Posh is missing, slow, or shows square icons
+
+Oh My Posh is optional and does not affect Pi or pi-67 readiness. If WinGet
+completed but the command is unavailable, close every Terminal window, reopen
+PowerShell 7, and verify:
+
+```powershell
+winget list --id JanDeDobbeleer.OhMyPosh -e
+oh-my-posh version
+```
+
+If prompt icons appear as empty squares or Chinese columns do not align, the
+PowerShell Terminal profile is not using the primary team font. The expected
+font is `Maple Mono NF CN`, not plain `Maple Mono CN` or `Maple Mono NF`.
+Return to the SHA-256-verified `MapleMono-NF-CN.zip` installation in
+[`windows-fresh-install.md`](windows-fresh-install.md), then select it under
+**Windows Terminal -> Settings -> Profiles -> PowerShell -> Appearance -> Font
+face**.
+
+If the GitHub release is temporarily unavailable, install the compatibility
+fallback:
+
+```powershell
+oh-my-posh font install meslo
+```
+
+When using the fallback, select `MesloLGM Nerd Font`; it does not provide the
+same integrated CJK alignment and is not the primary recommendation. The normal
+last line in `$PROFILE` remains:
+
+```powershell
+oh-my-posh init pwsh | Invoke-Expression
+```
+
+If ExecutionPolicy blocks that initializer, replace it with the following
+fallback instead of keeping both lines:
+
+```powershell
+oh-my-posh init pwsh --eval | Invoke-Expression
+```
+
+The official documentation warns that `--eval` makes Shell initialization
+slower. Reload after editing with `. $PROFILE`. Theme previews are available at
+<https://ohmyposh.dev/docs/themes>.
 
 On macOS/Linux, install a supported Node first, then rerun:
 
@@ -348,12 +418,11 @@ git ls-remote https://github.com/bigKING67/pi-67.git HEAD
 pi-67 xtalpi health
 ```
 
-The bootstrap does not change npm registry by default, write a system proxy,
-disable TLS verification, or permanently change PowerShell ExecutionPolicy.
-Only explicit `-UseNpmMirror` runs
-`npm config set registry https://registry.npmmirror.com`. If the company
-network requires a proxy/VPN, apply the IT-managed configuration to the
-failing path only.
+The bootstrap never changes npm registry, writes a system proxy, disables TLS
+verification, or permanently changes PowerShell ExecutionPolicy. If the
+company network requires a proxy/VPN or registry mirror, apply the IT-managed
+configuration explicitly to the failing path; the pi-67 script will not
+silently switch it.
 
 ## Placeholder warnings in config files
 
@@ -906,22 +975,30 @@ agent-memory-mcp binary
 local Codex proxy if using the codex provider
 ```
 
-For a normal managed browser67 installation, do not stop after the low-level
-clone command. Preview and run the complete setup, then use the deep doctor to
-separate checkout/config readiness from the live Hub/extension connection:
+For a normal managed browser67 installation, use the high-level install
+lifecycle. It owns both the checkout and runtime preparation; then use the deep
+doctor to separate deterministic checkout/config readiness from the live
+Hub/extension connection:
 
 ```bash
-pi-67 external setup browser67 --dry-run
-pi-67 external setup browser67
+pi-67 external install browser67 --dry-run
+pi-67 external install browser67
 pi-67 external doctor browser67 --deep
 ```
 
 `pi-67 external doctor browser67` without `--deep` checks the repo,
 dependencies, prepared extension files, active skills, and MCP paths. It does
 not prove that Chrome/Edge loaded the unpacked extension. `--deep` additionally
-runs browser67's live doctor. The setup output prints the unpacked extension
+runs browser67's live doctor. The install output prints the unpacked extension
 directory; load that directory in `chrome://extensions`, start the Hub if it
 was not started with `--start-hub`, and restart Pi before retrying MCP.
+
+For a later version update, run `pi-67 external update browser67`. It safely
+pulls an existing clean checkout and automatically reruns runtime setup when the
+checkout changed or deterministic readiness is incomplete. If doctor reports a
+runtime preparation problem without a repository update, explicitly rebuild it
+with `pi-67 external setup browser67`. Setup requires an existing installation;
+it does not clone a missing checkout.
 
 Do not delete the MCP entries just because doctor warns. pi-67 intentionally installs the full best-practice configuration; doctor tells you which capabilities still need local setup.
 
@@ -1280,14 +1357,32 @@ it until Pi works after reinstalling.
 
 ## Update stops because the checkout is dirty
 
-For normal users, prefer the npm manager:
+First keep the two update lifecycles separate.
+
+Update only upstream Pi:
+
+```bash
+npm install -g @earendil-works/pi-coding-agent@latest
+pi --version
+```
+
+Update only pi-67:
 
 ```bash
 pi-67 update --check
 pi-67 update
-pi-67 update --repair
-pi-67 self-update
+pi-67 doctor
 ```
+
+Normal update automatically resynchronizes managed npm packages when the plan
+detects missing or stale installs. Run `pi-67 self-update` only when update
+reports an outdated manager. Use `pi-67 update --repair` only to force npm
+dependency reinstall when the plan appears current but the install is damaged.
+
+pi-67 never installs, updates, or repairs upstream Pi. It only reports Pi
+installed/tested/latest compatibility. If an old automation still passes
+`--include-pi` or the cross-owner `--all` option, remove that option; current
+pi-67 intentionally exits with `unknown option`.
 
 `pi update --extensions` is the upstream Pi extension updater, not the pi-67
 distribution updater. If it was run manually, use `pi-67 update --repair` to
@@ -1303,7 +1398,7 @@ pi-67 extensions doctor
 ```
 
 `installed stale` means the local `npm/node_modules` copy is behind the pi-67
-baseline and `pi-67 update --repair` should sync it. `baseline drift` means a
+baseline and normal `pi-67 update` will sync it automatically. `baseline drift` means a
 new upstream npm package exists beyond the current pi-67 release baseline; the
 clean fix is a new pi-67 release that bumps the managed package and passes
 smoke/release gates.
@@ -1353,7 +1448,7 @@ the next repair uses the latest safety gates.
 ```bash
 npm install -g @bigking67/pi-67@latest
 pi-67 version
-pi-67 update --repair --yes
+pi-67 update
 ```
 
 Since `0.10.2`, the `Manager latest` field is queried directly from the npm
@@ -1373,8 +1468,8 @@ Set-Location $env:USERPROFILE\.pi\agent
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\pi67-windows-acceptance.ps1
 ```
 
-It updates the npm manager with `pi-67 self-update`, updates the distro with
-`pi-67 update --repair --yes`, and then runs the Windows/xtalpi acceptance
+It updates the npm manager with `pi-67 self-update`, updates the distro with the
+smart default `pi-67 update`, and then runs the Windows/xtalpi acceptance
 contract. On failure, use the printed failed-stage output tail, `Recovery`,
 full stage-log path, and `Summary` path. Full command output remains in the
 adjacent stage logs. To diagnose the current install without changing it,
@@ -1384,7 +1479,7 @@ the skip. Use `-SelfTest` only for the offline script contract.
 If the installed manager is too old to trust, use the latest package for one run:
 
 ```bash
-npx -y @bigking67/pi-67@latest update --repair
+npx -y @bigking67/pi-67@latest update
 ```
 
 `pi67-update.ps1` / `pi67-update.sh` default to safe fast-forward updates.

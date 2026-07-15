@@ -24,7 +24,10 @@ export function setupBrowser67(ctx, options = {}) {
     quiet,
   });
 
-  const mcp = configureBrowser67Mcp(ctx, root, { dryRun });
+  const mcp = configureBrowser67Mcp(ctx, root, {
+    dryRun,
+    preserveValidAlternateRoot: options.preserveValidAlternateMcp,
+  });
   steps.push({ id: "mcp-config", action: mcp.changed ? "update" : "current", ...mcp });
 
   if (options.startHub) {
@@ -91,6 +94,26 @@ export function inspectBrowser67Runtime(ctx, options = {}) {
 export function configureBrowser67Mcp(ctx, root, options = {}) {
   const file = path.join(ctx.agentDir, "mcp.json");
   const existed = fs.existsSync(file);
+  if (existed && options.preserveValidAlternateRoot) {
+    const current = inspectBrowser67Mcp(file, root);
+    const alternateServers = current.checks.filter(
+      (entry) => entry.id === "mcp-tmwd_browser" || entry.id === "mcp-js-reverse",
+    );
+    if (
+      current.checks.every((entry) => entry.ok) &&
+      alternateServers.length === 2 &&
+      alternateServers.every((entry) => entry.alternate)
+    ) {
+      return {
+        file,
+        changed: false,
+        changes: [],
+        backup: "",
+        created: false,
+        preservedAlternateRoot: alternateServers[0].configuredRoot,
+      };
+    }
+  }
   const config = existed ? readJson(file) : { mcpServers: {} };
   const normalized = normalizeBrowser67McpConfig(config, root);
 

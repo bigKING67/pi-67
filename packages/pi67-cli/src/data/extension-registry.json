@@ -140,9 +140,9 @@
       ],
       "smoke": [
         "pi-67 external list",
-        "pi-67 external setup browser67 --dry-run"
+        "pi-67 external install browser67 --dry-run"
       ],
-      "notes": "External repo updates are explicit and must not reset, clean, or overwrite dirty worktrees. Setup prepares dependencies, extension files, active skills, and MCP config while browser loading and OS permissions remain manual."
+      "notes": "External repo updates are explicit and must not reset, clean, or overwrite dirty worktrees. Install clones and prepares dependencies, extension files, active skills, and MCP config. Update pulls safely and reruns preparation only when the checkout changed or readiness is incomplete while preserving a valid alternate MCP checkout. Setup explicitly rebuilds an installed runtime; browser loading and OS permissions remain manual."
     },
     {
       "id": "design-craft",
@@ -156,7 +156,8 @@
       "configPatches": [],
       "explicitCommands": [
         "pi-67 external list",
-        "pi-67 external doctor",
+        "pi-67 external install design-craft",
+        "pi-67 external doctor design-craft",
         "pi-67 external update design-craft"
       ],
       "smoke": [

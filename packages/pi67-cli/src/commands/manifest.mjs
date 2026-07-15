@@ -29,6 +29,7 @@ export async function manifestCommand(ctx, argv) {
   section("pi-67 distro manifest");
   keyValue("Dependencies", manifest.summary.dependencies);
   keyValue("Upstream Pi tested", manifest.upstreamPi?.testedVersion || "unknown");
+  keyValue("Upstream Pi ownership", `${manifest.upstreamPi?.owner || "unknown"}: ${manifest.upstreamPi?.mutationPolicy || "unknown"}`);
   keyValue("Runtime packages", `${manifest.summary.pi67ManagedRuntimePackages} pi67-managed, ${manifest.summary.userManagedRuntimePackages} user-managed`);
   keyValue("Local extensions", `${manifest.summary.localExtensions - manifest.summary.missingLocalExtensions}/${manifest.summary.localExtensions} present`);
   keyValue("Registered extensions", manifest.summary.registeredExtensions);
@@ -39,8 +40,10 @@ export async function manifestCommand(ctx, argv) {
   section("Update boundary");
   info(`pi-67 update command: ${manifest.commands.update}`);
   info(`Repair command: ${manifest.commands.repair}`);
+  info(`Always-fresh update: ${manifest.commands.alwaysFreshUpdate}`);
   info(`Always-fresh repair: ${manifest.commands.alwaysFreshRepair}`);
-  warn(`${manifest.commands.upstreamPiExtensions} is upstream Pi only; it is not the pi-67 distribution updater.`);
+  warn(`Upstream Pi runtime update is separate: ${manifest.upstreamPi.updateCommand}`);
+  warn(`${manifest.commands.upstreamPiExtensions} is only for user-managed upstream Pi extensions; pi-67-managed extensions use pi-67 update.`);
 
   section("Local extensions");
   for (const item of manifest.localExtensions) {

@@ -68,11 +68,11 @@ export async function buildUpdatePlan(ctx, options = {}) {
   const recommendations = [];
   if (managerFreshness.blocking) {
     recommendations.push(`Update pi-67 manager first: ${managerFreshness.updateCommand}`);
-    recommendations.push(`Then rerun: pi-67 update --repair --yes`);
+    recommendations.push(`Then rerun: pi-67 update`);
     recommendations.push(`Always-fresh one-shot: ${managerFreshness.oneShotCommand}`);
   } else if (managerRegistry.outdated) {
     recommendations.push(`Update pi-67 manager: npm install -g ${pkg.name}@latest`);
-    recommendations.push(`Always-fresh one-shot: npx -y ${pkg.name}@latest update --repair`);
+    recommendations.push(`Always-fresh one-shot: npx -y ${pkg.name}@latest update`);
   }
   if (!fs.existsSync(ctx.repoRoot)) {
     recommendations.push("Run: pi-67 install");
@@ -120,8 +120,8 @@ export async function buildUpdatePlan(ctx, options = {}) {
       .join(", ");
     recommendations.push(`pi-67 release should adopt newer managed package baselines after smoke: ${names}`);
   }
-  if (packageAudit.summary.installedBehind > 0) {
-    recommendations.push("Run: pi-67 update --repair --yes to sync managed npm packages to the pi-67 baseline.");
+  if ((packageAudit.summary.installedBehind || 0) > 0 || (packageAudit.summary.notInstalled || 0) > 0) {
+    recommendations.push("Run: pi-67 update; normal update automatically syncs missing or stale managed npm packages to the pi-67 baseline.");
   }
   const decisions = buildPlanDecisions({
     ctx,
@@ -444,9 +444,11 @@ export function buildPlanDecisions(context) {
   }
 
   const packageAudit = context.packageAudit || { summary: {}, packages: [] };
-  const installedBehindPackages = packageAudit.packages.filter((item) =>
-    item.status === "installed-behind-baseline" || item.status === "installed-behind-range-latest");
-  if (installedBehindPackages.length > 0) {
+  const packagesNeedingSync = packageAudit.packages.filter((item) =>
+    item.status === "installed-behind-baseline" ||
+    item.status === "installed-behind-range-latest" ||
+    item.status === "not-installed");
+  if (packagesNeedingSync.length > 0) {
     actions.push({
       id: "managed-npm-packages",
       kind: "npm-package-sync",
@@ -454,8 +456,8 @@ export function buildPlanDecisions(context) {
       writes: ["npm/package.json", "npm/package-lock.json", "npm/node_modules"],
       preserves: preservedRuntimeFiles,
       risk: "low",
-      reason: `${installedBehindPackages.length} managed npm package(s) are installed behind the pi-67 baseline or allowed latest range`,
-      explicitCommand: "pi-67 update --repair --yes",
+      reason: `${packagesNeedingSync.length} managed npm package(s) are missing or installed behind the pi-67 baseline or allowed latest range`,
+      explicitCommand: "pi-67 update",
     });
   }
   for (const item of packageAudit.packages.filter((entry) => entry.status === "baseline-behind-latest")) {
@@ -463,10 +465,6 @@ export function buildPlanDecisions(context) {
       `managed package ${item.packageName} latest ${item.latestVersion} is beyond pi-67 baseline ${item.versionRange}; wait for a pi-67 release that adopts it after smoke instead of running upstream pi update --extensions`,
     );
   }
-  for (const item of packageAudit.packages.filter((entry) => entry.status === "not-installed")) {
-    warnings.push(`managed package ${item.packageName} is missing from npm/node_modules; update/repair will install the pi-67 baseline`);
-  }
-
   for (const repo of context.external) {
     if (!repo.exists) {
       warnings.push(`external repo ${repo.name} is missing; install is explicit via pi-67 external install ${repo.name}`);

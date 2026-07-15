@@ -44,6 +44,7 @@ import {
   inspectUpstreamPiRuntime,
   upstreamPiCheck,
 } from "../src/lib/upstream-pi-runtime.mjs";
+import { shouldForceNpmSync } from "../src/commands/update.mjs";
 import {
   configureBrowser67Mcp,
   inspectBrowser67Runtime,
@@ -78,9 +79,11 @@ for (const file of files.filter((item) => item.endsWith(".mjs"))) {
 for (const file of files.filter((item) => item.endsWith(".json"))) {
   JSON.parse(fs.readFileSync(file, "utf8"));
 }
+runManifestOwnershipSelfTests();
 await runNpmRegistrySelfTests();
 await runUpstreamPiRuntimeSelfTests();
 runBrowser67RuntimeSelfTests();
+runExternalLifecycleSelfTests();
 runPackedArtifactSelfTests();
 runArgsSelfTests();
 runCliHelpContractSelfTests();
@@ -94,6 +97,7 @@ runExtensionRegistrySelfTests();
 runSettingsRuntimeStateSelfTests();
 runUpdatePreflightMigrationSelfTests();
 runUpdatePlanSelfTests();
+runUpdateCommandPolicySelfTests();
 runUpdateSafetySelfTests();
 runSkillPackPolicySelfTests();
 
@@ -104,6 +108,25 @@ function walk(dir, files) {
     if (entry.isDirectory()) walk(full, files);
     else files.push(full);
   }
+}
+
+function runManifestOwnershipSelfTests() {
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(root, "src", "data", "distro-manifest.json"), "utf8"),
+  );
+  assert(manifest.upstreamPi?.owner === "upstream-pi", "upstream Pi must retain independent ownership");
+  assert(
+    manifest.upstreamPi?.mutationPolicy === "report-only-never-install-or-update-through-pi67",
+    "pi-67 must never install or update the upstream Pi runtime",
+  );
+  assert(
+    manifest.upstreamPi?.updateCommand === "npm install -g @earendil-works/pi-coding-agent@latest",
+    "upstream Pi must expose a standalone npm update command",
+  );
+  assert(
+    manifest.commands?.alwaysFreshUpdate === "npx -y @bigking67/pi-67@latest update",
+    "manifest must expose the normal always-fresh update path separately from repair",
+  );
 }
 
 function runArgsSelfTests() {
@@ -383,14 +406,126 @@ function runBrowser67RuntimeSelfTests() {
   });
   assert(deep.ready && deep.live.ok, "browser67 deep doctor must include a passing live probe");
 
+  const alternateRoot = path.join(tmpRoot, "alternate-browser67");
+  fs.mkdirSync(path.join(alternateRoot, "src", "mcp", "browser"), { recursive: true });
+  fs.mkdirSync(path.join(alternateRoot, "src", "mcp", "js-reverse"), { recursive: true });
+  fs.writeFileSync(path.join(alternateRoot, "package.json"), '{"name":"browser67"}\n', "utf8");
+  fs.writeFileSync(path.join(alternateRoot, "src", "mcp", "browser", "server.mjs"), "\n", "utf8");
+  fs.writeFileSync(path.join(alternateRoot, "src", "mcp", "js-reverse", "server.mjs"), "\n", "utf8");
+  configureBrowser67Mcp(ctx, alternateRoot);
+  const preservedAlternate = setupBrowser67(ctx, {
+    root: browserRoot,
+    preserveValidAlternateMcp: true,
+    runCommand() {
+      return { status: 0, stdout: "", stderr: "" };
+    },
+  });
+  assert(
+    preservedAlternate.steps.some((step) =>
+      step.id === "mcp-config" && step.action === "current" && step.preservedAlternateRoot === alternateRoot),
+    "automated browser67 update setup must preserve a valid alternate MCP checkout",
+  );
+
   const mcpFile = path.join(agentDir, "mcp.json");
   const mcp = JSON.parse(fs.readFileSync(mcpFile, "utf8"));
+  assert(
+    mcp.mcpServers.tmwd_browser.cwd === alternateRoot && mcp.mcpServers["js-reverse"].cwd === alternateRoot,
+    "preserving an alternate MCP checkout must leave both server roots unchanged",
+  );
   mcp.mcpServers.tmwd_browser.cwd = path.join(tmpRoot, "wrong-browser67");
   fs.writeFileSync(mcpFile, `${JSON.stringify(mcp, null, 2)}\n`, "utf8");
   const repaired = configureBrowser67Mcp(ctx, browserRoot);
   assert(repaired.changed && repaired.backup && fs.existsSync(repaired.backup), "browser67 MCP repair must create a backup");
 
   fs.rmSync(tmpRoot, { recursive: true, force: true });
+}
+
+function runExternalLifecycleSelfTests() {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-external-lifecycle-"));
+  const home = path.join(tmpRoot, "home");
+  const agentDir = path.join(home, ".pi", "agent");
+  const skillsDir = path.join(home, ".agents", "skills");
+  const packagesDir = path.join(home, ".agents", "packages");
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.mkdirSync(skillsDir, { recursive: true });
+  const env = { ...process.env, HOME: home, USERPROFILE: home };
+  const globalArgs = [
+    "--agent-dir", agentDir,
+    "--repo-root", root,
+    "--skills-dir", skillsDir,
+    "--packages-dir", packagesDir,
+  ];
+  const run = (...args) => spawnSync(process.execPath, [path.join(root, "bin", "pi-67.mjs"), ...globalArgs, ...args], {
+    cwd: root,
+    env,
+    encoding: "utf8",
+  });
+
+  try {
+    const browserInstall = run("external", "install", "browser67", "--dry-run", "--json");
+    assert(browserInstall.status === 0, `browser67 install dry-run failed\n${browserInstall.stderr || browserInstall.stdout}`);
+    const browserPlan = JSON.parse(browserInstall.stdout);
+    assert(
+      browserPlan.schema === "pi67.external-install.v1" &&
+        browserPlan.action === "clone-dry-run" &&
+        browserPlan.runtimeSetup?.action === "setup-dry-run" &&
+        browserPlan.runtimeSetup.result.steps.some((step) => step.id === "dependencies" && step.action === "planned"),
+      "browser67 install must own both checkout installation and complete runtime preparation",
+    );
+    assert(!fs.existsSync(packagesDir), "external install dry-run must not create the package root");
+
+    const designInstall = run("external", "install", "design-craft", "--dry-run", "--json");
+    assert(designInstall.status === 0, `design-craft install dry-run failed\n${designInstall.stderr || designInstall.stdout}`);
+    const designPlan = JSON.parse(designInstall.stdout);
+    assert(
+      designPlan.schema === "pi67.external-install.v1" &&
+        designPlan.action === "clone-dry-run" &&
+        designPlan.runtimeSetup === undefined,
+      "design-craft install must remain a repository-only lifecycle",
+    );
+
+    const missingSetup = run("external", "setup", "browser67", "--dry-run", "--json");
+    assert(
+      missingSetup.status === 1 && missingSetup.stderr.includes("browser67 is not installed; run: pi-67 external install browser67"),
+      "browser67 setup must not silently replace first-time install",
+    );
+
+    const missingUpdate = run("external", "update", "browser67", "--dry-run", "--json");
+    assert(
+      missingUpdate.status === 1 && missingUpdate.stderr.includes("external repo is not installed; run: pi-67 external install browser67"),
+      "external update must not silently install a missing repository",
+    );
+
+    const browserRoot = path.join(packagesDir, "browser67");
+    fs.mkdirSync(path.join(browserRoot, "src", "mcp", "browser"), { recursive: true });
+    fs.mkdirSync(path.join(browserRoot, "src", "mcp", "js-reverse"), { recursive: true });
+    fs.mkdirSync(path.join(browserRoot, "node_modules"), { recursive: true });
+    fs.mkdirSync(path.join(home, ".browser67", "browser", "tmwd_cdp_bridge"), { recursive: true });
+    fs.writeFileSync(path.join(browserRoot, "package.json"), '{"name":"browser67"}\n', "utf8");
+    fs.writeFileSync(path.join(browserRoot, "src", "mcp", "browser", "server.mjs"), "\n", "utf8");
+    fs.writeFileSync(path.join(browserRoot, "src", "mcp", "js-reverse", "server.mjs"), "\n", "utf8");
+    fs.writeFileSync(path.join(home, ".browser67", "browser", "tmwd_cdp_bridge", "manifest.json"), "{}\n", "utf8");
+    for (const skill of ["browser67", "js-reverse"]) {
+      fs.mkdirSync(path.join(skillsDir, skill), { recursive: true });
+      fs.writeFileSync(path.join(skillsDir, skill, "SKILL.md"), `# ${skill}\n`, "utf8");
+    }
+    configureBrowser67Mcp({
+      agentDir,
+      skillsDir,
+      packagesDir,
+      stateDir: path.join(home, ".pi", "pi67"),
+    }, browserRoot);
+
+    const readyInstall = run("external", "install", "browser67", "--json");
+    assert(readyInstall.status === 0, `ready browser67 install failed\n${readyInstall.stderr || readyInstall.stdout}`);
+    const readyResult = JSON.parse(readyInstall.stdout);
+    assert(
+      readyResult.action === "skip" && readyResult.runtimeSetup?.action === "skip",
+      "browser67 install must avoid expensive setup when checkout and deterministic runtime are already current",
+    );
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
 }
 
 function runPackedArtifactSelfTests() {
@@ -433,8 +568,10 @@ function runPackedArtifactSelfTests() {
     });
     assert(help.status === 0, `packed artifact CLI failed to start: ${help.stderr || help.stdout}`);
     assert(
-      help.stdout.includes("external setup browser67") && help.stdout.includes("external doctor <browser67|design-craft> [--deep]"),
-      "packed artifact external help is missing browser67 setup/deep doctor",
+      help.stdout.includes("external install <browser67|design-craft>") &&
+        help.stdout.includes("browser67 install performs the complete first-time") &&
+        help.stdout.includes("external doctor <browser67|design-craft> [--deep]"),
+      "packed artifact external help is missing the complete install/update/setup lifecycle",
     );
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
@@ -511,9 +648,22 @@ function runCliHelpContractSelfTests() {
     }
     if (command[0] === "external") {
       assert(
-        result.stdout.includes("external setup browser67") &&
+        result.stdout.includes("external install browser67") &&
+          result.stdout.includes("external update browser67") &&
+          result.stdout.includes("setup explicitly rebuilds an") &&
           result.stdout.includes("external doctor browser67 --deep"),
-        "external help must document complete browser67 setup and layered readiness",
+        "external help must document install-first browser67 lifecycle and layered readiness",
+      );
+    }
+    if (command[0] === "update") {
+      assert(
+        result.stdout.includes("It never installs or") &&
+          result.stdout.includes("@earendil-works/pi-coding-agent@latest") &&
+          !result.stdout.includes("--include-pi") &&
+          !/(^|\n)\s*--all(?:\s|$)/m.test(result.stdout) &&
+          !/(^|\n)\s*--yes(?:\s|$)/m.test(result.stdout) &&
+          !result.stdout.includes("pi update --all"),
+        "update help must keep upstream Pi installation and updates outside pi-67",
       );
     }
     if (command[0] === "skills") {
@@ -526,6 +676,28 @@ function runCliHelpContractSelfTests() {
       );
     }
   }
+  for (const retiredOption of ["--include-pi", "--all", "--yes"]) {
+    const result = spawnSync(
+      process.execPath,
+      [path.join(root, "bin", "pi-67.mjs"), ...globalArgs, "update", retiredOption, "--dry-run"],
+      { cwd: root, env, encoding: "utf8" },
+    );
+    assert(result.status === 2, `retired update option must fail closed: ${retiredOption}`);
+    assert(
+      result.stderr.includes(`unknown option: ${retiredOption}`),
+      `retired update option must explain its removal: ${retiredOption}`,
+    );
+  }
+  const globalYes = spawnSync(
+    process.execPath,
+    [path.join(root, "bin", "pi-67.mjs"), "--yes", ...globalArgs, "update", "--dry-run"],
+    { cwd: root, env, encoding: "utf8" },
+  );
+  assert(globalYes.status === 2, "global --yes must not become a silent no-op for update");
+  assert(
+    globalYes.stderr.includes("pi-67 update does not use --yes"),
+    "global --yes must explain the simplified update contract",
+  );
   const capabilityOutput = path.join(tmpRoot, "capability.json");
   const capability = spawnSync(
     process.execPath,
@@ -1085,9 +1257,10 @@ function runVersionRecommendationSelfTests() {
   assert(result.status === 0, `version recommendation command failed\n${result.stderr || result.stdout}`);
   assert(
     result.stdout.includes("npm install updated only the manager package") &&
-      result.stdout.includes("update --repair") &&
+      result.stdout.includes(" update") &&
+      !result.stdout.includes("update --repair") &&
       result.stdout.includes("settings.json has Pi runtime changelog marker state"),
-    `version output must explain manager/distro mismatch and runtime marker repair\n${result.stdout}`,
+    `version output must explain manager/distro mismatch and normal update migration\n${result.stdout}`,
   );
   const json = spawnSync(process.execPath, [
     path.join(root, "bin", "pi-67.mjs"),
@@ -1106,7 +1279,8 @@ function runVersionRecommendationSelfTests() {
   assert(json.status === 0, `version --json recommendation command failed\n${json.stderr || json.stdout}`);
   const parsed = JSON.parse(json.stdout);
   assert(
-    parsed.recommendations?.some((item) => item.message.includes("update --repair")),
+    parsed.recommendations?.some((item) => item.message.endsWith(" update")) &&
+      !parsed.recommendations?.some((item) => item.message.includes("update --repair")),
     "version --json must include actionable recommendations",
   );
   fs.rmSync(tmpRoot, { recursive: true, force: true });
@@ -1117,6 +1291,8 @@ async function runUpstreamPiRuntimeSelfTests() {
     upstreamPi: {
       packageName: "@earendil-works/pi-coding-agent",
       command: "pi",
+      owner: "upstream-pi",
+      mutationPolicy: "report-only-never-install-or-update-through-pi67",
       testedVersion: "0.80.6",
       compatibilityPolicy: "warn-if-installed-behind-release-tested-version",
       updateCommand: "npm install -g @earendil-works/pi-coding-agent@latest",
@@ -1785,8 +1961,19 @@ function runUpdatePlanSelfTests() {
     },
   });
   assert(
-    buildPlanDecisions(installedPackageBehind).actions.some((item) => item.id === "managed-npm-packages"),
+    buildPlanDecisions(installedPackageBehind).actions.some((item) =>
+      item.id === "managed-npm-packages" && item.explicitCommand === "pi-67 update"),
     "installed managed npm package drift must create a package sync action",
+  );
+
+  const missingManagedPackage = decisionsFixture({
+    packageAudit: {
+      packages: [{ packageName: "pi-subagents", status: "not-installed" }],
+    },
+  });
+  assert(
+    buildPlanDecisions(missingManagedPackage).actions.some((item) => item.id === "managed-npm-packages"),
+    "missing managed npm packages must create a package sync action",
   );
 
   const baselinePackageBehind = decisionsFixture({
@@ -1802,6 +1989,21 @@ function runUpdatePlanSelfTests() {
   assert(
     buildPlanDecisions(baselinePackageBehind).warnings.some((item) => item.includes("pi-subagents latest 0.34.0")),
     "managed npm package baseline drift must be visible as a warning",
+  );
+}
+
+function runUpdateCommandPolicySelfTests() {
+  assert(
+    !shouldForceNpmSync({ actions: [] }),
+    "normal update must not force npm when the plan is already current",
+  );
+  assert(
+    shouldForceNpmSync({ actions: [] }, { repair: true }),
+    "explicit repair must force managed npm dependency installation",
+  );
+  assert(
+    shouldForceNpmSync({ actions: [{ id: "managed-npm-packages" }] }),
+    "normal update must automatically resync managed npm packages when the plan detects drift",
   );
 }
 
