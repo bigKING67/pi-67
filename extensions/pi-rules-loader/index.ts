@@ -7,32 +7,12 @@ type RuleSource = "global" | "project" | "agents" | "claude";
 type RuleFile = {
   source: RuleSource;
   absolutePath: string;
-  displayPath: string;
   title: string;
   description: string;
 };
 
 const HOME = process.env.HOME ?? "";
 const GLOBAL_RULES_DIR = path.join(HOME, ".pi", "agent", "rules");
-
-const KERNEL_DIGEST = [
-  "L1/L2 code changes must read quality.md before planning or editing.",
-  "Architecture/interface/migration tasks must read architecture-quality.md and project-structure.md.",
-  "Performance-sensitive tasks must read performance.md.",
-  "New files/directories or module moves must read project-structure.md.",
-  "Large logs/JSON/diffs or long sessions must read context-budget.md.",
-  "Frontend UI work must read frontend.md.",
-  "Browser/login/download/upload/API-reverse tasks must read browser.md.",
-  "Data mapping/metric/source-of-truth disputes must read data-quality.md or the closest project data rule.",
-  "Commerce growth/platform operation/assortment/pricing/channel-profit tasks must read commerce-growth.md.",
-];
-
-function displayPath(filePath: string): string {
-  if (HOME && filePath.startsWith(`${HOME}/`)) {
-    return `~/${filePath.slice(HOME.length + 1)}`;
-  }
-  return filePath;
-}
 
 function safeReadIntro(filePath: string): string {
   try {
@@ -119,7 +99,6 @@ function collectRules(cwd: string): RuleFile[] {
       rules.push({
         source: candidate.source,
         absolutePath,
-        displayPath: displayPath(absolutePath),
         title: meta.title,
         description: meta.description,
       });
@@ -131,10 +110,7 @@ function collectRules(cwd: string): RuleFile[] {
 
 function formatRules(rules: RuleFile[]): string {
   return rules
-    .map(
-      (rule) =>
-        `- [${rule.source}] ${rule.absolutePath} (${rule.displayPath}) - ${rule.title}: ${rule.description}`,
-    )
+    .map((rule) => `- [${rule.source}] ${rule.absolutePath} - ${rule.title}: ${rule.description}`)
     .join("\n");
 }
 
@@ -160,11 +136,7 @@ export default function piRulesLoader(pi: ExtensionAPI) {
 
 ## Pi Rules Loader
 
-The following rule files are available. They are not automatically in full context. Before L1/L2 planning or editing, identify the minimum relevant rule files and read their exact paths.
-
-### Rules Kernel Digest
-
-${KERNEL_DIGEST.map((line) => `- ${line}`).join("\n")}
+Detailed rules are indexed below but are not automatically loaded in full. For L1/L2 work, use the global/project AGENTS routing contract and read only the minimum relevant files before planning or editing.
 
 ### Available Rule Files
 
@@ -173,7 +145,6 @@ ${formatRules(rules)}
 ### Rule Use Contract
 
 - Do not read every rule by default; read only the smallest relevant set.
-- If a task is non-trivial and matches the digest above, read the matching rule file(s) before planning or editing.
 - If rule files cannot be read, say so and proceed with the global AGENTS kernel plus project context.
 - In final delivery for non-trivial work, briefly mention the key rules used.
 `,

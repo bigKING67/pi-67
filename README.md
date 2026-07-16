@@ -154,7 +154,7 @@ PowerShell 7，管理员状态为 `True`，且不会每次重复弹 UAC；原始
 这个仓库把 `~/.pi/agent/` 中可复用、可公开的 Pi 配置整理成可安装版本。推荐长期形态是 `~/.pi/agent` 本身就是这个 Git checkout；它不是 minimal starter，而是完整 Pi 工作流发行包：
 
 - 常驻内核：`AGENTS.md` 只保留硬规则、工具分流、rules 读取契约和交付闭环。
-- 长规则外置：`rules/` 存放质量、架构、目录、性能、前端、浏览器、上下文、数据和电商增长规则，按任务最小读取。
+- 长规则外置：`rules/` 存放质量、架构、目录、性能、前端、浏览器、上下文、数据、电商增长和 pi-67 产品边界，按任务最小读取。
 - 扩展补强：`extensions/pi-rules-loader/` 给 Pi 注入 rules 索引；`extensions/xtalpi-pi-tools/` 让 Pi 本地托管 xtalpi 工具协议；`extensions/pi-vision-bridge/` 把图片/截图任务桥接到本地多模态 provider。
 - 生产力资产：Skills、Prompts、Docs、Templates 和脚本保持仓库化，便于审计、同步和回滚。
 
@@ -172,14 +172,14 @@ PowerShell 7，管理员状态为 `True`，且不会每次重复弹 UAC；原始
 | **核心配置模板** | `settings.example.json` | 发行版默认 provider/model、Pi package 列表；首次安装复制为 ignored 的本机 `settings.json` |
 | **模型配置** | `models.example.json` | xtalpi-pi-tools / codex provider 模板 |
 | **MCP** | `mcp.example.json` | browser67 tmwd_browser、js-reverse、agent_memory 模板 |
-| **全局内核** | `AGENTS.md` | Pi 常驻行为规范（v1.6-pi kernel） |
-| **Rules** | `rules/` (9 篇) | 质量、架构、结构、性能、前端、浏览器、上下文、数据质量、电商增长规则 |
+| **全局内核** | `AGENTS.md` | Pi 常驻行为规范（v1.7-pi kernel） |
+| **Rules** | `rules/` (10 篇) | 质量、架构、结构、性能、前端、浏览器、上下文、数据质量、电商增长、pi-67 产品边界规则 |
 | **自定义扩展** | `extensions/` (3 个) | `xtalpi-pi-tools` + `pi-rules-loader` + `pi-vision-bridge` |
 | **Shared Skills** | `shared-skills/` | 安装到 `~/.agents/skills`，供 Pi/Codex 共用 |
 | **Skill 治理** | `docs/skill-governance.md` | skill 公开发行 / 个人 overlay / 过期治理规则 |
 | **文档** | `docs/` | Windows 新机、全量安装、doctor/report/status schema、排障、发布流程、MCP 优化、爬虫指南、工具速查、xtalpi 配置 |
 | **Prompts** | `prompts/` (5 个) | debug、deliver、frontend-kickoff、review、scoped-commit |
-| **脚本** | `scripts/` | Windows pi-67 manager/workspace bootstrap、configure、doctor、report、status、skill-audit、skill migration/sync/check、release artifact smoke、release、release-check、smoke、update、restore、uninstall、xtalpi-pi-tools 启动、测试和冒烟测试 |
+| **脚本** | `scripts/` | Windows pi-67 manager/workspace bootstrap、configure、doctor、report、status、prompt governance、skill-audit、skill migration/sync/check、release artifact smoke、release、release-check、smoke、update、restore、uninstall、xtalpi-pi-tools 启动、测试和冒烟测试 |
 | **模板** | `templates/scrapers/` | 采集/合并/轮询相关脚本模板 |
 
 ## Shared skill registry
@@ -940,6 +940,7 @@ Pi 的长期规则分两层：
 | 登录态、真实 Chrome、下载/上传、JS 逆向 | `browser.md` |
 | 数据口径、映射、唯一性争议 | `data-quality.md` |
 | 电商增长、平台运营、货盘价盘、渠道控价、ROI/利润测算 | `commerce-growth.md` |
+| pi-67 安装、更新、provider、bootstrap、验收、发布 | `pi67-product-boundary.md` |
 
 ## 目录结构
 
@@ -950,7 +951,7 @@ pi-67/
 ├── CHANGELOG.md
 ├── install.sh                      # 一键符号链接安装脚本
 ├── .gitignore
-├── AGENTS.md                       # Pi v1.6-pi 常驻内核
+├── AGENTS.md                       # Pi v1.7-pi 常驻短内核
 ├── settings.example.json           # tracked 核心配置模板
 ├── settings.json                   # ignored 本机 Pi 运行态（首次安装时创建）
 ├── models.example.json             # 模型配置模板（需填写 API key）
@@ -987,6 +988,7 @@ pi-67/
 │   ├── data-quality.md
 │   ├── frontend.md
 │   ├── performance.md
+│   ├── pi67-product-boundary.md
 │   ├── project-structure.md
 │   └── quality.md
 ├── shared-skills/                  # 共享 Skills，安装到 ~/.agents/skills
@@ -1033,6 +1035,7 @@ pi-67/
 │   ├── pi67-doctor.sh
 │   ├── pi67-doctor.ps1
 │   ├── pi67-migrate-skills.sh
+│   ├── pi67-prompt-governance-check.mjs
 │   ├── pi67-release-artifact-smoke.sh
 │   ├── pi67-release.sh
 │   ├── pi67-release-check.sh
@@ -1701,13 +1704,13 @@ bash ~/.pi/agent/scripts/pi67-uninstall.sh --yes
 ## 维护原则
 
 - 任何改动都必须保持“Pi 是运行时、pi-67 是工作台发行版与配置管理器”的边界；不得把 `pi-67` 变成平行运行时、强制启动器或 upstream Pi 的替代品。
-- README 的项目定位和 `AGENTS.md` 的架构硬约束是本仓库的产品真源；修改安装、验收、CLI 或文档前先检查是否与它们一致。
+- README 的项目定位和 `rules/pi67-product-boundary.md` 是本仓库的产品边界真源；修改安装、验收、CLI 或文档前先检查是否与它们一致。
 - 不提交真实密钥、token、cookie、运行会话、缓存或本地私有状态。
 - 修改全局行为时优先更新 `AGENTS.md`；长规则优先落到 `rules/`。
 - 修改安装链路后运行 `bash scripts/pi67-smoke.sh`；至少覆盖 `bash -n`、JSON、dry-run、临时 agent-dir 安装和 doctor。
 - 修改 skill registry 治理后运行 `bash scripts/pi67-test-skill-governance.sh`；需要核对真实外部 repo 时再运行 `bash scripts/pi67-check-external-skills.sh --repo /path/to/repo`。
 - 修改版本、安装器、doctor、configure、report、release、update、restore/uninstall 或 CI 时，同步更新 `VERSION` / `CHANGELOG.md` / `docs/release.md`，并运行 `bash scripts/pi67-release-check.sh`。
-- 提交前检查 prompt 模板是否使用 Pi 支持的 `$1` / `$ARGUMENTS` / `${...}`，避免遗留双花括号占位符。
+- 提交前运行 `node scripts/pi67-prompt-governance-check.mjs`，并检查 prompt 模板使用 Pi 支持的 `$1` / `$ARGUMENTS` / `${...}`，避免常驻内核膨胀、能力名漂移或遗留双花括号占位符。
 
 ## 贡献
 

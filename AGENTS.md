@@ -1,167 +1,104 @@
 # Pi 全局 AGENTS 规范
 
-> Version: `v1.6-pi`
-> Last Updated: `2026-07-10`
+> Version: `v1.7-pi`
+> Last Updated: `2026-07-16`
 
-核心目标：**质量优先，安全第一，证据优先，效率可控**。默认使用简体中文；代码标识符、命令、日志、报错保持原文。
+核心目标：**质量优先，安全第一，证据优先，效率可控**。默认使用简体中文；代码标识符、命令、日志和报错保持原文。
 
-本文件是 Pi 的常驻内核。详细质量规则外置到 `~/.pi/agent/rules/*.md`，由 `pi-rules-loader` 扩展暴露索引并按任务读取；不要把所有长规则常驻塞进上下文。
+本文件是 Pi 的常驻短内核。详细规则位于 `~/.pi/agent/rules/*.md`，由 `pi-rules-loader` 暴露索引并按任务最小读取。
 
 ---
 
-## pi-67 项目定位与不可变架构边界
+## 运行时与配置边界
 
-- upstream `@earendil-works/pi-coding-agent` / `pi` 是唯一 Pi 运行时，负责界面、模型连接、extension 加载、工具执行和任务生命周期。
-- pi-67 是面向 Windows/macOS 团队用户的一键 Pi 工作台发行版与配置管理器，负责安装、更新、修复、诊断和发布 `~/.pi/agent`、共享 Skills、extensions、rules、prompts、脚本及 provider 模板。
-- pi-67 的名称和产品方向来自维护者 67 的长期 Pi 使用实践，以及其负责公司 Agent 工具开发、配置和推广的工作职责；不得把项目泛化成没有产品判断的通用 starter，也不得收缩成只服务单台电脑的私人配置备份。
-- 用户日常启动入口始终是 `pi`。不得把 pi-67 设计成平行聊天运行时、upstream Pi fork、强制启动器或 Pi 是否可用的唯一裁判。
-- `pi-67 launch` 若保留，只能是 Windows 当前终端 PATH 尚未刷新时的可选兼容工具；不得在 README、安装流程或验收中提升为标准日常入口。
-- 验收必须以真实 `pi`、真实配置加载和真实工具执行为准；wrapper、mock、临时 `pi.cmd` 只能验证局部兼容性，不能代替端到端 Pi 可用性结论。
-- 公司推荐默认使用 `xtalpi-pi-tools`；pi-67 统一发布 provider 结构、公共配置和本地工具协议，每位用户只在本机维护自己的 API key，任何真实凭据都不得进入仓库。
-- 没有配置晶泰 key、DeepSeek key 或任何其他 provider key 时，upstream `pi` 仍必须进入交互界面；缺少 key 只能影响对应模型请求，不能成为启动、安装或验收失败条件。
-- `/login`、`/model`、认证保存、模型选择和下次启动恢复属于 upstream Pi 的原生持久化合同。pi-67 不得重新实现、代理、自动协调或在 install/update 时重写这些状态。
-- `xtalpi-pi-tools` 不是 upstream `pi` 的硬依赖。DeepSeek、Anthropic、OpenAI、Google 等 provider 继续按 Pi 原生流程使用；内置 provider 不得为了通过本地校验而重复写入 `models.json`。
-- `pi-67 xtalpi configure` 只能作为提前配置公司晶泰 key 的可选便利工具，不得成为运行 `pi` 的前置步骤。
-- 后续新增或升级 extensions、Skills、rules、prompts、MCP 模板和诊断能力时，应继续服务于“让团队更高效便捷地使用 Pi”，不得侵入 upstream Pi 已负责的运行时职责。
-- 涉及 CLI 定位、安装入口、启动方式或验收合同的改动，实施前必须核对根 `README.md` 本节对应的产品边界，实施后同步更新文档和测试。
+- upstream `pi` 是唯一 Pi 运行时；pi-67 只负责工作台发行、配置、安装、更新、修复、诊断和发布。
+- 修改 pi-67 CLI、provider、install/update/repair、bootstrap、验收或发布前，必须读取 `~/.pi/agent/rules/pi67-product-boundary.md`。
+- 日常入口始终是 `pi`；不得把 pi-67 变成平行聊天运行时、upstream fork 或强制启动器。
+- `~/.pi/agent/SYSTEM.md` 会替换 upstream 默认 system prompt；未经明确架构决策不得新增。常规行为放在 AGENTS、rules、Skills 或 prompts。
+- `~/.pi/agent/AGENTS.md` 是全局内核；项目差异使用项目根或父级 `AGENTS.md` / `CLAUDE.md`，不要把项目专属细节塞回全局层。
 
 ---
 
 ## 不可外置的硬规则
 
-- 先看真实文件、配置、运行态和官方/权威来源，再下结论；复杂或高风险任务先给计划，简单明确任务直接最小闭环。
-- 非平凡任务、历史决策、用户偏好、跨 session 上下文默认先用共享 `agent_memory_*` MCP 的 `agent_memory_briefing` / `agent_memory_recall`；只记录经验证、长期复用、非敏感的信息。
-- 进入仓库改动前先 `git status --short`；只做 scoped add / scoped commit；禁止 `git add -A` 带入无关改动；不回滚、不覆盖、不顺手整理用户已有无关改动。
-- 代码变更必须完成“改动 -> 验证 -> 复核”；无法验证要说明原因、命令和未覆盖风险。
-- 新增文件/目录前查真实结构和项目约定；不创建泛目录、重复职责目录或临时污染物。
-- 高风险删除、强制推送、改写历史、生产数据写操作、真实 Chrome 外部可见动作必须先确认。
-- 涉及时效信息、最新版本、价格、法规、赛程、公司/人物现状时先核验。
-- 用户可见页面、交互、下载、上传、登录态、响应式或性能改动交付前尽量浏览器验证。
-- `.pi/AGENTS.md` 不是 Pi 默认项目上下文入口；项目自动上下文应使用项目根或父级的 `AGENTS.md` / `CLAUDE.md`。Pi 专属长规则放 `.pi/rules/*.md`。
+- 先核验真实文件、配置、运行态和权威来源；没有实际证据不得宣称完成。
+- 工具和扩展能力以当前 live tool list、配置和运行态为准；路由建议不是可用性承诺，不调用不存在的工具。
+- 只有任务依赖历史决策、长期偏好或跨 session 背景时，才使用当前可用的 `briefing` / `recall`；自包含任务不为形式调用 memory。
+- 涉及最新版本、价格、政策、法规、赛程和人物或公司现状时先核验；相对日期优先给出绝对日期。
+- 代码改动必须完成“目标与验收 -> 最小改动 -> 相关验证 -> diff/status 复核”；无法验证时说明原因、命令和风险。
+- 新增文件或目录前先检查真实结构和职责；不创建泛目录、重复抽象、平行实现或任务临时污染物。
+- 禁止硬编码或回显密钥、token、cookie、密码和私钥；不得把凭据写入源码、日志、fixtures、文档或 memory。
+- 禁止静默降级、假成功、吞错和不可观察 fallback；必要降级必须显式、可关闭、可追踪。
+- 真实浏览器、生产写入、系统配置、全局依赖和破坏性操作遵守本文件的确认边界。
 
 ---
 
 ## 指令优先级
 
-1. 平台/系统/运行时指令。
-2. 安全与合规要求。
-3. 用户当前明确指令。
-4. 正确性、可验证性与证据。
-5. 当前项目 `AGENTS.md` / `CLAUDE.md` / README / 开发规范。
-6. 本全局 Pi AGENTS 与按需读取的 Pi rules。
+平台/系统/运行时 > 安全与合规 > 用户当前明确指令 > 正确性与证据 > 项目规范 > 本全局内核与 rules。
 
-若必须偏离规则，交付时说明偏离原因、风险和回退条件。
-
----
-
-## Pi 工具分流
-
-| 能力 | 默认工具/来源 | 使用边界 |
-| --- | --- | --- |
-| 文件读写与命令 | `read` / `edit` / `write` / `bash` | 写入前确认范围；大输出先窗口化 |
-| 本地搜索 | `fffind` / `ffgrep` / `fff-multi-grep` | 优先定位文件和精确命中；必要时用 `bash` 辅助 |
-| Web 检索 | `web_search` / `web_fetch` / `fetch_content` / `batch_web_fetch` | 普通事实核验、最新信息、官方资料 |
-| 子代理 | `subagent` / `/parallel` / `/chain` | 并行只读优先；写入代理必须划清文件边界 |
-| 浏览器 | browser67 MCP（工具 key `tmwd_browser`） | 真实 Chrome/Edge 登录态、managed tab、下载/上传、CDP 精确断言 |
-| JS 逆向 | `js-reverse` MCP | API 发现、initiator、签名链路、脚本搜索、Hook、证据导出 |
-| 记忆 | `agent_memory_*` / `recall` | 长期偏好、跨 session 决策；不存凭据/raw logs/diff |
-| 二审 | `/advisor` / `advisor` | 架构、迁移、安全、数据高风险决策 |
-| 回退 | `/rewind` | 误操作后优先用 Pi 检查点，不手动乱删 |
-| 视觉 | `image_gen` / `image_review` | 视觉参考、截图反馈；图片输入不足时委托 vision 子代理 |
-
-### 浏览器边界
-
-- 登录态/当前 tab/cookie 感知读取/后台 tab/下载上传/file chooser/clipboard wrapper/managed tab lifecycle 优先用 browser67 real-browser MCP；当前工具 key 是 `tmwd_browser`，`tmwd` 只作为 transport/protocol 术语。
-- 主动操作网页时默认创建或复用 browser67-owned managed tab，使用稳定 `workspace_key`；不要导航、点击、输入或关闭用户 unmanaged tab。
-- 任务结束且未要求保留页面时，对当前 `workspace_key` 或 `task_id` 执行 `finalize_task`；只关闭 `keep:false` 的 browser67-owned tabs。
-- Chrome profile 是用户私有运行态：不查看 cookies、密码、session stores、无关历史、无关标签页、无关账号数据。
-- 页面 API/签名链路/Hook/网络采样优先用 `js-reverse`；如本机配置了 browser67，遵循该仓库内的 `docs/codex-integration.md`，实际路径以本地 `mcp.json` / `pi67-configure` 配置为准；`tmwd-browser-mcp` 仅视为 legacy alias。
+若必须偏离，交付时说明原因、风险和回退条件。
 
 ---
 
 ## Rules 读取契约
 
-`pi-rules-loader` 会把全局和项目 rules 索引注入上下文。Pi 必须按任务读取最小相关 rules；不要一次性读取全部 rules。
-
 | 场景 | 必读 rules |
 | --- | --- |
 | L1/L2 代码修改、bugfix、refactor | `quality.md` |
-| 架构方案、接口边界、迁移、兼容性 | `architecture-quality.md` + `project-structure.md` |
-| 性能、慢查询、热路径、批处理、构建体积 | `performance.md` |
-| 新增目录/文件、模块重组、共享抽象 | `project-structure.md` |
-| 大日志、大 JSON、大 diff、长会话 | `context-budget.md` |
-| 页面、组件、样式、交互、可访问性、视觉验收 | `frontend.md` |
-| 登录态、真实 Chrome、下载/上传、页面 API、JS 逆向 | `browser.md` |
-| DataHub 口径、映射、唯一性、ambiguous/missing | `data-quality.md` 或项目 DataHub rule |
-| 电商增长、平台运营、货盘价盘、渠道控价、ROI/利润测算 | `commerce-growth.md` |
+| 架构、接口、迁移、兼容性 | `architecture-quality.md` + `project-structure.md` |
+| 性能、热路径、批处理、构建体积 | `performance.md` |
+| 新文件/目录、模块移动、共享抽象 | `project-structure.md` |
+| 大日志、JSON、diff、长会话 | `context-budget.md` |
+| 页面、组件、交互、可访问性 | `frontend.md` |
+| 登录态、真实浏览器、下载上传、JS 逆向 | `browser.md` |
+| 数据口径、映射、唯一性 | `data-quality.md` 或项目数据 rule |
+| 电商增长、平台运营、价盘、ROI/利润 | `commerce-growth.md` |
+| pi-67 安装、更新、provider、发布 | `pi67-product-boundary.md` |
 
-规则读取要求：
-
-1. L0 简单任务可直接执行，但仍遵守本 AGENTS 内核。
-2. L1/L2 任务在规划或编辑前读取最小相关 rules。
-3. 如果无法读取 rules，说明原因，并退回本 AGENTS 内核和项目 `AGENTS.md`。
-4. 交付时简要说明实际使用的关键 rules；不要假装读取过未读取的文件。
-
----
-
-## 任务分级与闭环
-
-- **L0 直接执行**：只读查询、小文案、小范围低风险改动。
-- **L1 标准闭环**：常规代码/配置变更；分析、实现、验证、复核。
-- **L2 深度流程**：多模块、架构、发布、迁移、高风险变更；先计划再推进。
-
-默认闭环：目标和验收口径 -> 读取相关 rules 和项目规范 -> 查真实环境 -> 最小必要改动 -> 最相关验证 -> 复核 diff/状态 -> 交付风险与未覆盖项。
+- L0 只读查询、小文案和低风险小改动可直接执行。
+- L1 常规代码或配置变更完成分析、实现、验证和复核。
+- L2 多模块、架构、发布、迁移或高风险变更先计划。
+- L1/L2 在规划或编辑前读取最小相关 rules；不要一次读取全部规则。无法读取时说明并继续遵守本内核和项目规范。
 
 ---
 
-## Git / Dirty Worktree
+## 能力路由
 
-1. 进入仓库改动前先运行 `git status --short`。
-2. 只修改与当前任务直接相关的文件；发现冲突性用户改动时先停下确认。
-3. 不使用破坏性 Git 命令，除非用户明确要求并确认风险。
-4. commit 时只 add 本任务文件，禁止 `git add -A`。
-5. 不 amend、不 rebase、不 force push、不 reset hard，除非用户明确要求。
-6. 用户要求提交/发布时默认 scoped commit；是否 push/deploy 按用户授权判断。
+以下仅表示能力**可用时**的首选路由；先核对当前工具列表、extension/MCP 状态和 workspace trust。
 
----
+| 任务 | 首选能力 |
+| --- | --- |
+| 文件、命令、搜索 | `read` / `edit` / `write` / `bash`；可用时用 `fffind` / `ffgrep` / `fff-multi-grep` |
+| 普通时效检索 | 当前可用的 Web search/fetch 工具与官方来源 |
+| 登录态 Chrome/Edge | browser67 / `tmwd_browser` |
+| 页面 API、签名、Hook、反混淆 | `js-reverse` |
+| 历史决策和长期偏好 | `briefing` / `recall` |
+| 独立子任务和高风险二审 | `subagent` / `advisor` |
+| 误操作回退 | `/rewind` 或当前可用的检查点能力 |
+| 视觉生成和图片理解 | `image_gen` / `image_review` / `vision_read` |
 
-## 子代理与并行
-
-- 信息收集可用 `subagent` parallel fan-out；并行任务必须互不冲突。
-- 写入型子任务必须先划定不重叠文件边界；无明确边界时子代理只做只读探索。
-- 不把未发生的并行、未完成的验证或失败的子代理写成已完成。
-- 高风险或多模块任务可用 `/advisor` 二审；二审结果是参考，不覆盖现场证据和用户当前指令。
-
----
-
-## Skills 与 prompt templates
-
-- 用户点名 skill，或任务明显匹配 skill 描述时，先读取对应 `SKILL.md` 再执行。
-- 电商增长、品牌线上销售、平台运营、货盘价盘、渠道控价、投放、ROI 或利润测算任务优先使用 `commerce-growth-os` skill，并按其 reference routing 最小读取。
-- 不为覆盖率叠加 skill；只启用能提升结果质量或验证质量的最小集合。
-- 复杂流程优先使用已有 prompt templates：`/debug`、`/review`、`/deliver`、`/scoped-commit`、`/frontend-kickoff`。
-- prompt templates 应使用 Pi 原生参数语法：`$1`、`$2`、`$ARGUMENTS`、`${1:-default}`。
+浏览器操作必须保持 scoped：主动操作使用 browser67-owned managed tab；用户 unmanaged tab 默认只读；不得查看无关 cookies、密码、历史、账号或标签页。任务结束按当前 `workspace_key` / `task_id` 清理 `keep:false` 的 owned tabs。
 
 ---
 
-## 前端最小内核
+## Git、修改与并行
 
-- 前端任务包括页面、组件、样式、交互、信息架构、可访问性、可视化和视觉还原。
-- L1/L2 前端任务先读取 `frontend.md`，已有 `DESIGN.md` 时以其为 style authority。
-- 视觉相关任务优先形成设计参考或截图反馈；实现后跑 lint/typecheck/build 中最相关验证，并尽量浏览器 smoke。
-- 交付前端任务时额外说明：tier、实际使用的 skills/rules、style authority、浏览器/视觉验证、性能影响。
+- 进入仓库改动前运行 `git status --short`；识别已有用户改动，只修改任务直接相关文件。
+- commit 只做 scoped add，禁止 `git add -A`；不回滚、不覆盖、不顺手整理无关 WIP。
+- 不 amend、不 rebase、不 force push、不 reset hard；除非用户明确要求并确认风险。
+- 用户只要求 commit 不等于授权 push 或 deploy；外部可见发布必须有当前明确授权。
+- 信息收集可并行；多代理仅在存在至少两个独立子任务、收益高于协调成本且已获授权时使用。写入边界不清时只读。
+- 不把计划、候选工具、pending job、未完成验证或失败子代理写成已完成。
 
 ---
 
-## 工程质量最小内核
+## Skills、项目规则与前端
 
-- 优先根因修复，避免表层补丁；不顺手重构无关区域。
-- 代码表达业务意图；函数单一职责；抽象来自重复事实；复杂流程才补简短注释。
-- 外部输入、API 响应、文件内容和用户输入在边界校验。
-- 数据库访问必须参数化，禁止拼接用户输入形成 SQL/命令。
-- 禁止源码硬编码密钥、token、凭据。
-- 禁止静默降级、假成功、吞错；必须降级时要显式、可见、可关闭、可追踪。
-- 性能默认避免热路径重复计算、同步 IO、大对象深拷贝、无界循环/缓存、N+1、未分页、无超时、可并行 IO 串行等待。
+- 用户点名 Skill 或任务明显匹配时，先读取对应 `SKILL.md`，只走最小有效链路。
+- 专业能力放 Skills，复杂通用流程使用 `/debug`、`/review`、`/deliver`、`/scoped-commit`、`/frontend-kickoff`，不要把它们复制进全局内核。
+- 前端 L1/L2 读取 `frontend.md`；已有 `DESIGN.md` 时以其为 style authority，并按实际风险完成 lint/typecheck/build、浏览器或视觉验证。
+- 性能敏感交付必须说明热路径、规模假设、边界和验证；普通任务不强制输出无关性能模板。
 
 ---
 
@@ -169,48 +106,20 @@
 
 以下操作必须先得到用户明确确认：
 
-- 删除用户文件/repo-tracked 文件/目录或递归删除。
-- `rm -rf`、`git reset --hard`、`git clean -fd`、`git push --force`。
-- rebase、filter-branch、amend 已发布提交。
-- 修改系统级配置、权限、关键环境变量。
-- 数据库删除、结构变更、批量 DELETE/UPDATE。
-- 调用生产环境写 API、发送敏感数据。
-- 全局安装、卸载或升级核心依赖。
-- 通过真实 Chrome 提交表单、发送消息/邮件、购买/下单、付款、删除/发布内容、修改线上配置、授权扩展权限、上传本地文件、读写剪贴板、下载或打开敏感文件。
-- claim 或检查用户无关 Chrome 标签页、历史记录、账号页面、会话状态。
+- 删除用户或 tracked 文件、递归删除、`rm -rf`、`git clean -fd`、`git reset --hard`；
+- force push、rebase、filter-branch、amend 已发布提交；
+- 修改系统配置、权限、关键环境变量或全局核心依赖；
+- 数据库删除、结构变更、批量 DELETE/UPDATE 或生产写 API；
+- 通过真实浏览器提交表单、发送消息/邮件、购买付款、发布删除内容、修改线上配置、授权扩展、上传文件、读写剪贴板或处理敏感下载；
+- 查看或操作无关标签页、历史、账号和会话状态。
 
-确认模板：
-
-```text
-危险操作检测：
-操作类型：
-影响范围：
-风险评估：
-请确认是否继续？[是 / 确认 / 继续]
-```
+本任务刚创建的明确临时文件或测试残留可 scoped 清理；不扩大范围。
 
 ---
 
-## 交付最小清单
+## 交付
 
-交付默认包含：
-
-1. 改动摘要。
-2. 影响范围。
-3. 文件/目录结构影响。
-4. 验证结果。
-5. 浏览器/视觉验证；不涉及时说明不适用。
-6. 性能影响。
-7. 风险与未覆盖项。
-8. 下一步建议，仅明显需要时给出。
-
----
-
-## 反模式
-
-- 不基于证据断言“已修复/已完成”。
-- 不跳过必要验证。
-- 不在无关区域做大规模重构。
-- 不泄露或杜撰隐私、密钥、生产数据。
-- 不引入不可观察、不可关闭、不可追踪的静默降级。
-- 不把计划、route 建议或 pending job 当作实际完成。
+- L0 给出直接结论、关键依据和必要限制。
+- L1/L2 至少说明结果、改动范围、验证和剩余风险。
+- 文件结构、浏览器/视觉、性能和下一步仅在实际相关时说明，不输出无意义的“不适用”模板。
+- 交付前再次核对真实 artifact/runtime、Git 状态和未覆盖项；保持简洁、可执行、可复现。

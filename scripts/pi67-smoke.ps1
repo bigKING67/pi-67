@@ -259,6 +259,7 @@ Section "Required files"
 $RequiredFiles = @(
   ".gitattributes",
   "AGENTS.md",
+  "rules/pi67-product-boundary.md",
   "settings.example.json",
   "models.example.json",
   "mcp.example.json",
@@ -281,6 +282,7 @@ $RequiredFiles = @(
   "scripts/pi67-json-utils.ps1",
   "scripts/pi67-json-utils.cjs",
   "scripts/pi67-mcp-config-utils.cjs",
+  "scripts/pi67-prompt-governance-check.mjs",
   "scripts/pi67-provider-status.mjs",
   "scripts/pi67-shared-skill-packs-status.mjs",
   "scripts/pi67-release-check.sh",
@@ -455,6 +457,7 @@ if ($NodeAvailable) {
   $NodeCheckFiles = @(
     "scripts/pi67-json-utils.cjs",
     "scripts/pi67-mcp-config-utils.cjs",
+    "scripts/pi67-prompt-governance-check.mjs",
     "scripts/pi67-xtalpi-smoke-status-core.cjs",
     "scripts/pi67-xtalpi-smoke-artifact-core.cjs",
     "scripts/pi67-xtalpi-smoke-plan.mjs",
@@ -491,6 +494,10 @@ if ($NodeAvailable) {
     Run-Check ("node --check: {0}" -f $file) {
       Invoke-External "node" @("--check", (RepoPath $file)) | Out-Null
     }
+  }
+
+  Run-Check "Pi prompt governance check passed" {
+    Invoke-External "node" @((RepoPath "scripts/pi67-prompt-governance-check.mjs"), "--repo-root", $RepoRoot) | Out-Null
   }
 
   Run-Check "xtalpi provider health classifier self-test passed" {

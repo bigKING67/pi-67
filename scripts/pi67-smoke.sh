@@ -210,6 +210,7 @@ if [ -f "$REPO_ROOT/scripts/pi67-json-utils.cjs" ]; then
   node --check "$REPO_ROOT/scripts/pi67-json-utils.cjs" >/dev/null
 fi
 node --check "$REPO_ROOT/scripts/pi67-provider-status.mjs" >/dev/null
+node --check "$REPO_ROOT/scripts/pi67-prompt-governance-check.mjs" >/dev/null
 if [ -f "$REPO_ROOT/scripts/pi67-xtalpi-smoke-plan.mjs" ]; then
   node --check "$REPO_ROOT/scripts/pi67-xtalpi-smoke-plan.mjs" >/dev/null
 fi
@@ -338,6 +339,13 @@ fi
 pass "release automation dry-run completed"
 
 section "Prompt/template hygiene"
+if ! node "$REPO_ROOT/scripts/pi67-prompt-governance-check.mjs" \
+  --repo-root "$REPO_ROOT" >"${SMOKE_LOG_DIR}/prompt-governance.log" 2>&1; then
+  cat "${SMOKE_LOG_DIR}/prompt-governance.log" >&2
+  fail "Pi prompt governance check failed"
+fi
+pass "Pi prompt governance check passed"
+
 if grep_any '\{\{[^}]+\}\}' \
   "$REPO_ROOT/AGENTS.md" \
   "$REPO_ROOT/prompts" \

@@ -839,7 +839,7 @@ pi-67 distinguishes between installed and ready:
 | Capability | Installed by default | Ready when |
 | --- | --- | --- |
 | AGENTS kernel | Yes | `~/.pi/agent/AGENTS.md` points to the repo |
-| Rules | Yes | 9 rule files exist and `pi-rules-loader` is installed |
+| Rules | Yes | 10 rule files exist and `pi-rules-loader` is installed |
 | Prompts | Yes | Prompt files exist and do not use legacy double-brace placeholders |
 | Skills | Yes | doctor shared-skill checks pass and `pi-67 skills inventory` reports no missing copies |
 | Pi interactive startup | Yes | `pi` enters its interface even with no provider key |

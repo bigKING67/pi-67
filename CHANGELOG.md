@@ -6,6 +6,27 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+### Added
+
+- Added a cross-platform prompt-governance check for AGENTS kernel size,
+  upstream system-prompt ownership, rule/prompt metadata, stale capability
+  names, and duplicated rules-loader content. Release and Bash/PowerShell smoke
+  gates now run the same check.
+
+### Changed
+
+- Reduced the always-loaded Pi `AGENTS.md` kernel from 216 to 125 lines and
+  moved detailed pi-67 runtime/provider/install/release ownership into the
+  on-demand `rules/pi67-product-boundary.md` rule.
+- Simplified `pi-rules-loader` to inject one compact absolute-path rule index
+  instead of repeating the AGENTS routing matrix and duplicate display paths.
+
+### Fixed
+
+- Replaced stale `agent_memory_briefing` / `agent_memory_recall` guidance with
+  the current short direct-tool names, and made extension/MCP routing explicitly
+  conditional on the live tool list and runtime configuration.
+
 ## [0.12.0] - 2026-07-15
 
 ### Added

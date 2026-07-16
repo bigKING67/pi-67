@@ -100,6 +100,7 @@ configured browser67 checkout/package, additionally run:
 macOS/Linux and full release gate:
 
 ```bash
+node scripts/pi67-prompt-governance-check.mjs
 bash scripts/pi67-release-check.sh
 bash scripts/pi67-patch-pi-until-done-runtime-queue.sh --check --agent-dir ~/.pi/agent
 bash scripts/pi67-smoke.sh --ci
@@ -205,6 +206,7 @@ Expected result:
 ```
 
 ```bash
+node scripts/pi67-prompt-governance-check.mjs
 bash scripts/pi67-release-check.sh
 bash scripts/pi67-patch-pi-until-done-runtime-queue.sh --check --agent-dir ~/.pi/agent
 bash scripts/pi67-smoke.sh --ci
