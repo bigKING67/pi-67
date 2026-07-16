@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-07-16
+
 ### Added
 
 - Added a cross-platform prompt-governance check for AGENTS kernel size,

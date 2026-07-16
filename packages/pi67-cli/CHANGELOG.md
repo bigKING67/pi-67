@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [0.12.1]
+
+- Aligns the public manager with the pi-67 0.12.1 distribution, whose update
+  path deploys the slimmer global AGENTS kernel, on-demand product-boundary
+  rule, compact rules index, and cross-platform prompt-governance gate.
+
 ## [0.12.0]
 
 - Moves `settings.json` to ignored machine-owned runtime state and tracks
