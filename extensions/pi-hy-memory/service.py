@@ -105,6 +105,11 @@ def secret(name: str) -> str:
     return value
 
 
+def startup_trace(stage: str) -> None:
+    if os.environ.get("PI67_HY_MEMORY_TEST_STARTUP_TRACE") == "1":
+        print(f"pi67-hy-memory-startup:{stage}", file=sys.stderr, flush=True)
+
+
 def safe_error(error: BaseException, known_secrets: List[str]) -> str:
     text = f"{type(error).__name__}: {error}"
     for value in known_secrets:
@@ -765,30 +770,37 @@ def remove_own_service_record(state: ServiceState) -> None:
 
 
 def main() -> int:
+    startup_trace("begin")
     args = parse_args()
     paths = StatePaths(Path(args.root))
     paths.ensure()
+    startup_trace("paths-ready")
     configure_logging(paths.root)
+    startup_trace("logging-ready")
 
     bearer_token = secret("PI67_HY_MEMORY_SERVICE_TOKEN")
     llm_key = secret("PI67_HY_MEMORY_LLM_API_KEY")
     embed_key = secret("PI67_HY_MEMORY_EMBEDDING_API_KEY")
     config = read_json_object(paths.config_file)
     validate_config(config)
+    startup_trace("config-ready")
 
     import hy_memory
 
     actual_sdk_version = getattr(hy_memory, "__version__", "")
     if actual_sdk_version != SDK_VERSION:
         raise RuntimeError(f"Hy-Memory SDK version mismatch: expected {SDK_VERSION}, got {actual_sdk_version}")
+    startup_trace("sdk-ready")
 
     memory_config = create_memory_config(config, paths, llm_key, embed_key)
     holder = ClientHolder(memory_config, config)
     processor = OutboxProcessor(paths, config, holder)
     state = ServiceState(paths, config, bearer_token, holder, processor, [bearer_token, llm_key, embed_key])
+    startup_trace("client-ready")
     server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(state))
     server.daemon_threads = True
     state.server = server
+    startup_trace("server-ready")
 
     def request_shutdown(_signum: int, _frame: Any) -> None:
         threading.Thread(target=server.shutdown, daemon=True).start()
@@ -796,6 +808,7 @@ def main() -> int:
     signal.signal(signal.SIGTERM, request_shutdown)
     signal.signal(signal.SIGINT, request_shutdown)
     write_json_atomic(paths.service_file, service_record(state, server))
+    startup_trace("metadata-ready")
     processor.start()
     try:
         server.serve_forever(poll_interval=0.2)

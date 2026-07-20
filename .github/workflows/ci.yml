@@ -70,7 +70,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install upstream Pi runtime
-        run: npm install -g @earendil-works/pi-coding-agent
+        run: npm install -g @earendil-works/pi-coding-agent@0.80.6
 
       - name: Install Pi extension dependencies
         run: |
@@ -115,7 +115,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install upstream Pi runtime
-        run: npm install -g @earendil-works/pi-coding-agent
+        run: npm install -g @earendil-works/pi-coding-agent@0.80.6
 
       - name: Install Pi extension dependencies
         shell: pwsh

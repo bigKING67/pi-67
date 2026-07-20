@@ -17,6 +17,7 @@ test("loopback wrapper requires bearer auth and reports the real vector dimensio
   const stateRoot = path.join(tmp, "state");
   const token = "test-only-loopback-bearer-token-value";
   let child;
+  let childStderr = "";
   try {
     fs.mkdirSync(path.join(fakeRoot, "hy_memory"), { recursive: true });
     fs.mkdirSync(stateRoot, { recursive: true });
@@ -31,10 +32,20 @@ test("loopback wrapper requires bearer auth and reports the real vector dimensio
         PI67_HY_MEMORY_SERVICE_TOKEN: token,
         PI67_HY_MEMORY_LLM_API_KEY: "test-only-llm-credential",
         PI67_HY_MEMORY_EMBEDDING_API_KEY: "test-only-embedding-credential",
+        PI67_HY_MEMORY_TEST_STARTUP_TRACE: "1",
         MEMORY_DATA_DIR: path.join(stateRoot, "data"),
       },
     });
-    const service = await waitForJson(path.join(stateRoot, "runtime", "service.json"), 30_000, child);
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => {
+      childStderr += chunk;
+    });
+    const service = await waitForJson(
+      path.join(stateRoot, "runtime", "service.json"),
+      30_000,
+      child,
+      () => childStderr,
+    );
     const base = `http://127.0.0.1:${service.port}`;
 
     const unauthorized = await fetch(`${base}/v1/info`);
@@ -128,7 +139,7 @@ function findPython() {
   return null;
 }
 
-async function waitForJson(file, timeoutMs, child) {
+async function waitForJson(file, timeoutMs, child, diagnostics = () => "") {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8"));
@@ -137,7 +148,8 @@ async function waitForJson(file, timeoutMs, child) {
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  throw new Error("service metadata timeout");
+  const detail = diagnostics().trim();
+  throw new Error(`service metadata timeout${detail ? `: ${detail}` : ""}`);
 }
 
 async function fetchJson(url, options) {
