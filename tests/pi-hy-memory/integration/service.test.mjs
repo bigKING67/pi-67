@@ -110,7 +110,14 @@ test("outbox retries use exponential backoff without persisting message text in 
 });
 
 function findPython() {
+  const actionPythonRoots = [process.env.pythonLocation, process.env.Python3_ROOT_DIR]
+    .filter((value, index, values) => value && values.indexOf(value) === index);
+  const actionPythonCandidates = actionPythonRoots.map((root) => ({
+    command: process.platform === "win32" ? path.join(root, "python.exe") : path.join(root, "bin", "python3"),
+    prefix: [],
+  }));
   for (const candidate of [
+    ...actionPythonCandidates,
     { command: "python3", prefix: [] },
     { command: "python", prefix: [] },
     { command: "py", prefix: ["-3.11"] },
