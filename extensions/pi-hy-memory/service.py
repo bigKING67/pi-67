@@ -22,6 +22,7 @@ import uuid
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from socketserver import TCPServer
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -33,6 +34,14 @@ MAX_REQUEST_BYTES = 256 * 1024
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 MAX_CAPTURE_CHARS = 12_000
 MEMORY_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,256}$")
+
+
+class LoopbackHTTPServer(ThreadingHTTPServer):
+    def server_bind(self) -> None:
+        # HTTPServer resolves a reverse-DNS FQDN after bind; loopback identity
+        # is already fixed and must not depend on host DNS availability.
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
 
 def parse_args() -> argparse.Namespace:
@@ -582,7 +591,7 @@ class ServiceState:
         self.processor = processor
         self.known_secrets = known_secrets
         self.instance_id = uuid.uuid4().hex
-        self.server: Optional[ThreadingHTTPServer] = None
+        self.server: Optional[LoopbackHTTPServer] = None
 
 
 def make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
@@ -747,7 +756,7 @@ def first(values: Optional[List[str]]) -> Optional[str]:
     return values[0] if values else None
 
 
-def service_record(state: ServiceState, server: ThreadingHTTPServer) -> Dict[str, Any]:
+def service_record(state: ServiceState, server: LoopbackHTTPServer) -> Dict[str, Any]:
     return {
         "schema": SERVICE_SCHEMA,
         "pid": os.getpid(),
@@ -797,7 +806,7 @@ def main() -> int:
     processor = OutboxProcessor(paths, config, holder)
     state = ServiceState(paths, config, bearer_token, holder, processor, [bearer_token, llm_key, embed_key])
     startup_trace("client-ready")
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(state))
+    server = LoopbackHTTPServer(("127.0.0.1", args.port), make_handler(state))
     server.daemon_threads = True
     state.server = server
     startup_trace("server-ready")

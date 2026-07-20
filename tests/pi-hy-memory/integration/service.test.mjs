@@ -114,6 +114,7 @@ test("outbox retries use exponential backoff without persisting message text in 
     assert.equal(value.messageLeaked, false);
     assert.equal(value.skippedBeforeDue, true);
     assert.equal(value.eligibleAfterDue, 1);
+    assert.equal(value.loopbackBindAvoidedFqdn, true);
     assert.ok(value.dueInSeconds >= 4 && value.dueInSeconds <= 6.5, value.dueInSeconds);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -236,6 +237,7 @@ function outboxRetryProbe() {
   return String.raw`import datetime as dt
 import importlib.util
 import json
+import socket
 import sys
 import time
 from pathlib import Path
@@ -246,6 +248,15 @@ spec = importlib.util.spec_from_file_location("pi67_hy_memory_service_test", ser
 service = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = service
 spec.loader.exec_module(service)
+
+original_getfqdn = socket.getfqdn
+socket.getfqdn = lambda _host="": (_ for _ in ()).throw(RuntimeError("unexpected reverse DNS"))
+try:
+    server = service.LoopbackHTTPServer(("127.0.0.1", 0), service.BaseHTTPRequestHandler)
+    loopback_bind_avoided_fqdn = server.server_name == "127.0.0.1" and server.server_port > 0
+    server.server_close()
+finally:
+    socket.getfqdn = original_getfqdn
 
 paths = service.StatePaths(root)
 paths.ensure()
@@ -276,6 +287,7 @@ print(json.dumps({
     "dueInSeconds": due_in,
     "skippedBeforeDue": skipped_before_due,
     "eligibleAfterDue": len(processor._pending_jobs()),
+    "loopbackBindAvoidedFqdn": loopback_bind_avoided_fqdn,
 }))
 `;
 }
