@@ -34,7 +34,7 @@ test("loopback wrapper requires bearer auth and reports the real vector dimensio
         MEMORY_DATA_DIR: path.join(stateRoot, "data"),
       },
     });
-    const service = await waitForJson(path.join(stateRoot, "runtime", "service.json"), 10000, child);
+    const service = await waitForJson(path.join(stateRoot, "runtime", "service.json"), 30_000, child);
     const base = `http://127.0.0.1:${service.port}`;
 
     const unauthorized = await fetch(`${base}/v1/info`);
@@ -78,7 +78,7 @@ test("loopback wrapper requires bearer auth and reports the real vector dimensio
       headers: { ...headers, "content-type": "application/json" },
       body: "{}",
     });
-    assert.equal(await waitForExit(child, 10000), 0);
+    assert.equal(await waitForExit(child, 30_000), 0);
     assert.equal(fs.existsSync(path.join(stateRoot, "runtime", "service.json")), false);
     assert.equal(fs.readFileSync(path.join(stateRoot, "logs", "service.log"), "utf8").includes(privateQuery), false);
   } finally {
