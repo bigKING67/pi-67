@@ -77,6 +77,12 @@
       "path": "extensions/pi-rules-loader",
       "required": true,
       "policy": "local-rules-index-extension"
+    },
+    {
+      "name": "pi-hy-memory",
+      "path": "extensions/pi-hy-memory",
+      "required": true,
+      "policy": "private-local-hy-memory-auto-recall-and-settled-turn-capture"
     }
   ],
   "runtimePackageSpecs": [

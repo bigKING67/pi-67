@@ -6,6 +6,7 @@ export const REQUIRED_EXTENSION_REGISTRY_IDS = [
   "xtalpi-pi-tools",
   "pi-vision-bridge",
   "pi-rules-loader",
+  "pi-hy-memory",
   "pi-curated-themes",
   "shared-skills",
   "browser67",

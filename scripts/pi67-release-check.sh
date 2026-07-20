@@ -77,6 +77,12 @@ FULL_INSTALL_DOC="$REPO_ROOT/docs/full-install.md"
 SKILL_GOV_DOC="$REPO_ROOT/docs/skill-governance.md"
 TROUBLESHOOTING_DOC="$REPO_ROOT/docs/troubleshooting.md"
 XTALPI_PI_TOOLS_DOC="$REPO_ROOT/docs/xtalpi-pi-tools.md"
+HY_MEMORY_DOC="$REPO_ROOT/docs/hy-memory.md"
+HY_MEMORY_COMMAND="$REPO_ROOT/packages/pi67-cli/src/commands/memory.mjs"
+HY_MEMORY_RUNTIME="$REPO_ROOT/packages/pi67-cli/src/lib/memory-runtime.mjs"
+HY_MEMORY_SERVICE="$REPO_ROOT/extensions/pi-hy-memory/service.py"
+HY_MEMORY_EXTENSION="$REPO_ROOT/extensions/pi-hy-memory/index.ts"
+HY_MEMORY_TEST_DIR="$REPO_ROOT/tests/pi-hy-memory"
 SKILL_GOVERNANCE_TEST="$REPO_ROOT/scripts/pi67-test-skill-governance.sh"
 EXTERNAL_SKILLS_CHECK="$REPO_ROOT/scripts/pi67-check-external-skills.sh"
 COMMERCE_GROWTH_SYNC="$REPO_ROOT/scripts/pi67-sync-commerce-growth-os.sh"
@@ -242,6 +248,7 @@ NODE
   node "$PI67_CLI_BIN" --agent-dir "$REPO_ROOT" --repo-root "$REPO_ROOT" external list --json >/dev/null
   node "$PI67_CLI_BIN" --agent-dir "$REPO_ROOT" --repo-root "$REPO_ROOT" external install browser67 --dry-run --json >/dev/null
   node "$PI67_CLI_BIN" --agent-dir "$REPO_ROOT" --repo-root "$REPO_ROOT" backups list --json >/dev/null
+  node "$PI67_CLI_BIN" memory --help >/dev/null
   node "$PI67_CLI_BIN" --dry-run self-update >/dev/null
   pass "pi-67 npm CLI smoke commands passed"
 
@@ -307,6 +314,33 @@ if command_exists npm; then
   pass "pi-67 npm CLI package packs cleanly"
 else
   warn "npm not found; skipped pi-67 npm CLI pack dry-run"
+fi
+
+if [ -f "$REPO_ROOT/npm/node_modules/typescript/bin/tsc" ]; then
+  if npm --prefix "$REPO_ROOT" run -s typecheck:hy-memory \
+    && npm --prefix "$REPO_ROOT" run -s test:hy-memory; then
+    pass "Hy-Memory extension typecheck and tests passed"
+  else
+    fail "Hy-Memory extension typecheck or tests failed"
+  fi
+else
+  warn "Pi extension dependencies are not installed; skipped Hy-Memory typecheck/tests"
+fi
+
+if [ -f "$HY_MEMORY_DOC" ] \
+  && [ -f "$HY_MEMORY_COMMAND" ] \
+  && [ -f "$HY_MEMORY_RUNTIME" ] \
+  && [ -f "$HY_MEMORY_SERVICE" ] \
+  && [ -f "$HY_MEMORY_EXTENSION" ] \
+  && [ -d "$HY_MEMORY_TEST_DIR" ] \
+  && grep -q 'deepseek-v4-flash' "$HY_MEMORY_RUNTIME" "$HY_MEMORY_SERVICE" \
+  && grep -q 'BAAI/bge-m3' "$HY_MEMORY_RUNTIME" "$HY_MEMORY_SERVICE" \
+  && grep -q 'requestDimensions: null' "$HY_MEMORY_RUNTIME" \
+  && grep -q '"embedding_dims": None' "$HY_MEMORY_SERVICE" \
+  && grep -q 'vectorDimensions: 1024' "$HY_MEMORY_RUNTIME"; then
+  pass "Hy-Memory provider, dimensions, private-state, and test contracts are present"
+else
+  fail "Hy-Memory release contract is incomplete"
 fi
 
 if [ -f "$UPDATE_BRANCH_TEST" ] && bash "$UPDATE_BRANCH_TEST" >/dev/null; then
@@ -1106,7 +1140,7 @@ if command_exists git && git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/d
     fail "git diff --check failed"
   fi
 
-  if git -C "$REPO_ROOT" ls-files --error-unmatch .gitignore .gitattributes VERSION CHANGELOG.md package-lock.json AGENTS.md settings.example.json rules/pi67-product-boundary.md shared-skill-packs.json shared-skill-packs.lock.json .github/workflows/ci.yml .github/workflows/npm-publish.yml docs/release.md docs/windows-fresh-install.md docs/report-schema.md docs/doctor-schema.md docs/status.md docs/skill-migration-schema.md docs/external-skill-sync-schema.md docs/skill-governance.md docs/troubleshooting.md docs/xtalpi-pi-tools.md tests/pi67-cli/update-branch-resolution.sh tests/pi67-cli/settings-untrack-upgrade.sh packages/pi67-cli/package.json packages/pi67-cli/README.md packages/pi67-cli/CHANGELOG.md packages/pi67-cli/bin/pi-67.mjs packages/pi67-cli/scripts/check.mjs packages/pi67-cli/scripts/checks/installed-artifact.mjs packages/pi67-cli/scripts/checks/settings-runtime-state.mjs packages/pi67-cli/src/cli.mjs packages/pi67-cli/src/commands/backups.mjs packages/pi67-cli/src/commands/extensions.mjs packages/pi67-cli/src/commands/manifest.mjs packages/pi67-cli/src/commands/publish-check.mjs packages/pi67-cli/src/commands/self-update.mjs packages/pi67-cli/src/commands/skills.mjs packages/pi67-cli/src/commands/xtalpi.mjs packages/pi67-cli/src/data/distro-manifest.json packages/pi67-cli/src/data/extension-registry.json packages/pi67-cli/src/lib/distro-manifest.mjs packages/pi67-cli/src/lib/extension-registry.mjs packages/pi67-cli/src/lib/npm-registry.mjs packages/pi67-cli/src/lib/settings-runtime-clean.mjs packages/pi67-cli/src/lib/settings-runtime-state.mjs packages/pi67-cli/src/lib/skill-deploy-lock.mjs packages/pi67-cli/src/lib/skill-policy.mjs packages/pi67-cli/src/lib/skill-pack-integrity.mjs packages/pi67-cli/src/lib/update-safety.mjs packages/pi67-cli/src/lib/upstream-pi-runtime.mjs packages/pi67-cli/src/lib/xtalpi-config.mjs packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs packages/pi67-cli/schemas/pi67-distro-manifest.schema.json packages/pi67-cli/schemas/pi67-extension-registry.schema.json packages/pi67-cli/schemas/pi67-publish-check.schema.json packages/pi67-cli/schemas/pi67-state.schema.json packages/pi67-cli/schemas/pi67-update-plan.schema.json scripts/pi67-bootstrap.ps1 scripts/pi67-check-external-skills.sh scripts/pi67-doctor.sh scripts/pi67-doctor.ps1 scripts/pi67-json-utils.cjs scripts/pi67-json-utils.ps1 scripts/pi67-mcp-config-utils.cjs scripts/pi67-prompt-governance-check.mjs scripts/pi67-upstream-pi-status.mjs scripts/pi67-migrate-skills.sh scripts/pi67-release-artifact-smoke.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-report.ps1 scripts/pi67-status.sh scripts/pi67-shared-skills-inventory.sh scripts/pi67-shared-skill-packs-status.mjs scripts/pi67-sync-commerce-growth-os.sh scripts/pi67-sync-commerce-skill-pack.sh scripts/pi67-sync-commerce-skill-pack.mjs scripts/pi67-sync-external-skills.sh scripts/pi67-test-skill-governance.sh scripts/pi67-update.sh scripts/pi67-update.ps1 scripts/pi67-windows-acceptance.ps1 scripts/pi67-smoke.ps1 scripts/pi67-zero-key-startup-probe.ts scripts/pi67-zero-key-startup-smoke.ps1 scripts/pi67-xtalpi-pi-tools.sh scripts/pi67-xtalpi-pi-tools.ps1 scripts/pi67-test-xtalpi-pi-tools.sh scripts/pi67-fuzz-xtalpi-parser.mjs scripts/pi67-patch-pi-until-done-runtime-queue.mjs scripts/pi67-patch-pi-until-done-runtime-queue.sh scripts/pi67-patch-pi-until-done-runtime-queue.ps1 scripts/pi67-xtalpi-pi-tools-smoke.sh scripts/pi67-xtalpi-pi-tools-smoke.ps1 scripts/pi67-xtalpi-pi-tools-debug-summary.sh scripts/pi67-xtalpi-tool-coverage-audit.sh scripts/pi67-xtalpi-smoke-status-core.cjs scripts/pi67-xtalpi-smoke-plan.mjs scripts/pi67-xtalpi-provider-health.mjs scripts/pi67-xtalpi-provider-capability-probe.mjs scripts/pi67-validate-xtalpi-provider-error-contract.mjs extensions/xtalpi-pi-tools/json-file.ts extensions/xtalpi-pi-tools/json-action-protocol.ts extensions/xtalpi-pi-tools/vision-bridge.ts extensions/xtalpi-pi-tools/browser-bridge.ts extensions/pi-vision-bridge/index.ts extensions/xtalpi-pi-tools/fixtures/replay-cases.json extensions/xtalpi-pi-tools/provider-error-contract.json >/dev/null 2>&1; then
+  if git -C "$REPO_ROOT" ls-files --error-unmatch .gitignore .gitattributes VERSION CHANGELOG.md package-lock.json AGENTS.md settings.example.json rules/pi67-product-boundary.md shared-skill-packs.json shared-skill-packs.lock.json .github/workflows/ci.yml .github/workflows/npm-publish.yml docs/release.md docs/windows-fresh-install.md docs/report-schema.md docs/doctor-schema.md docs/status.md docs/skill-migration-schema.md docs/external-skill-sync-schema.md docs/skill-governance.md docs/troubleshooting.md docs/xtalpi-pi-tools.md docs/hy-memory.md tsconfig.hy-memory.json tests/pi67-cli/update-branch-resolution.sh tests/pi67-cli/settings-untrack-upgrade.sh tests/pi-hy-memory/integration/cli.test.mjs tests/pi-hy-memory/integration/service.test.mjs tests/pi-hy-memory/unit/config.test.mjs tests/pi-hy-memory/unit/outbox.test.mjs tests/pi-hy-memory/unit/security.test.mjs packages/pi67-cli/package.json packages/pi67-cli/README.md packages/pi67-cli/CHANGELOG.md packages/pi67-cli/bin/pi-67.mjs packages/pi67-cli/scripts/check.mjs packages/pi67-cli/scripts/checks/installed-artifact.mjs packages/pi67-cli/scripts/checks/settings-runtime-state.mjs packages/pi67-cli/src/cli.mjs packages/pi67-cli/src/commands/backups.mjs packages/pi67-cli/src/commands/extensions.mjs packages/pi67-cli/src/commands/manifest.mjs packages/pi67-cli/src/commands/memory.mjs packages/pi67-cli/src/commands/publish-check.mjs packages/pi67-cli/src/commands/self-update.mjs packages/pi67-cli/src/commands/skills.mjs packages/pi67-cli/src/commands/xtalpi.mjs packages/pi67-cli/src/data/distro-manifest.json packages/pi67-cli/src/data/extension-registry.json packages/pi67-cli/src/lib/distro-manifest.mjs packages/pi67-cli/src/lib/extension-registry.mjs packages/pi67-cli/src/lib/memory-runtime.mjs packages/pi67-cli/src/lib/npm-registry.mjs packages/pi67-cli/src/lib/settings-runtime-clean.mjs packages/pi67-cli/src/lib/settings-runtime-state.mjs packages/pi67-cli/src/lib/skill-deploy-lock.mjs packages/pi67-cli/src/lib/skill-policy.mjs packages/pi67-cli/src/lib/skill-pack-integrity.mjs packages/pi67-cli/src/lib/update-safety.mjs packages/pi67-cli/src/lib/upstream-pi-runtime.mjs packages/pi67-cli/src/lib/xtalpi-config.mjs packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs packages/pi67-cli/schemas/pi67-distro-manifest.schema.json packages/pi67-cli/schemas/pi67-extension-registry.schema.json packages/pi67-cli/schemas/pi67-publish-check.schema.json packages/pi67-cli/schemas/pi67-state.schema.json packages/pi67-cli/schemas/pi67-update-plan.schema.json scripts/pi67-bootstrap.ps1 scripts/pi67-check-external-skills.sh scripts/pi67-doctor.sh scripts/pi67-doctor.ps1 scripts/pi67-json-utils.cjs scripts/pi67-json-utils.ps1 scripts/pi67-mcp-config-utils.cjs scripts/pi67-prompt-governance-check.mjs scripts/pi67-upstream-pi-status.mjs scripts/pi67-migrate-skills.sh scripts/pi67-release-artifact-smoke.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-report.ps1 scripts/pi67-status.sh scripts/pi67-shared-skills-inventory.sh scripts/pi67-shared-skill-packs-status.mjs scripts/pi67-sync-commerce-growth-os.sh scripts/pi67-sync-commerce-skill-pack.sh scripts/pi67-sync-commerce-skill-pack.mjs scripts/pi67-sync-external-skills.sh scripts/pi67-test-skill-governance.sh scripts/pi67-update.sh scripts/pi67-update.ps1 scripts/pi67-windows-acceptance.ps1 scripts/pi67-smoke.ps1 scripts/pi67-zero-key-startup-probe.ts scripts/pi67-zero-key-startup-smoke.ps1 scripts/pi67-xtalpi-pi-tools.sh scripts/pi67-xtalpi-pi-tools.ps1 scripts/pi67-test-xtalpi-pi-tools.sh scripts/pi67-fuzz-xtalpi-parser.mjs scripts/pi67-patch-pi-until-done-runtime-queue.mjs scripts/pi67-patch-pi-until-done-runtime-queue.sh scripts/pi67-patch-pi-until-done-runtime-queue.ps1 scripts/pi67-xtalpi-pi-tools-smoke.sh scripts/pi67-xtalpi-pi-tools-smoke.ps1 scripts/pi67-xtalpi-pi-tools-debug-summary.sh scripts/pi67-xtalpi-tool-coverage-audit.sh scripts/pi67-xtalpi-smoke-status-core.cjs scripts/pi67-xtalpi-smoke-plan.mjs scripts/pi67-xtalpi-provider-health.mjs scripts/pi67-xtalpi-provider-capability-probe.mjs scripts/pi67-validate-xtalpi-provider-error-contract.mjs extensions/pi-hy-memory/client.ts extensions/pi-hy-memory/config.ts extensions/pi-hy-memory/index.ts extensions/pi-hy-memory/outbox.ts extensions/pi-hy-memory/security.ts extensions/pi-hy-memory/service.py extensions/pi-hy-memory/types.ts extensions/xtalpi-pi-tools/json-file.ts extensions/xtalpi-pi-tools/json-action-protocol.ts extensions/xtalpi-pi-tools/vision-bridge.ts extensions/xtalpi-pi-tools/browser-bridge.ts extensions/pi-vision-bridge/index.ts extensions/xtalpi-pi-tools/fixtures/replay-cases.json extensions/xtalpi-pi-tools/provider-error-contract.json >/dev/null 2>&1; then
     pass "release metadata files are tracked or staged"
   else
     warn "release metadata files are not all tracked yet; expected before final commit"

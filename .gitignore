@@ -23,6 +23,8 @@ intercom/
 
 # 依赖
 npm/
+__pycache__/
+*.py[cod]
 
 # 备份文件
 backup-*/

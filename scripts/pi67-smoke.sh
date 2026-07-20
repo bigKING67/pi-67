@@ -234,6 +234,7 @@ if [ -d "$REPO_ROOT/packages/pi67-cli" ]; then
     node --check "$file" >/dev/null
   done < <(find "$REPO_ROOT/packages/pi67-cli" -type f -name '*.mjs' -print0)
   node "$REPO_ROOT/packages/pi67-cli/bin/pi-67.mjs" --dry-run self-update >/dev/null
+  node "$REPO_ROOT/packages/pi67-cli/bin/pi-67.mjs" memory --help >/dev/null
 fi
 pass "shell scripts parse"
 
@@ -1035,6 +1036,12 @@ section "Skill governance helper tests"
 "$REPO_ROOT/scripts/pi67-test-skill-governance.sh" \
   --repo-root "$REPO_ROOT" >"${SMOKE_LOG_DIR}/skill-governance.log"
 pass "skill governance helper tests completed"
+
+section "Hy-Memory extension tests"
+command_exists npm || fail "npm is required for Hy-Memory extension tests"
+npm --prefix "$REPO_ROOT" run -s typecheck:hy-memory >"${SMOKE_LOG_DIR}/hy-memory-typecheck.log"
+npm --prefix "$REPO_ROOT" run -s test:hy-memory >"${SMOKE_LOG_DIR}/hy-memory-tests.log"
+pass "Hy-Memory typecheck and tests completed"
 
 section "Release artifact smoke"
 "$REPO_ROOT/scripts/pi67-release-artifact-smoke.sh" \

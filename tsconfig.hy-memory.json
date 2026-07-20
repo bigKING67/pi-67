@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "moduleDetection": "force",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "typeRoots": ["./npm/node_modules/@types"],
+    "baseUrl": ".",
+    "paths": {
+      "@earendil-works/*": ["npm/node_modules/@earendil-works/*"]
+    }
+  },
+  "include": ["extensions/pi-hy-memory/**/*.ts"]
+}

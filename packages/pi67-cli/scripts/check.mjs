@@ -552,6 +552,7 @@ function runCliHelpContractSelfTests() {
     ["manifest", "--help"],
     ["backups", "--help"],
     ["launch", "--help"],
+    ["memory", "--help"],
   ];
   const backupRoot = path.join(home, ".pi", "pi67", "backups");
   for (const command of commands) {
@@ -573,6 +574,14 @@ function runCliHelpContractSelfTests() {
       assert(
         result.stdout.includes("Daily use should run `pi` directly."),
         "launch help must preserve the upstream Pi daily-entrypoint boundary",
+      );
+    }
+    if (command[0] === "memory") {
+      assert(
+        result.stdout.includes("pi-67 memory init") &&
+          result.stdout.includes("BAAI/bge-m3") &&
+          result.stdout.includes("Secrets are stored outside the repository"),
+        "memory help must document initialization, the embedding contract, and private secret ownership",
       );
     }
     if (command[0] === "xtalpi") {

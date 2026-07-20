@@ -18,6 +18,7 @@ import { publishCheckCommand } from "./commands/publish-check.mjs";
 import { manifestCommand } from "./commands/manifest.mjs";
 import { backupsCommand } from "./commands/backups.mjs";
 import { launchCommand } from "./commands/launch.mjs";
+import { memoryCommand } from "./commands/memory.mjs";
 
 const COMMANDS = {
   install: installCommand,
@@ -37,6 +38,7 @@ const COMMANDS = {
   manifest: manifestCommand,
   backups: backupsCommand,
   launch: launchCommand,
+  memory: memoryCommand,
 };
 
 export async function main(argv) {
@@ -93,6 +95,7 @@ Commands:
   manifest             Show managed package/config/theme ownership policy
   backups              list/inspect/restore/prune/archive runtime backups
   launch               Optional Windows PATH compatibility wrapper for pi
+  memory               Initialize and manage private local Hy-Memory recall/capture
 
 Examples:
   pi-67 install
@@ -113,5 +116,7 @@ Examples:
   pi-67 xtalpi smoke --quick
   pi-67 xtalpi trend
   pi-67 themes current
+  pi-67 memory init
+  pi-67 memory doctor --deep
 `);
 }

@@ -1,13 +1,15 @@
 {
   "name": "pi-extensions",
-  "version": "0.12.1",
+  "version": "0.13.0",
   "private": true,
   "scripts": {
     "check:prompt-governance": "node scripts/pi67-prompt-governance-check.mjs",
     "typecheck:xtalpi": "node npm/node_modules/typescript/bin/tsc --project tsconfig.xtalpi.json --pretty false",
+    "typecheck:hy-memory": "node npm/node_modules/typescript/bin/tsc --project tsconfig.hy-memory.json --pretty false",
     "test:xtalpi": "bash scripts/pi67-test-xtalpi-pi-tools.sh",
     "test:xtalpi:node": "node --no-warnings --test \"tests/xtalpi-pi-tools/**/*.test.mjs\"",
-    "test:xtalpi:coverage": "node --no-warnings --test --experimental-test-coverage --test-coverage-lines=93 --test-coverage-branches=85 --test-coverage-functions=95 \"tests/xtalpi-pi-tools/**/*.test.mjs\""
+    "test:xtalpi:coverage": "node --no-warnings --test --experimental-test-coverage --test-coverage-lines=93 --test-coverage-branches=85 --test-coverage-functions=95 \"tests/xtalpi-pi-tools/**/*.test.mjs\"",
+    "test:hy-memory": "node --no-warnings --test \"tests/pi-hy-memory/**/*.test.mjs\""
   },
   "devDependencies": {
     "typescript": "5.9.3"

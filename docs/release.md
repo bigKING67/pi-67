@@ -51,6 +51,9 @@ PowerShell smoke for Windows-facing changes:
 .\scripts\pi67-patch-pi-until-done-runtime-queue.ps1 -Check
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest
 .\scripts\pi67-windows-acceptance.ps1 -SelfTest
+npm run -s typecheck:hy-memory
+npm run -s test:hy-memory
+node packages/pi67-cli/bin/pi-67.mjs memory --help
 ```
 
 The offline Windows/CLI gates must cover these separate contracts:
@@ -101,6 +104,9 @@ macOS/Linux and full release gate:
 
 ```bash
 node scripts/pi67-prompt-governance-check.mjs
+npm run -s typecheck:hy-memory
+npm run -s test:hy-memory
+node packages/pi67-cli/scripts/check.mjs
 bash scripts/pi67-release-check.sh
 bash scripts/pi67-patch-pi-until-done-runtime-queue.sh --check --agent-dir ~/.pi/agent
 bash scripts/pi67-smoke.sh --ci
@@ -151,6 +157,13 @@ Expected result:
   sequential-thinking status, MCP, subagent, and recall when xtalpi credentials
   are available
 - xtalpi provider error-contract and debug-summary/profile self-tests pass
+- Hy-Memory TypeScript and Python-wrapper tests pass on Linux, macOS, and
+  Windows; the packed npm manager starts `pi-67 memory --help` from an isolated
+  tarball installation
+- Hy-Memory deep doctor returns a finite 1024-dimensional SiliconFlow
+  `BAAI/bge-m3` vector in an isolated `PI67_HY_MEMORY_HOME` when release
+  credentials are available; the test does not read or alter an employee's
+  existing memory databases
 - `pi-until-done` runtime queue/progress compatibility check passes on the installed agent package when `/until-done` behavior or npm extensions changed
 - smoke test passes locally
 - clean artifact smoke passes for the current worktree candidate
@@ -175,6 +188,8 @@ Expected result:
    - `README.md`
    - `docs/full-install.md`
    - `docs/troubleshooting.md`
+   - `docs/hy-memory.md` if the memory SDK, model, runtime, data, command, or
+     privacy contract changed
    - `packages/pi67-cli/README.md` if public npm command behavior changed
    - `packages/pi67-cli/CHANGELOG.md` if npm manager behavior changed
    - `docs/report-schema.md` if `pi67-report.json` fields changed
@@ -203,10 +218,16 @@ Expected result:
 .\scripts\pi67-patch-pi-until-done-runtime-queue.ps1 -Check
 .\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest
 .\scripts\pi67-windows-acceptance.ps1 -SelfTest
+npm run -s typecheck:hy-memory
+npm run -s test:hy-memory
+node packages/pi67-cli/bin/pi-67.mjs memory --help
 ```
 
 ```bash
 node scripts/pi67-prompt-governance-check.mjs
+npm run -s typecheck:hy-memory
+npm run -s test:hy-memory
+node packages/pi67-cli/scripts/check.mjs
 bash scripts/pi67-release-check.sh
 bash scripts/pi67-patch-pi-until-done-runtime-queue.sh --check --agent-dir ~/.pi/agent
 bash scripts/pi67-smoke.sh --ci

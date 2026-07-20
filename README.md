@@ -4,7 +4,7 @@
 
 > 让 Windows 和 macOS 用户用尽可能少的步骤，获得公司统一、持续升级、可诊断、可回滚的 Pi 工作台。`pi` 始终是实际运行入口；`pi-67` 负责把 Pi 所需的配置、扩展、Skills、规则、脚本和公司默认 provider 封装成一键发行版。
 
-当前发行版版本：`0.12.1`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.13.0`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 项目定位
 
@@ -107,6 +107,10 @@ pi-67 doctor
 
 # 可选：提前配置公司 xtalpi key；不是启动 Pi 的前置步骤
 pi-67 xtalpi configure --verify
+
+# 可选：首次启用当前系统用户的跨项目 Hy-Memory
+pi-67 memory init
+pi-67 memory doctor --deep
 ```
 
 ## Windows 纯新电脑：从系统 PowerShell 开始
@@ -155,7 +159,7 @@ PowerShell 7，管理员状态为 `True`，且不会每次重复弹 UAC；原始
 
 - 常驻内核：`AGENTS.md` 只保留硬规则、工具分流、rules 读取契约和交付闭环。
 - 长规则外置：`rules/` 存放质量、架构、目录、性能、前端、浏览器、上下文、数据、电商增长和 pi-67 产品边界，按任务最小读取。
-- 扩展补强：`extensions/pi-rules-loader/` 给 Pi 注入 rules 索引；`extensions/xtalpi-pi-tools/` 让 Pi 本地托管 xtalpi 工具协议；`extensions/pi-vision-bridge/` 把图片/截图任务桥接到本地多模态 provider。
+- 扩展补强：`extensions/pi-rules-loader/` 给 Pi 注入 rules 索引；`extensions/xtalpi-pi-tools/` 让 Pi 本地托管 xtalpi 工具协议；`extensions/pi-vision-bridge/` 把图片/截图任务桥接到本地多模态 provider；`extensions/pi-hy-memory/` 提供当前系统用户跨项目共享的私有长期记忆。
 - 生产力资产：Skills、Prompts、Docs、Templates 和脚本保持仓库化，便于审计、同步和回滚。
 
 仓库不会提交真实 `auth.json`、`models.json`、`mcp.json`、`image-gen.json`、会话、缓存或运行历史；只提供 `.example` 模板。
@@ -174,13 +178,42 @@ PowerShell 7，管理员状态为 `True`，且不会每次重复弹 UAC；原始
 | **MCP** | `mcp.example.json` | browser67 tmwd_browser、js-reverse、agent_memory 模板 |
 | **全局内核** | `AGENTS.md` | Pi 常驻行为规范（v1.7-pi kernel） |
 | **Rules** | `rules/` (10 篇) | 质量、架构、结构、性能、前端、浏览器、上下文、数据质量、电商增长、pi-67 产品边界规则 |
-| **自定义扩展** | `extensions/` (3 个) | `xtalpi-pi-tools` + `pi-rules-loader` + `pi-vision-bridge` |
+| **自定义扩展** | `extensions/` (4 个) | `xtalpi-pi-tools` + `pi-rules-loader` + `pi-vision-bridge` + `pi-hy-memory` |
 | **Shared Skills** | `shared-skills/` | 安装到 `~/.agents/skills`，供 Pi/Codex 共用 |
 | **Skill 治理** | `docs/skill-governance.md` | skill 公开发行 / 个人 overlay / 过期治理规则 |
 | **文档** | `docs/` | Windows 新机、全量安装、doctor/report/status schema、排障、发布流程、MCP 优化、爬虫指南、工具速查、xtalpi 配置 |
 | **Prompts** | `prompts/` (5 个) | debug、deliver、frontend-kickoff、review、scoped-commit |
 | **脚本** | `scripts/` | Windows pi-67 manager/workspace bootstrap、configure、doctor、report、status、prompt governance、skill-audit、skill migration/sync/check、release artifact smoke、release、release-check、smoke、update、restore、uninstall、xtalpi-pi-tools 启动、测试和冒烟测试 |
 | **模板** | `templates/scrapers/` | 采集/合并/轮询相关脚本模板 |
+
+## Hy-Memory 长期记忆
+
+pi-67 `0.13.0` 新增自己维护的 `pi-hy-memory` 第一方适配层。它使用固定并
+校验过的腾讯 Hy-Memory 官方 Python SDK，但不是腾讯官方 Pi 插件；员工仍然
+直接运行 upstream `pi`，不会出现第二套聊天 runtime。
+
+首次启用：
+
+```bash
+pi-67 memory init
+pi-67 memory doctor --deep
+pi
+```
+
+每个操作系统用户的数据、凭据、Python 3.11 runtime、outbox 和日志保存在
+`~/.hy-memory/pi67`，跨该用户所有 Pi 项目共享，不写进 Git checkout，也不
+迁移/修改已有 `agent_memory`/EverOS 或 `pi-observational-memory`。持久化是
+本地的，但抽取/整理会请求 DeepSeek，embedding 会请求 SiliconFlow。
+
+模型职责：
+
+- `deepseek-v4-flash` 是 Hy-Memory 用于抽取、整理和 digest 的普通 LLM；
+- `BAAI/bge-m3` 把文本变成向量，本地 Chroma 再完成相似度召回；
+- BGE-M3 请求不发送 `dimensions`，本地向量库固定使用实际的 1024 维。
+
+完整的员工初始化、数据/网络边界、Pi 内 `/memory`、`hy_memory_*` 工具、
+暂停/恢复、删除、升级、dead-letter 和维护者 SDK 升级流程见
+[`docs/hy-memory.md`](docs/hy-memory.md)。
 
 ## Shared skill registry
 
@@ -964,6 +997,9 @@ pi-67/
 │   │   └── index.ts
 │   ├── pi-vision-bridge/           # 本地 vision_read 桥接工具
 │   │   └── index.ts
+│   ├── pi-hy-memory/               # 私有跨项目 Hy-Memory 扩展与 loopback wrapper
+│   │   ├── index.ts
+│   │   └── service.py
 │   └── xtalpi-pi-tools/            # xtalpi 本地工具协议 provider
 │       ├── config/                  # Runtime profiles 与配置边界
 │       ├── protocol/                # 严格 action/parser/receipt 协议

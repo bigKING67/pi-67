@@ -57,6 +57,27 @@
       "notes": "Rules index extension is package-owned; user AGENTS/settings remain user-owned."
     },
     {
+      "id": "pi-hy-memory",
+      "kind": "local-extension",
+      "owner": "pi67-managed",
+      "path": "extensions/pi-hy-memory",
+      "installStrategy": "package-owned-clean-overwrite",
+      "updateStrategy": "update-owned-code-preserve-user-config-and-memory-data",
+      "repairStrategy": "pinned-sdk-runtime-and-authenticated-loopback-doctor",
+      "configPatches": [],
+      "explicitCommands": [
+        "pi-67 memory init",
+        "pi-67 memory status",
+        "pi-67 memory doctor --deep",
+        "pi-67 memory upgrade"
+      ],
+      "smoke": [
+        "pi-67 memory status",
+        "pi-67 memory doctor"
+      ],
+      "notes": "Package-owned Pi hooks provide automatic recall and settled-turn capture. Per-user config, secrets, Chroma/SQLite data, outbox, and Python runtime remain outside the Git checkout under ~/.hy-memory/pi67."
+    },
+    {
       "id": "pi-vision-bridge",
       "kind": "local-extension",
       "owner": "pi67-managed",

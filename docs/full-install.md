@@ -178,6 +178,40 @@ automatically reconcile that state. Company users may optionally preconfigure
 only the xtalpi key with `pi-67 xtalpi configure --verify`; it is not required
 for Pi startup.
 
+### Optional per-user Hy-Memory
+
+pi-67 `0.13.0+` deploys the package-owned `pi-hy-memory` extension, but does
+not create credentials or memory data during install/update. Each system user
+opts in once after configuring upstream Pi provider `deepseek`:
+
+```bash
+pi-67 memory init
+pi-67 memory doctor --deep
+pi
+```
+
+Initialization requires `uv` or Python 3.11 plus a SiliconFlow API key entered
+through hidden input. DeepSeek auth is read dynamically from upstream Pi
+`auth.json`. The private runtime, key, Chroma/SQLite data, outbox, and logs live
+under `~/.hy-memory/pi67`, shared across that user's projects but never copied
+into the Git checkout. Local persistence is not offline inference: DeepSeek
+handles memory extraction/reasoning and SiliconFlow `BAAI/bge-m3` handles
+embeddings.
+
+After a pi-67 release changes the pinned SDK or service wrapper, update the
+workspace first and then upgrade the private runtime without replacing data:
+
+```bash
+pi-67 update
+pi-67 memory upgrade --dry-run
+pi-67 memory upgrade
+pi-67 memory doctor --deep
+```
+
+See [`hy-memory.md`](hy-memory.md) for the model/dimensions contract, Pi hooks,
+commands, security boundaries, coexistence with existing memory systems, and
+maintainer release procedure.
+
 Update boundary:
 
 - `pi update` / `pi update --extensions` belongs to the upstream Pi CLI.

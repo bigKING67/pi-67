@@ -425,7 +425,46 @@ pi-67 skills sync
 pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --dry-run
 pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --yes
 pi-67 external list
+pi-67 memory init
+pi-67 memory status
+pi-67 memory doctor --deep
+pi-67 memory upgrade --dry-run
 ```
+
+### Private Hy-Memory lifecycle
+
+`pi-67 memory` manages the package-owned `pi-hy-memory` extension without
+becoming a chat launcher. Employees still run upstream `pi` directly. The
+first initialization creates a private Python 3.11 runtime outside the repo,
+pins and verifies `hy-memory==1.2.20`, reads DeepSeek auth from upstream Pi,
+and accepts the SiliconFlow credential through hidden input:
+
+```bash
+pi-67 memory init
+pi-67 memory doctor --deep
+pi
+```
+
+The canonical model contract is DeepSeek `deepseek-v4-flash` for extraction
+and reasoning plus SiliconFlow `BAAI/bge-m3` for embeddings. BGE-M3 requests
+omit the unsupported `dimensions` parameter; the local Chroma collection uses
+the returned 1024-dimensional vectors.
+
+Config, secrets, local Chroma/SQLite data, runtime, outbox, and logs live under
+`~/.hy-memory/pi67`. They are per system user and shared across that user's Pi
+projects. `memory upgrade` preserves config/secrets/data/outbox. Destructive or
+non-idempotent operations require explicit confirmation:
+
+```bash
+pi-67 memory forget <memory-id> --yes
+pi-67 memory digest --yes
+pi-67 memory reset --yes
+```
+
+See the repository's
+[`docs/hy-memory.md`](https://github.com/bigKING67/pi-67/blob/main/docs/hy-memory.md)
+for Pi slash commands/tools, network and privacy boundaries, existing-memory
+coexistence, and maintainer upgrades.
 
 `skills packs` reports version, source Commit, vendored integrity, and active
 consistency for registered multi-Skill suites. `shared-skill-packs.json`
@@ -496,7 +535,7 @@ shared-skill packs, runtime packages, or external repos must declare owner,
 install/update/repair strategy, config patch mode, and smoke gates there before
 release. This keeps extension behavior explicit instead of scattering preserve
 rules across scripts. Required local extensions currently include
-`xtalpi-pi-tools`, `pi-rules-loader`, and `pi-vision-bridge`.
+`xtalpi-pi-tools`, `pi-rules-loader`, `pi-vision-bridge`, and `pi-hy-memory`.
 `pi-67 extensions doctor` is the user-facing registry
 diagnostic, and `pi-67 extensions inspect <id>` shows the exact owner/update
 policy for one entry. `pi-67 manifest --validate`, `pi-67 publish-check`, and

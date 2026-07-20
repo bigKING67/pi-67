@@ -49,6 +49,18 @@ export function runPackedArtifactSelfTests(packageRoot) {
       "packed artifact external help is missing the complete install/update/setup lifecycle",
     );
 
+    const memoryHelp = spawnSync(process.execPath, [bin, "memory", "--help"], {
+      cwd: tmpRoot,
+      encoding: "utf8",
+    });
+    assert(memoryHelp.status === 0, `packed artifact memory CLI failed to start: ${memoryHelp.stderr || memoryHelp.stdout}`);
+    assert(
+      memoryHelp.stdout.includes("pi-67 memory init") &&
+        memoryHelp.stdout.includes("BAAI/bge-m3") &&
+        memoryHelp.stdout.includes("Secrets are stored outside the repository"),
+      `packed artifact memory help is missing the initialization and private-state contract: ${JSON.stringify(memoryHelp.stdout)}`,
+    );
+
     const installedRoot = path.join(tmpRoot, "node_modules", "@bigking67", "pi-67");
     for (const checkModule of ["installed-artifact.mjs", "settings-runtime-state.mjs"]) {
       const modulePath = path.join(installedRoot, "scripts", "checks", checkModule);

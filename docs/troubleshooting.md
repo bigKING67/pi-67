@@ -951,6 +951,40 @@ checks all include this queue/progress compatibility guard. If the installed
 package version is not `0.2.2`, the patcher does not blindly edit it; it reports
 `review_required` so the new upstream package can be inspected first.
 
+## Hy-Memory initialization or recall fails
+
+First separate initialization, local service, embedding, and outbox state:
+
+```bash
+pi-67 memory status --json
+pi-67 memory doctor
+pi-67 memory doctor --deep
+```
+
+- `DeepSeek auth is missing`: configure provider `deepseek` through upstream
+  Pi `/login`; do not copy the key into Hy-Memory config.
+- `SiliconFlow embedding API key is required`: rerun `pi-67 memory init` in an
+  interactive terminal and use hidden input. Automation may provide
+  `PI67_HY_MEMORY_EMBEDDING_API_KEY` only for that process.
+- `Python 3.11 is required`: install `uv` or Python 3.11. On Windows,
+  `winget install --id Python.Python.3.11 -e --source winget` must make
+  `py -3.11 --version` succeed.
+- service is stopped: run `pi-67 memory restart`, then repeat doctor.
+- deep doctor reports a dimensions request error: restore the canonical
+  contract. SiliconFlow `BAAI/bge-m3` must receive no `dimensions` request
+  parameter, while the local vector store remains 1024-dimensional.
+- outbox has dead-letter files: fix provider/network/runtime health first, then
+  run `pi-67 memory flush`. Treat dead-letter content as private user data.
+
+Logs are under `~/.hy-memory/pi67/logs`. Report only the time and error type;
+never paste `secrets.json`, full user messages, a database, or an entire log.
+`pi-67 memory disable` pauses automatic recall/capture without deleting data,
+which is the safest isolation step when comparing Hy-Memory with existing
+`agent_memory`/EverOS or `pi-observational-memory` behavior.
+
+The complete architecture, commands, reset-with-backup, retry/dead-letter and
+SDK upgrade process is in [`hy-memory.md`](hy-memory.md).
+
 ## MCP path warnings
 
 Warnings like these mean the full MCP config is installed, but the local dependency is not present yet:

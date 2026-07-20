@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## [0.13.0]
+
+- Adds the first-party `pi-67 memory` lifecycle for the package-owned
+  `pi-hy-memory` extension while preserving upstream `pi` as the only chat
+  runtime.
+- Installs a verified, pinned `hy-memory==1.2.20` wheel into a private Python
+  3.11 runtime; reads the DeepSeek credential from upstream Pi auth and stores
+  the SiliconFlow credential only in private repo-external state.
+- Adds automatic recall and settled-turn capture, authenticated loopback
+  service management, atomic outbox retries/dead-letter handling, explicit
+  delete/digest/reset confirmations, cross-platform tests, and packed-artifact
+  `memory --help` coverage.
+- Uses `deepseek-v4-flash` as the extraction/reasoning LLM and SiliconFlow
+  `BAAI/bge-m3` as the embedder. Embedding requests omit `dimensions`; Chroma
+  stores the returned 1024-dimensional vectors.
+- Treats filesystem aliases that resolve to the same private state directory
+  as one service identity, including the macOS `/tmp` to `/private/tmp` alias.
+
 ## [0.12.1]
 
 - Aligns the public manager with the pi-67 0.12.1 distribution, whose update

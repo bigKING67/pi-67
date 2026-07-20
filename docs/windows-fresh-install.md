@@ -863,7 +863,7 @@ pi
 Pi 能进入交互界面即说明 upstream runtime 和工作区加载链已经建立。没有任何 provider
 key 时，Pi 仍应能够启动；只是模型请求需要先完成登录或本地 key 配置。
 
-## 十、登录、选择模型和可选晶泰配置
+## 十、登录、选择模型、可选晶泰配置和 Hy-Memory
 
 在 Pi 交互界面中，认证和模型选择由 upstream Pi 自己持久化：
 
@@ -880,6 +880,29 @@ pi-67 xtalpi configure --verify
 
 该命令使用隐藏输入，不要把 API key 写进命令参数、脚本、仓库、聊天记录或截图。
 晶泰 key 不是安装 pi-67 或启动 Pi 的前置条件。
+
+如果要给当前 Windows 用户启用跨项目长期记忆，先安装 Python 3.11（只需
+一次）：
+
+```powershell
+winget install --id Python.Python.3.11 -e --source winget
+py -3.11 --version
+```
+
+然后确认已经在 upstream Pi 中配置 provider `deepseek`，执行：
+
+```powershell
+pi-67 memory init
+pi-67 memory doctor --deep
+pi
+```
+
+`memory init` 会隐藏读取 SiliconFlow key，并把独立 Python runtime、凭据、
+Chroma/SQLite 数据和 outbox 放到
+`$env:USERPROFILE\.hy-memory\pi67`。不要把 key 放入 PowerShell 命令参数、
+profile、仓库、截图或聊天记录。该目录只属于当前 Windows 用户，但记忆会在
+该用户的所有 Pi 项目之间共享。完整说明见
+[`hy-memory.md`](hy-memory.md)。
 
 ## 十一、日常更新
 
@@ -908,6 +931,17 @@ pi-67 update
 pi-67 version --json
 pi-67 doctor --json
 ```
+
+如果 release notes 标明 Hy-Memory SDK/wrapper 已升级，再运行：
+
+```powershell
+pi-67 memory upgrade --dry-run
+pi-67 memory upgrade
+pi-67 memory doctor --deep
+```
+
+`memory upgrade` 保留该用户的 config、secrets、data 和 outbox；它不会迁移
+或删除现有 `agent_memory`/EverOS 数据。
 
 普通 update 会自动同步 update plan 检测到的缺失或落后的 managed npm packages。
 只有 plan 显示正常但本机 `npm/node_modules` 仍损坏时，才执行

@@ -273,6 +273,8 @@ $RequiredFiles = @(
   "docs/troubleshooting.md",
   "docs/windows-fresh-install.md",
   "docs/xtalpi-pi-tools.md",
+  "docs/hy-memory.md",
+  "tsconfig.hy-memory.json",
   "scripts/pi67-bootstrap.ps1",
   "scripts/pi67-doctor.ps1",
   "scripts/pi67-report.ps1",
@@ -309,12 +311,14 @@ $RequiredFiles = @(
   "packages/pi67-cli/src/commands/backups.mjs",
   "packages/pi67-cli/src/commands/extensions.mjs",
   "packages/pi67-cli/src/commands/manifest.mjs",
+  "packages/pi67-cli/src/commands/memory.mjs",
   "packages/pi67-cli/src/commands/self-update.mjs",
   "packages/pi67-cli/src/commands/skills.mjs",
   "packages/pi67-cli/src/data/distro-manifest.json",
   "packages/pi67-cli/src/data/extension-registry.json",
   "packages/pi67-cli/src/lib/distro-manifest.mjs",
   "packages/pi67-cli/src/lib/extension-registry.mjs",
+  "packages/pi67-cli/src/lib/memory-runtime.mjs",
   "packages/pi67-cli/src/lib/update-safety.mjs",
   "packages/pi67-cli/src/lib/npm-registry.mjs",
   "packages/pi67-cli/src/lib/skill-policy.mjs",
@@ -333,6 +337,8 @@ $RequiredFiles = @(
   "extensions/xtalpi-pi-tools/vision-bridge.ts",
   "extensions/xtalpi-pi-tools/browser-bridge.ts",
   "extensions/pi-vision-bridge/index.ts",
+  "extensions/pi-hy-memory/index.ts",
+  "extensions/pi-hy-memory/service.py",
   "extensions/xtalpi-pi-tools/fixtures/replay-cases.json",
   "extensions/xtalpi-pi-tools/provider-error-contract.json"
 )
@@ -474,6 +480,7 @@ if ($NodeAvailable) {
     "packages/pi67-cli/src/commands/extensions.mjs",
     "packages/pi67-cli/src/commands/install.mjs",
     "packages/pi67-cli/src/commands/manifest.mjs",
+    "packages/pi67-cli/src/commands/memory.mjs",
     "packages/pi67-cli/src/commands/publish-check.mjs",
     "packages/pi67-cli/src/commands/report.mjs",
     "packages/pi67-cli/src/commands/self-update.mjs",
@@ -486,6 +493,7 @@ if ($NodeAvailable) {
     "packages/pi67-cli/src/commands/xtalpi.mjs",
     "packages/pi67-cli/src/lib/distro-manifest.mjs",
     "packages/pi67-cli/src/lib/extension-registry.mjs",
+    "packages/pi67-cli/src/lib/memory-runtime.mjs",
     "packages/pi67-cli/src/lib/update-safety.mjs",
     "packages/pi67-cli/src/lib/npm-registry.mjs",
     "packages/pi67-cli/src/lib/xtalpi-config.mjs"
@@ -615,6 +623,14 @@ if (String(tmwd.args?.[0] || "").includes(browser67Root) || String(jsReverse.arg
     Invoke-External "node" @((RepoPath "packages/pi67-cli/scripts/check.mjs")) | Out-Null
   }
 
+  Run-Check "Hy-Memory extension typecheck passed" {
+    Invoke-External "npm" @("--prefix", $RepoRoot, "run", "-s", "typecheck:hy-memory") | Out-Null
+  }
+
+  Run-Check "Hy-Memory extension tests passed" {
+    Invoke-External "npm" @("--prefix", $RepoRoot, "run", "-s", "test:hy-memory") | Out-Null
+  }
+
   Run-Check "shared Skill Pack status helper passed" {
     $raw = Invoke-External "node" @(
       (RepoPath "scripts/pi67-shared-skill-packs-status.mjs"),
@@ -641,6 +657,7 @@ if (String(tmwd.args?.[0] || "").includes(browser67Root) || String(jsReverse.arg
     Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--agent-dir", $RepoRoot, "--repo-root", $RepoRoot, "publish-check", "--json", "--no-remote") | Out-Null
     Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--agent-dir", $RepoRoot, "--repo-root", $RepoRoot, "themes", "current", "--json") | Out-Null
     Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--agent-dir", $RepoRoot, "--repo-root", $RepoRoot, "backups", "list", "--json") | Out-Null
+    Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "memory", "--help") | Out-Null
     Invoke-External "node" @((RepoPath "packages/pi67-cli/bin/pi-67.mjs"), "--dry-run", "self-update") | Out-Null
   }
 
@@ -1059,6 +1076,8 @@ if ($GitAvailable) {
     "docs/troubleshooting.md",
     "docs/windows-fresh-install.md",
     "docs/xtalpi-pi-tools.md",
+    "docs/hy-memory.md",
+    "tsconfig.hy-memory.json",
     "scripts/pi67-bootstrap.ps1",
     "scripts/pi67-doctor.ps1",
     "scripts/pi67-report.ps1",
@@ -1081,6 +1100,8 @@ if ($GitAvailable) {
     "packages/pi67-cli/src/cli.mjs",
     "packages/pi67-cli/src/commands/self-update.mjs",
     "packages/pi67-cli/src/commands/skills.mjs",
+    "packages/pi67-cli/src/commands/memory.mjs",
+    "packages/pi67-cli/src/lib/memory-runtime.mjs",
     "packages/pi67-cli/src/lib/npm-registry.mjs",
     "packages/pi67-cli/src/lib/skill-policy.mjs",
     "packages/pi67-cli/src/lib/skill-pack-integrity.mjs",
@@ -1099,6 +1120,8 @@ if ($GitAvailable) {
     "extensions/xtalpi-pi-tools/vision-bridge.ts",
     "extensions/xtalpi-pi-tools/browser-bridge.ts",
     "extensions/pi-vision-bridge/index.ts",
+    "extensions/pi-hy-memory/index.ts",
+    "extensions/pi-hy-memory/service.py",
     ".gitattributes",
     ".github/workflows/ci.yml"
   )

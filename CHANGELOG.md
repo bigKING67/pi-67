@@ -6,6 +6,49 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-07-20
+
+### Added
+
+- Added the first-party `pi-hy-memory` extension for private, per-system-user
+  long-term memory shared across that user's Pi projects. Upstream `pi` remains
+  the only chat runtime; the extension recalls before an agent turn and queues
+  only settled user/final-assistant text for background capture.
+- Added `pi-67 memory` lifecycle commands for initialization, status, doctor,
+  service control, pause/resume, upgrade, outbox flush, confirmed deletion,
+  explicit System 2 digest, and reset-with-backup.
+- Added authenticated loopback service and outbox boundaries around the pinned
+  official `hy-memory==1.2.20` SDK, including atomic writes, idempotent request
+  IDs, retry backoff, dead-letter handling, bounded payloads, host/bearer
+  validation, credential redaction, and generic internal errors.
+- Added Linux, macOS, Windows, CLI, packed-artifact, TypeScript, Python wrapper,
+  security, configuration, and retry regression gates for the memory extension.
+
+### Security
+
+- Keeps Hy-Memory config, SiliconFlow credentials, local Chroma/SQLite data,
+  runtime files, outbox, and logs outside the Git checkout under
+  `~/.hy-memory/pi67`. The DeepSeek credential is read dynamically from the
+  upstream Pi `auth.json` entry instead of being copied into repository state.
+- Treats recalled text as untrusted context, excludes system/thinking/tool and
+  failed/aborted output from automatic capture, redacts common credential
+  shapes, and requires explicit confirmation for deletion, digest, and reset.
+
+### Fixed
+
+- Canonicalized existing filesystem paths when checking loopback service
+  identity, so macOS aliases such as `/tmp` and `/private/tmp` cannot make a
+  valid isolated service look foreign or leave initialization waiting until
+  timeout.
+
+### Changed
+
+- Bumped the pi-67 distribution and public manager to `0.13.0`. The canonical
+  memory model contract uses `deepseek-v4-flash` for Hy-Memory extraction and
+  reasoning plus SiliconFlow `BAAI/bge-m3` for embeddings. BGE-M3 omits the
+  unsupported request `dimensions` field while the local vector store remains
+  fixed at 1024 dimensions.
+
 ## [0.12.1] - 2026-07-16
 
 ### Added
