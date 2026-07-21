@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Adds the registered `ai-berkshire-investment-suite` to `skills packs` and
+  `skills sync-pack`, allowing all 21 provenance-locked investment Skills to be
+  previewed and transactionally deployed into the shared active Skill root.
+- Documents both built-in Pack names in public CLI help and keeps normal update
+  behavior non-destructive; writing Pack alignment still requires explicit
+  `skills sync-pack <pack> --yes`.
+
 ## [0.13.2]
 
 - Stops `update --check` from recommending a no-op distro update when the

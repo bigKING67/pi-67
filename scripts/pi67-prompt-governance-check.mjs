@@ -13,6 +13,7 @@ const REQUIRED_RULES = [
   "context-budget.md",
   "data-quality.md",
   "frontend.md",
+  "investment.md",
   "performance.md",
   "pi67-product-boundary.md",
   "project-structure.md",
@@ -147,6 +148,28 @@ function analyze(repoRoot) {
     "rules.pi67-boundary-contract",
     ["upstream", "pi-67", "xtalpi-pi-tools", "/login", "/model"].every((value) => productRule.includes(value)),
     "pi-67 ownership rule preserves runtime, provider, and acceptance boundaries",
+  );
+
+  const investmentRule = readText(path.join(rulesDir, "investment.md"));
+  let skillPackRegistry = {};
+  try {
+    skillPackRegistry = JSON.parse(readText(path.join(repoRoot, "shared-skill-packs.json")));
+  } catch {
+    skillPackRegistry = {};
+  }
+  const investmentPack = skillPackRegistry.packs?.find((pack) => pack?.name === "ai-berkshire-investment-suite");
+  const investmentSkills = Array.isArray(investmentPack?.skills) ? investmentPack.skills : [];
+  const uncoveredInvestmentSkills = investmentSkills.filter((name) => !investmentRule.includes(`\`${name}\``));
+  add(
+    "rules.investment-pack-coverage",
+    investmentSkills.length === 21 && uncoveredInvestmentSkills.length === 0,
+    `AI Berkshire Skills=${investmentSkills.length}, uncovered=${uncoveredInvestmentSkills.join(",") || "none"}`,
+  );
+  add(
+    "rules.investment-gates",
+    ["OUTSIDE_AI_BERKSHIRE_SCOPE", "date", "two independent sources", "financial_rigor.py", "report_audit.py", "Markdown", "degraded execution"]
+      .every((value) => investmentRule.includes(value)),
+    "investment rule preserves scope, currentness, dual-source, exact-calculation, audit, source-of-truth, and team-truthfulness gates",
   );
 
   const promptsDir = path.join(repoRoot, "prompts");

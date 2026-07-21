@@ -6,6 +6,33 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+### Added
+
+- Added `ai-berkshire-investment-suite@1.0.0`, a shared Pi/Codex Pack containing
+  21 AI Berkshire value-investing Skills, referenced Python tools, MIT license,
+  per-Skill provenance, and reproducible registry/lock SHA-256 metadata.
+- Added `rules/investment.md` and upgraded the Pi kernel to `v1.8-pi` so stock,
+  earnings, industry, portfolio, thesis, income-investing, management, private
+  company, and publishing requests route to the appropriate AI Berkshire Skill
+  with date, dual-source, exact-calculation, report-audit, Markdown-source, and
+  delegation-truthfulness gates.
+- Added a daily PR-only AI Berkshire upstream refresh workflow. It uses a stable
+  automation branch, generated-path allowlisting, credential-scoped push/PR
+  steps, and draft review for Skill-set or validation changes; it never
+  auto-merges, publishes npm, tags, or releases.
+
+### Changed
+
+- Extended shared Skill Pack governance, CLI help, installation/release docs,
+  integrity gates, and temporary-HOME active deployment tests to cover both the
+  eight-Skill Commerce Pack and the 21-Skill AI Berkshire Pack.
+
+### Fixed
+
+- Made AI Berkshire generation adapt bundled Python help examples to Skill-
+  relative `scripts/` paths and transactionally remove upstream-deleted Skills
+  only when their current directory still matches the previous provenance lock.
+
 ## [0.13.2] - 2026-07-21
 
 ### Fixed

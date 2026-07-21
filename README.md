@@ -158,7 +158,7 @@ PowerShell 7，管理员状态为 `True`，且不会每次重复弹 UAC；原始
 这个仓库把 `~/.pi/agent/` 中可复用、可公开的 Pi 配置整理成可安装版本。推荐长期形态是 `~/.pi/agent` 本身就是这个 Git checkout；它不是 minimal starter，而是完整 Pi 工作流发行包：
 
 - 常驻内核：`AGENTS.md` 只保留硬规则、工具分流、rules 读取契约和交付闭环。
-- 长规则外置：`rules/` 存放质量、架构、目录、性能、前端、浏览器、上下文、数据、电商增长和 pi-67 产品边界，按任务最小读取。
+- 长规则外置：`rules/` 存放质量、架构、目录、性能、前端、浏览器、上下文、数据、电商增长、投资研究和 pi-67 产品边界，按任务最小读取。
 - 扩展补强：`extensions/pi-rules-loader/` 给 Pi 注入 rules 索引；`extensions/xtalpi-pi-tools/` 让 Pi 本地托管 xtalpi 工具协议；`extensions/pi-vision-bridge/` 把图片/截图任务桥接到本地多模态 provider；`extensions/pi-hy-memory/` 提供当前系统用户跨项目共享的私有长期记忆。
 - 生产力资产：Skills、Prompts、Docs、Templates 和脚本保持仓库化，便于审计、同步和回滚。
 
@@ -176,8 +176,8 @@ PowerShell 7，管理员状态为 `True`，且不会每次重复弹 UAC；原始
 | **核心配置模板** | `settings.example.json` | 发行版默认 provider/model、Pi package 列表；首次安装复制为 ignored 的本机 `settings.json` |
 | **模型配置** | `models.example.json` | xtalpi-pi-tools / codex provider 模板 |
 | **MCP** | `mcp.example.json` | browser67 tmwd_browser、js-reverse、agent_memory 模板 |
-| **全局内核** | `AGENTS.md` | Pi 常驻行为规范（v1.7-pi kernel） |
-| **Rules** | `rules/` (10 篇) | 质量、架构、结构、性能、前端、浏览器、上下文、数据质量、电商增长、pi-67 产品边界规则 |
+| **全局内核** | `AGENTS.md` | Pi 常驻行为规范（v1.8-pi kernel） |
+| **Rules** | `rules/` (11 篇) | 质量、架构、结构、性能、前端、浏览器、上下文、数据质量、电商增长、投资研究、pi-67 产品边界规则 |
 | **自定义扩展** | `extensions/` (4 个) | `xtalpi-pi-tools` + `pi-rules-loader` + `pi-vision-bridge` + `pi-hy-memory` |
 | **Shared Skills** | `shared-skills/` | 安装到 `~/.agents/skills`，供 Pi/Codex 共用 |
 | **Skill 治理** | `docs/skill-governance.md` | skill 公开发行 / 个人 overlay / 过期治理规则 |
@@ -311,6 +311,20 @@ pi-67 skills packs
 pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --dry-run
 pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --yes
 ```
+
+pi-67 还内置 `ai-berkshire-investment-suite`，将 AI Berkshire 的 21 个价值投资
+Skill、所需 Python 工具、MIT License 和上游 provenance 作为共享 Pi/Codex Pack
+发布。投资任务按 `rules/investment.md` 路由；普通用户显式预览或同步整套 Pack：
+
+```bash
+pi-67 skills sync-pack ai-berkshire-investment-suite --dry-run
+pi-67 skills sync-pack ai-berkshire-investment-suite --yes
+```
+
+维护者使用 `scripts/pi67-sync-ai-berkshire-skill-pack.sh` 从干净的上游 checkout
+生成 Pack；同步器不执行上游脚本。每个 pi-67 版本锁定一个可复现 Commit，
+`.github/workflows/ai-berkshire-refresh.yml` 每日检查 `main`，有更新时只创建或
+更新 PR，不自动合并、npm publish、打 tag 或创建 Release。
 
 默认更新只复制缺失 Skill，并保留内容不同的 active Skill。`sync-pack
 --yes` 把 Git 跟踪且 provenance-locked 的 Pack 事务部署到 `~/.agents/skills`：
@@ -973,6 +987,7 @@ Pi 的长期规则分两层：
 | 登录态、真实 Chrome、下载/上传、JS 逆向 | `browser.md` |
 | 数据口径、映射、唯一性争议 | `data-quality.md` |
 | 电商增长、平台运营、货盘价盘、渠道控价、ROI/利润测算 | `commerce-growth.md` |
+| 股票、财报、行业、组合、估值与投资报告 | `investment.md` |
 | pi-67 安装、更新、provider、bootstrap、验收、发布 | `pi67-product-boundary.md` |
 
 ## 目录结构
@@ -984,7 +999,7 @@ pi-67/
 ├── CHANGELOG.md
 ├── install.sh                      # 一键符号链接安装脚本
 ├── .gitignore
-├── AGENTS.md                       # Pi v1.7-pi 常驻短内核
+├── AGENTS.md                       # Pi v1.8-pi 常驻短内核
 ├── settings.example.json           # tracked 核心配置模板
 ├── settings.json                   # ignored 本机 Pi 运行态（首次安装时创建）
 ├── models.example.json             # 模型配置模板（需填写 API key）
@@ -1023,6 +1038,7 @@ pi-67/
 │   ├── context-budget.md
 │   ├── data-quality.md
 │   ├── frontend.md
+│   ├── investment.md
 │   ├── performance.md
 │   ├── pi67-product-boundary.md
 │   ├── project-structure.md
@@ -1036,6 +1052,9 @@ pi-67/
 │   ├── brand-strategy-communications/
 │   ├── content-creative-social-marketing/
 │   ├── growth-performance-lifecycle-marketing/
+│   ├── investment-research/        # AI Berkshire 21-Skill Pack（其一）
+│   ├── income-investment/
+│   ├── financial-data/
 │   ├── lark-*                      # 飞书全系列
 │   ├── full-output-enforcement/
 │   ├── high-end-visual-design/
@@ -1088,6 +1107,9 @@ pi-67/
 │   ├── pi67-sync-commerce-skill-pack.sh
 │   ├── pi67-sync-commerce-skill-pack.mjs
 │   ├── pi67-sync-commerce-growth-os.sh  # compatibility alias
+│   ├── pi67-sync-ai-berkshire-skill-pack.sh
+│   ├── pi67-sync-ai-berkshire-skill-pack.mjs
+│   ├── pi67-test-ai-berkshire-skill-pack.sh
 │   ├── pi67-sync-external-skills.sh
 │   ├── pi67-test-skill-governance.sh
 │   ├── pi67-update.sh

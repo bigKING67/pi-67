@@ -192,5 +192,7 @@ Examples:
   pi-67 skills sync lark-doc --yes
   pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --dry-run
   pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --yes
+  pi-67 skills sync-pack ai-berkshire-investment-suite --dry-run
+  pi-67 skills sync-pack ai-berkshire-investment-suite --yes
 `);
 }

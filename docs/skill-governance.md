@@ -63,6 +63,14 @@ machines receive missing Skills through the normal pi-67 install/update path.
 Do not put a maintainer's local checkout path or this GitHub repository into
 `settings.json.packages`; active copies belong in `~/.agents/skills`.
 
+The AI Berkshire investment suite is the second public Pack in this bucket.
+pi-67 adapts the current 21 `codex-skills/*/SKILL.md` packages from
+`https://github.com/xbtlin/ai-berkshire`, includes their MIT License and only
+the Python tools each Skill actually references, and registers them as
+`ai-berkshire-investment-suite`. The shared adapter removes personal checkout
+assumptions and maps host-specific agent/tool names to capabilities that are
+actually live; it does not execute upstream code while generating the Pack.
+
 ### B. Personal overlay skill
 
 Keep a skill outside this repository when it is useful locally but not suitable
@@ -263,6 +271,44 @@ the full upstream Commit, Manifest SHA-256, Pack SHA-256, and per-Skill SHA-256.
 The legacy `pi67-sync-commerce-growth-os.sh` filename is retained as a
 compatibility alias.
 
+## Vendored AI Berkshire Investment Skill Pack sync
+
+Maintainers refresh the AI Berkshire Pack from a clean, correctly originated
+Git checkout:
+
+```bash
+bash scripts/pi67-sync-ai-berkshire-skill-pack.sh \
+  --source /path/to/ai-berkshire \
+  --dry-run
+
+bash scripts/pi67-sync-ai-berkshire-skill-pack.sh \
+  --source /path/to/ai-berkshire \
+  --apply --yes
+```
+
+The helper reads `codex-skills/*/SKILL.md`, `LICENSE`, and referenced top-level
+`tools/*.py` files only. It validates the clean Git origin and full commit,
+rejects symlinks/missing tools/personal paths, adapts Skill-relative commands,
+and updates all vendored directories plus registry and lock transactionally.
+It never runs an upstream installer or Python tool. Content-only upstream
+updates bump the Pack patch version; Skill additions require a minor/manual
+review, and removal or rename requires a major/manual review. Each pi-67
+release therefore pins one reproducible upstream commit without permanently
+freezing future updates.
+
+`.github/workflows/ai-berkshire-refresh.yml` checks upstream `main` daily. A
+new commit is regenerated and validated on the stable
+`automation/ai-berkshire-refresh` branch, then submitted as a PR. Skill-set or
+route-coverage changes make it a draft. The workflow never auto-merges,
+publishes npm, creates a Git tag, or creates a GitHub Release.
+
+Users preview and explicitly deploy the full Pack with:
+
+```bash
+pi-67 skills sync-pack ai-berkshire-investment-suite --dry-run
+pi-67 skills sync-pack ai-berkshire-investment-suite --yes
+```
+
 Existing machines preserve different active copies during normal updates. Use
 the pack-aware manager command for an explicit transactional deployment:
 
@@ -272,8 +318,8 @@ pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --dry-run
 pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --yes
 ```
 
-The Git-tracked `commerce-growth-os` repository and its pinned Pack provenance
-are the only content history. `~/.agents/skills` is a reproducible deployment
+The Git-tracked upstream repository and its pinned Pack provenance are the only
+content history. `~/.agents/skills` is a reproducible deployment
 root, not an independent editing database. A changed deployment copies source
 content into a temporary `.pi67-skills-sync-*/staged` tree, moves current
 targets into the same transaction's `previous/` tree, activates and verifies
@@ -317,6 +363,7 @@ sync behavior:
 
 ```bash
 bash scripts/pi67-test-skill-governance.sh
+bash scripts/pi67-test-ai-berkshire-skill-pack.sh
 ```
 
 It creates temporary legacy roots and external repositories, then validates:
@@ -329,6 +376,7 @@ It creates temporary legacy roots and external repositories, then validates:
 - external sync supports both root-level `SKILL.md` and `skills/*/SKILL.md`
 - external sync conflicts return `NEEDS_REVIEW` and preserve canonical skills
 - Commerce and Marketing Pack vendored sync builds, dry-runs, applies, and keeps the legacy helper compatible
+- AI Berkshire Pack has 21 provenance-locked Skills, deterministic tool/audit smoke coverage, idempotent generation, transactional add/remove behavior, and fail-closed source validation
 - Active Pack sync is dry-run-first, uses a clean deploy lock and transient transaction, creates no persistent Skill backup, repairs Active drift from Git source, and supports Git source rollback followed by redeployment
 - Pack diagnostics reject invalid registry metadata and distinguish consistent, missing, and conflicting active copies
 - migration and sync JSON outputs keep their documented schema IDs

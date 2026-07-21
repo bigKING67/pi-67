@@ -2,6 +2,100 @@
   "schema": "pi67.shared-skill-packs-lock.v1",
   "packs": [
     {
+      "name": "ai-berkshire-investment-suite",
+      "version": "1.0.0",
+      "upstream": "https://github.com/xbtlin/ai-berkshire",
+      "source_commit": "bf216491b6c58054457ff8b8b1b43d2085225e58",
+      "manifest_sha256": "22a1b37ffb84f4bd4652c25e934234ebeff339d7fbdbe2d09a5002923ae89b1e",
+      "bundle_sha256": "974362299c10ca39057c1b49ca08eec3d35a37564059927a40fe3e5061a3b613",
+      "skills": [
+        {
+          "name": "bottleneck-hunter",
+          "sha256": "32313880310a021679ba546e2ba7d5425315f92c9784421f7fa8cdd35c4a00fe"
+        },
+        {
+          "name": "deep-company-series",
+          "sha256": "c49a12239a2b70a73200870091d58a3ade98d48895f9e24c7278367b5d3400ca"
+        },
+        {
+          "name": "dyp-ask",
+          "sha256": "c1db3c6b9b89aa50d17546089b3a8ad6c4d298b5bf3a654400a697e22bf86f83"
+        },
+        {
+          "name": "earnings-review",
+          "sha256": "969df99ae03b461d9c825cf287e6ae8c625f316b65a4232bb2a0a163da6227a0"
+        },
+        {
+          "name": "earnings-team",
+          "sha256": "ac997f2a936507466ea9e4091132aab77bb4c6bdd5ee6fcf8aae299ec78171c0"
+        },
+        {
+          "name": "financial-data",
+          "sha256": "55782d50acbf48798c13011ddd140ff48a7530f0a887986931ce416750a0d9f2"
+        },
+        {
+          "name": "income-investment",
+          "sha256": "90adf3dda945dbbd4f13e4930d97c5268cb25bbe0caf6b45fb3d522e30cb901b"
+        },
+        {
+          "name": "industry-funnel",
+          "sha256": "3a902e30a3b7d3f3b27c78aac164b7516ac25c1dcad8ff582301a1ef0a7a117e"
+        },
+        {
+          "name": "industry-research",
+          "sha256": "6a3d6199bf4c8e8a01cb1053a5f9548780a93df8b986100dddfd00461172073d"
+        },
+        {
+          "name": "investment-checklist",
+          "sha256": "8414c8cf33e1144b953cf561536cb33e65fb144d190b47021543263a38d09397"
+        },
+        {
+          "name": "investment-memo-craft",
+          "sha256": "b5e8b754421f328a5bd1190f10619fba58ba495099c27da561a95dec8442e3b4"
+        },
+        {
+          "name": "investment-research",
+          "sha256": "24937a08529d7f59234963c8e3cdb9ac63bdf6031852bcc0a9e2ec23962e61cc"
+        },
+        {
+          "name": "investment-team",
+          "sha256": "30ad31bfd10101516eaddc6a0a307b9f9efc982987584157b22cce6db71dcec9"
+        },
+        {
+          "name": "management-deep-dive",
+          "sha256": "fc7dd166da9c1ab6785b934d8169a053f4364cd93d816504789297b19adf7c5e"
+        },
+        {
+          "name": "news-pulse",
+          "sha256": "db6ef2f19b9d3656f72a4d6f92ba7ab06534489eb3fcf3c4adbe6bd5b11113a1"
+        },
+        {
+          "name": "portfolio-review",
+          "sha256": "0c7b6dd5134659b44fa49450bcc0aed2b3b009177f5e9fa859970f9a8591c6a6"
+        },
+        {
+          "name": "private-company-research",
+          "sha256": "073c807a83371b124756e2a41026673f125af1bc2e4566233600217ea671455e"
+        },
+        {
+          "name": "quality-screen",
+          "sha256": "3925c59e446a80af3c353b1dc8f1bd24f56713b4b7cdd7307c5b0becdc263fe2"
+        },
+        {
+          "name": "thesis-drift",
+          "sha256": "27764d1a5aa81e45396190ad2cda4ffb56f77895c400a9ea2c8ee6beb55f1081"
+        },
+        {
+          "name": "thesis-tracker",
+          "sha256": "6d1595f865436138a57459d58c7e3bd52e13e496d43a07e169d24d5c15243790"
+        },
+        {
+          "name": "wechat-article",
+          "sha256": "49f92da8e3681b76d2250d93f3168e93fc1c24b1ff38e407e1a746cc9933a376"
+        }
+      ]
+    },
+    {
       "name": "consumer-brand-commerce-marketing-suite",
       "version": "2.0.0",
       "upstream": "https://github.com/bigKING67/commerce-growth-os",

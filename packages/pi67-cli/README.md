@@ -428,6 +428,8 @@ pi-67 skills packs
 pi-67 skills sync
 pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --dry-run
 pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --yes
+pi-67 skills sync-pack ai-berkshire-investment-suite --dry-run
+pi-67 skills sync-pack ai-berkshire-investment-suite --yes
 pi-67 external list
 pi-67 memory init
 pi-67 memory status
@@ -474,6 +476,10 @@ coexistence, and maintainer upgrades.
 consistency for registered multi-Skill suites. `shared-skill-packs.json`
 declares Pack ownership while `shared-skill-packs.lock.json` pins the upstream
 Commit and SHA-256 fingerprints used by the distribution.
+The distribution currently includes the eight-Skill Consumer Brand Commerce
+and Marketing suite and the 21-Skill AI Berkshire Investment suite. AI
+Berkshire updates are pinned per pi-67 release; scheduled automation only opens
+a review PR when upstream `main` changes.
 Normal update preserves different active Skills; `skills sync-pack ... --yes`
 is the explicit transactional operation for aligning every Skill in a
 registered Pack to the Git-tracked, provenance-locked distribution source.

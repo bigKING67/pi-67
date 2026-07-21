@@ -38,6 +38,26 @@ proves the upstream Commit and Manifest build, all eight vendored directories,
 `shared-skill-packs.json`, and `shared-skill-packs.lock.json` agree before the
 release is distributed to other machines.
 
+If AI Berkshire upstream changed, refresh from a separate clean checkout. The
+helper reads and adapts Skill/tool files but does not execute upstream code:
+
+```bash
+bash scripts/pi67-sync-ai-berkshire-skill-pack.sh \
+  --source /path/to/ai-berkshire \
+  --dry-run
+bash scripts/pi67-sync-ai-berkshire-skill-pack.sh \
+  --source /path/to/ai-berkshire \
+  --apply --yes
+bash scripts/pi67-sync-ai-berkshire-skill-pack.sh \
+  --source /path/to/ai-berkshire \
+  --dry-run
+```
+
+The final command must also report `NOOP`. Every pi-67 release locks one full
+upstream commit and SHA-256 set. Daily `ai-berkshire-refresh.yml` automation may
+open a review PR for a newer `main`, but it never auto-merges, publishes, tags,
+or releases it.
+
 PowerShell smoke for Windows-facing changes:
 
 ```powershell
@@ -104,6 +124,8 @@ macOS/Linux and full release gate:
 
 ```bash
 node scripts/pi67-prompt-governance-check.mjs
+bash scripts/pi67-test-ai-berkshire-skill-pack.sh
+bash scripts/pi67-test-skill-governance.sh
 npm run -s typecheck:hy-memory
 npm run -s test:hy-memory
 node packages/pi67-cli/scripts/check.mjs
@@ -131,7 +153,7 @@ created before exit. The checkout must remain clean.
 Expected result:
 
 - release metadata is internally consistent
-- registered shared Skill Pack metadata and all eight vendored bundles are
+- both registered shared Skill Pack metadata entries and all 29 vendored bundles are
   internally consistent
 - Windows PowerShell smoke passes on a PowerShell runtime when Windows-facing files changed
 - Windows manager/workspace bootstrap self-test and dry-run pass without
@@ -225,6 +247,8 @@ node packages/pi67-cli/bin/pi-67.mjs memory --help
 
 ```bash
 node scripts/pi67-prompt-governance-check.mjs
+bash scripts/pi67-test-ai-berkshire-skill-pack.sh
+bash scripts/pi67-test-skill-governance.sh
 npm run -s typecheck:hy-memory
 npm run -s test:hy-memory
 node packages/pi67-cli/scripts/check.mjs

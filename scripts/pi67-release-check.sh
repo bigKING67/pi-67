@@ -67,6 +67,7 @@ PI67_DISTRO_MANIFEST="$PI67_CLI_DIR/src/data/distro-manifest.json"
 RELEASE_DOC="$REPO_ROOT/docs/release.md"
 WINDOWS_FRESH_INSTALL_DOC="$REPO_ROOT/docs/windows-fresh-install.md"
 NPM_PUBLISH_WORKFLOW="$REPO_ROOT/.github/workflows/npm-publish.yml"
+AI_BERKSHIRE_REFRESH_WORKFLOW="$REPO_ROOT/.github/workflows/ai-berkshire-refresh.yml"
 REPORT_SCHEMA_DOC="$REPO_ROOT/docs/report-schema.md"
 DOCTOR_SCHEMA_DOC="$REPO_ROOT/docs/doctor-schema.md"
 STATUS_DOC="$REPO_ROOT/docs/status.md"
@@ -88,6 +89,9 @@ EXTERNAL_SKILLS_CHECK="$REPO_ROOT/scripts/pi67-check-external-skills.sh"
 COMMERCE_GROWTH_SYNC="$REPO_ROOT/scripts/pi67-sync-commerce-growth-os.sh"
 COMMERCE_SKILL_PACK_SYNC="$REPO_ROOT/scripts/pi67-sync-commerce-skill-pack.sh"
 COMMERCE_SKILL_PACK_SYNC_MJS="$REPO_ROOT/scripts/pi67-sync-commerce-skill-pack.mjs"
+AI_BERKSHIRE_SKILL_PACK_SYNC="$REPO_ROOT/scripts/pi67-sync-ai-berkshire-skill-pack.sh"
+AI_BERKSHIRE_SKILL_PACK_SYNC_MJS="$REPO_ROOT/scripts/pi67-sync-ai-berkshire-skill-pack.mjs"
+AI_BERKSHIRE_SKILL_PACK_TEST="$REPO_ROOT/scripts/pi67-test-ai-berkshire-skill-pack.sh"
 SHARED_SKILL_PACKS="$REPO_ROOT/shared-skill-packs.json"
 SHARED_SKILL_PACK_LOCK="$REPO_ROOT/shared-skill-packs.lock.json"
 SHARED_SKILL_PACK_STATUS="$REPO_ROOT/scripts/pi67-shared-skill-packs-status.mjs"
@@ -404,6 +408,7 @@ else
 fi
 
 if grep -q "pi67-sync-commerce-skill-pack.sh" "$RELEASE_DOC" \
+  && grep -q "pi67-sync-ai-berkshire-skill-pack.sh" "$RELEASE_DOC" \
   && grep -q "shared-skill-packs.json" "$RELEASE_DOC" \
   && grep -q "shared-skill-packs.lock.json" "$RELEASE_DOC" \
   && grep -q 'report `NOOP`' "$RELEASE_DOC"; then
@@ -693,6 +698,10 @@ if [ -f "$SKILL_GOVERNANCE_TEST" ] \
   && [ -f "$COMMERCE_GROWTH_SYNC" ] \
   && [ -f "$COMMERCE_SKILL_PACK_SYNC" ] \
   && [ -f "$COMMERCE_SKILL_PACK_SYNC_MJS" ] \
+  && [ -f "$AI_BERKSHIRE_SKILL_PACK_SYNC" ] \
+  && [ -f "$AI_BERKSHIRE_SKILL_PACK_SYNC_MJS" ] \
+  && [ -f "$AI_BERKSHIRE_SKILL_PACK_TEST" ] \
+  && [ -f "$AI_BERKSHIRE_REFRESH_WORKFLOW" ] \
   && [ -f "$SHARED_SKILL_PACKS" ] \
   && [ -f "$SHARED_SKILL_PACK_LOCK" ] \
   && [ -f "$SHARED_SKILL_PACK_STATUS" ] \
@@ -749,7 +758,9 @@ fi
 if grep -q "pi67-test-skill-governance.sh" "$SKILL_GOV_DOC" \
   && grep -q "pi67-check-external-skills.sh" "$SKILL_GOV_DOC" \
   && grep -q "pi67-sync-commerce-skill-pack.sh" "$SKILL_GOV_DOC" \
+  && grep -q "pi67-sync-ai-berkshire-skill-pack.sh" "$SKILL_GOV_DOC" \
   && grep -q "skills sync-pack consumer-brand-commerce-marketing-suite" "$SKILL_GOV_DOC" \
+  && grep -q "skills sync-pack ai-berkshire-investment-suite" "$SKILL_GOV_DOC" \
   && grep -q "pi67.skill-deploy-lock.v1" "$SKILL_GOV_DOC" \
   && grep -q "Git commit/tag" "$SKILL_GOV_DOC" \
   && grep -q "does not create persistent Skill content backups" "$SKILL_GOV_DOC"; then
@@ -758,10 +769,16 @@ else
   fail "skill governance check scripts are not documented"
 fi
 
-if command_exists node && node - "$SHARED_SKILL_PACKS" "$SHARED_SKILL_PACK_LOCK" "$REPO_ROOT/shared-skills" <<'NODE'
-const fs = require("fs");
-const path = require("path");
-const [registryFile, lockFile, skillsRoot] = process.argv.slice(2);
+if command_exists node && node --input-type=module - \
+  "$SHARED_SKILL_PACKS" \
+  "$SHARED_SKILL_PACK_LOCK" \
+  "$REPO_ROOT/shared-skills" \
+  "$SHARED_SKILL_PACK_INTEGRITY" <<'NODE'
+import fs from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+const [registryFile, lockFile, skillsRoot, integrityFile] = process.argv.slice(2);
+const { hashDirectory, hashSkillSet } = await import(pathToFileURL(integrityFile));
 const data = JSON.parse(fs.readFileSync(registryFile, "utf8"));
 const lock = JSON.parse(fs.readFileSync(lockFile, "utf8"));
 if (data.schema !== "pi67.shared-skill-packs.v1" || !Array.isArray(data.packs)) {
@@ -770,24 +787,67 @@ if (data.schema !== "pi67.shared-skill-packs.v1" || !Array.isArray(data.packs)) 
 if (lock.schema !== "pi67.shared-skill-packs-lock.v1" || !Array.isArray(lock.packs)) {
   throw new Error("invalid shared Skill Pack lock schema");
 }
-const pack = data.packs.find((entry) => entry.name === "consumer-brand-commerce-marketing-suite");
-const lockedPack = lock.packs.find((entry) => entry.name === "consumer-brand-commerce-marketing-suite");
-if (!pack || !/^\d+\.\d+\.\d+$/.test(pack.version || "") || pack.skills.length !== 8) {
-  throw new Error("Consumer Brand Skill Pack registry entry is missing or stale");
-}
-if (!lockedPack || lockedPack.version !== pack.version || lockedPack.skills?.length !== 8) {
-  throw new Error("Consumer Brand Skill Pack provenance lock is missing or stale");
-}
-for (const name of pack.skills) {
-  if (!fs.existsSync(path.join(skillsRoot, name, "SKILL.md"))) {
-    throw new Error(`vendored Skill Pack entry is missing: ${name}`);
+if (data.packs.length !== 2 || lock.packs.length !== 2) throw new Error("expected exactly two registered and locked Skill Packs");
+const expected = new Map([
+  ["ai-berkshire-investment-suite", { count: 21, upstream: "https://github.com/xbtlin/ai-berkshire" }],
+  ["consumer-brand-commerce-marketing-suite", { count: 8, upstream: "https://github.com/bigKING67/commerce-growth-os" }],
+]);
+for (const [name, contract] of expected) {
+  const pack = data.packs.find((entry) => entry.name === name);
+  const lockedPack = lock.packs.find((entry) => entry.name === name);
+  if (!pack || !/^\d+\.\d+\.\d+$/.test(pack.version || "") || pack.skills?.length !== contract.count) {
+    throw new Error(`${name} registry entry is missing or stale`);
   }
+  if (pack.upstream !== contract.upstream || !pack.sync_helper) throw new Error(`${name} registry metadata mismatch`);
+  if (!lockedPack || lockedPack.version !== pack.version || lockedPack.upstream !== pack.upstream) {
+    throw new Error(`${name} provenance lock metadata mismatch`);
+  }
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(lockedPack.source_commit || "")) {
+    throw new Error(`${name} source commit is invalid`);
+  }
+  if (!/^[0-9a-f]{64}$/.test(lockedPack.manifest_sha256 || "") || !/^[0-9a-f]{64}$/.test(lockedPack.bundle_sha256 || "")) {
+    throw new Error(`${name} provenance hashes are invalid`);
+  }
+  if (JSON.stringify(lockedPack.skills?.map((skill) => skill.name)) !== JSON.stringify(pack.skills)) {
+    throw new Error(`${name} lock Skill order mismatch`);
+  }
+  for (const skill of lockedPack.skills) {
+    const directory = path.join(skillsRoot, skill.name);
+    if (!fs.existsSync(path.join(directory, "SKILL.md")) || hashDirectory(directory) !== skill.sha256) {
+      throw new Error(`vendored Skill Pack hash mismatch: ${name}/${skill.name}`);
+    }
+  }
+  if (hashSkillSet(lockedPack.skills) !== lockedPack.bundle_sha256) throw new Error(`${name} bundle hash mismatch`);
 }
 NODE
 then
-  pass "shared Skill Pack registry and eight vendored Skills are consistent"
+  pass "two shared Skill Packs and 29 vendored Skills are provenance-consistent"
 else
   fail "shared Skill Pack registry or vendored Skills are invalid"
+fi
+
+if grep -q 'cron: "17 2 \* \* \*"' "$AI_BERKSHIRE_REFRESH_WORKFLOW" \
+  && grep -q "workflow_dispatch" "$AI_BERKSHIRE_REFRESH_WORKFLOW" \
+  && grep -q "persist-credentials: false" "$AI_BERKSHIRE_REFRESH_WORKFLOW" \
+  && grep -q "automation/ai-berkshire-refresh" "$AI_BERKSHIRE_REFRESH_WORKFLOW" \
+  && grep -q "generated-path allowlist" "$AI_BERKSHIRE_REFRESH_WORKFLOW" \
+  && grep -q "does not auto-merge, publish npm, create tags, or create releases" "$AI_BERKSHIRE_REFRESH_WORKFLOW"; then
+  pass "AI Berkshire daily refresh is PR-only, credential-scoped, and allowlisted"
+else
+  fail "AI Berkshire daily refresh workflow contract is incomplete"
+fi
+
+if bash "$AI_BERKSHIRE_SKILL_PACK_TEST" >/dev/null; then
+  pass "AI Berkshire generator, provenance, tool smoke, and active Pack tests passed"
+else
+  fail "AI Berkshire dedicated Skill Pack tests failed"
+fi
+
+if grep -q "skills sync-pack ai-berkshire-investment-suite --dry-run" "$REPO_ROOT/README.md" "$FULL_INSTALL_DOC" "$SKILL_GOV_DOC" "$CLI_README" \
+  && grep -q "skills sync-pack ai-berkshire-investment-suite --yes" "$REPO_ROOT/README.md" "$FULL_INSTALL_DOC" "$SKILL_GOV_DOC" "$CLI_README"; then
+  pass "AI Berkshire Pack dry-run and explicit sync commands are documented"
+else
+  fail "AI Berkshire Pack user sync commands are missing from release documentation"
 fi
 
 if command_exists node; then
@@ -1140,7 +1200,7 @@ if command_exists git && git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/d
     fail "git diff --check failed"
   fi
 
-  if git -C "$REPO_ROOT" ls-files --error-unmatch .gitignore .gitattributes VERSION CHANGELOG.md package-lock.json AGENTS.md settings.example.json rules/pi67-product-boundary.md shared-skill-packs.json shared-skill-packs.lock.json .github/workflows/ci.yml .github/workflows/npm-publish.yml docs/release.md docs/windows-fresh-install.md docs/report-schema.md docs/doctor-schema.md docs/status.md docs/skill-migration-schema.md docs/external-skill-sync-schema.md docs/skill-governance.md docs/troubleshooting.md docs/xtalpi-pi-tools.md docs/hy-memory.md tsconfig.hy-memory.json tests/pi67-cli/update-branch-resolution.sh tests/pi67-cli/settings-untrack-upgrade.sh tests/pi-hy-memory/integration/cli.test.mjs tests/pi-hy-memory/integration/service.test.mjs tests/pi-hy-memory/unit/config.test.mjs tests/pi-hy-memory/unit/outbox.test.mjs tests/pi-hy-memory/unit/security.test.mjs packages/pi67-cli/package.json packages/pi67-cli/README.md packages/pi67-cli/CHANGELOG.md packages/pi67-cli/bin/pi-67.mjs packages/pi67-cli/scripts/check.mjs packages/pi67-cli/scripts/checks/installed-artifact.mjs packages/pi67-cli/scripts/checks/settings-runtime-state.mjs packages/pi67-cli/src/cli.mjs packages/pi67-cli/src/commands/backups.mjs packages/pi67-cli/src/commands/extensions.mjs packages/pi67-cli/src/commands/manifest.mjs packages/pi67-cli/src/commands/memory.mjs packages/pi67-cli/src/commands/publish-check.mjs packages/pi67-cli/src/commands/self-update.mjs packages/pi67-cli/src/commands/skills.mjs packages/pi67-cli/src/commands/xtalpi.mjs packages/pi67-cli/src/data/distro-manifest.json packages/pi67-cli/src/data/extension-registry.json packages/pi67-cli/src/lib/distro-manifest.mjs packages/pi67-cli/src/lib/extension-registry.mjs packages/pi67-cli/src/lib/memory-runtime.mjs packages/pi67-cli/src/lib/npm-registry.mjs packages/pi67-cli/src/lib/settings-runtime-clean.mjs packages/pi67-cli/src/lib/settings-runtime-state.mjs packages/pi67-cli/src/lib/skill-deploy-lock.mjs packages/pi67-cli/src/lib/skill-policy.mjs packages/pi67-cli/src/lib/skill-pack-integrity.mjs packages/pi67-cli/src/lib/update-safety.mjs packages/pi67-cli/src/lib/upstream-pi-runtime.mjs packages/pi67-cli/src/lib/xtalpi-config.mjs packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs packages/pi67-cli/schemas/pi67-distro-manifest.schema.json packages/pi67-cli/schemas/pi67-extension-registry.schema.json packages/pi67-cli/schemas/pi67-publish-check.schema.json packages/pi67-cli/schemas/pi67-state.schema.json packages/pi67-cli/schemas/pi67-update-plan.schema.json scripts/pi67-bootstrap.ps1 scripts/pi67-check-external-skills.sh scripts/pi67-doctor.sh scripts/pi67-doctor.ps1 scripts/pi67-json-utils.cjs scripts/pi67-json-utils.ps1 scripts/pi67-mcp-config-utils.cjs scripts/pi67-prompt-governance-check.mjs scripts/pi67-upstream-pi-status.mjs scripts/pi67-migrate-skills.sh scripts/pi67-release-artifact-smoke.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-report.ps1 scripts/pi67-status.sh scripts/pi67-shared-skills-inventory.sh scripts/pi67-shared-skill-packs-status.mjs scripts/pi67-sync-commerce-growth-os.sh scripts/pi67-sync-commerce-skill-pack.sh scripts/pi67-sync-commerce-skill-pack.mjs scripts/pi67-sync-external-skills.sh scripts/pi67-test-skill-governance.sh scripts/pi67-update.sh scripts/pi67-update.ps1 scripts/pi67-windows-acceptance.ps1 scripts/pi67-smoke.ps1 scripts/pi67-zero-key-startup-probe.ts scripts/pi67-zero-key-startup-smoke.ps1 scripts/pi67-xtalpi-pi-tools.sh scripts/pi67-xtalpi-pi-tools.ps1 scripts/pi67-test-xtalpi-pi-tools.sh scripts/pi67-fuzz-xtalpi-parser.mjs scripts/pi67-patch-pi-until-done-runtime-queue.mjs scripts/pi67-patch-pi-until-done-runtime-queue.sh scripts/pi67-patch-pi-until-done-runtime-queue.ps1 scripts/pi67-xtalpi-pi-tools-smoke.sh scripts/pi67-xtalpi-pi-tools-smoke.ps1 scripts/pi67-xtalpi-pi-tools-debug-summary.sh scripts/pi67-xtalpi-tool-coverage-audit.sh scripts/pi67-xtalpi-smoke-status-core.cjs scripts/pi67-xtalpi-smoke-plan.mjs scripts/pi67-xtalpi-provider-health.mjs scripts/pi67-xtalpi-provider-capability-probe.mjs scripts/pi67-validate-xtalpi-provider-error-contract.mjs extensions/pi-hy-memory/client.ts extensions/pi-hy-memory/config.ts extensions/pi-hy-memory/index.ts extensions/pi-hy-memory/outbox.ts extensions/pi-hy-memory/security.ts extensions/pi-hy-memory/service.py extensions/pi-hy-memory/types.ts extensions/xtalpi-pi-tools/json-file.ts extensions/xtalpi-pi-tools/json-action-protocol.ts extensions/xtalpi-pi-tools/vision-bridge.ts extensions/xtalpi-pi-tools/browser-bridge.ts extensions/pi-vision-bridge/index.ts extensions/xtalpi-pi-tools/fixtures/replay-cases.json extensions/xtalpi-pi-tools/provider-error-contract.json >/dev/null 2>&1; then
+  if git -C "$REPO_ROOT" ls-files --error-unmatch .gitignore .gitattributes VERSION CHANGELOG.md package-lock.json AGENTS.md settings.example.json rules/pi67-product-boundary.md rules/investment.md shared-skill-packs.json shared-skill-packs.lock.json .github/workflows/ci.yml .github/workflows/npm-publish.yml .github/workflows/ai-berkshire-refresh.yml docs/release.md docs/windows-fresh-install.md docs/report-schema.md docs/doctor-schema.md docs/status.md docs/skill-migration-schema.md docs/external-skill-sync-schema.md docs/skill-governance.md docs/troubleshooting.md docs/xtalpi-pi-tools.md docs/hy-memory.md tsconfig.hy-memory.json tests/pi67-cli/update-branch-resolution.sh tests/pi67-cli/settings-untrack-upgrade.sh tests/pi-hy-memory/integration/cli.test.mjs tests/pi-hy-memory/integration/service.test.mjs tests/pi-hy-memory/unit/config.test.mjs tests/pi-hy-memory/unit/outbox.test.mjs tests/pi-hy-memory/unit/security.test.mjs packages/pi67-cli/package.json packages/pi67-cli/README.md packages/pi67-cli/CHANGELOG.md packages/pi67-cli/bin/pi-67.mjs packages/pi67-cli/scripts/check.mjs packages/pi67-cli/scripts/checks/installed-artifact.mjs packages/pi67-cli/scripts/checks/settings-runtime-state.mjs packages/pi67-cli/src/cli.mjs packages/pi67-cli/src/commands/backups.mjs packages/pi67-cli/src/commands/extensions.mjs packages/pi67-cli/src/commands/manifest.mjs packages/pi67-cli/src/commands/memory.mjs packages/pi67-cli/src/commands/publish-check.mjs packages/pi67-cli/src/commands/self-update.mjs packages/pi67-cli/src/commands/skills.mjs packages/pi67-cli/src/commands/xtalpi.mjs packages/pi67-cli/src/data/distro-manifest.json packages/pi67-cli/src/data/extension-registry.json packages/pi67-cli/src/lib/distro-manifest.mjs packages/pi67-cli/src/lib/extension-registry.mjs packages/pi67-cli/src/lib/memory-runtime.mjs packages/pi67-cli/src/lib/npm-registry.mjs packages/pi67-cli/src/lib/settings-runtime-clean.mjs packages/pi67-cli/src/lib/settings-runtime-state.mjs packages/pi67-cli/src/lib/skill-deploy-lock.mjs packages/pi67-cli/src/lib/skill-policy.mjs packages/pi67-cli/src/lib/skill-pack-integrity.mjs packages/pi67-cli/src/lib/update-safety.mjs packages/pi67-cli/src/lib/upstream-pi-runtime.mjs packages/pi67-cli/src/lib/xtalpi-config.mjs packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs packages/pi67-cli/schemas/pi67-distro-manifest.schema.json packages/pi67-cli/schemas/pi67-extension-registry.schema.json packages/pi67-cli/schemas/pi67-publish-check.schema.json packages/pi67-cli/schemas/pi67-state.schema.json packages/pi67-cli/schemas/pi67-update-plan.schema.json scripts/pi67-bootstrap.ps1 scripts/pi67-check-external-skills.sh scripts/pi67-doctor.sh scripts/pi67-doctor.ps1 scripts/pi67-json-utils.cjs scripts/pi67-json-utils.ps1 scripts/pi67-mcp-config-utils.cjs scripts/pi67-prompt-governance-check.mjs scripts/pi67-upstream-pi-status.mjs scripts/pi67-migrate-skills.sh scripts/pi67-release-artifact-smoke.sh scripts/pi67-release-check.sh scripts/pi67-release.sh scripts/pi67-report.sh scripts/pi67-report.ps1 scripts/pi67-status.sh scripts/pi67-shared-skills-inventory.sh scripts/pi67-shared-skill-packs-status.mjs scripts/pi67-sync-commerce-growth-os.sh scripts/pi67-sync-commerce-skill-pack.sh scripts/pi67-sync-commerce-skill-pack.mjs scripts/pi67-sync-ai-berkshire-skill-pack.sh scripts/pi67-sync-ai-berkshire-skill-pack.mjs scripts/pi67-test-ai-berkshire-skill-pack.sh scripts/pi67-sync-external-skills.sh scripts/pi67-test-skill-governance.sh scripts/pi67-update.sh scripts/pi67-update.ps1 scripts/pi67-windows-acceptance.ps1 scripts/pi67-smoke.ps1 scripts/pi67-zero-key-startup-probe.ts scripts/pi67-zero-key-startup-smoke.ps1 scripts/pi67-xtalpi-pi-tools.sh scripts/pi67-xtalpi-pi-tools.ps1 scripts/pi67-test-xtalpi-pi-tools.sh scripts/pi67-fuzz-xtalpi-parser.mjs scripts/pi67-patch-pi-until-done-runtime-queue.mjs scripts/pi67-patch-pi-until-done-runtime-queue.sh scripts/pi67-patch-pi-until-done-runtime-queue.ps1 scripts/pi67-xtalpi-pi-tools-smoke.sh scripts/pi67-xtalpi-pi-tools-smoke.ps1 scripts/pi67-xtalpi-pi-tools-debug-summary.sh scripts/pi67-xtalpi-tool-coverage-audit.sh scripts/pi67-xtalpi-smoke-status-core.cjs scripts/pi67-xtalpi-smoke-plan.mjs scripts/pi67-xtalpi-provider-health.mjs scripts/pi67-xtalpi-provider-capability-probe.mjs scripts/pi67-validate-xtalpi-provider-error-contract.mjs extensions/pi-hy-memory/client.ts extensions/pi-hy-memory/config.ts extensions/pi-hy-memory/index.ts extensions/pi-hy-memory/outbox.ts extensions/pi-hy-memory/security.ts extensions/pi-hy-memory/service.py extensions/pi-hy-memory/types.ts extensions/xtalpi-pi-tools/json-file.ts extensions/xtalpi-pi-tools/json-action-protocol.ts extensions/xtalpi-pi-tools/vision-bridge.ts extensions/xtalpi-pi-tools/browser-bridge.ts extensions/pi-vision-bridge/index.ts extensions/xtalpi-pi-tools/fixtures/replay-cases.json extensions/xtalpi-pi-tools/provider-error-contract.json >/dev/null 2>&1; then
     pass "release metadata files are tracked or staged"
   else
     warn "release metadata files are not all tracked yet; expected before final commit"
@@ -1149,6 +1209,21 @@ if command_exists git && git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/d
     pass "browser67 runtime integration library is tracked or staged"
   else
     warn "browser67 runtime integration library is not staged yet"
+  fi
+  AI_SKILLS_TRACKED=true
+  while IFS= read -r name; do
+    if ! git -C "$REPO_ROOT" ls-files --error-unmatch \
+      "shared-skills/$name/SKILL.md" \
+      "shared-skills/$name/LICENSE" \
+      "shared-skills/$name/UPSTREAM.json" >/dev/null 2>&1; then
+      AI_SKILLS_TRACKED=false
+      break
+    fi
+  done < <(node -e 'const r=require(process.argv[1]); const p=r.packs.find(x=>x.name==="ai-berkshire-investment-suite"); for (const n of p?.skills||[]) console.log(n)' "$SHARED_SKILL_PACKS")
+  if [ "$AI_SKILLS_TRACKED" = true ]; then
+    pass "all AI Berkshire Skill entrypoints, licenses, and provenance files are tracked or staged"
+  else
+    warn "AI Berkshire vendored Skill files are not all tracked yet; expected before final commit"
   fi
 else
   warn "git not available; skipped git checks"

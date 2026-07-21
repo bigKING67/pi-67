@@ -1,0 +1,224 @@
+name: Refresh AI Berkshire Skill Pack
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: ai-berkshire-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      REFRESH_BRANCH: automation/ai-berkshire-refresh
+    steps:
+      - name: Checkout pi-67 without persisted credentials
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Prepare stable automation branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --heads origin "$REFRESH_BRANCH" >/dev/null 2>&1; then
+            git fetch origin "$REFRESH_BRANCH"
+            git switch --track -c "$REFRESH_BRANCH" "origin/$REFRESH_BRANCH"
+            git merge --no-edit origin/main
+          else
+            git switch -c "$REFRESH_BRANCH" origin/main
+          fi
+
+      - name: Clone upstream without executing it
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch main https://github.com/xbtlin/ai-berkshire.git "$RUNNER_TEMP/ai-berkshire"
+
+      - name: Compare immutable source commits
+        id: compare
+        shell: bash
+        run: |
+          set -euo pipefail
+          upstream_commit="$(git -C "$RUNNER_TEMP/ai-berkshire" rev-parse HEAD)"
+          locked_commit="$(node - <<'NODE'
+          const fs = require("node:fs");
+          const lock = JSON.parse(fs.readFileSync("shared-skill-packs.lock.json", "utf8"));
+          const pack = lock.packs.find((entry) => entry.name === "ai-berkshire-investment-suite");
+          if (!pack) throw new Error("AI Berkshire Pack lock is missing");
+          process.stdout.write(pack.source_commit);
+          NODE
+          )"
+          echo "upstream_commit=$upstream_commit" >>"$GITHUB_OUTPUT"
+          echo "short_commit=${upstream_commit:0:12}" >>"$GITHUB_OUTPUT"
+          if [ "$upstream_commit" = "$locked_commit" ]; then
+            echo "changed=false" >>"$GITHUB_OUTPUT"
+            echo "AI Berkshire is already synced at $upstream_commit." >>"$GITHUB_STEP_SUMMARY"
+          else
+            echo "changed=true" >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate refreshed Pack
+        id: sync
+        if: steps.compare.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/pi67-sync-ai-berkshire-skill-pack.sh \
+            --source "$RUNNER_TEMP/ai-berkshire" \
+            --apply --yes --json >"$RUNNER_TEMP/ai-berkshire-sync.json"
+          node - "$RUNNER_TEMP/ai-berkshire-sync.json" <<'NODE'
+          const fs = require("node:fs");
+          const report = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          if (report.result !== "APPLIED") throw new Error(`unexpected sync result: ${report.result}`);
+          const output = process.env.GITHUB_OUTPUT;
+          fs.appendFileSync(output, `pack_version=${report.packVersion}\n`);
+          fs.appendFileSync(output, `review_level=${report.reviewLevel}\n`);
+          fs.appendFileSync(output, `added=${report.skillSetChange.added.join(",")}\n`);
+          fs.appendFileSync(output, `removed=${report.skillSetChange.removed.join(",")}\n`);
+          fs.appendFileSync(output, `manual_review=${report.reviewLevel === "manual" ? "true" : "false"}\n`);
+          NODE
+
+      - name: Enforce generated-path allowlist
+        if: steps.compare.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const { spawnSync } = require("node:child_process");
+          const fs = require("node:fs");
+
+          function git(args) {
+            const result = spawnSync("git", args, { encoding: "utf8" });
+            if (result.status !== 0) throw new Error(result.stderr || `git ${args.join(" ")} failed`);
+            return result.stdout;
+          }
+
+          const before = JSON.parse(git(["show", "HEAD:shared-skill-packs.json"]));
+          const after = JSON.parse(fs.readFileSync("shared-skill-packs.json", "utf8"));
+          const getSkills = (registry) => registry.packs
+            .find((entry) => entry.name === "ai-berkshire-investment-suite")?.skills || [];
+          const allowedSkills = new Set([...getSkills(before), ...getSkills(after)]);
+          const changed = git(["diff", "--name-only", "--diff-filter=ACDMRTUXB", "HEAD"])
+            .split("\n").filter(Boolean);
+          const untracked = git(["ls-files", "--others", "--exclude-standard"])
+            .split("\n").filter(Boolean);
+          const paths = [...new Set([...changed, ...untracked])].sort();
+          const allowedExact = new Set(["shared-skill-packs.json", "shared-skill-packs.lock.json"]);
+          const rejected = paths.filter((file) => {
+            if (allowedExact.has(file)) return false;
+            const match = /^shared-skills\/([^/]+)\//.exec(file);
+            return !match || !allowedSkills.has(match[1]);
+          });
+          if (paths.length === 0) throw new Error("upstream commit changed but generated diff is empty");
+          if (rejected.length > 0) throw new Error(`generated paths escaped allowlist: ${rejected.join(", ")}`);
+          fs.writeFileSync(process.env.RUNNER_TEMP + "/ai-berkshire-changed-paths.txt", `${paths.join("\n")}\n`);
+          NODE
+
+      - name: Validate refreshed Pack and routing
+        id: validation
+        if: steps.compare.outputs.changed == 'true'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/pi67-prompt-governance-check.mjs
+          bash scripts/pi67-test-ai-berkshire-skill-pack.sh
+          bash scripts/pi67-test-skill-governance.sh
+          node packages/pi67-cli/scripts/check.mjs
+
+      - name: Commit generated refresh
+        if: steps.compare.outputs.changed == 'true'
+        shell: bash
+        env:
+          SHORT_COMMIT: ${{ steps.compare.outputs.short_commit }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          while IFS= read -r file; do
+            [ -n "$file" ] && git add -A -- "$file"
+          done <"$RUNNER_TEMP/ai-berkshire-changed-paths.txt"
+          git diff --cached --quiet && {
+            echo "generated refresh produced no staged changes" >&2
+            exit 1
+          }
+          git commit -m "chore(skills): refresh AI Berkshire to $SHORT_COMMIT"
+
+      - name: Push branch and create or update PR
+        if: steps.compare.outputs.changed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHORT_COMMIT: ${{ steps.compare.outputs.short_commit }}
+          UPSTREAM_COMMIT: ${{ steps.compare.outputs.upstream_commit }}
+          PACK_VERSION: ${{ steps.sync.outputs.pack_version }}
+          REVIEW_LEVEL: ${{ steps.sync.outputs.review_level }}
+          ADDED: ${{ steps.sync.outputs.added }}
+          REMOVED: ${{ steps.sync.outputs.removed }}
+          MANUAL_REVIEW: ${{ steps.sync.outputs.manual_review }}
+          VALIDATION_OUTCOME: ${{ steps.validation.outcome }}
+        run: |
+          set -euo pipefail
+          gh auth setup-git
+          git push origin "HEAD:refs/heads/$REFRESH_BRANCH"
+
+          draft=false
+          if [ "$MANUAL_REVIEW" = "true" ] || [ "$VALIDATION_OUTCOME" != "success" ]; then
+            draft=true
+          fi
+          title="chore(skills): refresh AI Berkshire to $SHORT_COMMIT"
+          body="$RUNNER_TEMP/ai-berkshire-pr-body.md"
+          {
+            echo "Automated vendored Skill Pack refresh."
+            echo
+            echo "- Upstream commit: \`$UPSTREAM_COMMIT\`"
+            echo "- Pack version: \`$PACK_VERSION\`"
+            echo "- Review level: \`$REVIEW_LEVEL\`"
+            echo "- Added Skills: \`${ADDED:-none}\`"
+            echo "- Removed Skills: \`${REMOVED:-none}\`"
+            echo "- Validation outcome: \`$VALIDATION_OUTCOME\`"
+            echo
+            echo "The workflow does not auto-merge, publish npm, create tags, or create releases."
+          } >"$body"
+
+          pr_number="$(gh pr list --repo "$GITHUB_REPOSITORY" --base main --head "$REFRESH_BRANCH" --state open --json number --jq '.[0].number // empty')"
+          if [ -z "$pr_number" ]; then
+            args=(pr create --repo "$GITHUB_REPOSITORY" --base main --head "$REFRESH_BRANCH" --title "$title" --body-file "$body")
+            [ "$draft" = "true" ] && args+=(--draft)
+            gh "${args[@]}"
+          else
+            gh pr edit "$pr_number" --repo "$GITHUB_REPOSITORY" --title "$title" --body-file "$body"
+            is_draft="$(gh pr view "$pr_number" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
+            if [ "$draft" = "true" ] && [ "$is_draft" != "true" ]; then
+              gh pr ready "$pr_number" --repo "$GITHUB_REPOSITORY" --undo
+            elif [ "$draft" != "true" ] && [ "$is_draft" = "true" ]; then
+              gh pr ready "$pr_number" --repo "$GITHUB_REPOSITORY"
+            fi
+          fi
+
+      - name: Fail after draft PR when validation failed
+        if: steps.compare.outputs.changed == 'true' && steps.validation.outcome != 'success'
+        shell: bash
+        run: |
+          echo "Refresh PR was created as draft because validation failed." >&2
+          exit 1

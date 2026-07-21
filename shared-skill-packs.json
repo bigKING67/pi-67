@@ -2,6 +2,35 @@
   "schema": "pi67.shared-skill-packs.v1",
   "packs": [
     {
+      "name": "ai-berkshire-investment-suite",
+      "version": "1.0.0",
+      "upstream": "https://github.com/xbtlin/ai-berkshire",
+      "sync_helper": "scripts/pi67-sync-ai-berkshire-skill-pack.sh",
+      "skills": [
+        "bottleneck-hunter",
+        "deep-company-series",
+        "dyp-ask",
+        "earnings-review",
+        "earnings-team",
+        "financial-data",
+        "income-investment",
+        "industry-funnel",
+        "industry-research",
+        "investment-checklist",
+        "investment-memo-craft",
+        "investment-research",
+        "investment-team",
+        "management-deep-dive",
+        "news-pulse",
+        "portfolio-review",
+        "private-company-research",
+        "quality-screen",
+        "thesis-drift",
+        "thesis-tracker",
+        "wechat-article"
+      ]
+    },
+    {
       "name": "consumer-brand-commerce-marketing-suite",
       "version": "2.0.0",
       "upstream": "https://github.com/bigKING67/commerce-growth-os",

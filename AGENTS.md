@@ -1,7 +1,7 @@
 # Pi 全局 AGENTS 规范
 
-> Version: `v1.7-pi`
-> Last Updated: `2026-07-16`
+> Version: `v1.8-pi`
+> Last Updated: `2026-07-21`
 
 核心目标：**质量优先，安全第一，证据优先，效率可控**。默认使用简体中文；代码标识符、命令、日志和报错保持原文。
 
@@ -54,6 +54,7 @@
 | 登录态、真实浏览器、下载上传、JS 逆向 | `browser.md` |
 | 数据口径、映射、唯一性 | `data-quality.md` 或项目数据 rule |
 | 电商增长、平台运营、价盘、ROI/利润 | `commerce-growth.md` |
+| 股票、财报、行业、组合、估值 | `investment.md` |
 | pi-67 安装、更新、provider、发布 | `pi67-product-boundary.md` |
 
 - L0 只读查询、小文案和低风险小改动可直接执行。

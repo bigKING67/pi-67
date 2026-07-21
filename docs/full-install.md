@@ -589,6 +589,25 @@ bash ~/.pi/agent/scripts/pi67-sync-commerce-skill-pack.sh \
   --apply --yes
 ```
 
+The AI Berkshire Pack is generated from a clean `xbtlin/ai-berkshire`
+checkout without executing upstream scripts. It contains the current 21 Codex
+Skills plus only the Python tools they reference, adapted for shared Pi/Codex
+use:
+
+```bash
+bash ~/.pi/agent/scripts/pi67-sync-ai-berkshire-skill-pack.sh \
+  --source /path/to/ai-berkshire \
+  --dry-run
+
+bash ~/.pi/agent/scripts/pi67-sync-ai-berkshire-skill-pack.sh \
+  --source /path/to/ai-berkshire \
+  --apply --yes
+```
+
+Each pi-67 release pins one reproducible upstream commit. The scheduled
+`ai-berkshire-refresh.yml` workflow checks `main` daily and opens a review PR
+when it changes; it does not auto-merge or publish a release.
+
 After a normal update, align an existing machine explicitly when Pack contents
 differ:
 
@@ -596,6 +615,8 @@ differ:
 pi-67 skills packs
 pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --dry-run
 pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --yes
+pi-67 skills sync-pack ai-berkshire-investment-suite --dry-run
+pi-67 skills sync-pack ai-berkshire-investment-suite --yes
 ```
 
 A Pack sync treats the Git-tracked, provenance-locked source as canonical.
@@ -608,7 +629,7 @@ Pi/Codex session cannot mutate the same Active Skill Root concurrently. Dry-run
 and read-only inspection remain lock-free.
 
 To roll back, select or revert the desired Git commit/tag in the canonical
-`commerce-growth-os` source, regenerate the vendored Pack and provenance lock,
+upstream source, regenerate the vendored Pack and provenance lock,
 then run the same `skills sync-pack ... --yes` deployment. On an installed
 machine, pin or reinstall the corresponding immutable pi-67 release before
 syncing. `pi-67 backups` remains only for repo-external runtime configuration;
@@ -873,7 +894,7 @@ pi-67 distinguishes between installed and ready:
 | Capability | Installed by default | Ready when |
 | --- | --- | --- |
 | AGENTS kernel | Yes | `~/.pi/agent/AGENTS.md` points to the repo |
-| Rules | Yes | 10 rule files exist and `pi-rules-loader` is installed |
+| Rules | Yes | 11 rule files exist and `pi-rules-loader` is installed |
 | Prompts | Yes | Prompt files exist and do not use legacy double-brace placeholders |
 | Skills | Yes | doctor shared-skill checks pass and `pi-67 skills inventory` reports no missing copies |
 | Pi interactive startup | Yes | `pi` enters its interface even with no provider key |
