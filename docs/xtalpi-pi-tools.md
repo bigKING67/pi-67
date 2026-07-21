@@ -510,8 +510,9 @@ bash ~/.pi/agent/scripts/pi67-xtalpi-tool-coverage-audit.sh --include pi-vision-
 - dynamic tools，例如 `pi-mcp-adapter` 的 direct MCP tools，实际名称取决于
   `mcp.json`、metadata cache、环境变量和认证状态
 - local hook-only extensions，例如手动指定 `--include pi-rules-loader` 时会检查
-  `extensions/pi-rules-loader`，该 extension 只注入 rules index，不是 model-callable
-  tool
+  `extensions/pi-rules-loader`；该 extension 注入紧凑 rules index，并在
+  `before_agent_start` 按 frontmatter `triggers` 加载命中规则全文，但本身不是
+  model-callable tool
 - local model-callable extensions，例如 `extensions/pi-vision-bridge` 注册
   `vision_read`，用于把图片/截图转成文本证据后再交给 xtalpi text-only provider
 

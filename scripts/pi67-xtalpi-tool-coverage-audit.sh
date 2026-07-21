@@ -228,7 +228,7 @@ const KNOWN = {
   },
   "local:extensions/pi-rules-loader": {
     packageName: "pi-rules-loader",
-    safeSmoke: "hook-only; injects rule index into system prompt, not directly model-callable",
+    safeSmoke: "hook-only; injects the rule index and matched rule bodies into system prompt, not directly model-callable",
     risk: "low",
     notes: ["local extension loaded from extensions/pi-rules-loader rather than npm packages"],
   },

@@ -6,6 +6,17 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-07-21
+
+### Fixed
+
+- Made `pi-rules-loader` parse rule frontmatter `triggers`, inject at most three
+  directly matched rules in full, persist the active route across contextual
+  follow-ups, clear it on topic changes, and expose matched-rule read failures.
+  Added deterministic investment triggers plus unit and real upstream-Pi prompt
+  capture coverage so a generic Web search can no longer silently replace the
+  required AI Berkshire Skill route for non-trivial stock opinions.
+
 ## [0.14.0] - 2026-07-21
 
 ### Added

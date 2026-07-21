@@ -182,6 +182,12 @@ Expected result:
 - Hy-Memory TypeScript and Python-wrapper tests pass on Linux, macOS, and
   Windows; the packed npm manager starts `pi-67 memory --help` from an isolated
   tarball installation
+- rules-loader unit coverage and the isolated real upstream-Pi prompt probe
+  prove that matching frontmatter triggers inject only the active rule bodies
+  before a provider request, including contextual follow-up inheritance
+- dependency-free clean-artifact inspection verifies that the tracked
+  rules-loader test is present but skips executing it; the normal release check
+  and cross-platform CI execute the test after extension dependencies exist
 - Hy-Memory deep doctor returns a finite 1024-dimensional SiliconFlow
   `BAAI/bge-m3` vector in an isolated `PI67_HY_MEMORY_HOME` when release
   credentials are available; the test does not read or alter an employee's

@@ -76,7 +76,7 @@
       "name": "pi-rules-loader",
       "path": "extensions/pi-rules-loader",
       "required": true,
-      "policy": "local-rules-index-extension"
+      "policy": "local-rules-trigger-routing-extension"
     },
     {
       "name": "pi-hy-memory",

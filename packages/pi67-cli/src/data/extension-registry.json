@@ -49,12 +49,13 @@
       "path": "extensions/pi-rules-loader",
       "installStrategy": "package-owned-clean-overwrite",
       "updateStrategy": "update-owned-code-preserve-user-config",
-      "repairStrategy": "rules-index-refresh",
+      "repairStrategy": "rules-route-refresh",
       "configPatches": [],
       "smoke": [
-        "pi-67 manifest"
+        "pi-67 manifest",
+        "npm run test:rules-loader"
       ],
-      "notes": "Rules index extension is package-owned; user AGENTS/settings remain user-owned."
+      "notes": "Rules index and deterministic matched-rule routing are package-owned; user AGENTS/settings remain user-owned."
     },
     {
       "id": "pi-hy-memory",

@@ -41,6 +41,9 @@ jobs:
       - name: Typecheck Hy-Memory extension
         run: npm run -s typecheck:hy-memory
 
+      - name: Test rules-loader routing
+        run: npm run -s test:rules-loader
+
       - name: Run Hy-Memory tests
         run: npm run -s test:hy-memory
 
@@ -84,6 +87,9 @@ jobs:
 
       - name: Typecheck Hy-Memory extension
         run: npm run -s typecheck:hy-memory
+
+      - name: Test rules-loader routing
+        run: npm run -s test:rules-loader
 
       - name: Run Hy-Memory tests
         run: npm run -s test:hy-memory
@@ -132,6 +138,10 @@ jobs:
       - name: Typecheck Hy-Memory extension
         shell: pwsh
         run: npm run -s typecheck:hy-memory
+
+      - name: Test rules-loader routing
+        shell: pwsh
+        run: npm run -s test:rules-loader
 
       - name: Run Hy-Memory tests
         shell: pwsh

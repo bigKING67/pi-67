@@ -1,6 +1,6 @@
 ---
 description: AI Berkshire value-investing research routing, evidence, calculation, audit, team-truthfulness, and publishing gates.
-triggers: 股票, 投资, 估值, 财报, 年报, 季报, 行业研究, 持仓, 组合, 股价异动, 收益投资, 管理层, 未上市公司
+triggers: 股票, 股价, 投资, 估值, 财报, 年报, 季报, 行业研究, 持仓, 组合, 股价异动, 股票怎么样, 值得买, 能买吗, 适合买吗, 建仓, 安全边际, 目标价, 合理估值, 收益投资, 管理层, 未上市公司
 ---
 
 # Investment Research Rule
@@ -9,7 +9,7 @@ Use this rule for non-trivial stock opinions, company or industry research, earn
 
 ## Scope and Skill routing
 
-- "值得买/股票怎么样" defaults to `investment-checklist`, then `investment-research` only if the checklist does not hard-reject it. Use `quality-screen` for metric-led exclusion and `investment-team` only for an explicitly authorized team workflow.
+- For "值得买/股票怎么样/能买吗/适合建仓吗", first read and execute `investment-checklist`, then read and execute `investment-research` only if the checklist does not hard-reject it. A generic `web_search`/`web_fetch` flow may collect evidence but must not replace this Skill route. Use `quality-screen` for metric-led exclusion and `investment-team` only for an explicitly authorized team workflow.
 - Route earnings to `earnings-review` or, for an authorized multi-perspective team plus publishing workflow, `earnings-team`.
 - Route an industry map to `industry-research`, market-to-three selection to `industry-funnel`, and physical supply bottlenecks to `bottleneck-hunter`.
 - Route price moves or sudden events to `news-pulse`; management and capital allocation to `management-deep-dive`; private companies to `private-company-research`.

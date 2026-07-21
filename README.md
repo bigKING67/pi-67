@@ -4,7 +4,7 @@
 
 > 让 Windows 和 macOS 用户用尽可能少的步骤，获得公司统一、持续升级、可诊断、可回滚的 Pi 工作台。`pi` 始终是实际运行入口；`pi-67` 负责把 Pi 所需的配置、扩展、Skills、规则、脚本和公司默认 provider 封装成一键发行版。
 
-当前发行版版本：`0.14.0`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.14.1`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 项目定位
 
@@ -159,7 +159,7 @@ PowerShell 7，管理员状态为 `True`，且不会每次重复弹 UAC；原始
 
 - 常驻内核：`AGENTS.md` 只保留硬规则、工具分流、rules 读取契约和交付闭环。
 - 长规则外置：`rules/` 存放质量、架构、目录、性能、前端、浏览器、上下文、数据、电商增长、投资研究和 pi-67 产品边界，按任务最小读取。
-- 扩展补强：`extensions/pi-rules-loader/` 给 Pi 注入 rules 索引；`extensions/xtalpi-pi-tools/` 让 Pi 本地托管 xtalpi 工具协议；`extensions/pi-vision-bridge/` 把图片/截图任务桥接到本地多模态 provider；`extensions/pi-hy-memory/` 提供当前系统用户跨项目共享的私有长期记忆。
+- 扩展补强：`extensions/pi-rules-loader/` 给 Pi 注入紧凑 rules 索引，并按 frontmatter `triggers` 确定性加载本轮命中的最小规则集；`extensions/xtalpi-pi-tools/` 让 Pi 本地托管 xtalpi 工具协议；`extensions/pi-vision-bridge/` 把图片/截图任务桥接到本地多模态 provider；`extensions/pi-hy-memory/` 提供当前系统用户跨项目共享的私有长期记忆。
 - 生产力资产：Skills、Prompts、Docs、Templates 和脚本保持仓库化，便于审计、同步和回滚。
 
 仓库不会提交真实 `auth.json`、`models.json`、`mcp.json`、`image-gen.json`、会话、缓存或运行历史；只提供 `.example` 模板。
@@ -972,7 +972,7 @@ provider/model；已选择的模型状态由 upstream Pi 维护。
 Pi 的长期规则分两层：
 
 1. `AGENTS.md` 是常驻内核，保持短小，定义不可外置的硬规则、工具分流、任务分级、Git 策略和交付闭环。
-2. `rules/*.md` 是按需读取的长规则，由 `pi-rules-loader` 暴露索引，让 Pi 在 L1/L2 任务前按场景读取 1-3 个最相关文件。
+2. `rules/*.md` 是按需读取的长规则。`pi-rules-loader` 常驻暴露紧凑索引，并把当前 prompt 直接命中的 1-3 个规则全文注入本轮 system prompt；短上下文追问可继承同一 session 的最近 active route，明确换题则清空。没有命中但 `AGENTS.md` 明确要求的规则仍由 Pi 最小读取。
 
 默认读取策略：
 

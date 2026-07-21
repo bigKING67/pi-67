@@ -165,7 +165,7 @@ const KNOWN = {
     packageName: "pi-rules-loader",
     risk: "low",
     smokePolicy: "not_model_callable",
-    safeSmoke: "hook-only rules index injection; not directly model-callable",
+    safeSmoke: "hook-only rules index plus matched-rule injection; not directly model-callable",
   },
   "local:extensions/pi-vision-bridge": {
     packageName: "pi-vision-bridge",

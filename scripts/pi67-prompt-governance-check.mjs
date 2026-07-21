@@ -202,6 +202,16 @@ function analyze(repoRoot) {
     "the injected index emits one executable path per rule",
   );
   add(
+    "rules-loader.trigger-routing",
+    ["triggersFromFrontmatter", "matchedRulesForPrompt", "event.prompt", "BEGIN ACTIVE RULE"].every((value) => rulesLoader.includes(value)),
+    "pi-rules-loader parses triggers and injects directly matched rule bodies",
+  );
+  add(
+    "rules-loader.contextual-state",
+    ["ACTIVE_RULE_STATE_TYPE", "activeRulePaths", "isContextualFollowUp", "appendEntry"].every((value) => rulesLoader.includes(value)),
+    "pi-rules-loader persists and restores contextual active-rule state",
+  );
+  add(
     "rules-loader.projected-size",
     projectedIndexChars > 0 && projectedIndexChars <= MAX_PROJECTED_RULE_INDEX_CHARS,
     `projected rules index chars=${projectedIndexChars}, limit=${MAX_PROJECTED_RULE_INDEX_CHARS}`,

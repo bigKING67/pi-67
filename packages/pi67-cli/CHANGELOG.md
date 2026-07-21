@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [0.14.1]
+
+- Upgrades the package-owned `pi-rules-loader` from index-only guidance to
+  deterministic frontmatter-trigger routing with contextual follow-up state,
+  observable read failures, and a real upstream-Pi prompt-capture gate.
+
 ## [0.14.0]
 
 - Adds the registered `ai-berkshire-investment-suite` to `skills packs` and

@@ -1,6 +1,6 @@
 {
   "name": "@bigking67/pi-67",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "description": "Cross-platform workspace distribution and configuration manager for upstream Pi.",
   "type": "module",
   "bin": {
