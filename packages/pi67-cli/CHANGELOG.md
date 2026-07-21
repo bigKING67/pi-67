@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [0.14.2]
+
+- Adds bounded recovery for malformed Windows `bash` JSON and applies a
+  version-aware `pi-smart-fetch@0.3.12` charset compatibility patch during
+  install, update, and repair so declared GBK/GB2312 pages decode correctly.
+
 ## [0.14.1]
 
 - Upgrades the package-owned `pi-rules-loader` from index-only guidance to

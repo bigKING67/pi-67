@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.14.2] - 2026-07-21
+
 ### Fixed
 
 - Hardened `xtalpi-pi-tools` against malformed Windows `bash` JSON actions by
