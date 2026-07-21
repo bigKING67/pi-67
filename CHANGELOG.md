@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.14.3] - 2026-07-21
+
 ### Changed
 
 - Stopped distributing the user-specific `agent_memory` MCP through the default

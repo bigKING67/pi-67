@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [0.14.3]
+
+- Aligns the manager with the pi-67 0.14.3 distribution, which stops seeding
+  the user-specific `agent_memory` MCP through the default workspace template
+  and configure helper while preserving existing user-managed MCP entries.
+
 ## [0.14.2]
 
 - Adds bounded recovery for malformed Windows `bash` JSON and applies a
