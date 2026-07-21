@@ -78,6 +78,9 @@ FULL_INSTALL_DOC="$REPO_ROOT/docs/full-install.md"
 SKILL_GOV_DOC="$REPO_ROOT/docs/skill-governance.md"
 TROUBLESHOOTING_DOC="$REPO_ROOT/docs/troubleshooting.md"
 XTALPI_PI_TOOLS_DOC="$REPO_ROOT/docs/xtalpi-pi-tools.md"
+MCP_EXAMPLE="$REPO_ROOT/mcp.example.json"
+CONFIGURE_SCRIPT="$REPO_ROOT/scripts/pi67-configure.sh"
+MCP_CONFIG_UTIL="$REPO_ROOT/scripts/pi67-mcp-config-utils.cjs"
 HY_MEMORY_DOC="$REPO_ROOT/docs/hy-memory.md"
 HY_MEMORY_COMMAND="$REPO_ROOT/packages/pi67-cli/src/commands/memory.mjs"
 HY_MEMORY_RUNTIME="$REPO_ROOT/packages/pi67-cli/src/lib/memory-runtime.mjs"
@@ -360,6 +363,41 @@ if [ -f "$HY_MEMORY_DOC" ] \
   pass "Hy-Memory provider, dimensions, private-state, and test contracts are present"
 else
   fail "Hy-Memory release contract is incomplete"
+fi
+
+if command_exists node; then
+  if node - "$MCP_EXAMPLE" "$CONFIGURE_SCRIPT" "$MCP_CONFIG_UTIL" <<'NODE'
+const fs = require("fs");
+
+const [, , mcpExamplePath, configurePath, configUtilPath] = process.argv;
+const mcp = JSON.parse(fs.readFileSync(mcpExamplePath, "utf8"));
+const memoryServers = Object.keys(mcp.mcpServers || {}).filter((name) => /memory|everos/i.test(name));
+if (memoryServers.length > 0) {
+  throw new Error(`default MCP template distributes memory servers: ${memoryServers.join(", ")}`);
+}
+
+const dedicatedAgentMemoryPatterns = [
+  /--agent-memory-bin/,
+  /PI67_AGENT_MEMORY_BIN/,
+  /agentMemoryBin/,
+  /mcpServers\.agent_memory/,
+];
+for (const file of [configurePath, configUtilPath]) {
+  const source = fs.readFileSync(file, "utf8");
+  for (const pattern of dedicatedAgentMemoryPatterns) {
+    if (pattern.test(source)) {
+      throw new Error(`${file} still exposes dedicated agent_memory configuration: ${pattern}`);
+    }
+  }
+}
+NODE
+  then
+    pass "Hy-Memory is the only memory integration distributed by default"
+  else
+    fail "default distribution still exposes a user-specific memory MCP"
+  fi
+else
+  warn "node not found; skipped default memory distribution boundary check"
 fi
 
 if [ -f "$UPDATE_BRANCH_TEST" ] && bash "$UPDATE_BRANCH_TEST" >/dev/null; then

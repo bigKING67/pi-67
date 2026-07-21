@@ -941,7 +941,7 @@ pi-67 memory doctor --deep
 ```
 
 `memory upgrade` 保留该用户的 config、secrets、data 和 outbox；它不会迁移
-或删除现有 `agent_memory`/EverOS 数据。
+或删除用户自行安装的第三方记忆 MCP/EverOS 数据。
 
 普通 update 会自动同步 update plan 检测到的缺失或落后的 managed npm packages。
 只有 plan 显示正常但本机 `npm/node_modules` 仍损坏时，才执行

@@ -101,21 +101,6 @@ function normalizeMcpConfig(config, options = {}) {
     }
   }
 
-  if (options.agentMemoryBin) {
-    const agentMemory = ensureObject(mcpServers, "agent_memory");
-    setChanged(
-      agentMemory,
-      "command",
-      absolutePath(options.agentMemoryBin, { home, baseDir: agentDir }),
-      "agent_memory.command",
-      changes
-    );
-    if (!Array.isArray(agentMemory.args)) {
-      agentMemory.args = [];
-      changes.push("agent_memory.args: set empty args array");
-    }
-  }
-
   for (const [name, server] of Object.entries(mcpServers)) {
     if (!server || typeof server !== "object" || Array.isArray(server)) continue;
 
@@ -263,7 +248,7 @@ function main() {
   const options = parseCli(process.argv.slice(2));
   const file = options.file || options._[0];
   if (!file || (!options.normalize && !options.checkRuntime && !options.inspectRuntime)) {
-    console.error("Usage: pi67-mcp-config-utils.cjs --normalize|--check-runtime|--inspect-runtime --file mcp.json [--agent-dir DIR] [--browser67-root DIR] [--agent-memory-bin FILE] [--dry-run] [--json]");
+    console.error("Usage: pi67-mcp-config-utils.cjs --normalize|--check-runtime|--inspect-runtime --file mcp.json [--agent-dir DIR] [--browser67-root DIR] [--dry-run] [--json]");
     process.exit(2);
   }
 
@@ -273,7 +258,6 @@ function main() {
     normalized = normalizeMcpConfig(config, {
       agentDir: options.agentDir || path.dirname(file),
       browser67Root: options.browser67Root,
-      agentMemoryBin: options.agentMemoryBin,
     });
     if (normalized.changed && !options.dryRun) {
       writeJson(file, normalized.config);

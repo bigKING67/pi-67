@@ -770,8 +770,8 @@ The helper:
 
 1. Creates missing local config files from repo examples.
 2. Writes API keys through hidden prompts or env vars.
-3. Updates and normalizes `tmwd_browser`, `js-reverse`, and `agent_memory` MCP
-   paths into adapter-runnable form.
+3. Updates and normalizes `tmwd_browser` and `js-reverse` MCP paths into
+   adapter-runnable form.
 4. Supports an explicit legacy provider/model override for controlled local
    migrations; ordinary users should use Pi's `/model` instead.
 5. Runs doctor after writing unless `--no-doctor` is passed.
@@ -784,8 +784,7 @@ PI67_CODEX_API_KEY="..." \
 PI67_IMAGE_GEN_API_KEY="..." \
 bash ~/.pi/agent/scripts/pi67-configure.sh \
   --no-prompt \
-  --tmwd-repo "/path/to/browser67" \
-  --agent-memory-bin "$HOME/.local/bin/agent-memory-mcp"
+  --tmwd-repo "/path/to/browser67"
 ```
 
 Preview without writing:
@@ -905,7 +904,7 @@ pi-67 distinguishes between installed and ready:
 | Codex provider | Yes | local Codex proxy and API key are configured |
 | tmwd_browser MCP | Yes | browser67 package clone or local browser67 checkout path exists |
 | js-reverse MCP | Yes | browser67 package clone or local browser67 checkout path and bridge settings are valid |
-| agent_memory MCP | Yes | `agent-memory-mcp` binary exists |
+| Hy-Memory extension | Yes | `pi-67 memory init` has completed and `pi-67 memory doctor --deep` passes |
 | image generation | Yes | `image-gen.json` has a usable key/base URL |
 
 Run:

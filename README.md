@@ -175,7 +175,7 @@ PowerShell 7，管理员状态为 `True`，且不会每次重复弹 UAC；原始
 |------|------|------|
 | **核心配置模板** | `settings.example.json` | 发行版默认 provider/model、Pi package 列表；首次安装复制为 ignored 的本机 `settings.json` |
 | **模型配置** | `models.example.json` | xtalpi-pi-tools / codex provider 模板 |
-| **MCP** | `mcp.example.json` | browser67 tmwd_browser、js-reverse、agent_memory 模板 |
+| **MCP** | `mcp.example.json` | browser67 tmwd_browser、js-reverse 模板 |
 | **全局内核** | `AGENTS.md` | Pi 常驻行为规范（v1.8-pi kernel） |
 | **Rules** | `rules/` (11 篇) | 质量、架构、结构、性能、前端、浏览器、上下文、数据质量、电商增长、投资研究、pi-67 产品边界规则 |
 | **自定义扩展** | `extensions/` (4 个) | `xtalpi-pi-tools` + `pi-rules-loader` + `pi-vision-bridge` + `pi-hy-memory` |
@@ -201,9 +201,10 @@ pi
 ```
 
 每个操作系统用户的数据、凭据、Python 3.11 runtime、outbox 和日志保存在
-`~/.hy-memory/pi67`，跨该用户所有 Pi 项目共享，不写进 Git checkout，也不
-迁移/修改已有 `agent_memory`/EverOS 或 `pi-observational-memory`。持久化是
-本地的，但抽取/整理会请求 DeepSeek，embedding 会请求 SiliconFlow。
+`~/.hy-memory/pi67`，跨该用户所有 Pi 项目共享，不写进 Git checkout。pi-67
+不会迁移、修改或删除用户自行安装的第三方记忆 MCP、EverOS 或
+`pi-observational-memory`，但也不把它们作为发行版默认能力。持久化是本地的，
+但抽取/整理会请求 DeepSeek，embedding 会请求 SiliconFlow。
 
 模型职责：
 
@@ -927,8 +928,7 @@ PI67_CODEX_API_KEY="..." \
 PI67_IMAGE_GEN_API_KEY="..." \
 bash ~/.pi/agent/scripts/pi67-configure.sh \
   --no-prompt \
-  --tmwd-repo "/path/to/browser67" \
-  --agent-memory-bin "$HOME/.local/bin/agent-memory-mcp"
+  --tmwd-repo "/path/to/browser67"
 ```
 
 `pi67-configure.sh` 会把 MCP 路径归一化为 adapter 可直接执行的绝对路径；

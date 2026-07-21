@@ -25,7 +25,6 @@ REQUESTED_PROVIDER="${PI67_PROVIDER:-}"
 REQUESTED_MODEL="${PI67_MODEL:-}"
 REQUESTED_CODEX_BASE_URL="${PI67_CODEX_BASE_URL:-}"
 REQUESTED_TMWD_REPO="${PI67_TMWD_BROWSER_MCP_REPO:-}"
-REQUESTED_AGENT_MEMORY_BIN="${PI67_AGENT_MEMORY_BIN:-}"
 REQUESTED_IMAGE_GEN_BASE_URL="${PI67_IMAGE_GEN_BASE_URL:-}"
 REQUESTED_IMAGE_GEN_MODEL="${PI67_IMAGE_GEN_MODEL:-}"
 
@@ -43,7 +42,6 @@ Options:
       --model ID               Set local settings.defaultModel.
       --codex-base-url URL     Set models.providers.codex.baseUrl and image-gen baseUrl when requested.
       --tmwd-repo DIR          Set browser67 tmwd_browser/js-reverse MCP paths from this repo root.
-      --agent-memory-bin FILE  Set agent_memory MCP command path.
       --image-gen-base-url URL Set image-gen.json baseUrl.
       --image-gen-model ID     Set image-gen.json model.
       --prompt-secrets         Ask for missing keys with hidden input.
@@ -72,7 +70,6 @@ Supported env vars:
   PI67_IMAGE_GEN_BASE_URL
   PI67_IMAGE_GEN_MODEL
   PI67_TMWD_BROWSER_MCP_REPO  # legacy env name; value should point to browser67
-  PI67_AGENT_MEMORY_BIN
 USAGE
 }
 
@@ -100,10 +97,6 @@ while [ "$#" -gt 0 ]; do
       ;;
     --tmwd-repo)
       REQUESTED_TMWD_REPO="${2:?--tmwd-repo requires a directory}"
-      shift 2
-      ;;
-    --agent-memory-bin)
-      REQUESTED_AGENT_MEMORY_BIN="${2:?--agent-memory-bin requires a file path}"
       shift 2
       ;;
     --image-gen-base-url)
@@ -224,7 +217,6 @@ export PI67_PROVIDER="$REQUESTED_PROVIDER"
 export PI67_MODEL="$REQUESTED_MODEL"
 export PI67_CODEX_BASE_URL="$REQUESTED_CODEX_BASE_URL"
 export PI67_TMWD_BROWSER_MCP_REPO="$REQUESTED_TMWD_REPO"
-export PI67_AGENT_MEMORY_BIN="$REQUESTED_AGENT_MEMORY_BIN"
 export PI67_IMAGE_GEN_BASE_URL="$REQUESTED_IMAGE_GEN_BASE_URL"
 export PI67_IMAGE_GEN_MODEL="$REQUESTED_IMAGE_GEN_MODEL"
 export PI67_WORKSPACE_ONLY="$WORKSPACE_ONLY"
@@ -249,7 +241,6 @@ if [ "$PROMPT_SECRETS" = true ]; then
   prompt_secret PI67_DEEPSEEK_API_KEY "DeepSeek auth key"
   prompt_secret PI67_IMAGE_GEN_API_KEY "image generation API key"
   prompt_value PI67_TMWD_BROWSER_MCP_REPO "browser67 repo/package path" ""
-  prompt_value PI67_AGENT_MEMORY_BIN "agent-memory MCP binary" "$HOME/.local/bin/agent-memory-mcp"
 fi
 
 node - "$REPO_ROOT" "$PI_AGENT_DIR" "$DRY_RUN" <<'NODE'
@@ -550,14 +541,6 @@ if (env("PI67_TMWD_BROWSER_MCP_REPO")) {
   mcp.mcpServers.tmwd_browser.args = ["src/mcp/browser/server.mjs"];
   mcp.mcpServers["js-reverse"].args = ["src/mcp/js-reverse/server.mjs"];
   noteChange(`configure browser67 tmwd_browser/js-reverse MCP cwd: ${tmwdRoot}`);
-}
-
-if (env("PI67_AGENT_MEMORY_BIN")) {
-  mcp.mcpServers = mcp.mcpServers || {};
-  mcp.mcpServers.agent_memory = mcp.mcpServers.agent_memory || {};
-  mcp.mcpServers.agent_memory.command = absolutePath(env("PI67_AGENT_MEMORY_BIN"), { home, baseDir: agentDir });
-  mcp.mcpServers.agent_memory.args = Array.isArray(mcp.mcpServers.agent_memory.args) ? mcp.mcpServers.agent_memory.args : [];
-  noteChange(`configure agent_memory MCP command: ${mcp.mcpServers.agent_memory.command}`);
 }
 
 const mcpNormalization = normalizeMcpConfig(mcp, { home, agentDir });

@@ -201,9 +201,10 @@ When a Pack differs, first inspect `pi-67 skills packs`, then preview with
 the writing `--yes` form automatically.
 
 Deep MCP probing uses standard `Content-Length` framed stdio JSON-RPC by default.
-For browser67 / legacy tmwd-browser-mcp and the local agent-memory EverOS
-entrypoint, doctor uses newline-delimited JSON-RPC because those servers expose
-line-oriented stdio adapters.
+For browser67 / legacy tmwd-browser-mcp, doctor uses newline-delimited JSON-RPC
+because those servers expose line-oriented stdio adapters. User-added MCP
+entries remain user-owned and are inspected on a best-effort basis; their
+presence in local `mcp.json` does not make them pi-67 distribution content.
 
 ## Secret handling
 

@@ -6,6 +6,14 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+### Changed
+
+- Stopped distributing the user-specific `agent_memory` MCP through the default
+  template, configure helper, and installation guidance. `pi-hy-memory` is the
+  only long-term memory mechanism distributed by pi-67; updates continue to
+  preserve existing user-managed MCP entries without deleting or replacing
+  their data.
+
 ## [0.14.2] - 2026-07-21
 
 ### Fixed

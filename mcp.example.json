@@ -28,14 +28,6 @@
       "lifecycle": "lazy",
       "idleTimeout": 10,
       "directTools": true
-    },
-    "agent_memory": {
-      "command": "agent-memory-mcp",
-      "args": [],
-      "env": {},
-      "lifecycle": "lazy",
-      "idleTimeout": 10,
-      "directTools": true
     }
   },
   "settings": {

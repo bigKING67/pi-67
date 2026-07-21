@@ -1004,20 +1004,20 @@ pi-67 memory doctor --deep
 Logs are under `~/.hy-memory/pi67/logs`. Report only the time and error type;
 never paste `secrets.json`, full user messages, a database, or an entire log.
 `pi-67 memory disable` pauses automatic recall/capture without deleting data,
-which is the safest isolation step when comparing Hy-Memory with existing
-`agent_memory`/EverOS or `pi-observational-memory` behavior.
+which is the safest isolation step when comparing Hy-Memory with a
+user-installed third-party memory MCP, EverOS, or `pi-observational-memory`.
 
 The complete architecture, commands, reset-with-backup, retry/dead-letter and
 SDK upgrade process is in [`hy-memory.md`](hy-memory.md).
 
 ## MCP path warnings
 
-Warnings like these mean the full MCP config is installed, but the local dependency is not present yet:
+Warnings like these mean a managed browser67 MCP is configured, but its local
+dependency is not present yet:
 
 ```text
 MCP tmwd_browser path missing or needs local edit
 MCP js-reverse path missing or needs local edit
-MCP agent_memory command is not available yet
 ```
 
 Fix by installing the dependency or editing:
@@ -1030,7 +1030,6 @@ Common local dependencies:
 
 ```text
 browser67 package clone or local browser67 checkout
-agent-memory-mcp binary
 local Codex proxy if using the codex provider
 ```
 
@@ -1059,7 +1058,10 @@ runtime preparation problem without a repository update, explicitly rebuild it
 with `pi-67 external setup browser67`. Setup requires an existing installation;
 it does not clone a missing checkout.
 
-Do not delete the MCP entries just because doctor warns. pi-67 intentionally installs the full best-practice configuration; doctor tells you which capabilities still need local setup.
+Do not delete the managed browser67 MCP entries just because doctor warns;
+doctor tells you which dependency still needs local setup. Any additional MCP
+entry in local `mcp.json` is user-managed and should be kept or removed according
+to that tool's own lifecycle.
 
 If Pi shows this while Codex/browser67 works:
 
@@ -1108,8 +1110,7 @@ Or explicitly point Pi at a browser67 checkout/package:
 ```bash
 bash ~/.pi/agent/scripts/pi67-configure.sh \
   --no-prompt \
-  --tmwd-repo "/path/to/browser67" \
-  --agent-memory-bin "$HOME/.local/bin/agent-memory-mcp"
+  --tmwd-repo "/path/to/browser67"
 ```
 
 Healthy runtime `mcp.json` should use a machine-local absolute `cwd` plus
@@ -1122,8 +1123,7 @@ Use the configure helper to set the common local paths:
 ```bash
 bash ~/.pi/agent/scripts/pi67-configure.sh \
   --no-prompt \
-  --tmwd-repo "/path/to/browser67" \
-  --agent-memory-bin "$HOME/.local/bin/agent-memory-mcp"
+  --tmwd-repo "/path/to/browser67"
 ```
 
 Preview first if you are unsure:

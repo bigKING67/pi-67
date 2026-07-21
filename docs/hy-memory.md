@@ -198,15 +198,24 @@ pi-67 memory reset --yes
 
 ## 与现有记忆能力的关系
 
-第一版不迁移、不修改、不删除现有 `agent_memory`/EverOS 数据，也不接管
-`pi-observational-memory`。三者可以并存，但职责不同：
+`pi-hy-memory` 是 pi-67 唯一默认分发和维护的长期记忆机制。pi-67 不会迁移、
+修改或删除用户自行安装的 `agent_memory`/EverOS 数据，也不接管
+`pi-observational-memory`；这些外部机制继续由用户自行配置和维护：
 
 - `pi-hy-memory`：当前系统用户跨项目共享的主动召回和 settled-turn 长期记忆；
-- `agent_memory`/EverOS：保持原有 MCP/外部记忆生命周期；
-- `pi-observational-memory`：保持原有观察式后台压缩生命周期。
+- 第三方记忆 MCP/EverOS：不在默认 `mcp.example.json` 中分发，已有本机配置在
+  update/repair 时保留；
+- `pi-observational-memory`：不由 pi-67 初始化或维护，保持其原有观察式后台压缩
+  生命周期。
 
-如果同一信息被多个记忆系统重复注入，可先运行 `pi-67 memory disable`
-隔离 Hy-Memory，再分别检查各系统，而不是删除任一现有数据库。
+外部记忆系统可以与 Hy-Memory 并存，但可能重复召回或写入同一信息。遇到重复
+注入时，可先运行 `pi-67 memory disable` 隔离 Hy-Memory，再分别检查各系统，
+而不是删除任一现有数据库。
+
+旧版 pi-67 曾在默认 MCP 模板中包含 `agent_memory`。update/repair 无法判断该
+entry 是模板遗留还是用户主动配置，因此不会自动删除。没有自行安装该 MCP 的
+用户可以备份并从本机 `mcp.json` 中手动移除对应 entry；后续安装和 configure
+不会重新创建。主动使用它的用户无需迁移，保留现有本机配置即可。
 
 ## 常见故障
 

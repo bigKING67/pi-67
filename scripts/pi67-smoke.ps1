@@ -563,6 +563,9 @@ if ($NodeAvailable) {
     $mcp = Read-JsonFile (RepoPath "mcp.example.json")
     $tmwd = $mcp.mcpServers.tmwd_browser
     $jsReverse = $mcp.mcpServers.'js-reverse'
+    if ($null -ne $mcp.mcpServers.agent_memory) {
+      throw "mcp.example.json must not distribute the user-specific agent_memory MCP"
+    }
     if ($tmwd.args[0] -ne "src/mcp/browser/server.mjs") {
       throw ("tmwd_browser args must be cwd-relative, got {0}" -f $tmwd.args[0])
     }

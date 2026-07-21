@@ -288,6 +288,9 @@ for (const spec of packages) {
 const mcp = JSON.parse(fs.readFileSync(path.join(repoRoot, "mcp.example.json"), "utf8"));
 const tmwd = mcp.mcpServers?.tmwd_browser || {};
 const jsReverse = mcp.mcpServers?.["js-reverse"] || {};
+if (mcp.mcpServers?.agent_memory) {
+  throw new Error("mcp.example.json must not distribute the user-specific agent_memory MCP");
+}
 const tmwdArg = tmwd.args?.[0] || "";
 const jsArg = jsReverse.args?.[0] || "";
 if (tmwdArg !== "src/mcp/browser/server.mjs") {
@@ -1241,6 +1244,29 @@ echo "smoke agent memory"
 SH
 chmod +x "$FAKE_BIN/agent-memory-mcp"
 
+AGENT_MEMORY_SNAPSHOT="$TMP_ROOT/user-managed-agent-memory.json"
+node - "$AGENT_DIR/mcp.json" "$FAKE_BIN/agent-memory-mcp" "$AGENT_MEMORY_SNAPSHOT" <<'NODE'
+const fs = require("fs");
+const path = require("path");
+
+const mcpPath = process.argv[2];
+const command = path.resolve(process.argv[3]);
+const snapshotPath = process.argv[4];
+const mcp = JSON.parse(fs.readFileSync(mcpPath, "utf8"));
+const userManagedEntry = {
+  command,
+  args: ["--personal-overlay"],
+  env: { AGENT_MEMORY_SCOPE: "personal" },
+  lifecycle: "lazy",
+  idleTimeout: 17,
+  directTools: true,
+};
+mcp.mcpServers = mcp.mcpServers || {};
+mcp.mcpServers.agent_memory = userManagedEntry;
+fs.writeFileSync(mcpPath, `${JSON.stringify(mcp, null, 2)}\n`);
+fs.writeFileSync(snapshotPath, JSON.stringify(userManagedEntry));
+NODE
+
 PATH="$FAKE_BIN:$PATH" \
 PI67_XTALPI_API_KEY="smoke_xtalpi_api_key" \
 PI67_CODEX_API_KEY="smoke_codex_api_key" \
@@ -1253,7 +1279,6 @@ PI67_IMAGE_GEN_API_KEY="smoke_image_gen_api_key" \
   --model deepseek-v4-pro \
   --codex-base-url "http://127.0.0.1:8317/v1" \
   --tmwd-repo "$TMP_ROOT/browser67" \
-  --agent-memory-bin "$FAKE_BIN/agent-memory-mcp" \
   --image-gen-model "gpt-image-2" \
   --no-prompt \
   --no-doctor \
@@ -1272,7 +1297,6 @@ PI67_IMAGE_GEN_API_KEY="smoke_image_gen_api_key" \
   --model deepseek-v4-pro \
   --codex-base-url "http://127.0.0.1:8317/v1" \
   --tmwd-repo "$TMP_ROOT/browser67" \
-  --agent-memory-bin "$FAKE_BIN/agent-memory-mcp" \
   --image-gen-model "gpt-image-2" \
   --no-prompt \
   --no-doctor >"${SMOKE_LOG_DIR}/configure.log"
@@ -1283,28 +1307,31 @@ PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
   --skills-dir "$TMP_ROOT/shared-skills" \
   --agent-dir "$AGENT_DIR" >"${SMOKE_LOG_DIR}/doctor-configured.log"
 
-node -e '
+node - "$AGENT_DIR/mcp.json" "$AGENT_MEMORY_SNAPSHOT" <<'NODE'
 const fs = require("fs");
 const path = require("path");
-const mcp = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+const mcp = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+const expectedAgentMemory = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
 const tmwdCwd = mcp.mcpServers?.tmwd_browser?.cwd || "";
 const jsCwd = mcp.mcpServers?.["js-reverse"]?.cwd || "";
 const tmwdArg = mcp.mcpServers?.tmwd_browser?.args?.[0] || "";
 const jsArg = mcp.mcpServers?.["js-reverse"]?.args?.[0] || "";
-const memoryCommand = mcp.mcpServers?.agent_memory?.command || "";
-for (const [label, value] of Object.entries({ tmwdCwd, jsCwd, tmwdArg, jsArg, memoryCommand })) {
+for (const [label, value] of Object.entries({ tmwdCwd, jsCwd, tmwdArg, jsArg })) {
   if (/^(?:~|\$HOME|\$\{HOME\}|%USERPROFILE%)(?:$|[\\/])/.test(value)) {
     throw new Error(`${label} kept an unsupported runtime placeholder: ${value}`);
   }
 }
-if (!path.isAbsolute(tmwdCwd) || !path.isAbsolute(jsCwd) || !path.isAbsolute(memoryCommand)) {
-  throw new Error("configured MCP browser67 cwd and agent_memory command must be absolute");
+if (!path.isAbsolute(tmwdCwd) || !path.isAbsolute(jsCwd)) {
+  throw new Error("configured MCP browser67 cwd must be absolute");
 }
 if (tmwdArg !== "src/mcp/browser/server.mjs" || jsArg !== "src/mcp/js-reverse/server.mjs") {
   throw new Error("configured MCP browser67 args must stay cwd-relative");
 }
-' "$AGENT_DIR/mcp.json"
-pass "configure writes adapter-runnable MCP cwd with relative browser67 args"
+if (JSON.stringify(mcp.mcpServers?.agent_memory) !== JSON.stringify(expectedAgentMemory)) {
+  throw new Error("configure changed the user-managed agent_memory MCP entry");
+}
+NODE
+pass "configure writes browser67 paths and preserves user-managed MCP entries"
 
 if grep -q 'Result: READY WITH WARNINGS' "${SMOKE_LOG_DIR}/doctor-configured.log"; then
   cat "${SMOKE_LOG_DIR}/doctor-configured.log" >&2
