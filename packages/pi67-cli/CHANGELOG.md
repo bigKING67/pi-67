@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [0.13.2]
+
+- Stops `update --check` from recommending a no-op distro update when the
+  clean local checkout already matches the remote commit. Remote divergence
+  and explicit release-lock synchronization remain actionable.
+
 ## [0.13.1]
 
 - Uses the tracked root `package-lock.json` as the managed-package baseline.

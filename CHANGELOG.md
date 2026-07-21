@@ -6,6 +6,15 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.13.2] - 2026-07-21
+
+### Fixed
+
+- Stopped a clean, release-current `update --check` from unconditionally
+  recommending a no-op `pi-67 update`. The distro update recommendation now
+  appears only when the checked remote branch actually differs; explicit local
+  repair and release-lock synchronization actions remain visible separately.
+
 ## [0.13.1] - 2026-07-21
 
 ### Fixed

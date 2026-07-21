@@ -4,7 +4,7 @@
 
 > 让 Windows 和 macOS 用户用尽可能少的步骤，获得公司统一、持续升级、可诊断、可回滚的 Pi 工作台。`pi` 始终是实际运行入口；`pi-67` 负责把 Pi 所需的配置、扩展、Skills、规则、脚本和公司默认 provider 封装成一键发行版。
 
-当前发行版版本：`0.13.1`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.13.2`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 项目定位
 

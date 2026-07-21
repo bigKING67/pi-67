@@ -24,6 +24,7 @@ import {
   buildPlanDecisions,
   classifyGitShort,
   classifyManagedDependencyPackage,
+  cleanDistroUpdateRecommendation,
 } from "../src/lib/update-plan.mjs";
 import { lockedDependencyVersion } from "../src/lib/distro-manifest.mjs";
 import {
@@ -1713,6 +1714,28 @@ if ($settings -match "lastChangelogVersion") {
 }
 
 function runUpdatePlanSelfTests() {
+  assert(
+    cleanDistroUpdateRecommendation(
+      { isRepo: true, dirty: false, commit: "abc123" },
+      { ok: true, commit: "abc123456789" },
+    ) === "",
+    "a clean checkout already at the remote commit must not recommend a no-op pi-67 update",
+  );
+  assert(
+    cleanDistroUpdateRecommendation(
+      { isRepo: true, dirty: false, commit: "abc123" },
+      { ok: true, commit: "def456" },
+    ).includes("remote branch differs"),
+    "a clean checkout whose remote branch differs must retain an actionable update recommendation",
+  );
+  assert(
+    cleanDistroUpdateRecommendation(
+      { isRepo: true, dirty: false, commit: "abc123" },
+      { skipped: true },
+    ) === "",
+    "offline checks must not recommend an unproven distro update",
+  );
+
   assert(
     classifyGitShort(" M settings.json\n?? tmp.txt").preservedRuntime.includes("settings.json"),
     "git short classifier must identify preserved runtime config",

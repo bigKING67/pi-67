@@ -86,7 +86,8 @@ export async function buildUpdatePlan(ctx, options = {}) {
   } else if (git.dirty) {
     recommendations.push("No manual action required for user runtime config; pi-67 backs up/restores it during update.");
   } else {
-    recommendations.push("Run: pi-67 update");
+    const recommendation = cleanDistroUpdateRecommendation(git, remote);
+    if (recommendation) recommendations.push(recommendation);
   }
   if (skills.summary.conflicts > 0) {
     recommendations.push("Run: pi-67 skills inventory to inspect preserved user-modified global skills.");
@@ -292,6 +293,12 @@ export function classifyManagedDependencyPackage(item, options = {}) {
     status,
     registry,
   };
+}
+
+export function cleanDistroUpdateRecommendation(git, remote) {
+  if (!git?.isRepo || git.dirty || remote?.skipped || !git.commit || !remote?.commit) return "";
+  if (String(remote.commit).startsWith(String(git.commit))) return "";
+  return "Run: pi-67 update; the remote branch differs from the local checkout.";
 }
 
 export function buildPlanDecisions(context) {
