@@ -154,7 +154,7 @@ bash "$SYNC" --source "$source" --dest-root "$TMP/synthetic-dest" \
   --pack-registry "$TMP/synthetic-registry.json" --pack-lock "$TMP/synthetic-lock.json" \
   --apply --yes --json >"$TMP/synthetic-apply.json"
 assert_json "$TMP/synthetic-apply.json" "data.result === 'APPLIED' && data.counts.applied === 1 && data.packVersion === '1.0.0'" "synthetic Pack applies"
-rg -q 'python3 scripts/sample_tool.py' "$TMP/synthetic-dest/sample-skill/scripts/sample_tool.py" || fail "tool help path adaptation"
+grep -q 'python3 scripts/sample_tool.py' "$TMP/synthetic-dest/sample-skill/scripts/sample_tool.py" || fail "tool help path adaptation"
 bash "$SYNC" --source "$source" --dest-root "$TMP/synthetic-dest" \
   --pack-registry "$TMP/synthetic-registry.json" --pack-lock "$TMP/synthetic-lock.json" \
   --dry-run --json >"$TMP/synthetic-noop.json"
