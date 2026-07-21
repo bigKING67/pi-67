@@ -41,6 +41,7 @@ const RAW_POWERSHELL_ONLY_SYNTAX_PATTERN =
 
 const UNQUOTED_DOT_BACKSLASH_PATH_PATTERN = /(?:^|\s)(?:-File\s+)?\.\\[^\s'"]+/i;
 const UNQUOTED_DRIVE_BACKSLASH_PATH_PATTERN = /(?:^|\s)[A-Za-z]:\\[^\s'"]+/;
+const WINDOWS_DRIVE_BACKSLASH_PATH_PATTERN = /[A-Za-z]:\\/;
 const SHELL_OPEN_URL_PATTERN =
   /^\s*(?:(?:open|xdg-open)\s+|(?:cmd\.exe\s+\/c\s+)?start\s+|python(?:3)?\s+-m\s+webbrowser\s+|osascript\b[\s\S]*\bopen\s+location\b)[\s\S]*https?:\/\//i;
 const SHELL_BROWSER_APP_OPEN_PATTERN =
@@ -65,6 +66,10 @@ function hasRawPowerShellSyntax(command: string): boolean {
 function hasUnquotedWindowsBackslashPath(command: string): boolean {
   return UNQUOTED_DOT_BACKSLASH_PATH_PATTERN.test(command) ||
     UNQUOTED_DRIVE_BACKSLASH_PATH_PATTERN.test(command);
+}
+
+function hasWindowsDriveBackslashPath(command: string): boolean {
+  return WINDOWS_DRIVE_BACKSLASH_PATH_PATTERN.test(command);
 }
 
 function normalizeInput(input: ShellCommandGuardInput): {
@@ -135,6 +140,19 @@ export function validateShellCommandRequest(input: ShellCommandGuardInput): Shel
       };
     }
     return { ok: true };
+  }
+
+  if (hasWindowsDriveBackslashPath(command)) {
+    return {
+      ok: false,
+      code: "windows_path_escaping_in_bash",
+      reason: "bash command contains a Windows drive path with backslash separators",
+      command,
+      errors: [
+        "The bash tool expects POSIX shell text; raw C:\\... paths are error-prone across JSON, bash quoting, and Windows path parsing.",
+        "For the current user's home, use $HOME/...; otherwise prefer a forward-slash path such as C:/Users/... or invoke PowerShell explicitly.",
+      ],
+    };
   }
 
   if (hasRawPowerShellSyntax(command)) {

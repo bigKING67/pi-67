@@ -16,6 +16,7 @@ import {
   toolLikeEnvelopeKeys,
 } from "./legacy-normalizer.ts";
 import {
+  looksLikeMalformedWindowsBashJsonAction,
   parseJsonWithLikelyWindowsPathRepair,
   stripMarkdownFence,
 } from "./windows-json-repair.ts";
@@ -346,6 +347,18 @@ export function parseJsonAction(
   } catch (error) {
     const looseFinal = parseLooseJsonActionFinal(trimmed);
     if (looseFinal) return looseFinal;
+
+    if (looksLikeMalformedWindowsBashJsonAction(trimmed)) {
+      const detail = error instanceof Error ? error.message : String(error);
+      return {
+        kind: "error",
+        code: "malformed_windows_bash_json",
+        message:
+          `bash JSON action contains a raw Windows path and invalid JSON string quoting: ${detail}`,
+        raw: trimmed,
+        text: source,
+      };
+    }
 
     return {
       kind: "error",

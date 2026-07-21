@@ -229,6 +229,9 @@ fi
 if [ -f "$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.mjs" ]; then
   node --check "$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.mjs" >/dev/null
 fi
+if [ -f "$REPO_ROOT/scripts/pi67-patch-pi-smart-fetch-charset.mjs" ]; then
+  node --check "$REPO_ROOT/scripts/pi67-patch-pi-smart-fetch-charset.mjs" >/dev/null
+fi
 if [ -d "$REPO_ROOT/packages/pi67-cli" ]; then
   while IFS= read -r -d '' file; do
     node --check "$file" >/dev/null
@@ -1063,6 +1066,9 @@ if [ -f "$REPO_ROOT/scripts/pi67-validate-xtalpi-provider-error-contract.mjs" ];
 fi
 if [ -f "$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.mjs" ]; then
   node "$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.mjs" --self-test >"${SMOKE_LOG_DIR}/until-done-runtime-queue.log"
+fi
+if [ -f "$REPO_ROOT/scripts/pi67-patch-pi-smart-fetch-charset.mjs" ]; then
+  node "$REPO_ROOT/scripts/pi67-patch-pi-smart-fetch-charset.mjs" --self-test >"${SMOKE_LOG_DIR}/smart-fetch-charset.log"
 fi
 pass "xtalpi-pi-tools protocol tests completed"
 

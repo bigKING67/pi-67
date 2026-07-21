@@ -50,6 +50,37 @@ Return exactly one compact JSON object:
 - ${toolCallShapeForPrompt()} if exactly one available tool is needed.`;
 }
 
+export function buildMalformedWindowsBashJsonRepairPrompt(
+  raw: string,
+  availableNames: string[],
+): string {
+  const names = formatToolNamesForPrompt(availableNames);
+  const homePathExample = JSON.stringify({
+    kind: "tool_call",
+    name: "bash",
+    arguments: {
+      command: 'ls -la "$HOME/.agents/skills/investment-checklist/scripts"',
+      timeout: 30,
+    },
+  });
+  return `[xtalpi-pi-tools-malformed-windows-bash-json-repair]
+Your previous bash action mixed Windows path syntax, shell quoting, and JSON quoting, so Pi could not parse it:
+${safeBlockText(raw, 2000)}
+
+Available tool names:
+${names}
+
+Correct all three layers before retrying:
+- The "bash" tool expects POSIX shell text even when Pi runs on Windows.
+- For a path under the current user's home, use $HOME with forward slashes instead of a raw C:\\Users\\... path.
+- Serialize the entire action as valid JSON. Every double quote inside the command string must be JSON-escaped; do not hand-copy the malformed action.
+
+For this common home-directory case, follow this exact encoding pattern:
+${homePathExample}
+
+Return exactly one compact JSON object and no markdown or surrounding prose. If bash is not available or no tool is needed, return ${finalShapeForPrompt()}.`;
+}
+
 export function buildFunctionStyleToolRepairPrompt(
   raw: string,
   availableNames: string[],

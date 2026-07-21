@@ -301,6 +301,7 @@ $RequiredFiles = @(
   "scripts/pi67-patch-pi-until-done-runtime-queue.mjs",
   "scripts/pi67-patch-pi-until-done-runtime-queue.sh",
   "scripts/pi67-patch-pi-until-done-runtime-queue.ps1",
+  "scripts/pi67-patch-pi-smart-fetch-charset.mjs",
   "scripts/pi67-shared-skills-inventory.sh",
   "scripts/pi67-sync-commerce-growth-os.sh",
   "scripts/pi67-sync-commerce-skill-pack.sh",
@@ -617,6 +618,10 @@ if (String(tmwd.args?.[0] || "").includes(browser67Root) || String(jsReverse.arg
 
   Run-Check "pi-until-done runtime queue/progress patch self-test passed" {
     Invoke-External "node" @((RepoPath "scripts/pi67-patch-pi-until-done-runtime-queue.mjs"), "--self-test") | Out-Null
+  }
+
+  Run-Check "pi-smart-fetch charset patch self-test passed" {
+    Invoke-External "node" @((RepoPath "scripts/pi67-patch-pi-smart-fetch-charset.mjs"), "--self-test") | Out-Null
   }
 
   Run-Check "pi-67 npm CLI syntax suite passed" {

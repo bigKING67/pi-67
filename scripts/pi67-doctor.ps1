@@ -754,6 +754,35 @@ if (-not (Test-CommandExists "node")) {
   }
 }
 
+$smartFetchCharsetChecker = RepoPath "scripts/pi67-patch-pi-smart-fetch-charset.mjs"
+if (-not (Test-CommandExists "node")) {
+  Warn "node not found; skipped pi-smart-fetch charset compatibility check"
+} elseif (-not (Test-Path -LiteralPath $smartFetchCharsetChecker -PathType Leaf)) {
+  Warn "pi-smart-fetch charset checker missing"
+} else {
+  $charsetResult = Invoke-External "node" @($smartFetchCharsetChecker, "--check", "--agent-dir", $AgentDir, "--json") $RepoRoot
+  try {
+    $charset = $charsetResult.text | ConvertFrom-Json
+    if ($charsetResult.exitCode -eq 0) {
+      if ($charset.status -eq "missing") {
+        Warn $charset.message
+      } else {
+        Pass $charset.message
+      }
+    } elseif ($charset.status -eq "review_required") {
+      Warn $charset.message
+    } else {
+      Fail $charset.message
+    }
+  } catch {
+    if ($charsetResult.exitCode -eq 0) {
+      Pass "pi-smart-fetch charset compatibility check completed"
+    } else {
+      Fail "pi-smart-fetch charset compatibility check failed"
+    }
+  }
+}
+
 Section "xtalpi endpoint contract"
 $runtimeConfig = RepoPath "extensions/xtalpi-pi-tools/runtime-config.ts"
 $providerHealth = RepoPath "scripts/pi67-xtalpi-provider-health.mjs"

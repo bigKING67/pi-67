@@ -6,6 +6,15 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+### Fixed
+
+- Hardened `xtalpi-pi-tools` against malformed Windows `bash` JSON actions by
+  preserving valid nested quote escapes, routing raw `C:\\...` command paths
+  through a targeted bounded repair, and teaching the protocol to prefer
+  `$HOME` or forward-slash paths. Added a version-aware `pi-smart-fetch@0.3.12`
+  compatibility patch so declared GBK/GB2312 response charsets are decoded from
+  original bytes instead of being forced through UTF-8 `response.text()`.
+
 ## [0.14.1] - 2026-07-21
 
 ### Fixed

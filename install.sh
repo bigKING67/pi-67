@@ -507,6 +507,27 @@ patch_until_done_runtime_queue() {
   bash "$patcher" --apply --agent-dir "$PI_AGENT_DIR"
 }
 
+patch_smart_fetch_charset() {
+  local patcher="$REPO_ROOT/scripts/pi67-patch-pi-smart-fetch-charset.mjs"
+
+  say ""
+  say "${CYAN}--- pi-smart-fetch charset patch ---${NC}"
+  if [ ! -f "$patcher" ]; then
+    warn "pi-smart-fetch charset patcher missing: $patcher"
+    return
+  fi
+  if ! command -v node >/dev/null 2>&1; then
+    warn "node not found; skipped pi-smart-fetch charset patch"
+    return
+  fi
+  if [ "$DRY_RUN" = true ]; then
+    say "  ${CYAN}DRY-RUN${NC} node $patcher --apply --agent-dir $PI_AGENT_DIR"
+    return
+  fi
+
+  node "$patcher" --apply --agent-dir "$PI_AGENT_DIR"
+}
+
 run_doctor() {
   if [ "$RUN_DOCTOR" != true ]; then
     warn "doctor skipped by --no-doctor"
@@ -656,6 +677,7 @@ say ""
 say "${CYAN}--- npm packages ---${NC}"
 install_npm_packages
 patch_until_done_runtime_queue
+patch_smart_fetch_charset
 
 run_doctor
 write_report

@@ -787,6 +787,31 @@ That offline test includes a guard for `XTALPI_PI_TOOLS_MAX_TOOLS=1`: image
 paths must select `vision_read` / `image_review`, and `read` must be omitted with
 an `image_path_read_penalty` reason code.
 
+## `web_fetch` returns garbled Chinese for GBK / GB2312 pages
+
+Symptom: a legacy Chinese site declares a response such as
+`Content-Type: text/html; charset=gb2312`, but the title and body look like
+`�������`. `pi-smart-fetch@0.3.12` uses `response.text()`, which assumes UTF-8
+and loses the original bytes before Defuddle extracts the page.
+
+pi-67 applies a version-aware runtime compatibility patch after npm sync. The
+patch reads the declared charset, decodes the original `arrayBuffer()` with the
+direct `iconv-lite` dependency, and leaves UTF-8 responses on the native path.
+It refuses to rewrite an unreviewed `pi-smart-fetch` version.
+
+Run on Windows:
+
+```powershell
+Set-Location $env:USERPROFILE\.pi\agent
+pi-67 update --repair
+node .\scripts\pi67-patch-pi-smart-fetch-charset.mjs --check --agent-dir $env:USERPROFILE\.pi\agent
+```
+
+Expected status is `compatible`. Then restart `pi` and retry the same
+`web_fetch` URL. If the checker reports `review_required`, do not hand-edit the
+installed bundle; update pi-67 after the newer upstream package has been
+reviewed.
+
 ## xtalpi-pi-tools says `mcp` is unavailable for a browser67 / Chrome task
 
 Symptom:

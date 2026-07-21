@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildMalformedWindowsBashJsonRepairPrompt,
   buildRepeatedToolRepairPrompt,
   buildShellCommandMismatchRepairPrompt,
 } from "../../../extensions/xtalpi-pi-tools/turn/recovery-prompts.ts";
@@ -61,6 +62,16 @@ test("ordinary shell mismatch keeps the bounded POSIX correction path", () => {
   assert.match(prompt, /invoke it explicitly as powershell\.exe or pwsh/);
   assert.ok(prompt.includes(BASH_ACTION));
   assert.doesNotMatch(prompt, /This is a browser67\/tmwd_browser task/);
+});
+
+test("malformed Windows bash JSON repair provides a serializer-safe home-path example", () => {
+  const raw = String.raw`{"kind":"tool_call","name":"bash","arguments":{"command":"ls "C:\Users\Groland\.agents""}}`;
+  const prompt = buildMalformedWindowsBashJsonRepairPrompt(raw, ["bash", "read"]);
+
+  assert.match(prompt, /POSIX shell text even when Pi runs on Windows/);
+  assert.match(prompt, /use \$HOME with forward slashes/);
+  assert.match(prompt, /"command":"ls -la \\"\$HOME\/\.agents\/skills\/investment-checklist\/scripts\\""/);
+  assert.match(prompt, /Available tool names:\n"bash", "read"/);
 });
 
 test("repeated ENOENT directs discovery through selected tools", () => {

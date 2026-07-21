@@ -114,6 +114,33 @@ test("strict JSON action repairs malformed final text without relaxing tool call
   assert.equal(malformedTool.code, "invalid_json");
 });
 
+test("malformed Windows bash JSON enters a targeted repair without executing ambiguous text", () => {
+  const malformed = String.raw`{"kind":"tool_call","name":"bash","arguments":{"command":"ls -la "C:\Users\Groland\.agents\skills\investment-checklist\scripts\" 2>/dev/null || echo "scripts directory not found"","timeout":5}}`;
+  const parsed = parseJsonAction(malformed, { selectedToolNames: ["bash"] });
+  assert.equal(parsed.kind, "error");
+  assert.equal(parsed.code, "malformed_windows_bash_json");
+
+  const repair = buildParseErrorRepairPlan(parsed, ["bash"]);
+  assert.equal(repair.event, "recovery.malformed_windows_bash_json");
+  assert.match(repair.prompt, /xtalpi-pi-tools-malformed-windows-bash-json-repair/);
+  assert.match(repair.prompt, /\$HOME\/\.agents\/skills\/investment-checklist\/scripts/);
+  assert.match(repair.prompt, /Every double quote inside the command string must be JSON-escaped/);
+});
+
+test("valid JSON keeps escaped shell quotes around Windows paths intact", () => {
+  const command = String.raw`ls -la "C:\Users\Groland\.agents\skills"`;
+  const parsed = parseJsonAction(JSON.stringify({
+    kind: "tool_call",
+    name: "bash",
+    arguments: { command, timeout: 5 },
+  }));
+
+  assert.equal(parsed.kind, "tool_call");
+  assert.equal(parsed.call.name, "bash");
+  assert.equal(parsed.call.arguments.command, command);
+  assert.equal(parsed.call.arguments.timeout, 5);
+});
+
 test("strict JSON action rejects ambiguous or invalid envelope fields", () => {
   const cases = [
     ['{"kind":"final","text":"done","extra":true}', "unknown_top_level_field"],

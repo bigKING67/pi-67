@@ -668,6 +668,27 @@ function Invoke-UntilDoneRuntimeQueuePatch {
   }
 }
 
+function Invoke-SmartFetchCharsetPatch {
+  Write-Section "pi-smart-fetch charset patch"
+  $patcher = Join-Path (Join-Path $RepoRoot "scripts") "pi67-patch-pi-smart-fetch-charset.mjs"
+  if (-not (Test-Path -LiteralPath $patcher -PathType Leaf)) {
+    Write-Warn "pi-smart-fetch charset patcher missing"
+    return
+  }
+  if (-not (Test-CommandExists "node")) {
+    Write-Warn "node not found; skipped pi-smart-fetch charset patch"
+    return
+  }
+  if ($DryRun) {
+    Write-Host ("  DRY-RUN node {0} --apply --agent-dir {1}" -f $patcher, $AgentDir) -ForegroundColor Cyan
+    return
+  }
+  & node $patcher --apply --agent-dir $AgentDir
+  if ($LASTEXITCODE -ne 0) {
+    throw "pi-smart-fetch charset patch failed"
+  }
+}
+
 function Test-UntilDoneRuntimeQueueStatus {
   if (-not (Test-CommandExists "node")) {
     Write-Warn "node not found; skipped pi-until-done runtime queue/progress compatibility check"
@@ -683,6 +704,26 @@ function Test-UntilDoneRuntimeQueueStatus {
     Write-Pass "pi-until-done runtime queue/progress compatibility is already patched or package is not installed"
   } else {
     Write-Warn "pi-until-done runtime queue/progress compatibility would be patched after npm sync"
+  }
+}
+
+function Test-SmartFetchCharsetStatus {
+  if (-not (Test-CommandExists "node")) {
+    Write-Warn "node not found; skipped pi-smart-fetch charset compatibility check"
+    return
+  }
+  $patcher = Join-Path (Join-Path $RepoRoot "scripts") "pi67-patch-pi-smart-fetch-charset.mjs"
+  if (-not (Test-Path -LiteralPath $patcher -PathType Leaf)) {
+    Write-Warn "pi-smart-fetch charset patcher missing"
+    return
+  }
+  & node $patcher --check --agent-dir $AgentDir | Out-Null
+  if ($LASTEXITCODE -eq 0) {
+    Write-Pass "pi-smart-fetch charset compatibility is already patched or package is not installed"
+  } elseif ($LASTEXITCODE -eq 3) {
+    Write-Warn "pi-smart-fetch charset compatibility requires review; run the charset checker for details"
+  } else {
+    Write-Warn "pi-smart-fetch charset compatibility would be patched after npm sync"
   }
 }
 
@@ -1141,6 +1182,7 @@ function Show-CheckOnly {
     }
   }
   Test-UntilDoneRuntimeQueueStatus
+  Test-SmartFetchCharsetStatus
 
   $currentVersion = ""
   $versionPath = Join-Path $RepoRoot "VERSION"
@@ -1290,6 +1332,7 @@ try {
   $phase.Restart()
   Sync-Npm
   Invoke-UntilDoneRuntimeQueuePatch
+  Invoke-SmartFetchCharsetPatch
   $phase.Stop()
   $UpdateTimings.npmMs = $phase.ElapsedMilliseconds
 

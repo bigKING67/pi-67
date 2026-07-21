@@ -193,6 +193,48 @@ test("canonical premature finals recover into concrete progress", async (t) => {
   }
 });
 
+test("malformed Windows bash JSON recovers before shell semantics consume the remaining format budget", async () => {
+  await withRuntimeEnv(RECOVERY_ENV, async () => {
+    const malformed = String.raw`{"kind":"tool_call","name":"bash","arguments":{"command":"ls -la "C:\Users\Groland\.agents\skills\investment-checklist\scripts\" 2>/dev/null || echo "scripts directory not found"","timeout":5}}`;
+    const chat = scriptedChat([
+      malformed,
+      JSON.stringify({
+        kind: "tool_call",
+        name: "bash",
+        arguments: {
+          command: String.raw`ls -la "C:\Users\Groland\.agents\skills\investment-checklist\scripts"`,
+          timeout: 5,
+        },
+      }),
+      JSON.stringify({
+        kind: "tool_call",
+        name: "bash",
+        arguments: {
+          command: 'ls -la "$HOME/.agents/skills/investment-checklist/scripts"',
+          timeout: 5,
+        },
+      }),
+    ]);
+    const result = await runProviderTurn({
+      model: TEST_MODEL,
+      context: basicContext("inspect the investment checklist scripts directory", [
+        simpleTool("bash", {
+          command: { type: "string" },
+          timeout: { type: "number" },
+        }),
+      ]),
+      callChat: chat.callChat,
+    });
+
+    assert.equal(result.kind, "tool_call");
+    assert.equal(result.toolCall.name, "bash");
+    assert.equal(result.toolCall.arguments.command, 'ls -la "$HOME/.agents/skills/investment-checklist/scripts"');
+    assert.equal(chat.calls.length, 3);
+    assert.match(chat.calls[1].messages.at(-1).content, /xtalpi-pi-tools-malformed-windows-bash-json-repair/);
+    assert.match(chat.calls[2].messages.at(-1).content, /xtalpi-pi-tools-shell-command-mismatch-repair/);
+  });
+});
+
 test("canonical final exhaustion distinguishes Plan fallback from non-Plan rejection", async () => {
   await withRuntimeEnv({
     ...RECOVERY_ENV,

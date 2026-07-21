@@ -47,6 +47,25 @@ test("explicit PowerShell invocations require bash-safe script paths", () => {
   }
 });
 
+test("bash-native commands reject Windows backslash paths but accept portable path forms", () => {
+  for (const command of [
+    String.raw`ls -la "C:\Users\Groland\.agents\skills"`,
+    String.raw`rg --files C:\Users\Groland\.agents\skills`,
+  ]) {
+    const result = validateShellCommandRequest(bash(command));
+    assert.equal(result.ok, false, command);
+    assert.equal(result.code, "windows_path_escaping_in_bash", command);
+    assert.match(result.reason, /Windows drive path/);
+  }
+
+  for (const command of [
+    'ls -la "$HOME/.agents/skills"',
+    'ls -la "C:/Users/Groland/.agents/skills"',
+  ]) {
+    assert.deepEqual(validateShellCommandRequest(bash(command)), { ok: true }, command);
+  }
+});
+
 test("browser67 tasks reject system-browser launches and CLI probes", () => {
   const prompt = "Use browser67 to open https://example.invalid and inspect the current tab.";
   for (const command of [

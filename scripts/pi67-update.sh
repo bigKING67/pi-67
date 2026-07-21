@@ -795,6 +795,27 @@ patch_until_done_runtime_queue() {
   bash "$patcher" --apply --agent-dir "$PI_AGENT_DIR"
 }
 
+patch_smart_fetch_charset() {
+  local patcher="$REPO_ROOT/scripts/pi67-patch-pi-smart-fetch-charset.mjs"
+
+  say ""
+  say "${CYAN}--- pi-smart-fetch charset patch ---${NC}"
+  if [ ! -f "$patcher" ]; then
+    warn "pi-smart-fetch charset patcher missing: $patcher"
+    return
+  fi
+  if ! command_exists node; then
+    warn "node not found; skipped pi-smart-fetch charset patch"
+    return
+  fi
+  if [ "$DRY_RUN" = true ]; then
+    say "  ${CYAN}DRY-RUN${NC} node $patcher --apply --agent-dir $PI_AGENT_DIR"
+    return
+  fi
+
+  node "$patcher" --apply --agent-dir "$PI_AGENT_DIR"
+}
+
 check_npm_status() {
   say ""
   say "${CYAN}--- npm status ---${NC}"
@@ -848,6 +869,31 @@ check_until_done_runtime_queue_status() {
     pass "pi-until-done runtime queue/progress compatibility is already patched or package is not installed"
   else
     warn "pi-until-done runtime queue/progress compatibility would be patched after npm sync"
+  fi
+}
+
+check_smart_fetch_charset_status() {
+  local patcher="$REPO_ROOT/scripts/pi67-patch-pi-smart-fetch-charset.mjs"
+
+  say ""
+  say "${CYAN}--- pi-smart-fetch charset compatibility ---${NC}"
+  if [ ! -f "$patcher" ]; then
+    warn "pi-smart-fetch charset patcher missing"
+    return
+  fi
+  if ! command_exists node; then
+    warn "node not found; skipped pi-smart-fetch charset compatibility check"
+    return
+  fi
+  if node "$patcher" --check --agent-dir "$PI_AGENT_DIR" >/dev/null 2>&1; then
+    pass "pi-smart-fetch charset compatibility is already patched or package is not installed"
+  else
+    local checker_exit=$?
+    if [ "$checker_exit" -eq 3 ]; then
+      warn "pi-smart-fetch charset compatibility requires review; run the charset checker for details"
+    else
+      warn "pi-smart-fetch charset compatibility would be patched after npm sync"
+    fi
   fi
 }
 
@@ -1083,6 +1129,7 @@ check_update_plan() {
   check_local_config_templates
   check_npm_status
   check_until_done_runtime_queue_status
+  check_smart_fetch_charset_status
   report_check "$current_version" "$local_short" "$([ -n "$dirty" ] && printf true || printf false)"
 
   say ""
@@ -1099,9 +1146,11 @@ check_update_plan() {
   if [ "$RUN_NPM" = true ]; then
     say "  sync npm dependencies with npm ci when package.json/package-lock.json differ"
     say "  apply pi-until-done runtime queue/progress compatibility patch when needed"
+    say "  apply pi-smart-fetch declared-charset compatibility patch when needed"
   else
     say "  skip npm sync (--no-npm)"
     say "  still check/apply pi-until-done runtime queue/progress compatibility patch against existing package"
+    say "  still check/apply pi-smart-fetch charset compatibility patch against existing package"
   fi
   if [ "$RUN_DOCTOR" = true ]; then
     say "  run doctor"
@@ -1270,6 +1319,7 @@ TIMING_SKILLS_SECONDS=$(( $(date +%s) - phase_started ))
 phase_started="$(date +%s)"
 sync_npm
 patch_until_done_runtime_queue
+patch_smart_fetch_charset
 TIMING_NPM_SECONDS=$(( $(date +%s) - phase_started ))
 
 phase_started="$(date +%s)"

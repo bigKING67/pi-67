@@ -10,6 +10,7 @@ export {
   buildFunctionStyleToolRepairPrompt,
   buildInvalidToolArgumentsRepairPrompt,
   buildInvalidToolJsonRepairPrompt,
+  buildMalformedWindowsBashJsonRepairPrompt,
   buildPlanModeFallbackPlan,
   buildPrematureFinalRepairPrompt,
   buildRawProtocolMarkupRepairPrompt,

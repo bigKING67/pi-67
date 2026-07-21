@@ -2,6 +2,7 @@ import type { ToolCallParseResult } from "./parser.ts";
 import {
   buildFunctionStyleToolRepairPrompt,
   buildInvalidToolJsonRepairPrompt,
+  buildMalformedWindowsBashJsonRepairPrompt,
   buildRawProtocolMarkupRepairPrompt,
   buildSelectedToolDirectKindRepairPrompt,
 } from "./turn/recovery-prompts.ts";
@@ -11,6 +12,7 @@ export type ParseErrorResult = Extract<ToolCallParseResult, { kind: "error" }>;
 export type ParseErrorRecoveryEvent =
   | "recovery.function_style_tool_call"
   | "recovery.selected_tool_direct_kind"
+  | "recovery.malformed_windows_bash_json"
   | "recovery.raw_protocol_markup"
   | "recovery.invalid_tool_json";
 
@@ -20,7 +22,10 @@ export type ParseErrorRepairPlan = {
 };
 
 export function parseErrorRecoveryBudget(parsed: ParseErrorResult): "repair" | "format" {
-  return parsed.code === "selected_tool_direct_kind" ? "repair" : "format";
+  return parsed.code === "selected_tool_direct_kind" ||
+    parsed.code === "malformed_windows_bash_json"
+    ? "repair"
+    : "format";
 }
 
 export function canRecoverEmptyResponse(
@@ -55,6 +60,13 @@ export function buildParseErrorRepairPlan(
     return {
       event: "recovery.selected_tool_direct_kind",
       prompt: buildSelectedToolDirectKindRepairPrompt(parsed.raw, names),
+    };
+  }
+
+  if (parsed.code === "malformed_windows_bash_json") {
+    return {
+      event: "recovery.malformed_windows_bash_json",
+      prompt: buildMalformedWindowsBashJsonRepairPrompt(parsed.raw, names),
     };
   }
 

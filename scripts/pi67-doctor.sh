@@ -460,6 +460,44 @@ NODE
   rm -f "$tmp"
 }
 
+check_smart_fetch_charset() {
+  local checker="$REPO_ROOT/scripts/pi67-patch-pi-smart-fetch-charset.mjs"
+  local tmp
+  if [ ! -f "$checker" ]; then
+    warn "pi-smart-fetch charset checker missing"
+    return
+  fi
+  if ! command_exists node; then
+    warn "node not found; skipped pi-smart-fetch charset compatibility check"
+    return
+  fi
+  tmp="$(mktemp "${TMPDIR:-/tmp}/pi67-smart-fetch-charset.XXXXXX")"
+  if node "$checker" --check --agent-dir "$PI_AGENT_DIR" --json >"$tmp" 2>/dev/null; then
+    node - "$tmp" <<'NODE'
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+if (data.status === "missing") console.log(`WARN|${data.message}`);
+else console.log(`PASS|${data.message}`);
+NODE
+  else
+    node - "$tmp" <<'NODE'
+const fs = require("fs");
+let data = null;
+try { data = JSON.parse(fs.readFileSync(process.argv[2], "utf8")); } catch {}
+if (data?.status === "review_required") console.log(`WARN|${data.message}`);
+else console.log(`FAIL|${data?.message || "pi-smart-fetch charset compatibility check failed"}`);
+NODE
+  fi | while IFS='|' read -r level message; do
+    case "$level" in
+      PASS) pass "$message" ;;
+      WARN) warn "$message" ;;
+      FAIL) fail "$message" ;;
+      *) warn "$level|$message" ;;
+    esac
+  done
+  rm -f "$tmp"
+}
+
 run_pi_list_with_timeout() {
   local output_file="$1"
   local timeout_seconds="$2"
@@ -1281,6 +1319,7 @@ fi
 
 section "Extension runtime compatibility"
 check_until_done_runtime_queue
+check_smart_fetch_charset
 
 section "Pi package registry"
 if [ "$RUN_PI_LIST" = true ]; then

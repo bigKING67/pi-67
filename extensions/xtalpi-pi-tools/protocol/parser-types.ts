@@ -18,6 +18,7 @@ export type ToolCallParseResult =
       code:
         | "function_style_tool_call"
         | "selected_tool_direct_kind"
+        | "malformed_windows_bash_json"
         | "multiple_tool_calls"
         | "invalid_json"
         | "invalid_envelope"
