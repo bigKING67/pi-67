@@ -329,6 +329,18 @@ NODE
   fi
 }
 
+apply_release_runtime_patches() {
+  local until_done_patcher="$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.sh"
+  local smart_fetch_patcher="$REPO_ROOT/scripts/pi67-patch-pi-smart-fetch-charset.mjs"
+
+  [ -f "$until_done_patcher" ] || fail "pi-until-done release runtime patcher is missing"
+  [ -f "$smart_fetch_patcher" ] || fail "pi-smart-fetch release runtime patcher is missing"
+
+  bash "$until_done_patcher" --apply --agent-dir "$REPO_ROOT"
+  node "$smart_fetch_patcher" --apply --agent-dir "$REPO_ROOT"
+  pass "release runtime compatibility patches applied"
+}
+
 prepare_release_runtime() {
   local runtime_dir="$REPO_ROOT/npm"
   local runtime_package="$runtime_dir/package.json"
@@ -341,6 +353,7 @@ prepare_release_runtime() {
     && [ -d "$runtime_dir/node_modules/pi-mcp-adapter" ] \
     && [ -f "$runtime_dir/node_modules/typescript/bin/tsc" ]; then
     pass "release runtime dependencies already match the committed lockfile"
+    apply_release_runtime_patches
     return
   fi
 
@@ -360,6 +373,7 @@ prepare_release_runtime() {
   [ -f "$runtime_dir/node_modules/typescript/bin/tsc" ] \
     || fail "release runtime preparation did not install TypeScript"
   pass "release runtime dependencies prepared from the committed lockfile"
+  apply_release_runtime_patches
 }
 
 delete_existing_same_version() {

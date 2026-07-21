@@ -342,6 +342,22 @@ if ! grep -q 'dry-run completed' "${SMOKE_LOG_DIR}/release-dry.log"; then
 fi
 pass "release automation dry-run completed"
 
+if ! bash "$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.sh" \
+  --check --agent-dir "$REPO_ROOT" >"${SMOKE_LOG_DIR}/release-until-done-runtime.log"; then
+  cat "${SMOKE_LOG_DIR}/release-until-done-runtime.log" >&2
+  fail "release automation did not preserve the pi-until-done runtime patch"
+fi
+if ! grep -q '^PASS ' "${SMOKE_LOG_DIR}/release-until-done-runtime.log"; then
+  cat "${SMOKE_LOG_DIR}/release-until-done-runtime.log" >&2
+  fail "release automation left pi-until-done unpatched or missing"
+fi
+if ! node "$REPO_ROOT/scripts/pi67-patch-pi-smart-fetch-charset.mjs" \
+  --check --agent-dir "$REPO_ROOT" --json \
+  | node -e 'let s=""; process.stdin.on("data", c => s += c); process.stdin.on("end", () => { const x = JSON.parse(s); if (x.status !== "compatible") process.exit(1); });'; then
+  fail "release automation did not preserve the pi-smart-fetch charset patch"
+fi
+pass "release automation preserves extension runtime compatibility patches"
+
 section "Prompt/template hygiene"
 if ! node "$REPO_ROOT/scripts/pi67-prompt-governance-check.mjs" \
   --repo-root "$REPO_ROOT" >"${SMOKE_LOG_DIR}/prompt-governance.log" 2>&1; then

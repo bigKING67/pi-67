@@ -6,7 +6,8 @@
 
 - Adds bounded recovery for malformed Windows `bash` JSON and applies a
   version-aware `pi-smart-fetch@0.3.12` charset compatibility patch during
-  install, update, and repair so declared GBK/GB2312 pages decode correctly.
+  install, update, repair, and release-runtime preparation so declared
+  GBK/GB2312 pages decode correctly.
 
 ## [0.14.1]
 
