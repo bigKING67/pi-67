@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.14.0]
+
 - Adds the registered `ai-berkshire-investment-suite` to `skills packs` and
   `skills sync-pack`, allowing all 21 provenance-locked investment Skills to be
   previewed and transactionally deployed into the shared active Skill root.

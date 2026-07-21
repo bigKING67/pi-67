@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-07-21
+
 ### Added
 
 - Added `ai-berkshire-investment-suite@1.0.0`, a shared Pi/Codex Pack containing
