@@ -20,7 +20,12 @@ import {
 } from "../src/lib/shell-runner.mjs";
 import { parseCommandOptions, splitGlobalArgs } from "../src/lib/args.mjs";
 import { readExtensionRegistry, validateExtensionRegistry } from "../src/lib/extension-registry.mjs";
-import { buildPlanDecisions, classifyGitShort } from "../src/lib/update-plan.mjs";
+import {
+  buildPlanDecisions,
+  classifyGitShort,
+  classifyManagedDependencyPackage,
+} from "../src/lib/update-plan.mjs";
+import { lockedDependencyVersion } from "../src/lib/distro-manifest.mjs";
 import {
   beginUpdateLifecycle,
   inspectLegacyConflictBackup,
@@ -91,6 +96,7 @@ runShellRunnerSelfTests();
 runExtensionRegistrySelfTests();
 runSettingsRuntimeStateSelfTests();
 runUpdatePreflightMigrationSelfTests();
+runManagedPackageLockPolicySelfTests();
 runUpdatePlanSelfTests();
 runUpdateCommandPolicySelfTests();
 runUpdateSafetySelfTests();
@@ -1847,6 +1853,17 @@ function runUpdatePlanSelfTests() {
     "installed managed npm package drift must create a package sync action",
   );
 
+  const installedPackageAhead = decisionsFixture({
+    packageAudit: {
+      packages: [{ packageName: "pi-simplify", status: "installed-ahead-of-baseline" }],
+    },
+  });
+  assert(
+    buildPlanDecisions(installedPackageAhead).actions.some((item) =>
+      item.id === "managed-npm-packages" && item.operation === "sync-to-release-lock"),
+    "managed npm packages ahead of the release lock must create a deterministic sync action",
+  );
+
   const missingManagedPackage = decisionsFixture({
     packageAudit: {
       packages: [{ packageName: "pi-subagents", status: "not-installed" }],
@@ -1862,6 +1879,8 @@ function runUpdatePlanSelfTests() {
       packages: [{
         packageName: "pi-subagents",
         status: "baseline-behind-latest",
+        baselineVersion: "0.33.1",
+        baselineBehindLatest: true,
         versionRange: "^0.33.1",
         latestVersion: "0.34.0",
       }],
@@ -1870,6 +1889,88 @@ function runUpdatePlanSelfTests() {
   assert(
     buildPlanDecisions(baselinePackageBehind).warnings.some((item) => item.includes("pi-subagents latest 0.34.0")),
     "managed npm package baseline drift must be visible as a warning",
+  );
+  assert(
+    !buildPlanDecisions(baselinePackageBehind).actions.some((item) => item.id === "managed-npm-packages"),
+    "registry versions newer than the release lock must not be installed before a new pi-67 release",
+  );
+}
+
+function runManagedPackageLockPolicySelfTests() {
+  assert(
+    lockedDependencyVersion({
+      packages: { "node_modules/pi-simplify": { version: "0.2.2" } },
+    }, "pi-simplify") === "0.2.2",
+    "managed dependency baselines must come from the tracked package lock",
+  );
+  assert(
+    lockedDependencyVersion({
+      dependencies: { "pi-simplify": { version: "0.2.1" } },
+    }, "pi-simplify") === "0.2.1",
+    "managed dependency baselines must support legacy package-lock layouts",
+  );
+
+  const registryPatch = {
+    skipped: false,
+    ok: true,
+    latestVersion: "0.2.3",
+  };
+  const releaseCurrent = classifyManagedDependencyPackage({
+    packageName: "pi-simplify",
+    role: "pi-package",
+    versionRange: "^0.2.2",
+    lockedVersion: "0.2.2",
+  }, {
+    installedVersion: "0.2.2",
+    registry: registryPatch,
+  });
+  assert(
+    releaseCurrent.status === "baseline-behind-latest" &&
+      releaseCurrent.baselineVersion === "0.2.2" &&
+      releaseCurrent.baselineBehindLatest,
+    "an in-range registry patch newer than the lock must be release baseline drift, not employee install drift",
+  );
+
+  const installedAhead = classifyManagedDependencyPackage({
+    packageName: "pi-simplify",
+    role: "pi-package",
+    versionRange: "^0.2.2",
+    lockedVersion: "0.2.2",
+  }, {
+    installedVersion: "0.2.3",
+    registry: registryPatch,
+  });
+  assert(
+    installedAhead.status === "installed-ahead-of-baseline" && installedAhead.installedAheadBaseline,
+    "an employee runtime ahead of the release lock must be resynchronized deterministically",
+  );
+
+  const offlineAhead = classifyManagedDependencyPackage({
+    packageName: "pi-simplify",
+    role: "pi-package",
+    versionRange: "^0.2.2",
+    lockedVersion: "0.2.2",
+  }, {
+    installedVersion: "0.2.3",
+    registry: { skipped: true, ok: false, latestVersion: "" },
+  });
+  assert(
+    offlineAhead.status === "installed-ahead-of-baseline" && offlineAhead.installedAheadBaseline,
+    "local runtime versions ahead of the release lock must remain repairable offline",
+  );
+
+  const offlineBehind = classifyManagedDependencyPackage({
+    packageName: "pi-simplify",
+    role: "pi-package",
+    versionRange: "^0.2.2",
+    lockedVersion: "0.2.2",
+  }, {
+    installedVersion: "0.2.1",
+    registry: { skipped: true, ok: false, latestVersion: "" },
+  });
+  assert(
+    offlineBehind.status === "installed-behind-baseline" && offlineBehind.installedBehindBaseline,
+    "local release-lock drift must remain repairable when registry checks are skipped",
   );
 }
 

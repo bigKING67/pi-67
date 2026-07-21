@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## [0.13.1]
+
+- Uses the tracked root `package-lock.json` as the managed-package baseline.
+  Registry releases newer than the lock now require a tested pi-67 release,
+  while local versions ahead of or behind the lock trigger one deterministic
+  `npm ci` synchronization instead of a non-converging update recommendation.
+
 ## [0.13.0]
 
 - Adds the first-party `pi-67 memory` lifecycle for the package-owned

@@ -6,6 +6,18 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-07-21
+
+### Fixed
+
+- Made the tracked root `package-lock.json` the authoritative release-tested
+  baseline for managed Pi packages. `update --check` now treats newer registry
+  versions, including semver-compatible patches, as maintainer-owned baseline
+  drift instead of repeatedly asking employees to run an `npm ci` update that
+  can only reinstall the existing lock. Local versions ahead of or behind the
+  lock are resynchronized deterministically, including with remote checks
+  disabled.
+
 ## [0.13.0] - 2026-07-20
 
 ### Added

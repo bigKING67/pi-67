@@ -96,9 +96,10 @@ async function doctor(ctx, argv) {
   if (data.managedPackages?.summary) {
     section("Managed npm package baseline");
     const summary = data.managedPackages.summary;
-    info(`${summary.current || 0} current, ${summary.installedBehind || 0} installed stale, ${summary.baselineBehindLatest || 0} baseline drift`);
+    const skipped = summary.registrySkipped ? `, ${summary.registrySkipped} registry skipped` : "";
+    info(`${summary.current || 0} current, ${summary.installedDrift || 0} installed drift, ${summary.baselineBehindLatest || 0} baseline drift${skipped}`);
     for (const item of data.managedPackages.packages.filter((entry) => entry.status !== "current" && entry.status !== "registry-skipped")) {
-      warn(`${item.packageName}: ${item.status}; baseline=${item.versionRange}; installed=${item.installedVersion || "missing"}; latest=${item.latestVersion || "unknown"}`);
+      warn(`${item.packageName}: ${item.status}; locked=${item.baselineVersion || "unknown"}; range=${item.versionRange}; installed=${item.installedVersion || "missing"}; latest=${item.latestVersion || "unknown"}`);
     }
   }
 }

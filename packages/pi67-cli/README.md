@@ -234,10 +234,14 @@ pi-67 update --repair
 ```
 
 `pi-67 update --check` reports whether the npm manager is outdated and whether
-pi-67 managed npm package baselines are current. Updating the manager itself is
-explicit. The latest-version checks read the npm registry HTTP API directly and
-do not depend on spawning local `npm` / `npm.cmd`. Explicit npm operations such
-as `self-update` still use npm, with Windows fallback through
+pi-67 managed npm packages match the release-tested versions in the tracked
+root `package-lock.json`. A newer registry version is reported as baseline drift
+even when it still satisfies the `package.json` semver range; employee updates
+do not adopt it until a new pi-67 release updates the lock and passes smoke.
+Updating the manager itself is explicit. The latest-version checks read the npm
+registry HTTP API directly and do not depend on spawning local `npm` /
+`npm.cmd`. Explicit npm operations such as `self-update` still use npm, with
+Windows fallback through
 `cmd.exe /d /s /c npm.cmd ...`:
 
 ```bash

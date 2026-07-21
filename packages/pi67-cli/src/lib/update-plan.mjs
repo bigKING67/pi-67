@@ -115,13 +115,13 @@ export async function buildUpdatePlan(ctx, options = {}) {
   }
   if (packageAudit.summary.baselineBehindLatest > 0) {
     const names = packageAudit.packages
-      .filter((item) => item.status === "baseline-behind-latest")
+      .filter((item) => item.baselineBehindLatest)
       .map((item) => `${item.packageName}@${item.latestVersion}`)
       .join(", ");
     recommendations.push(`pi-67 release should adopt newer managed package baselines after smoke: ${names}`);
   }
-  if ((packageAudit.summary.installedBehind || 0) > 0 || (packageAudit.summary.notInstalled || 0) > 0) {
-    recommendations.push("Run: pi-67 update; normal update automatically syncs missing or stale managed npm packages to the pi-67 baseline.");
+  if ((packageAudit.summary.installedDrift || 0) > 0 || (packageAudit.summary.notInstalled || 0) > 0) {
+    recommendations.push("Run: pi-67 update; normal update automatically syncs missing or different managed npm packages to the release lock.");
   }
   const decisions = buildPlanDecisions({
     ctx,
@@ -218,54 +218,22 @@ function upstreamPiRuntimeWarnings(runtime, warnings) {
 
 export async function auditManagedDependencyPackages(ctx, manifest, options = {}) {
   const packages = await Promise.all((manifest.dependencyPackages || []).map(async (item) => {
-    const baselineVersion = versionFromRange(item.versionRange);
     const installedVersion = installedDependencyVersion(ctx, item.packageName);
+    const baselineVersion = item.lockedVersion || versionFromRange(item.versionRange);
     const registry = await npmLatestVersion(item.packageName, {
       currentVersion: baselineVersion,
       noRemote: options.noRemote,
     });
-    const latestVersion = registry.latestVersion || "";
-    const latestSatisfiesRange = Boolean(latestVersion) &&
-      versionSatisfiesSupportedRange(latestVersion, item.versionRange);
-    const baselineBehindLatest = Boolean(latestVersion) &&
-      Boolean(baselineVersion) &&
-      compareSemver(baselineVersion, latestVersion) < 0 &&
-      !latestSatisfiesRange;
-    const installedBehindBaseline = Boolean(installedVersion) &&
-      Boolean(baselineVersion) &&
-      compareSemver(installedVersion, baselineVersion) < 0;
-    const installedBehindRangeLatest = Boolean(installedVersion) &&
-      Boolean(latestVersion) &&
-      latestSatisfiesRange &&
-      compareSemver(installedVersion, latestVersion) < 0;
-    let status = "current";
-    if (registry.skipped) status = "registry-skipped";
-    else if (!registry.ok) status = "registry-unknown";
-    else if (!installedVersion) status = "not-installed";
-    else if (baselineBehindLatest) status = "baseline-behind-latest";
-    else if (installedBehindBaseline) status = "installed-behind-baseline";
-    else if (installedBehindRangeLatest) status = "installed-behind-range-latest";
-    return {
-      packageName: item.packageName,
-      role: item.role,
-      versionRange: item.versionRange,
-      baselineVersion,
-      installedVersion,
-      latestVersion,
-      latestSatisfiesRange,
-      baselineBehindLatest,
-      installedBehindBaseline,
-      installedBehindRangeLatest,
-      status,
-      registry,
-    };
+    return classifyManagedDependencyPackage(item, { installedVersion, registry });
   }));
   const summary = {
     total: packages.length,
     current: packages.filter((item) => item.status === "current").length,
-    baselineBehindLatest: packages.filter((item) => item.status === "baseline-behind-latest").length,
-    installedBehind: packages.filter((item) =>
-      item.status === "installed-behind-baseline" || item.status === "installed-behind-range-latest").length,
+    baselineBehindLatest: packages.filter((item) => item.baselineBehindLatest).length,
+    installedBehind: packages.filter((item) => item.installedBehindBaseline).length,
+    installedAhead: packages.filter((item) => item.installedAheadBaseline).length,
+    installedDrift: packages.filter((item) =>
+      item.installedBehindBaseline || item.installedAheadBaseline).length,
     notInstalled: packages.filter((item) => item.status === "not-installed").length,
     registryUnknown: packages.filter((item) => item.status === "registry-unknown").length,
     registrySkipped: packages.filter((item) => item.status === "registry-skipped").length,
@@ -275,6 +243,54 @@ export async function auditManagedDependencyPackages(ctx, manifest, options = {}
     remoteSkipped: Boolean(options.noRemote),
     summary,
     packages,
+  };
+}
+
+export function classifyManagedDependencyPackage(item, options = {}) {
+  const baselineVersion = item.lockedVersion || versionFromRange(item.versionRange);
+  const installedVersion = String(options.installedVersion || "").trim();
+  const registry = options.registry || { skipped: true, ok: false, latestVersion: "" };
+  const latestVersion = registry.latestVersion || "";
+  const latestSatisfiesRange = Boolean(latestVersion) &&
+    versionSatisfiesSupportedRange(latestVersion, item.versionRange);
+  const baselineBehindLatest = Boolean(registry.ok) &&
+    Boolean(latestVersion) &&
+    Boolean(baselineVersion) &&
+    compareSemver(baselineVersion, latestVersion) < 0;
+  const installedBehindBaseline = Boolean(installedVersion) &&
+    Boolean(baselineVersion) &&
+    compareSemver(installedVersion, baselineVersion) < 0;
+  const installedAheadBaseline = Boolean(installedVersion) &&
+    Boolean(baselineVersion) &&
+    compareSemver(installedVersion, baselineVersion) > 0;
+  const installedBehindRangeLatest = Boolean(installedVersion) &&
+    Boolean(latestVersion) &&
+    latestSatisfiesRange &&
+    compareSemver(installedVersion, latestVersion) < 0;
+
+  let status = "current";
+  if (!installedVersion) status = "not-installed";
+  else if (installedBehindBaseline) status = "installed-behind-baseline";
+  else if (installedAheadBaseline) status = "installed-ahead-of-baseline";
+  else if (registry.skipped) status = "registry-skipped";
+  else if (!registry.ok) status = "registry-unknown";
+  else if (baselineBehindLatest) status = "baseline-behind-latest";
+
+  return {
+    packageName: item.packageName,
+    role: item.role,
+    versionRange: item.versionRange,
+    baselineVersion,
+    baselineSource: item.lockedVersion ? "package-lock.json" : "package.json-range-floor",
+    installedVersion,
+    latestVersion,
+    latestSatisfiesRange,
+    baselineBehindLatest,
+    installedBehindBaseline,
+    installedAheadBaseline,
+    installedBehindRangeLatest,
+    status,
+    registry,
   };
 }
 
@@ -446,23 +462,23 @@ export function buildPlanDecisions(context) {
   const packageAudit = context.packageAudit || { summary: {}, packages: [] };
   const packagesNeedingSync = packageAudit.packages.filter((item) =>
     item.status === "installed-behind-baseline" ||
-    item.status === "installed-behind-range-latest" ||
+    item.status === "installed-ahead-of-baseline" ||
     item.status === "not-installed");
   if (packagesNeedingSync.length > 0) {
     actions.push({
       id: "managed-npm-packages",
       kind: "npm-package-sync",
-      operation: "sync-to-pi67-baseline",
+      operation: "sync-to-release-lock",
       writes: ["npm/package.json", "npm/package-lock.json", "npm/node_modules"],
       preserves: preservedRuntimeFiles,
       risk: "low",
-      reason: `${packagesNeedingSync.length} managed npm package(s) are missing or installed behind the pi-67 baseline or allowed latest range`,
+      reason: `${packagesNeedingSync.length} managed npm package(s) are missing or differ from the release-locked baseline`,
       explicitCommand: "pi-67 update",
     });
   }
-  for (const item of packageAudit.packages.filter((entry) => entry.status === "baseline-behind-latest")) {
+  for (const item of packageAudit.packages.filter((entry) => entry.baselineBehindLatest)) {
     warnings.push(
-      `managed package ${item.packageName} latest ${item.latestVersion} is beyond pi-67 baseline ${item.versionRange}; wait for a pi-67 release that adopts it after smoke instead of running upstream pi update --extensions`,
+      `managed package ${item.packageName} latest ${item.latestVersion} is newer than release-locked baseline ${item.baselineVersion} (range ${item.versionRange}); wait for a pi-67 release that updates the lock after smoke instead of running upstream pi update --extensions`,
     );
   }
   for (const repo of context.external) {

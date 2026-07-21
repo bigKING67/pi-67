@@ -4,7 +4,7 @@
 
 > 让 Windows 和 macOS 用户用尽可能少的步骤，获得公司统一、持续升级、可诊断、可回滚的 Pi 工作台。`pi` 始终是实际运行入口；`pi-67` 负责把 Pi 所需的配置、扩展、Skills、规则、脚本和公司默认 provider 封装成一键发行版。
 
-当前发行版版本：`0.13.0`（见 `VERSION` 和 `CHANGELOG.md`）。
+当前发行版版本：`0.13.1`（见 `VERSION` 和 `CHANGELOG.md`）。
 
 ## 项目定位
 
@@ -1474,9 +1474,11 @@ pi-67 extensions inspect xtalpi-pi-tools
 ```
 
 `pi-67 update --check` 和 `pi-67 extensions doctor` 也会检查 pi-67 管理的
-npm 扩展 baseline：若只是本机安装缺失或落后，运行 `pi-67 update` 会自动同步；
-若显示 `baseline drift`，说明上游包已发布新版本但当前 pi-67 release 尚未
-吸收，应由维护者升级 baseline、跑 smoke/release 后再发布新的 pi-67。
+npm 扩展 baseline。tracked `package-lock.json` 是唯一 release-tested 版本真源：
+本机安装缺失或与锁版本不同，运行 `pi-67 update` 会通过 `npm ci` 确定性同步；
+registry 出现比锁版本新的包时，即使仍满足 `package.json` semver 范围，也只显示
+`baseline drift`，由维护者更新 lock、跑 smoke/release 后再发布新的 pi-67，员工
+机器不会提前吸收未经当前 release 验证的版本。
 
 查看和恢复 update/repair/theme-set 产生的 repo 外运行态备份：
 

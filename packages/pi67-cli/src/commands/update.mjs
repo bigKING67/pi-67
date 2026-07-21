@@ -183,7 +183,7 @@ function printPlan(plan) {
     const skipped = packages.registrySkipped ? `, ${packages.registrySkipped} registry skipped` : "";
     keyValue(
       "Managed packages",
-      `${packages.current || 0} current, ${packages.installedBehind || 0} installed stale, ${packages.baselineBehindLatest || 0} baseline drift${skipped}`,
+      `${packages.current || 0} current, ${packages.installedDrift || 0} installed drift, ${packages.baselineBehindLatest || 0} baseline drift${skipped}`,
     );
   }
   keyValue("Shared skills", `${plan.skills.identical} ok, ${plan.skills.missing} missing, ${preservedUserModified(plan.skills)} preserved user-modified`);

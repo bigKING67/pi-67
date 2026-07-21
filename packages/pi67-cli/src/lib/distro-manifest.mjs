@@ -9,6 +9,7 @@ export function buildDistroManifest(ctx) {
   const base = readBaseManifest();
   const extensionRegistry = readExtensionRegistry();
   const rootPackage = readJsonFileIfExists(path.join(ctx.repoRoot, "package.json")) || {};
+  const rootLock = readJsonFileIfExists(path.join(ctx.repoRoot, "package-lock.json")) || {};
   const settings = readJsonFileIfExists(path.join(ctx.agentDir, "settings.json")) || {};
   const dependencies = rootPackage.dependencies || {};
   const dependencyPackages = Object.entries(dependencies)
@@ -16,8 +17,9 @@ export function buildDistroManifest(ctx) {
       spec: `npm:${packageName}`,
       packageName,
       versionRange,
+      lockedVersion: lockedDependencyVersion(rootLock, packageName),
       owner: "pi67-managed",
-      source: "package.json.dependencies",
+      source: "package.json.dependencies+package-lock.json",
       role: packageName === base.theme.packageName ? "theme-package" : "pi-package",
       policy: packageName === base.theme.packageName
         ? base.theme.policy
@@ -86,6 +88,14 @@ export function buildDistroManifest(ctx) {
     },
     userManagedPackages,
   };
+}
+
+export function lockedDependencyVersion(lockfile, packageName) {
+  const direct = lockfile?.packages?.[`node_modules/${packageName}`]?.version;
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+  const legacy = lockfile?.dependencies?.[packageName]?.version;
+  if (typeof legacy === "string" && legacy.trim()) return legacy.trim();
+  return "";
 }
 
 export function packageNameFromSpec(spec) {
