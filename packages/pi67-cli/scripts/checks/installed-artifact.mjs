@@ -160,6 +160,40 @@ function runInstalledArtifactChecks(installedRoot, tmpRoot, npmChildEnv) {
     "packed artifact install must use its own matching distro without Git clone",
   );
 
+  const releaseStorePath = path.join(installedRoot, "src", "lib", "release-store.mjs");
+  const stateDir = path.join(installHome, ".pi", "pi67");
+  const stageProbe = spawnSync(process.execPath, [
+    "--input-type=module",
+    "--eval",
+    [
+      'import fs from "node:fs";',
+      'import path from "node:path";',
+      'import { pathToFileURL } from "node:url";',
+      'const { stageDistroRelease } = await import(pathToFileURL(process.argv[1]).href);',
+      'const ctx = { agentDir: process.argv[3], repoRoot: process.argv[3], stateDir: process.argv[4] };',
+      'const result = stageDistroRelease(ctx, { sourceRoot: process.argv[2] });',
+      'if (!fs.existsSync(path.join(result.releasePath, ".pi67-bundle.json"))) process.exit(3);',
+      'process.stdout.write(JSON.stringify(result));',
+    ].join("\n"),
+    releaseStorePath,
+    path.join(installedRoot, "distro"),
+    installAgent,
+    stateDir,
+  ], {
+    cwd: tmpRoot,
+    encoding: "utf8",
+    env: { ...npmChildEnv, HOME: installHome, USERPROFILE: installHome },
+  });
+  assert(
+    stageProbe.status === 0,
+    `packed artifact immutable staging failed: ${stageProbe.stderr || stageProbe.stdout}`,
+  );
+  const staged = JSON.parse(stageProbe.stdout);
+  assert(
+    staged.version === packageVersion && staged.created === true,
+    "packed artifact must stage a verified immutable release",
+  );
+
   for (const checkModule of ["installed-artifact.mjs", "settings-runtime-state.mjs"]) {
     const modulePath = path.join(installedRoot, "scripts", "checks", checkModule);
     const imported = spawnSync(process.execPath, [

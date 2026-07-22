@@ -927,7 +927,7 @@ Run-Check "Windows manual fresh-install product contract is documented" {
   $freshInstall = RepoPath "docs/windows-fresh-install.md"
   Assert-ContentContains $freshInstall "Node.js 24 LTS"
   Assert-ContentContains $freshInstall "Node.js 22.19+"
-  Assert-ContentContains $freshInstall "npm install --global @bigking67/pi-67@0.15.0"
+  Assert-ContentContains $freshInstall "npm install --global @bigking67/pi-67@0.15.1"
   Assert-ContentContains $freshInstall "pi67-bootstrap.ps1"
   Assert-ContentContains $freshInstall "pi-67 migrate --check --json"
   Assert-ContentContains $freshInstall "pi-67 update --check --json"

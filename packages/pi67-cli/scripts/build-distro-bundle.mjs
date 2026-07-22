@@ -8,9 +8,9 @@ const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const repoRoot = requireSourcePackageLayout(packageRoot, resolveSourceRepoRoot(packageRoot));
 const targetRoot = path.join(packageRoot, "distro");
 
+// npm strips .gitignore from packed artifacts, and immutable releases do not need Git ignore rules.
 const ROOT_FILES = [
   ".gitattributes",
-  ".gitignore",
   "AGENTS.md",
   "CHANGELOG.md",
   "LICENSE",

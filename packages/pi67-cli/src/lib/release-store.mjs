@@ -25,8 +25,9 @@ const ACTIVE_EXCLUDED_PREFIXES = [
 
 const MIGRATION_RUNTIME_DIRS = ["extensions", "git", "npm", "sessions"];
 
+// Keep source-checkout staging consistent with the npm-packed immutable bundle.
 const SOURCE_DISTRO_FILES = new Set([
-  ".gitattributes", ".gitignore", "AGENTS.md", "CHANGELOG.md", "LICENSE", "README.md", "VERSION",
+  ".gitattributes", "AGENTS.md", "CHANGELOG.md", "LICENSE", "README.md", "VERSION",
   "auth.example.json", "image-gen.example.json", "install.ps1", "install.sh", "mcp.example.json",
   "models.example.json", "package-lock.json", "package.json", "settings.example.json",
   "shared-skill-packs.json", "shared-skill-packs.lock.json", "tsconfig.hy-memory.json", "tsconfig.json",

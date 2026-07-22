@@ -1,6 +1,6 @@
 # pi-67 完整安装、迁移与更新
 
-适用版本：`0.15.0`。
+适用版本：`0.15.1`。
 
 本文只描述 pi-67 工作台。upstream Pi 是独立底座，用户按 upstream 方式单独
 安装和维护；pi-67 不安装、更新、比较或推荐 Pi 版本。
@@ -61,10 +61,10 @@ Get-Command pi-67 -ErrorAction SilentlyContinue
 
 ## 3. 全新安装
 
-0.15.0 正式发布后：
+安装指定版本：
 
 ```bash
-npm install --global @bigking67/pi-67@0.15.0
+npm install --global @bigking67/pi-67@0.15.1
 pi-67 install
 pi-67 version --json
 pi-67 doctor --json
@@ -74,7 +74,7 @@ pi
 Windows：
 
 ```powershell
-npm install --global @bigking67/pi-67@0.15.0
+npm install --global @bigking67/pi-67@0.15.1
 pi-67 install
 pi-67 version --json
 & "$env:USERPROFILE\.pi\agent\scripts\pi67-doctor.ps1" -Json
@@ -85,7 +85,7 @@ pi
 
 1. 从当前 manager artifact 读取同版本内置 distro；
 2. 校验 `.pi67-bundle.json` 中每个文件的 SHA-256；
-3. 将发行资产落到 `<stateDir>/releases/0.15.0`；
+3. 将发行资产落到 `<stateDir>/releases/0.15.1`；
 4. 原子激活 package-owned 工作台文件；
 5. 保留所有 machine-owned runtime state；
 6. 安装 missing 或安全 behind 的默认扩展最低基线；

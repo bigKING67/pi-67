@@ -6,6 +6,18 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-07-23
+
+### Fixed
+
+- Excluded `.gitignore` from immutable distro contents because npm strips that
+  file from packed artifacts, which previously left the published bundle
+  manifest referencing a missing file and blocked fresh install or legacy
+  migration with `pi-67 distro bundle integrity mismatch: .gitignore`.
+- Extended packed-artifact self-tests to stage and verify the installed
+  immutable distro through the same integrity gate used by real install,
+  update, and migration flows instead of relying only on a dry-run preview.
+
 ## [0.15.0] - 2026-07-22
 
 ### Added

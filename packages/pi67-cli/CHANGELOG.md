@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [0.15.1]
+
+- Excludes `.gitignore` from immutable distro manifests because npm removes it
+  from packed artifacts, and verifies registry-style installed packages by
+  staging their distro through the real integrity gate before release.
+
 ## [0.15.0]
 
 - Keeps installed npm artifacts immutable during package self-tests: bundle
