@@ -926,7 +926,7 @@ Run-Check "PowerShell update/doctor/report/smoke entrypoints are documented" {
 Run-Check "Windows manual fresh-install product contract is documented" {
   $freshInstall = RepoPath "docs/windows-fresh-install.md"
   Assert-ContentContains $freshInstall "Node.js 24 LTS"
-  Assert-ContentContains $freshInstall "22.19.0"
+  Assert-ContentContains $freshInstall "Node.js 22.19+"
   Assert-ContentContains $freshInstall "npm install --global @bigking67/pi-67@0.15.0"
   Assert-ContentContains $freshInstall "pi67-bootstrap.ps1"
   Assert-ContentContains $freshInstall "pi-67 migrate --check --json"
@@ -947,7 +947,7 @@ Run-Check "independent Pi and immutable pi-67 lifecycle ownership is enforced" {
   Assert-ContentNotContains $updateCommand 'captureCommand("pi"'
   Assert-ContentNotContains $manifest '"upstreamPi"'
   Assert-ContentContains $manifest '"policy": "manager-bundled-immutable-distro-no-github-main-clone-or-pull"'
-  Assert-ContentContains $manifest '"versionModel": "minimum-supported-baseline"'
+  Assert-ContentContains $manifest '"policy": "minimum-baseline-install-missing-upgrade-safe-behind-preserve-ahead-and-diverged"'
   Assert-ContentContains (RepoPath "README.md") "Pi 与 pi-67 是两个独立产品"
   Assert-ContentContains (RepoPath "packages/pi67-cli/README.md") "never installs, updates, compares, recommends, or constrains"
   Assert-ContentContains (RepoPath "scripts/pi67-report.ps1") '[string]$StateDir'

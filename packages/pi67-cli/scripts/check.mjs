@@ -1718,7 +1718,7 @@ function runManagedExtensionBaselineSelfTests() {
   const installedBundle = path.join(agentDir, bundlePath);
   fs.mkdirSync(sourceBundle, { recursive: true });
   fs.mkdirSync(installedBundle, { recursive: true });
-  fs.writeFileSync(path.join(sourceBundle, "index.ts"), "baseline\n");
+  fs.writeFileSync(path.join(sourceBundle, "index.ts"), "baseline\r\n");
   fs.writeFileSync(path.join(installedBundle, "index.ts"), "future managed copy\n");
   const bundledRegistry = {
     schema: "pi67.managed-extension-baselines.v1",

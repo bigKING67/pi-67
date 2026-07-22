@@ -6,6 +6,7 @@ import { compareSemver } from "./npm-registry.mjs";
 import { CliError } from "./output.mjs";
 import { packageRoot } from "./paths.mjs";
 import { captureCommand, runCommand } from "./shell-runner.mjs";
+import { canonicalHashBytes } from "./skill-pack-integrity.mjs";
 
 const BASELINES_SCHEMA = "pi67.managed-extension-baselines.v1";
 const LEDGER_SCHEMA = "pi67.extension-ledger.v1";
@@ -558,7 +559,7 @@ function hashPackageTree(root) {
     const rel = path.relative(root, file).replace(/\\/g, "/");
     hash.update(rel);
     hash.update("\0");
-    hash.update(fs.readFileSync(file));
+    hash.update(canonicalHashBytes(fs.readFileSync(file)));
     hash.update("\0");
   }
   return hash.digest("hex");

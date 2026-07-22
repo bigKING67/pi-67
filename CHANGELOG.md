@@ -54,6 +54,11 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ### Fixed
 
+- Prevented installed npm package self-tests from rebuilding or deleting their
+  own immutable `distro/`, and kept distro runtime-script dependencies
+  self-contained inside the release artifact.
+- Normalized bundled-extension text hashes across LF and CRLF checkouts so the
+  same extension baseline validates consistently on Windows, macOS, and Linux.
 - Prevented a pi-67 release from overwriting a user-upgraded third-party
   extension merely because the release baseline is older.
 - Prevented repair from treating all npm extension versions as one lockstep

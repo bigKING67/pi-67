@@ -8,6 +8,8 @@
   build/cleanup is restricted to the source checkout, installed-package checks
   preserve `distro/`, and runtime scripts retain their package-owned libraries
   inside the self-contained immutable release.
+- Normalizes bundled-extension text hashes across LF and CRLF checkouts so
+  Windows and Unix-like systems enforce the same immutable content baseline.
 - Ships the exact-version pi-67 distro inside the manager package and activates
   immutable release directories with atomic pointers, journals, pending
   recovery, collision detection, no-op repeated activation, migration, and

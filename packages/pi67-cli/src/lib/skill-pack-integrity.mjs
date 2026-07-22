@@ -138,7 +138,7 @@ function walkFiles(root, output) {
   }
 }
 
-function canonicalHashBytes(content) {
+export function canonicalHashBytes(content) {
   if (content.includes(0)) return content;
   const text = content.toString("utf8");
   if (!Buffer.from(text, "utf8").equals(content)) return content;
