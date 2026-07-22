@@ -198,15 +198,16 @@ pi-67 memory reset --yes
 
 ## 与现有记忆能力的关系
 
-`pi-hy-memory` 是 pi-67 唯一默认分发和维护的长期记忆机制。pi-67 不会迁移、
-修改或删除用户自行安装的 `agent_memory`/EverOS 数据，也不接管
-`pi-observational-memory`；这些外部机制继续由用户自行配置和维护：
+pi-67 默认分发两个职责不同的公共记忆层。`pi-hy-memory` 是跨 session 长期
+记忆机制；`pi-observational-memory` 是 session 内观察与压缩机制。两者都受
+0.15.0 extension minimum baseline 管理，但不会互相替代。pi-67 不会迁移、修改
+或删除用户自行安装的 `agent_memory`/EverOS 数据：
 
 - `pi-hy-memory`：当前系统用户跨项目共享的主动召回和 settled-turn 长期记忆；
 - 第三方记忆 MCP/EverOS：不在默认 `mcp.example.json` 中分发，已有本机配置在
   update/repair 时保留；
-- `pi-observational-memory`：不由 pi-67 初始化或维护，保持其原有观察式后台压缩
-  生命周期。
+- `pi-observational-memory`：默认 package extension，保持其原有 session 内观察式
+  压缩生命周期；用户本机 ahead/diverged 副本不被 pi-67 降级或覆盖。
 
 外部记忆系统可以与 Hy-Memory 并存，但可能重复召回或写入同一信息。遇到重复
 注入时，可先运行 `pi-67 memory disable` 隔离 Hy-Memory，再分别检查各系统，

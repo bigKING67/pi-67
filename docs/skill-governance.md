@@ -1,406 +1,279 @@
-# pi-67 skill governance
+# pi-67 Shared Skill 治理
 
-`~/.agents/skills` is the canonical active skill registry shared by Pi and
-Codex. pi-67 stores its distributable skill source in `shared-skills/` and the
-installer copies those skills into `~/.agents/skills`.
+适用版本：`0.15.0`。
 
-The global registry is authoritative for already-installed skills. If a target
-machine already has `~/.agents/skills/<name>` and its content differs from the
-pi-67 bundled baseline, installers and updaters preserve the existing global
-skill as user-modified by default and warn. A hash mismatch only proves that
-the directories differ; it does not prove the pi-67 copy is newer. Use
-`--strict-shared-skills` only for release/parity checks where preserved
-user-modified global skills should block.
+## 1. 三层模型
 
-`~/.pi/agent/skills` is legacy. If it exists with active skills, treat it as a
-duplicate source and remove or back it up after confirming the same skills exist
-in `~/.agents/skills`.
+```text
+shared-skills/                         pi-67 bundled source of truth
+shared-skill-packs.json                Pack ownership/distribution registry
+shared-skill-packs.lock.json           immutable provenance and content hashes
+~/.agents/skills/                      active user-visible Skill root
+```
 
-Normal users can inspect and sync the shared registry through the npm manager:
+normal install/update 的职责是保证默认 Skills 不缺失，不是强制把 active root 与
+bundle 做字节级锁定。
+
+## 2. 默认更新策略
+
+| Active 状态 | 行为 |
+| --- | --- |
+| missing | 从 bundled source 复制 |
+| identical | no-op |
+| different/conflict | 保留 active 内容并报告 |
+| duplicate legacy root | 报告并引导迁移，不静默删除 |
+| strict mode conflict | block，但仍不覆盖 |
+
+这与 extension minimum baseline 一致：用户已经自行更新/维护的内容不被旧 pi-67
+覆盖。
+
+## 3. 发行版必备集合
+
+0.15.0 bundle 共有 62 个 shared Skills，必须包含：
+
+- 27 个 Lark Skills，包含 `lark-apps`、`lark-note`；
+- 8 个 Commerce/Marketing Skills；
+- 21 个 AI Berkshire Skills；
+- 其他公共工作台 Skills。
+
+任何默认 Skill 的移除都需要明确产品决策、迁移说明和 release note，不能为了
+artifact size 或让 conflict count 变小而删除。
+
+## 4. First-party Packs
+
+### Commerce/Marketing
+
+```text
+consumer-brand-commerce-marketing-suite
+```
+
+8 个 Skills：
+
+```text
+commerce-growth-os
+commerce-commercial-strategy
+commerce-operations
+commerce-analytics
+consumer-marketing-os
+brand-strategy-communications
+content-creative-social-marketing
+growth-performance-lifecycle-marketing
+```
+
+### AI Berkshire
+
+```text
+ai-berkshire-investment-suite
+```
+
+21 个 value-investing/research/publishing Skills，以 registry 中的 canonical list 为准。
+
+两个 Pack 的产品 metadata：
+
+```json
+{
+  "owner": "pi67-first-party",
+  "distribution": "bundled-release-only"
+}
+```
+
+含义：
+
+- 用户机器只从已发布 pi-67 artifact 获得 baseline；
+- `pi-67 update` 不自动拉取第三方 runtime source；
+- 维护者可使用受控 source/provenance 生成新版 bundle；
+- 只有 pi-67 维护者更新、测试并发布新版本后，用户才有机会升级这些 Skills。
+
+## 5. Registry 与 lock
+
+`shared-skill-packs.json` 定义：
+
+```text
+name
+version
+owner
+distribution
+skills[]
+source/provenance metadata
+```
+
+`shared-skill-packs.lock.json` 定义：
+
+```text
+source_commit
+manifest_sha256
+bundle_sha256
+skills[].sha256
+```
+
+`upstream` 对 first-party bundled-only Pack 可以为空；运行时不得因 URL 为空而
+自动 fallback 到网络。维护生成 helper 若需要 source repo，必须由维护者显式提供并
+验证 origin/commit/dirty state。
+
+## 6. 用户命令
+
+只读：
 
 ```bash
 pi-67 skills inventory
-pi-67 skills sync
+pi-67 skills inventory --json
+pi-67 skills packs --json
+pi-67 skills plan
+pi-67 skills diff <skill-name>
 ```
 
-The sync command copies only missing bundled shared skills. If an existing
-`~/.agents/skills/<name>` differs from the pi-67 baseline, it is reported and
-preserved; pi-67 does not overwrite a user's global skill choice by default.
-
-The installer handles linked installs by backing up `~/.pi/agent/skills` into
-the normal install backup directory. The update helper removes only old
-pi-67-owned skill symlinks; local non-symlink directories are preserved and
-reported so the user can review them manually.
-
-## Classification
-
-Use three buckets when migrating or reviewing skills.
-
-### A. Public distribution skill
-
-Add a skill to `shared-skills/` only when it is suitable for other machines:
-
-- no secrets, credentials, cookies, or private tokens
-- no personal absolute paths
-- clear `SKILL.md` entrypoint
-- documented trigger/use case
-- dependencies are either standard tools or documented optional prerequisites
-- useful beyond one local workflow
-
-The Consumer Brand Commerce and Marketing suite is a public distribution Skill
-Pack in this bucket. Its upstream source repository is:
-
-```text
-https://github.com/bigKING67/commerce-growth-os
-```
-
-pi-67 keeps eight self-contained vendored distribution Skills under
-`shared-skills/`, registered as
-`consumer-brand-commerce-marketing-suite@2.0.0` in
-`shared-skill-packs.json`. Its resolved upstream Commit and Bundle fingerprints
-are stored separately in `shared-skill-packs.lock.json`. Other macOS/Windows
-machines receive missing Skills through the normal pi-67 install/update path.
-Do not put a maintainer's local checkout path or this GitHub repository into
-`settings.json.packages`; active copies belong in `~/.agents/skills`.
-
-The AI Berkshire investment suite is the second public Pack in this bucket.
-pi-67 adapts the current 21 `codex-skills/*/SKILL.md` packages from
-`https://github.com/xbtlin/ai-berkshire`, includes their MIT License and only
-the Python tools each Skill actually references, and registers them as
-`ai-berkshire-investment-suite`. The shared adapter removes personal checkout
-assumptions and maps host-specific agent/tool names to capabilities that are
-actually live; it does not execute upstream code while generating the Pack.
-
-### B. Personal overlay skill
-
-Keep a skill outside this repository when it is useful locally but not suitable
-for public distribution:
-
-- depends on a private repo, account, browser profile, or local path
-- contains personal workflow assumptions
-- wraps a tool that is not part of the pi-67 distribution
-- is experimental or too narrow for shared release
-
-Use `~/.agents/skills` or a private repository for this class. Do not copy it
-into pi-67 just because it existed in an old runtime manifest.
-
-### Package-owned external skill
-
-When a skill has its own public source-of-truth repository and release cadence,
-install the skill into the global active root instead of declaring it as an
-active Pi package:
-
-```text
-~/.agents/skills/design-craft
-~/.agents/skills/frontend-craft
-~/.agents/skills/tmwd-browser-mcp
-~/.agents/skills/js-reverse
-```
-
-Normal installs copy the skill directories into `~/.agents/skills`. Symlinks are
-only for local development when the maintainer wants live edits in a checkout to
-be visible immediately.
-
-If the same repository also provides MCP servers, keep that checkout/cache
-outside active skill roots and point `mcp.json` at the server files:
-
-```text
-~/.agents/packages/browser67/src/mcp/browser/server.mjs
-~/.agents/packages/browser67/src/mcp/js-reverse/server.mjs
-```
-
-For Pi runtime `mcp.json`, prefer a machine-local absolute `cwd` plus relative
-`args` for browser67 MCP servers. Absolute `command` / `args` are still valid
-for custom binaries, but do not put `$HOME` in MCP `command` / `args`;
-`pi-mcp-adapter` passes those fields directly to the child process without
-shell expansion.
-
-Do not install or expose the same skill name from both `~/.agents/skills` and
-`~/.pi/agent/git/.../skills`; Pi will de-duplicate, but the warning means the
-skill registry is no longer single-source.
-
-### C. Stale or obsolete skill
-
-Do not restore a legacy entry when its symlink target is missing, it has no
-`SKILL.md`, or it is superseded by a newer maintained skill. Keep the old
-manifest as evidence, but leave the skill out of the active distribution.
-
-## Audit helper
-
-Use the audit helper to compare pi-67 shared skills with legacy manifests:
+normal update：
 
 ```bash
-bash scripts/pi67-skill-audit.sh \
-  --legacy-names /path/to/current-skills.txt \
-  --legacy-links /path/to/current-skill-symlinks.txt
+pi-67 update --check --json
+pi-67 update
 ```
 
-Generate a local ignored JSON report:
+只补 missing，保留 conflicts。
+
+strict preview：
 
 ```bash
-bash scripts/pi67-skill-audit.sh \
-  --legacy-names /path/to/current-skills.txt \
-  --legacy-links /path/to/current-skill-symlinks.txt \
-  --json \
-  --output ~/.pi/agent/pi67-skill-audit.json
+pi-67 update --check --strict-shared-skills --json
+pi-67 doctor --strict-shared-skills --json
 ```
 
-`pi67-skill-audit.json` is ignored because it may include local machine paths or
-private overlay skill names.
-
-Use the inventory helper when doctor reports that global shared skills differ
-from pi-67's bundled source:
+显式 pack overwrite：
 
 ```bash
-bash scripts/pi67-shared-skills-inventory.sh
-bash scripts/pi67-shared-skills-inventory.sh --json
-```
-
-The inventory is read-only. It compares `shared-skills/` with
-`~/.agents/skills`, reports matching / missing / differing / extra global
-skills, and includes per-skill SHA-256 fingerprints in JSON mode without
-printing skill contents. A `global_differs` entry means pi-67 will keep the
-existing global skill by default; use `--strict` only for release/parity checks
-that should fail when global content differs from the bundled baseline.
-
-## Migration helper
-
-Use the migration helper when Pi reports duplicate/conflict/skipped skill
-selection warnings, or when an old install still has active skill roots under
-`~/.pi/agent`:
-
-```bash
-bash scripts/pi67-migrate-skills.sh --dry-run
-bash scripts/pi67-migrate-skills.sh --apply --yes
-```
-
-It scans the known legacy active roots:
-
-```text
-~/.pi/agent/skills
-~/.pi/agent/git/github.com/bigKING67/design-craft/skills
-~/.pi/agent/git/github.com/bigKING67/browser67/skills
-```
-
-Rules:
-
-- Copy a legacy skill into `~/.agents/skills/<name>` only when the canonical
-  skill is missing.
-- Treat byte-identical canonical skills as already migrated.
-- Treat different canonical skills as conflicts; do not overwrite either side.
-- Move fully migrated legacy roots into a timestamped backup directory.
-- Default to dry-run; require `--apply --yes` for writes.
-
-The backup is intentionally a move, not a delete. If a migration was too broad,
-restore the backed-up root manually or with the normal restore workflow.
-
-## External repo sync helper
-
-Use the external sync helper for package-owned skill repositories:
-
-```bash
-bash scripts/pi67-sync-external-skills.sh \
-  --repo /path/to/design-craft \
-  --repo /path/to/browser67 \
-  --dry-run
-
-bash scripts/pi67-sync-external-skills.sh \
-  --repo /path/to/design-craft \
-  --repo /path/to/browser67 \
-  --apply --yes
-```
-
-This command reads either `repo/SKILL.md` or `repo/skills/*/SKILL.md` from each
-repo and copies missing skills into `~/.agents/skills`. It skips identical
-skills and refuses different canonical copies. Manifest-built monorepos with
-deeper source layouts are intentionally not flattened by this generic helper;
-use the upstream repository's own installer so materialized resources and
-validation remain authoritative. It deliberately does not modify Pi package
-cache directories or MCP config; for browser67 MCP paths, run:
-
-```bash
-bash scripts/pi67-configure.sh --tmwd-repo /path/to/browser67 --no-prompt
-```
-
-Install the Consumer Brand Commerce and Marketing suite directly from its
-upstream checkout with:
-
-```bash
-bash /path/to/commerce-growth-os/scripts/install.sh \
-  --install-root ~/.agents/skills \
-  --dry-run
-
-bash /path/to/commerce-growth-os/scripts/install.sh \
-  --install-root ~/.agents/skills
-```
-
-`pi67-sync-external-skills.sh` filters repository/cache/private-eval artifacts
-when it copies root-level skill repositories, including `.git`, `.gitignore`,
-Node/Python caches, virtual environments, build output, and `eval/answers`.
-
-## Vendored Consumer Brand Skill Pack sync
-
-The 8-Skill Pack is vendored in pi-67 so ordinary users get it through the
-normal install/update path. Maintainers refresh all eight self-contained
-bundles from the upstream Manifest with:
-
-```bash
-bash scripts/pi67-sync-commerce-skill-pack.sh \
-  --source /path/to/commerce-growth-os \
-  --dry-run
-
-bash scripts/pi67-sync-commerce-skill-pack.sh \
-  --source /path/to/commerce-growth-os \
-  --apply --yes
-```
-
-The default source is resolved in this order:
-
-```text
-$COMMERCE_SKILL_PACK_REPO
-$COMMERCE_GROWTH_OS_REPO
-../commerce-growth-os next to the pi-67 checkout
-```
-
-Use `--source DIR` when the upstream checkout lives elsewhere. The source must
-be a clean Git checkout: vendoring uncommitted content is rejected. The helper
-runs the upstream Bundle Builder, requires the reviewed eight-Skill manifest,
-updates `shared-skill-packs.json` plus `shared-skill-packs.lock.json`, and
-transactionally replaces only those eight vendored directories. The Lock pins
-the full upstream Commit, Manifest SHA-256, Pack SHA-256, and per-Skill SHA-256.
-The legacy `pi67-sync-commerce-growth-os.sh` filename is retained as a
-compatibility alias.
-
-## Vendored AI Berkshire Investment Skill Pack sync
-
-Maintainers refresh the AI Berkshire Pack from a clean, correctly originated
-Git checkout:
-
-```bash
-bash scripts/pi67-sync-ai-berkshire-skill-pack.sh \
-  --source /path/to/ai-berkshire \
-  --dry-run
-
-bash scripts/pi67-sync-ai-berkshire-skill-pack.sh \
-  --source /path/to/ai-berkshire \
-  --apply --yes
-```
-
-The helper reads `codex-skills/*/SKILL.md`, `LICENSE`, and referenced top-level
-`tools/*.py` files only. It validates the clean Git origin and full commit,
-rejects symlinks/missing tools/personal paths, adapts Skill-relative commands,
-and updates all vendored directories plus registry and lock transactionally.
-It never runs an upstream installer or Python tool. Content-only upstream
-updates bump the Pack patch version; Skill additions require a minor/manual
-review, and removal or rename requires a major/manual review. Each pi-67
-release therefore pins one reproducible upstream commit without permanently
-freezing future updates.
-
-`.github/workflows/ai-berkshire-refresh.yml` checks upstream `main` daily. A
-new commit is regenerated and validated on the stable
-`automation/ai-berkshire-refresh` branch, then submitted as a PR. Skill-set or
-route-coverage changes make it a draft. The workflow never auto-merges,
-publishes npm, creates a Git tag, or creates a GitHub Release.
-
-Users preview and explicitly deploy the full Pack with:
-
-```bash
+pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --dry-run
+pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --yes
 pi-67 skills sync-pack ai-berkshire-investment-suite --dry-run
 pi-67 skills sync-pack ai-berkshire-investment-suite --yes
 ```
 
-Existing machines preserve different active copies during normal updates. Use
-the pack-aware manager command for an explicit transactional deployment:
+`sync-pack --yes` 使用 deploy lock、staging、backup/transactional replace；它是用户
+明确选择覆盖 Pack 的管理命令，不是 normal update 的隐式副作用。
 
-```bash
-pi-67 skills packs
-pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --dry-run
-pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --yes
+## 7. Lark Skills
+
+默认 27 个 Lark Skills 全部保留。active Lark Skill 与 bundle 不同的常见原因是用户
+已经在本机升级或维护了更高版本；normal update 保留它。
+
+验收关注：
+
+```text
+missing=0
+conflicts 可非零但必须 preserved
+strict mode 能识别 conflict
+normal update 无 overwrite action
 ```
 
-The Git-tracked upstream repository and its pinned Pack provenance are the only
-content history. `~/.agents/skills` is a reproducible deployment
-root, not an independent editing database. A changed deployment copies source
-content into a temporary `.pi67-skills-sync-*/staged` tree, moves current
-targets into the same transaction's `previous/` tree, activates and verifies
-the new content, then removes the entire transaction. A failed deployment
-restores `previous/` before cleanup. The manager does not create persistent Skill content backups.
+不能为了 doctor 变成全绿而强制覆盖 active Lark Skills。
 
-Writing deployments are serialized through
-`~/.pi/pi67/locks/skills-deploy.lock` using the
-`pi67.skill-deploy-lock.v1` contract. The lock records the operation, PID, host,
-Active Skill Root, and a random owner token. A live owner blocks the second
-writer before inventory or rename operations; a dead-process lock recovers
-automatically. A live same-host PID remains authoritative even when the file is
-old, while the four-hour age threshold covers owners that cannot be checked
-locally. Release validates the owner token before unlinking the lock. Dry-runs
-remain lock-free. A non-dry-run no-op holds the lock only long enough to make a
-stable inventory decision.
+## 8. Maintainer vendoring
 
-Rollback uses Git commit/tag history rather than local snapshots. Maintainers
-select or revert the desired upstream Commit/Tag, regenerate the vendored Pack
-and `shared-skill-packs.lock.json`, then run `pi-67 skills sync-pack <pack>
---yes` again. Installed machines pin or reinstall the corresponding immutable
-pi-67 release before redeploying. Local changes worth keeping must be committed
-to the canonical source; uncommitted Active Skill differences are deployment
-drift.
-
-The read-only Pack contract used by status, update planning, Doctor, and Report
-can also be inspected directly:
+Commerce helper：
 
 ```bash
-node scripts/pi67-shared-skill-packs-status.mjs --json
+bash scripts/pi67-sync-commerce-skill-pack.sh --dry-run
 ```
 
-It emits `pi67-shared-skill-packs-status/v1` with separate Registry/Lock
-validity, source provenance, Pack versions, counts, missing/conflicting names,
-and a `sync-pack ... --dry-run` preview. It never writes the active root.
-
-## Validation helpers
-
-Use the dedicated governance fixture test when changing migration or external
-sync behavior:
+AI Berkshire helper：
 
 ```bash
+bash scripts/pi67-sync-ai-berkshire-skill-pack.sh --dry-run
+```
+
+维护流程：
+
+1. source checkout 存在且 origin/commit 符合预期；
+2. tracked worktree clean；
+3. manifest 与 Skill set 完整；
+4. referenced scripts/licenses/provenance 可解析；
+5. dry-run 展示 add/update/remove；
+6. apply 使用 staging 生成完整新 bundle；
+7. 原子替换 bundle/registry/lock；
+8. 删除上游移除的 Skill 仅在旧目录仍匹配旧 lock 时允许；
+9. 运行 full governance tests；
+10. scoped commit。
+
+同 source/commit/content/version 重跑必须返回 `NOOP`。如果 Skill set 删除等破坏性
+变化需要 major version，helper 必须 fail closed 或要求明确 version bump。
+
+## 9. Legacy migration
+
+旧 active roots 可以使用：
+
+```bash
+bash scripts/pi67-migrate-skills.sh --dry-run
+bash scripts/pi67-migrate-skills.sh --apply
+```
+
+原则：
+
+- missing 才复制；
+- conflict 拒绝覆盖；
+- 迁移前备份；
+- 不删除未知 Skill；
+- 输出 schema-valid report。
+
+## 10. External Skill sync
+
+非 first-party external repository 可使用：
+
+```bash
+bash scripts/pi67-sync-external-skills.sh --dry-run
+bash scripts/pi67-sync-external-skills.sh --apply
+bash scripts/pi67-check-external-skills.sh
+```
+
+external sync 与 bundled first-party Pack 是两个不同边界。它不得成为 Commerce/AI
+Berkshire 的用户 runtime auto-update path。
+
+输入过滤：
+
+- 接受目录级或 root-level `SKILL.md`；
+- 排除 `.git`、cache、build、logs、credentials；
+- symlink 或 source conflict fail closed；
+- active conflict 不覆盖。
+
+## 11. Concurrency 与 transaction
+
+Skill deploy 使用 lock，避免两个 sync 同时替换 active root。持锁操作必须：
+
+1. 检查现有 lock owner/time；
+2. staging 完整目标；
+3. 验证 hash；
+4. 备份目标；
+5. 原子切换；
+6. 失败恢复；
+7. finally 释放 lock。
+
+无变更 no-op 不应长期占锁或产生备份。
+
+## 12. 验证
+
+```bash
+node packages/pi67-cli/scripts/check.mjs
 bash scripts/pi67-test-skill-governance.sh
 bash scripts/pi67-test-ai-berkshire-skill-pack.sh
+node scripts/pi67-shared-skill-packs-status.mjs --json
+pi-67 skills packs --json
 ```
 
-It creates temporary legacy roots and external repositories, then validates:
+release gate 必须验证：
 
-- migration dry-run does not write
-- migration apply copies missing skills and backs up migrated roots
-- migration conflicts return `NEEDS_REVIEW` and preserve both sides
-- external sync dry-run does not write
-- external sync apply copies missing skills
-- external sync supports both root-level `SKILL.md` and `skills/*/SKILL.md`
-- external sync conflicts return `NEEDS_REVIEW` and preserve canonical skills
-- Commerce and Marketing Pack vendored sync builds, dry-runs, applies, and keeps the legacy helper compatible
-- AI Berkshire Pack has 21 provenance-locked Skills, deterministic tool/audit smoke coverage, idempotent generation, transactional add/remove behavior, and fail-closed source validation
-- Active Pack sync is dry-run-first, uses a clean deploy lock and transient transaction, creates no persistent Skill backup, repairs Active drift from Git source, and supports Git source rollback followed by redeployment
-- Pack diagnostics reject invalid registry metadata and distinguish consistent, missing, and conflicting active copies
-- migration and sync JSON outputs keep their documented schema IDs
+- Pack registry/lock schema；
+- owner/distribution；
+- skill count 与 canonical list；
+- bundle/skill hashes；
+- licenses/provenance；
+- missing/conflict/no-op/transaction/dirty-source/symlink failure；
+- 27 Lark inventory；
+- packed artifact 包含全部 shared Skills。
 
-Use the optional external repo integration check before applying real
-`design-craft`, `browser67`, or similar repo skills into the global registry:
+## 13. 安全与 Git
 
-```bash
-bash scripts/pi67-check-external-skills.sh \
-  --repo /path/to/design-craft \
-  --repo /path/to/browser67
-```
-
-This command is read-only. It wraps `pi67-sync-external-skills.sh --dry-run
---json`, summarizes missing/identical/preserved user-modified skills, and exits
-zero for warnings by default. Add `--strict` in local release preparation when
-preserved differences or invalid repo paths should fail the check:
-
-```bash
-bash scripts/pi67-check-external-skills.sh --repo /path/to/design-craft --strict
-```
-
-## Migration rule
-
-When a legacy manifest reports `stale_broken_link`, do not automatically restore
-that skill. First recover the source skill, inspect its `SKILL.md`, then classify
-it as public distribution, personal overlay, or obsolete.
+- 不 vendoring uncommitted source；
+- 不把 token/credentials 写入 UPSTREAM/provenance；
+- 不修改 unknown active Skill；
+- 不用 `git add -A`；
+- 不把 source checkout、cache、生成日志、temporary staging 提交；
+- commit 不等于 push；
+- first-party Pack 更新必须由 pi-67 release 交付，而不是用户端网络 fallback。

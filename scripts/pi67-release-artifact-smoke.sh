@@ -169,9 +169,16 @@ FAKE_BIN="$TMP_ROOT/bin"
 mkdir -p "$FAKE_BIN"
 cat > "$FAKE_BIN/pi" <<'SH'
 #!/usr/bin/env bash
-case "$1" in
-  --version)
-    echo "0.0.0-release-artifact-smoke"
+case "${1:-}" in
+  --help)
+    echo "release artifact smoke pi help"
+    ;;
+  list)
+    if [ "${2:-}" = "--no-approve" ]; then
+      echo "User packages:"
+    else
+      echo "release artifact smoke pi list"
+    fi
     ;;
   skill)
     if [ "${2:-}" = "list" ]; then

@@ -6,6 +6,63 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-07-22
+
+### Added
+
+- Added manager-bundled immutable distro releases under
+  `~/.pi/pi67/releases/<version>` with an atomic current pointer, activation
+  journals, interrupted-activation recovery, same-version content collision
+  rejection, no-op repeated activation, previous-release rollback, and an
+  explicit reversible migration from legacy Git workspaces.
+- Added a canonical 21-entry default extension minimum-baseline registry and
+  machine-local ownership ledger. Missing and safely-behind pristine defaults
+  can update independently; newer, modified, forked, diverged, and unknown
+  extensions are preserved rather than downgraded or overwritten.
+- Added extension `inspect`, `plan`, `status`, `diff`, and single-extension
+  backup/restore flows, plus a deep real-`pi list --no-approve` resolution probe
+  that exposes configured packages as `load-failed` without auto-replacing
+  their local content.
+- Added the missing `lark-apps` and `lark-note` bundles so all 27 Lark Skills
+  remain in the default distribution.
+
+### Changed
+
+- Embedded the complete distro and per-file SHA-256 manifest in the npm manager
+  artifact. Standard install/update no longer clones or pulls mutable GitHub
+  `main`; legacy shell updaters no longer copy the release lock into the runtime
+  or run a whole-extension-tree `npm ci`.
+- Fully decoupled Pi version management from pi-67. Status, version, manifest,
+  update plan, doctor, and report no longer compare installed/tested/latest Pi,
+  recommend a Pi upgrade, or mutate the Pi runtime; diagnostics are limited to
+  command availability and real configuration/package loading probes.
+- Defined the public memory stack as two distinct layers:
+  `pi-observational-memory` for in-session compression and `pi-hy-memory` for
+  cross-session long-term memory. Existing personal `agent_memory` MCP state is
+  preserved during migration/rollback but is not publicly distributed.
+- Marked the eight Commerce/Marketing and 21 AI Berkshire Skills as
+  `pi67-first-party` and `bundled-release-only`. User updates preserve newer or
+  modified active Skills and receive first-party changes only through a tested
+  pi-67 release.
+- Reworked installation, update, Windows, troubleshooting, schema, Skill
+  governance, and release documentation around immutable artifacts and
+  non-downgrading ownership boundaries.
+- Isolated release pointers, extension ledgers, locks, journals, migrations,
+  backups, reports, and runtime state for custom `--agent-dir` workspaces under
+  a stable hashed `~/.pi/pi67/workspaces/<id>` root. The canonical
+  `~/.pi/agent` workspace keeps the existing `~/.pi/pi67` path.
+
+### Fixed
+
+- Prevented a pi-67 release from overwriting a user-upgraded third-party
+  extension merely because the release baseline is older.
+- Prevented repair from treating all npm extension versions as one lockstep
+  runtime and from changing unrelated extensions when only one baseline needs
+  installation or repair.
+- Prevented custom workspaces from reading or overwriting the canonical
+  workspace release pointer, ownership ledger, locks, backups, or migration
+  state.
+
 ## [0.14.3] - 2026-07-21
 
 ### Changed

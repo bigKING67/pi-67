@@ -8,17 +8,16 @@
     "update": "pi-67 update",
     "repair": "pi-67 update --repair",
     "alwaysFreshUpdate": "npx -y @bigking67/pi-67@latest update",
-    "alwaysFreshRepair": "npx -y @bigking67/pi-67@latest update --repair",
-    "upstreamPiExtensions": "pi update --extensions"
+    "alwaysFreshRepair": "npx -y @bigking67/pi-67@latest update --repair"
   },
-  "upstreamPi": {
-    "packageName": "@earendil-works/pi-coding-agent",
-    "command": "pi",
-    "owner": "upstream-pi",
-    "mutationPolicy": "report-only-never-install-or-update-through-pi67",
-    "testedVersion": "0.80.6",
-    "compatibilityPolicy": "warn-if-installed-behind-release-tested-version",
-    "updateCommand": "npm install -g @earendil-works/pi-coding-agent@latest"
+  "releaseStore": {
+    "root": "~/.pi/pi67/releases/<version>",
+    "pointer": "~/.pi/pi67/current.json",
+    "policy": "manager-bundled-immutable-distro-no-github-main-clone-or-pull"
+  },
+  "managedExtensions": {
+    "registry": "managed-extension-baselines.json",
+    "policy": "minimum-baseline-install-missing-upgrade-safe-behind-preserve-ahead-and-diverged"
   },
   "runtimeFiles": {
     "preserve": [
@@ -89,13 +88,13 @@
     {
       "spec": "git:github.com/justhil/pi-image-gen",
       "packageName": "pi-image-gen",
-      "owner": "pi67-managed",
+      "owner": "pi67-managed-baseline",
       "policy": "runtime-package-preserve-user-config"
     },
     {
       "spec": "git:github.com/arpagon/pi-rewind",
       "packageName": "pi-rewind",
-      "owner": "pi67-managed",
+      "owner": "pi67-managed-baseline",
       "policy": "runtime-package-preserve-user-config"
     }
   ],

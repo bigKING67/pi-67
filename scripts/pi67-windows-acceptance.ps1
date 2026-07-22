@@ -545,7 +545,7 @@ function Get-RecoverySuggestion {
       return "Run node scripts/pi67-provider-status.mjs --json. Fix invalid JSON, but do not add a provider key merely to make Pi start."
     }
     "pi-runtime" {
-      return "Run: pi --version. If pi is missing, run npm install -g @earendil-works/pi-coding-agent. If Pi reports spawn git ENOENT, run pi-67 install --repair --yes, reopen PowerShell, and retry pi."
+      return "Run: pi --help. If pi is missing, repair it through the independent upstream Pi installation flow. If an extension cannot load, run pi-67 extensions doctor --deep --json without changing the Pi version."
     }
     "pi-extension-load" {
       return ".\scripts\pi67-zero-key-startup-smoke.ps1 separates fixture-key model registration from real zero-key Pi session startup; rerun it and inspect the first failure."
@@ -888,7 +888,7 @@ function Run-SelfTest {
   if ((Get-RecoverySuggestion "manager-self-update") -notmatch "npm install -g") {
     throw "manager recovery suggestion drifted"
   }
-  if ((Get-RecoverySuggestion "pi-runtime") -notmatch "pi --version") {
+  if ((Get-RecoverySuggestion "pi-runtime") -notmatch "pi --help") {
     throw "Pi runtime recovery suggestion must use the real pi entrypoint"
   }
   if ((Format-SkippedStageLine "manager-self-update" "requested by -SkipUpdate") -notmatch '-SkipUpdate') {
@@ -989,7 +989,7 @@ $script:FailureMessage = ""
 $script:Result = "FAIL"
 $script:ChildPowerShell = ""
 $script:VersionData = $null
-$script:PiRuntimeVersion = ""
+$script:PiCommandAvailable = $false
 $script:NodeRuntimeVersion = ""
 $script:ConfigProvider = ""
 $script:ConfigModel = ""
@@ -1266,12 +1266,12 @@ try {
 
   Invoke-CommandStage "doctor" "pi-67" ($contextArgs + @("doctor")) | Out-Null
   Invoke-CommandStage "repository-smoke" "pi-67" ($contextArgs + @("smoke", "--quick")) | Out-Null
-  Invoke-CommandStage "pi-runtime" "pi" @("--version") {
+  Invoke-CommandStage "pi-runtime" "pi" @("--help") {
     param($commandResult)
-    $script:PiRuntimeVersion = ([string]$commandResult.text).Trim()
-    if ([string]::IsNullOrWhiteSpace($script:PiRuntimeVersion)) {
-      throw "pi --version returned empty output"
+    if ([string]::IsNullOrWhiteSpace(([string]$commandResult.text).Trim())) {
+      throw "pi --help returned empty output"
     }
+    $script:PiCommandAvailable = $true
   } | Out-Null
 
   $zeroKeyStartupScript = Join-Path $ScriptDir "pi67-zero-key-startup-smoke.ps1"
@@ -1506,7 +1506,7 @@ $summary = [pscustomobject][ordered]@{
     node = $script:NodeRuntimeVersion
     manager = $managerVersion
     distro = $distroVersion
-    piRuntime = $script:PiRuntimeVersion
+    piCommandAvailable = [bool]$script:PiCommandAvailable
   }
   workstation = [pscustomobject][ordered]@{
     validated = [bool]$ValidateWorkstation
@@ -1560,7 +1560,7 @@ Write-Host ""
 if ($script:Result -eq "PASS" -and $exitCode -eq 0) {
   Write-Host "RESULT: PASS" -ForegroundColor Green
   Write-Host ("Version: {0}" -f $distroVersion)
-  Write-Host ("Pi runtime: {0}" -f $script:PiRuntimeVersion)
+  Write-Host ("Pi command available: {0}" -f $script:PiCommandAvailable)
   if ($ValidateWorkstation) {
     Write-Host ("Workstation: validated (Node via fnm: {0}; npm registry: {1})" -f $script:WorkstationNodePath, $script:NpmRegistry)
   }

@@ -1,11 +1,12 @@
 import { parseCommandOptions } from "../lib/args.mjs";
-import { buildUpdatePlan } from "../lib/update-plan.mjs";
-import { CliError, printJson, section, keyValue, pass, warn, info } from "../lib/output.mjs";
-import { runDistroScript } from "../lib/distro-scripts.mjs";
-import { isWindows } from "../lib/platform.mjs";
-import { writeState } from "../lib/state-store.mjs";
-import { beginUpdateLifecycle } from "../lib/update-safety.mjs";
+import { applyManagedExtensionBaselines } from "../lib/managed-extensions.mjs";
+import { activateDistroRelease, resolveDistroSourceRoot } from "../lib/release-store.mjs";
+import { syncSkills } from "../lib/skill-policy.mjs";
 import { migrateSettingsRuntimeState } from "../lib/settings-runtime-state.mjs";
+import { writeState } from "../lib/state-store.mjs";
+import { buildUpdatePlan } from "../lib/update-plan.mjs";
+import { beginUpdateLifecycle } from "../lib/update-safety.mjs";
+import { CliError, info, keyValue, printJson, section, warn } from "../lib/output.mjs";
 
 export async function updateCommand(ctx, argv) {
   const { options } = parseCommandOptions(argv, {
@@ -16,120 +17,78 @@ export async function updateCommand(ctx, argv) {
       "json",
       "no-remote",
       "no-npm",
-      "allow-dirty",
       "include-external",
       "strict-shared-skills",
       "verbose",
     ],
   });
-  if (options.help) {
-    printUpdateHelp();
-    return;
-  }
+  if (options.help) return printUpdateHelp();
   if (ctx.yes) {
     throw new CliError("pi-67 update does not use --yes; run `pi-67 update` or `pi-67 update --repair` without it", 2);
   }
   const dryRun = ctx.dryRun || options.dryRun;
   const json = ctx.json || options.json;
-  if (options.check) {
-    const plan = await buildUpdatePlan(ctx, {
-      noRemote: ctx.noRemote || options.noRemote,
-      strictSharedSkills: options.strictSharedSkills,
-    });
-    if (json) {
-      printJson(plan);
-      return;
-    }
-    printPlan(plan);
-    return;
-  }
-
+  const sourceRoot = resolveDistroSourceRoot(ctx);
   const plan = await buildUpdatePlan(ctx, {
     noRemote: ctx.noRemote || options.noRemote,
     strictSharedSkills: options.strictSharedSkills,
+    sourceRoot,
+    deepExtensions: true,
   });
-  assertPlanCanProceed(plan, { allowDirty: options.allowDirty });
+  if (options.check) {
+    if (json) return printJson(plan);
+    printPlan(plan);
+    return;
+  }
+  assertPlanCanProceed(plan);
+
   const lifecycle = beginUpdateLifecycle(ctx, {
     operation: options.repair ? "repair" : "update",
     dryRun,
     plan,
-    backupRuntime: false,
+    backupRuntime: true,
   });
-  if (!dryRun && lifecycle.backedUp.length > 0) {
-    info(`Preserved runtime backup: ${lifecycle.backupDir}`);
-  } else if (!dryRun && lifecycle.backupSkipped) {
-    info(`Preserved runtime backup skipped: ${lifecycle.backupReason}`);
-  }
-
-  reportSettingsRuntimeStateMigration(ctx, { dryRun, phase: "Preflight" });
-
-  const forceNpm = shouldForceNpmSync(plan, { repair: options.repair });
-  if (forceNpm && !options.repair) {
-    info("Managed npm packages are stale or missing; normal update will resync them automatically.");
-  }
-  const args = isWindows()
-    ? buildWindowsUpdateArgs(ctx, options, dryRun, forceNpm)
-    : buildBashUpdateArgs(ctx, options, dryRun, forceNpm);
   try {
-    runDistroScript(ctx, { sh: "pi67-update.sh", ps1: "pi67-update.ps1" }, args, { dryRun: false });
-    if (!dryRun) {
-      writeState(ctx, options.repair ? "repair" : "update");
-      reportSettingsRuntimeStateMigration(ctx, { phase: "Post-update" });
-    }
+    const activation = activateDistroRelease(ctx, {
+      sourceRoot,
+      dryRun,
+      operation: options.repair ? "repair" : "update",
+    });
+    const activeSource = dryRun ? sourceRoot : (activation.releasePath || sourceRoot);
+    const extensions = applyManagedExtensionBaselines(ctx, {
+      sourceRoot: activeSource,
+      dryRun,
+      skipNpm: options.noNpm,
+    });
+    const skills = syncSkills({ ...ctx, repoRoot: activeSource }, { dryRun });
+    const runtimeState = dryRun ? null : migrateSettingsRuntimeState(ctx, {
+      normalizeSettingsJson: true,
+      installGitFilter: false,
+    });
+    if (!dryRun) writeState(ctx, options.repair ? "repair" : "update");
+    const result = {
+      schema: "pi67.update.v1",
+      createdAt: new Date().toISOString(),
+      dryRun,
+      activation,
+      extensions,
+      skills: { summary: skills.summary, actions: skills.actions },
+      runtimeState,
+      runtimeBackup: lifecycle.backupDir || "",
+    };
+    if (json) return printJson(result);
+    printResult(result);
   } finally {
     lifecycle.release();
   }
 
   if (options.includeExternal) {
-    warn("External repo updates are explicit; run `pi-67 external update browser67` or `pi-67 external update design-craft`.");
+    warn("External repo updates remain explicit: run `pi-67 external update <name>`.");
   }
 }
 
-function reportSettingsRuntimeStateMigration(ctx, options = {}) {
-  const dryRun = Boolean(options.dryRun);
-  const phase = options.phase ? `${options.phase}: ` : "";
-  const result = migrateSettingsRuntimeState(ctx, {
-    normalizeSettingsJson: true,
-    installGitFilter: true,
-    dryRun,
-  });
-  if (result.markerFound && (result.stateWritten || dryRun)) {
-    info(`${phase}${dryRun ? "would migrate" : "Migrated"} settings.json lastChangelogVersion to ignored state: ~/.pi/pi67/state.json`);
-  }
-  if (result.settingsNormalized) {
-    info(`${phase}${dryRun ? "would normalize" : "Normalized"} settings.json runtime marker/line endings.`);
-  }
-  if (result.settingsCreatedFromTemplate) {
-    info(`${phase}${dryRun ? "would create" : "Created"} ignored settings.json from settings.example.json.`);
-  }
-  if (result.gitIndexRefreshed) {
-    info(`${phase}${dryRun ? "would refresh" : "Refreshed"} settings.json Git index stat cache.`);
-  }
-  if (result.gitFilterInstalled) {
-    info(`${phase}${dryRun ? "would install" : "Installed"} local git clean filter for future settings.json runtime markers.`);
-  }
-  if (result.gitFilterRemoved) {
-    info(`${phase}${dryRun ? "would remove" : "Removed"} legacy settings.json Git clean filter.`);
-  }
-  for (const error of result.errors) {
-    warn(`settings runtime marker migration skipped: ${error}`);
-  }
-}
-
-function buildBashUpdateArgs(ctx, options, dryRun, forceNpm) {
-  const args = ["--agent-dir", ctx.agentDir, "--repo-root", ctx.repoRoot, "--skills-dir", ctx.skillsDir];
-  if (dryRun) args.push("--dry-run");
-  if (forceNpm) args.push("--force-npm");
-  if (options.noNpm) args.push("--no-npm");
-  if (options.allowDirty) args.push("--allow-dirty");
-  if (options.strictSharedSkills) args.push("--strict-shared-skills");
-  if (options.verbose) args.push("--verbose");
-  return args;
-}
-
-function assertPlanCanProceed(plan, options = {}) {
-  const remaining = (plan.blocked || []).filter((item) =>
-    !(options.allowDirty && item.id === "repo-root"));
+function assertPlanCanProceed(plan) {
+  const remaining = plan.blocked || [];
   if (remaining.length === 0) return;
   for (const item of remaining) warn(`${item.id}: ${item.reason}`);
   if (remaining.some((item) => item.id === "pi67-manager")) {
@@ -138,77 +97,47 @@ function assertPlanCanProceed(plan, options = {}) {
       2,
     );
   }
-  throw new CliError("pi-67 update is blocked; run `pi-67 update --check` for the full plan or rerun with --allow-dirty if you accept the repo-root dirty risk", 2);
+  throw new CliError("pi-67 update is blocked; run `pi-67 update --check` for the full plan", 2);
 }
 
-function buildWindowsUpdateArgs(ctx, options, dryRun, forceNpm) {
-  const args = ["-AgentDir", ctx.agentDir, "-RepoRoot", ctx.repoRoot, "-SkillsDir", ctx.skillsDir];
-  if (dryRun) args.push("-DryRun");
-  if (forceNpm) args.push("-ForceNpm");
-  if (options.noNpm) args.push("-NoNpm");
-  if (options.allowDirty) args.push("-AllowDirty");
-  if (options.strictSharedSkills) args.push("-StrictSharedSkills");
-  if (options.verbose) args.push("-SkillDriftDetails");
-  return args;
-}
-
-export function shouldForceNpmSync(plan, options = {}) {
-  return Boolean(options.repair) || Boolean(
-    plan?.actions?.some((action) => action.id === "managed-npm-packages"),
-  );
+function printResult(result) {
+  section("pi-67 update");
+  keyValue("Distro", result.activation.version);
+  keyValue("Immutable release", result.activation.releasePath);
+  keyValue("Extension actions", result.extensions.applied.length);
+  keyValue("Ahead extensions preserved", result.extensions.before.summary.userManagedAhead);
+  keyValue("Modified extensions preserved", result.extensions.before.summary.userManagedDiverged);
+  keyValue("Missing Skills copied", result.skills.actions.filter((item) => ["copy", "copy-dry-run"].includes(item.action)).length);
+  if (result.runtimeBackup) keyValue("Runtime backup", result.runtimeBackup);
+  info(result.dryRun ? "Dry run completed; no files were changed." : "Update completed without managing the Pi runtime version.");
 }
 
 function printPlan(plan) {
   section("pi-67 update check");
-  keyValue("Agent dir", plan.paths.agentDir);
-  keyValue("Repo root", plan.paths.repoRoot);
   keyValue("Manager", `${plan.manager.package}@${plan.manager.version}`);
-  if (plan.manager.registry?.skipped) {
-    keyValue("Manager latest", "skipped");
-  } else if (plan.manager.registry?.ok) {
-    keyValue("Manager latest", `${plan.manager.registry.latestVersion}${plan.manager.registry.outdated ? " update available" : ""}`);
-  } else if (plan.manager.registry?.message) {
-    keyValue("Manager latest", `unknown (${plan.manager.registry.message})`);
-  }
   keyValue("Distro", plan.distro.version || "unknown");
-  keyValue("Git", plan.git?.isRepo ? `${plan.git.branchLine || plan.git.branch || ""} ${plan.git.commit || ""}` : "not a git repo");
-  keyValue("Dirty", plan.git?.dirty ? "yes" : "no");
-  keyValue("Remote", plan.remote?.skipped ? "skipped" : (plan.remote?.commit || plan.remote?.message || "unknown"));
-  keyValue("Provider", plan.settings.defaultProvider || "unset");
-  keyValue("Model", plan.settings.defaultModel || "unset");
-  keyValue("Theme", plan.settings.theme || "unset");
-  keyValue("Theme installed", plan.settings.themeInstalled ? "yes" : "no");
-  if (plan.packages?.summary) {
-    const packages = plan.packages.summary;
-    const skipped = packages.registrySkipped ? `, ${packages.registrySkipped} registry skipped` : "";
-    keyValue(
-      "Managed packages",
-      `${packages.current || 0} current, ${packages.installedDrift || 0} installed drift, ${packages.baselineBehindLatest || 0} baseline drift${skipped}`,
-    );
-  }
-  keyValue("Shared skills", `${plan.skills.identical} ok, ${plan.skills.missing} missing, ${preservedUserModified(plan.skills)} preserved user-modified`);
-  for (const repo of plan.external) {
-    keyValue(`External ${repo.name}`, repo.exists ? `${repo.git?.dirty ? "dirty" : "clean"} ${repo.git?.commit || ""}` : "missing");
-  }
-  if (plan.actions?.length > 0) {
+  const extensions = plan.extensions.summary;
+  keyValue(
+    "Default extensions",
+    `${extensions.atBaseline} baseline, ${extensions.missing} missing, ${extensions.belowBaseline} behind, ${extensions.userManagedAhead} ahead preserved, ${extensions.userManagedDiverged} modified preserved`,
+  );
+  keyValue("Shared Skills", `${plan.skills.identical} baseline, ${plan.skills.missing} missing, ${preservedUserModified(plan.skills)} modified preserved`);
+  if (plan.actions.length > 0) {
     section("Planned safe actions");
-    for (const action of plan.actions) {
-      const writes = action.writes?.length ? action.writes.join(", ") : "none";
-      const suffix = action.backupCondition ? `; backup=${action.backupCondition}` : "";
-      info(`${action.id}: ${action.operation}; writes=${writes}; preserves=${action.preserves.join(", ")}${suffix}`);
-    }
+    for (const action of plan.actions) info(`${action.id}: ${action.operation}`);
   }
-  if (plan.blocked?.length > 0) {
+  if (plan.blocked.length > 0) {
     section("Blocked actions");
     for (const item of plan.blocked) warn(`${item.id}: ${item.reason}`);
   }
-  if (plan.warnings?.length > 0) {
+  if (plan.warnings.length > 0) {
     section("Warnings");
     for (const item of plan.warnings) warn(item);
   }
-  section("Recommendations");
-  for (const item of plan.recommendations) info(item);
-  if (!plan.git?.dirty) pass("update check completed without local dirty blocker");
+  if (plan.recommendations.length > 0) {
+    section("Recommendations");
+    for (const item of plan.recommendations) info(item);
+  }
 }
 
 function preservedUserModified(skills) {
@@ -216,41 +145,21 @@ function preservedUserModified(skills) {
 }
 
 function printUpdateHelp() {
-  process.stdout.write(`pi-67 update - update pi-67 safely
+  process.stdout.write(`pi-67 update - activate this manager's immutable distro safely
 
 Usage:
   pi-67 update [--repair] [--dry-run] [--no-remote] [--no-npm]
   pi-67 update --check [--json] [--no-remote]
 
-Options:
-  --check                 Print the read-only update plan and exit.
-  --repair                Force reinstall managed workspace npm dependencies.
-  --dry-run               Print planned script actions without changing files.
-  --no-remote             Skip remote git/npm registry checks where supported.
-  --no-npm                Skip npm package sync in the distro updater.
-  --allow-dirty           Let the script-level updater handle non-runtime dirty files.
-  --strict-shared-skills  Treat preserved user-modified shared skills as blocking.
-  --verbose               Print per-Skill paths and hashes for preserved drift.
-  --include-external      Report explicit external repo update commands.
-  --json                  Emit JSON for --check.
+The command does not clone/pull GitHub and does not install, compare, recommend,
+or update the Pi runtime. It manages only pi-67 configuration, default
+extensions, Skills, rules, prompts, templates, and first-party assets.
 
-Ownership:
-  This command updates only the pi-67 distribution, managed extensions, Skills,
-  rules, prompts, templates, MCP/provider templates, configuration migrations,
-  owned-asset reconciliation, and workspace dependencies. It never installs or
-  updates the upstream Pi runtime. Update Pi separately with:
-  npm install -g @earendil-works/pi-coding-agent@latest
-
-Safety:
-  Runtime config backup/restore is owned by the platform updater script when
-  dirty preserved runtime files overlap incoming changed paths. The npm manager
-  owns the update lock and never creates a runtime backup for --help, a blocked
-  update plan, or an already-up-to-date update.
-
-Examples:
-  pi-67 update --check
-  pi-67 update --check --json --no-remote
-  pi-67 update
-  pi-67 update --repair
+Default extension policy:
+  missing -> install release baseline
+  safely behind -> upgrade to release baseline
+  equal -> keep
+  newer -> keep; never downgrade
+  modified/diverged/unknown -> keep and report conflict
 `);
 }

@@ -66,7 +66,7 @@ TIMING_VERIFY_SECONDS=0
 
 usage() {
   cat <<'USAGE'
-pi67-update safely updates an existing pi-67 installation.
+pi67-update is a deprecated compatibility updater for a legacy Git source checkout.
 
 Usage:
   scripts/pi67-update.sh [options]
@@ -87,7 +87,7 @@ Options:
       --dry-run         Print planned actions without changing files.
       --check-only      Inspect update/report status without pulling or writing files.
       --no-npm          Skip npm dependency sync.
-      --force-npm       Run npm ci even when package.json/package-lock.json did not change.
+      --force-npm       Deprecated compatibility flag; never runs whole-lock npm ci.
       --no-configure    Skip workspace template/normalization work after update.
       --no-doctor       Skip doctor after update.
       --no-report       Skip ~/.pi/agent/pi67-report.json generation.
@@ -103,9 +103,11 @@ First update on an old install that does not have this script yet:
   git pull --ff-only
   bash scripts/pi67-update.sh
 
-After that:
+After migrating to 0.15.0 immutable releases, use:
 
-  bash ~/.pi/agent/scripts/pi67-update.sh
+  pi-67 self-update
+  pi-67 update --check --json
+  pi-67 update
 USAGE
 }
 
@@ -732,88 +734,20 @@ sync_npm() {
     return
   fi
 
-  if ! command_exists npm; then
-    warn "npm not found; skipped npm sync"
-    return
-  fi
-
-  local repo_pkg="$REPO_ROOT/package.json"
-  local repo_lock="$REPO_ROOT/package-lock.json"
-  local agent_pkg="$PI_NPM_DIR/package.json"
-  local agent_lock="$PI_NPM_DIR/package-lock.json"
-  if [ ! -f "$repo_pkg" ] || [ ! -f "$repo_lock" ]; then
-    warn "package.json/package-lock.json missing; skipped npm sync"
-    return
-  fi
-
-  local repo_hash agent_hash
-  repo_hash="$(file_hash "$repo_pkg"):$(file_hash "$repo_lock")"
-  agent_hash="$(file_hash "$agent_pkg"):$(file_hash "$agent_lock")"
-
-  if [ "$FORCE_NPM" != true ] && [ "$repo_hash" = "$agent_hash" ]; then
-    pass "npm package.json/package-lock.json already synced"
-    return
-  fi
-
-  say ""
-  say "${CYAN}--- npm sync ---${NC}"
-  run_cmd mkdir -p "$PI_NPM_DIR"
-  if [ "$DRY_RUN" = true ]; then
-    say "  ${CYAN}DRY-RUN${NC} copy $repo_pkg -> $agent_pkg"
-    say "  ${CYAN}DRY-RUN${NC} copy $repo_lock -> $agent_lock"
-    say "  ${CYAN}DRY-RUN${NC} npm ${NPM_INSTALL_ARGS[*]} in $PI_NPM_DIR"
-    return
-  fi
-
-  cp "$repo_pkg" "$agent_pkg"
-  cp "$repo_lock" "$agent_lock"
-  (
-    cd "$PI_NPM_DIR"
-    npm "${NPM_INSTALL_ARGS[@]}"
-  )
-  pass "npm packages synced in $PI_NPM_DIR"
+  warn "legacy whole-lock npm sync is disabled to prevent extension downgrades"
+  warn "run pi-67 update so missing/safely-behind extensions are updated individually"
 }
 
 patch_until_done_runtime_queue() {
   local patcher="$REPO_ROOT/scripts/pi67-patch-pi-until-done-runtime-queue.sh"
 
-  say ""
-  say "${CYAN}--- pi-until-done runtime queue patch ---${NC}"
-  if [ ! -f "$patcher" ]; then
-    warn "pi-until-done runtime queue patcher missing: $patcher"
-    return
-  fi
-  if ! command_exists node; then
-    warn "node not found; skipped pi-until-done runtime queue patch"
-    return
-  fi
-  if [ "$DRY_RUN" = true ]; then
-    say "  ${CYAN}DRY-RUN${NC} $patcher --apply --agent-dir $PI_AGENT_DIR"
-    return
-  fi
-
-  bash "$patcher" --apply --agent-dir "$PI_AGENT_DIR"
+  warn "legacy bulk updater does not patch extensions; pi-67 manager applies version/hash-gated patches"
 }
 
 patch_smart_fetch_charset() {
   local patcher="$REPO_ROOT/scripts/pi67-patch-pi-smart-fetch-charset.mjs"
 
-  say ""
-  say "${CYAN}--- pi-smart-fetch charset patch ---${NC}"
-  if [ ! -f "$patcher" ]; then
-    warn "pi-smart-fetch charset patcher missing: $patcher"
-    return
-  fi
-  if ! command_exists node; then
-    warn "node not found; skipped pi-smart-fetch charset patch"
-    return
-  fi
-  if [ "$DRY_RUN" = true ]; then
-    say "  ${CYAN}DRY-RUN${NC} node $patcher --apply --agent-dir $PI_AGENT_DIR"
-    return
-  fi
-
-  node "$patcher" --apply --agent-dir "$PI_AGENT_DIR"
+  warn "legacy bulk updater does not patch extensions; pi-67 manager applies version/hash-gated patches"
 }
 
 check_npm_status() {
@@ -825,31 +759,7 @@ check_npm_status() {
     return
   fi
 
-  if ! command_exists npm; then
-    warn "npm not found; update would skip npm sync"
-    return
-  fi
-
-  local repo_pkg="$REPO_ROOT/package.json"
-  local repo_lock="$REPO_ROOT/package-lock.json"
-  local agent_pkg="$PI_NPM_DIR/package.json"
-  local agent_lock="$PI_NPM_DIR/package-lock.json"
-  if [ ! -f "$repo_pkg" ] || [ ! -f "$repo_lock" ]; then
-    warn "package.json/package-lock.json missing; update would skip npm sync"
-    return
-  fi
-
-  local repo_hash agent_hash
-  repo_hash="$(file_hash "$repo_pkg"):$(file_hash "$repo_lock")"
-  agent_hash="$(file_hash "$agent_pkg"):$(file_hash "$agent_lock")"
-
-  if [ "$FORCE_NPM" = true ]; then
-    warn "npm sync would run because --force-npm is set"
-  elif [ "$repo_hash" = "$agent_hash" ]; then
-    pass "npm package.json/package-lock.json already synced"
-  else
-    warn "npm package.json/package-lock.json differs; update would run npm ${NPM_INSTALL_ARGS[*]}"
-  fi
+  pass "whole-lock npm sync is disabled; pi-67 manager evaluates each default extension independently"
 }
 
 check_until_done_runtime_queue_status() {
@@ -1144,13 +1054,11 @@ check_update_plan() {
   say "  migrate settings.json lastChangelogVersion into ~/.pi/pi67/state.json before local update side effects"
   say "  sync shared skills into $SHARED_SKILLS_DIR"
   if [ "$RUN_NPM" = true ]; then
-    say "  sync npm dependencies with npm ci when package.json/package-lock.json differ"
-    say "  apply pi-until-done runtime queue/progress compatibility patch when needed"
-    say "  apply pi-smart-fetch declared-charset compatibility patch when needed"
+    say "  preserve npm extensions; whole-lock npm ci is disabled"
+    say "  defer extension changes to the pi-67 manager minimum-baseline state machine"
   else
     say "  skip npm sync (--no-npm)"
-    say "  still check/apply pi-until-done runtime queue/progress compatibility patch against existing package"
-    say "  still check/apply pi-smart-fetch charset compatibility patch against existing package"
+    say "  preserve existing extensions; whole-lock npm sync remains disabled"
   fi
   if [ "$RUN_DOCTOR" = true ]; then
     say "  run doctor"

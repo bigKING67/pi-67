@@ -1,1837 +1,410 @@
-# pi-67 Troubleshooting
+# pi-67 故障排查
 
-Use `scripts/pi67-doctor.sh` first. It separates blocking failures from normal readiness warnings.
+适用版本：`0.15.0`。先判断故障属于哪一层：
 
-```bash
-bash ~/.pi/agent/scripts/pi67-doctor.sh
-```
+1. 独立 upstream `pi` runtime；
+2. `@bigking67/pi-67` npm manager；
+3. immutable distro 与 active workspace；
+4. default extension minimum baseline；
+5. shared Skills；
+6. external browser67/xtalpi/Hy-Memory。
 
-For shorter output or automation:
+不要用“更新 pi-67”替代所有层的诊断。pi-67 不管理 Pi 版本。
 
-```bash
-bash ~/.pi/agent/scripts/pi67-doctor.sh --quiet
-bash ~/.pi/agent/scripts/pi67-doctor.sh --json
-```
-
-The latest install/update report is:
-
-```text
-~/.pi/agent/pi67-report.json
-```
-
-This file is overwritten on each install/update. It is not a history log and should not grow without bound.
-
-For a quick read-only summary before deciding what to run next:
+## 1. 最小只读采集
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-status.sh
-```
-
-If status says the report is stale, regenerate it:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-report.sh --operation manual
-```
-
-For MCP startup/tool-list validation:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp
-bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp --mcp-timeout-ms 5000
-```
-
-## Windows pi-67 manager/workspace bootstrap failed
-
-On a completely fresh computer, first finish the manual Windows Terminal,
-PowerShell 7, Notepad4 system integration, Git,
-fnm, Node.js/npm, and upstream Pi steps in
-[`windows-fresh-install.md`](windows-fresh-install.md). The GitHub Release asset
-`pi67-bootstrap.ps1` starts only after those prerequisites:
-
-```powershell
-$Bootstrap = Join-Path $env:TEMP "pi67-bootstrap.ps1"
-Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/bigKING67/pi-67/releases/latest/download/pi67-bootstrap.ps1" -OutFile $Bootstrap
-powershell -NoProfile -ExecutionPolicy Bypass -File $Bootstrap -Mode Auto
-```
-
-Each run writes a summary and bounded stage logs under:
-
-```text
-%USERPROFILE%\.pi\pi67\logs\manager-bootstrap-<timestamp>-<pid>\
-```
-
-Start with `bootstrap-summary.json`. Its `failedStage` distinguishes
-Git, Node.js, npm, upstream Pi, npm manager installation, workspace
-install/update, version JSON, and doctor JSON failures. Do not send
-`models.json`, `auth.json`, or any API key when reporting a problem.
-
-Offline contract checks:
-
-```powershell
-.\scripts\pi67-bootstrap.ps1 -SelfTest
-.\scripts\pi67-bootstrap.ps1 -DryRun
-.\scripts\pi67-bootstrap.ps1 -DryRun -Mode Install
-.\scripts\pi67-bootstrap.ps1 -DryRun -Mode Update
-```
-
-No provider key is required for manager/workspace bootstrap success. A
-successful run ends with:
-
-```text
-RESULT: PASS
-```
-
-The bootstrap does not request UAC, repair WinGet, install Windows Terminal,
-PowerShell 7, or Notepad4,
-edit Terminal settings, install Git/fnm/Node/upstream Pi, modify shell profiles
-or registry keys, or configure xtalpi. Those are intentionally separate manual
-or acceptance concerns.
-
-After installing `Git.Git`, close all Terminal windows and verify both
-`where.exe git` and `git --version` in a newly opened Terminal. If the current
-window works but the new window does not, follow the canonical guide's
-deduplicating `C:\Program Files\Git\cmd` User PATH repair; do not rely on a
-temporary `$env:PATH` assignment.
-
-### `failedStage = prerequisite-git|prerequisite-node|prerequisite-npm|prerequisite-pi`
-
-Close all Windows Terminal windows, open a new PowerShell 7 profile, and
-run the failing command directly:
-
-```powershell
-git --version
-node --version
-npm --version
-pi --version
-```
-
-If a command is missing, return to the corresponding step in
-`docs/windows-fresh-install.md`. Do not repeatedly rerun bootstrap while a
-prerequisite still fails.
-
-### `Update mode requires an existing pi-67 Git checkout`
-
-Explicit `-Mode Update` requires `%USERPROFILE%\.pi\agent\.git`. On a new
-computer, use Auto or Install:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File $Bootstrap -Mode Auto
-# or
-powershell -NoProfile -ExecutionPolicy Bypass -File $Bootstrap -Mode Install
-```
-
-### `failedStage = pi-67-manager`
-
-Open `install-pi-67-manager.log`. The script deliberately does not change npm
-registry, proxy, TLS, or certificate settings. Verify the environment directly:
-
-```powershell
-npm --version
-npm view @bigking67/pi-67@latest version
-```
-
-### `failedStage = pi-67-workspace-install|pi-67-workspace-update`
-
-Read the matching workspace log and run the same operation explicitly:
-
-```powershell
-pi-67 install --repair --yes
-# or, for an existing checkout
-pi-67 update
-```
-
-Dirty checkout protection is intentional. Inspect `git status --short` before
-deciding how to handle local changes.
-
-### `failedStage = pi-67-version|pi-67-doctor`
-
-The workspace command completed, but machine-readable verification failed.
-Run both commands directly and preserve their logs:
-
-```powershell
+command -v pi
+command -v pi-67
+npm prefix -g
 pi-67 version --json
-pi-67 doctor --json
+pi-67 status --json
+pi-67 update --check --no-remote --json
+pi-67 extensions plan --json
 ```
 
-## `pi` command not found
-
-Install Pi:
-
-```bash
-npm install -g @earendil-works/pi-coding-agent@latest
-pi --version
-```
-
-Then rerun:
-
-```bash
-./install.sh
-```
-
-## `agent dir exists but is not a git checkout`
-
-This means the target agent directory already exists, but it is a plain folder
-instead of a Git checkout:
-
-```text
-~/.pi/agent
-```
-
-The most common cause is running Pi or creating files manually before running
-`pi-67 install`. pi-67 blocks by default because it must not overwrite a user's
-existing folder silently.
-
-Preview the safe repair first:
-
-```bash
-pi-67 install --repair --yes --dry-run
-```
-
-If the preview shows the expected backup/reclone action, run:
-
-```bash
-pi-67 install --repair --yes
-```
-
-The existing folder is moved, not deleted:
-
-```text
-~/.pi/pi67/backups/<timestamp>-non-git-agent-dir/agent
-```
-
-Then pi-67 clones a fresh Git checkout into `~/.pi/agent` and continues the
-normal installer/update flow.
-
-## `failed to run git: spawnSync git ENOENT`
-
-This means Windows cannot find `git.exe` in the current PowerShell session.
-From `0.10.19`, `pi-67 install --repair --yes` first checks common Git for
-Windows install locations, repairs PATH for the current install process, and
-persists the discovered Git directory into Windows User PATH. It also
-broadcasts the Windows environment change for newly opened terminals. If Git
-is genuinely not installed, install Git for Windows, then retry:
+Windows：
 
 ```powershell
-winget install --id Git.Git -e --source winget
-pi-67 install --repair --yes
+Get-Command pi -ErrorAction SilentlyContinue
+Get-Command pi-67 -ErrorAction SilentlyContinue
+npm prefix --global
+pi-67 version --json
+pi-67 update --check --no-remote --json
 ```
 
-If `winget` says Git is already installed but `git --version` still fails, run
-`pi-67 install --repair --yes` anyway. When Git exists in a standard Git for
-Windows path, pi-67 will repair the install flow and User PATH. Close and
-reopen Windows Terminal/PowerShell after the repair, then run:
+`status` 和 `update --check` 不写入。先保存 JSON artifact，再只摘取关键字段，不要
+在聊天或工单中粘贴 auth、MCP payload 或完整 session。
 
-```powershell
-git --version
-```
+## 2. `pi` command missing
 
-pi-67 writes only User PATH, not Machine PATH, and does not silently install
-Git for Windows by itself. Already-open PowerShell windows can keep their old
-process-local `$env:Path`; close and reopen PowerShell if `git --version`
-still fails in the old window.
-
-## Bare `pi` fails with `Error: spawn git ENOENT`
-
-This is the same root cause, but it happens inside upstream
-`@earendil-works/pi-coding-agent` instead of inside pi-67. A typical stack
-mentions a git package clone such as:
-
-```text
-Error: spawn git ENOENT
-spawnargs: [
-  'clone',
-  'https://github.com/justhil/pi-image-gen',
-  'C:\\Users\\...\\.pi\\agent\\git\\github.com\\justhil\\pi-image-gen'
-]
-```
-
-Upstream Pi is trying to install `git:github.com/justhil/pi-image-gen`, but the
-current PowerShell process cannot find `git.exe`. Repair the workspace and User
-PATH with pi-67 first:
-
-```powershell
-npm install -g @bigking67/pi-67@latest
-pi-67 install --repair --yes
-pi-67 doctor
-```
-
-Close and reopen PowerShell after the repair, then verify the real runtime and
-use its standard entrypoint:
-
-```powershell
-git --version
-pi --version
-pi
-```
-
-If the already-open window cannot be restarted immediately, `pi-67 launch` is
-available as an optional one-process compatibility helper. It cannot rewrite
-its parent PowerShell `$env:Path`, so it is not a replacement for reopening the
-terminal or for daily `pi` usage.
-
-## Bare `pi` works but `pi-67 launch` says Pi is not installed
-
-If `pi --version` succeeds in PowerShell but `pi-67 launch -- --version`
-reports `upstream pi command was not found`, upstream Pi is already installed
-and working. There is no need to use `pi-67 launch` for normal work; continue
-to run `pi` directly.
-PowerShell normally selected the npm-generated `pi.ps1` wrapper, while the
-Node-based manager had to execute `pi.cmd`. pi-67 `0.10.26` and `0.10.27`
-could stop on the Windows `EINVAL` result from that batch wrapper before
-reaching the safe `cmd.exe /d /s /c pi.cmd` fallback.
-
-If you specifically need to diagnose that optional compatibility helper,
-update the manager and retry it:
-
-```powershell
-npm install -g @bigking67/pi-67@latest
-pi-67 launch -- --version
-```
-
-pi-67 `0.10.28` and newer retry `npm`, `npx`, and `pi` npm shims through
-`cmd.exe` after `EINVAL` / `ENOEXEC`. They also check command existence before
-showing installation guidance, so an unrelated child-process failure is no
-longer mislabeled as a missing Pi installation. From `0.10.29`, the Windows
-one-command acceptance gate validates `pi --version` directly and no longer
-uses this optional helper as the Pi runtime health check.
-
-## `node` or `npm` command not found
-
-The current upstream Pi runtime requires Node.js `>=22.19.0`; the pi-67 fresh
-Windows contract uses fnm and requires Node.js 24 LTS through `lts/krypton`.
-It does not install a second unmanaged MSI Node through `OpenJS.NodeJS.LTS`.
-
-On a fresh Windows machine, the manager bootstrap cannot repair fnm or Node.js.
-Return to the manual prerequisite steps, close every Windows Terminal window,
-reopen PowerShell 7, and verify. If `$PROFILE` does not exist, create it before
-opening it in Notepad4:
-
-```powershell
-$ProfileDir = Split-Path -Parent $PROFILE
-New-Item -Path $ProfileDir -ItemType Directory -Force | Out-Null
-New-Item -Path $PROFILE -ItemType File -Force | Out-Null
-notepad $PROFILE
-```
-
-Save this line exactly once:
-
-```powershell
-fnm env --use-on-cd --shell powershell | Out-String | Invoke-Expression
-```
-
-Then load the profile and finish the runtime setup:
-
-```powershell
-. $PROFILE
-fnm install lts/krypton
-fnm default lts/krypton
-fnm use lts/krypton
-node --version
-npm --version
-npm config set registry https://registry.npmmirror.com
-npm config get registry
-```
-
-If `fnm use lts/krypton` reports `We can't find the necessary environment
-variables`, the profile line was not loaded in the current shell. Run
-`Select-String -LiteralPath $PROFILE -SimpleMatch 'fnm env --use-on-cd --shell powershell'`,
-then `. $PROFILE`, and retry `fnm use lts/krypton`.
-
-The final `npm config get registry` value must be
-`https://registry.npmmirror.com/`. If `https://registry.npmjs.org/` was used
-temporarily because a package had not synchronized, switch back to the mirror
-before running workstation acceptance.
-
-## Oh My Posh is missing, slow, or shows square icons
-
-Oh My Posh is optional and does not affect Pi or pi-67 readiness. If WinGet
-completed but the command is unavailable, close every Terminal window, reopen
-PowerShell 7, and verify:
-
-```powershell
-winget list --id JanDeDobbeleer.OhMyPosh -e
-oh-my-posh version
-```
-
-If prompt icons appear as empty squares or Chinese columns do not align, the
-PowerShell Terminal profile is not using the primary team font. The expected
-font is `Maple Mono NF CN`, not plain `Maple Mono CN` or `Maple Mono NF`.
-Return to the SHA-256-verified `MapleMono-NF-CN.zip` installation in
-[`windows-fresh-install.md`](windows-fresh-install.md), then select it under
-**Windows Terminal -> Settings -> Profiles -> PowerShell -> Appearance -> Font
-face**.
-
-If the GitHub release is temporarily unavailable, install the compatibility
-fallback:
-
-```powershell
-oh-my-posh font install meslo
-```
-
-When using the fallback, select `MesloLGM Nerd Font`; it does not provide the
-same integrated CJK alignment and is not the primary recommendation. The normal
-last line in `$PROFILE` remains:
-
-```powershell
-oh-my-posh init pwsh | Invoke-Expression
-```
-
-If ExecutionPolicy blocks that initializer, replace it with the following
-fallback instead of keeping both lines:
-
-```powershell
-oh-my-posh init pwsh --eval | Invoke-Expression
-```
-
-The official documentation warns that `--eval` makes Shell initialization
-slower. Reload after editing with `. $PROFILE`. Theme previews are available at
-<https://ohmyposh.dev/docs/themes>.
-
-On macOS/Linux, install a supported Node first, then rerun:
+`pi-67 doctor` 只检查 Pi command 可用性，不会安装或推荐版本。
 
 ```bash
-./install.sh
+command -v pi
 ```
 
-If you only want to link assets and install npm dependencies later:
-
-```bash
-./install.sh --no-npm
-```
-
-## npm works but GitHub or xtalpi still fails
-
-These are separate network paths. A successful npm install does not prove that
-GitHub clone traffic or the company API is reachable:
-
-1. npm registry: upstream Pi and `@bigking67/pi-67` packages;
-2. GitHub: bootstrap asset, pi-67 checkout, and Git URL packages;
-3. xtalpi endpoint: provider health and daily model requests;
-4. company proxy/VPN: may allow only part of the above.
-
-Run narrow checks instead of permanently changing every network setting:
-
-```powershell
-npm view @earendil-works/pi-coding-agent version
-npm view @bigking67/pi-67 version
-git ls-remote https://github.com/bigKING67/pi-67.git HEAD
-pi-67 xtalpi health
-```
-
-The bootstrap never changes npm registry, writes a system proxy, disables TLS
-verification, or permanently changes PowerShell ExecutionPolicy. If the
-company network requires a proxy/VPN or registry mirror, apply the IT-managed
-configuration explicitly to the failing path; the pi-67 script will not
-silently switch it.
-
-## Placeholder warnings in config files
-
-Doctor may report placeholders in:
-
-```text
-~/.pi/agent/models.json
-~/.pi/agent/auth.json
-~/.pi/agent/image-gen.json
-```
-
-This is expected after a fresh install. Placeholders affect only the related
-provider or feature request; they must not prevent `pi` from entering its
-interactive interface.
-
-For normal provider authentication and model selection, run `pi`, then use:
-
-```text
-/login
-/model
-```
-
-Upstream Pi saves both states and restores the selected model on the next
-launch. Do not manually edit `settings.json` or `auth.json` merely to satisfy a
-pi-67 readiness check.
-
-For company-provider-specific repair and diagnostics, the dedicated command
-remains available:
+缺失时按 upstream Pi 官方方式独立安装/修复。修好后重新打开 shell并运行：
 
 ```bash
-pi-67 xtalpi configure --verify
-```
-
-It preserves unrelated providers, repairs the canonical `xtalpi-pi-tools`
-public fields, and performs a real provider-health request without putting the
-key in shell history.
-
-For advanced local MCP/image/provider-template setup outside the normal Pi
-login/model flow:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-configure.sh --prompt-secrets
-```
-
-For automation, pass secrets through environment variables instead of CLI flags:
-
-```bash
-PI67_XTALPI_API_KEY="..." \
-PI67_CODEX_API_KEY="..." \
-PI67_IMAGE_GEN_API_KEY="..." \
-bash ~/.pi/agent/scripts/pi67-configure.sh --no-prompt
-```
-
-## `models.json: Unexpected token` on Windows startup
-
-If Pi fails before any provider request with an error similar to:
-
-```text
-models.json: Unexpected token '', "{ "p"... is not valid JSON
-```
-
-the failure is usually local file encoding or invisible leading bytes, not the
-xtalpi API endpoint. Common causes are `models.json` or another local config
-being saved as UTF-16, UTF-8 with BOM, or with leading NUL bytes. The Windows
-updater now handles this without printing or deleting keys:
-
-```powershell
-Set-Location $env:USERPROFILE\.pi\agent
-powershell -ExecutionPolicy Bypass -File .\scripts\pi67-update.ps1
-powershell -ExecutionPolicy Bypass -File .\scripts\pi67-doctor.ps1
-```
-
-For parseable JSON, the updater writes a backup such as
-`models.json.bak-YYYYMMDD-HHMMSS-encoding`, then rewrites the local file as
-UTF-8 without BOM. If the JSON syntax itself is broken, doctor reports the file,
-detected encoding, and first bytes only; it does not print API keys.
-
-## `defaultProvider` or `defaultModel` fails
-
-For diagnosis, the relevant upstream Pi state is stored under:
-
-```bash
-~/.pi/agent/settings.json
-~/.pi/agent/models.json
-~/.pi/agent/auth.json
-```
-
-Do not start by editing these files. First run:
-
-```text
-pi
-/login
-/model
-```
-
-If `pi` enters the interface, choose the intended provider/model with `/model`;
-upstream Pi persists it. Custom providers such as `xtalpi-pi-tools` must still
-have their public model definition in `models.json`, but a missing key is not a
-startup error. Pi built-in providers such as DeepSeek must not be duplicated in
-`models.json`; authenticate them with `/login` or their upstream-supported
-environment variable.
-
-### `pi` fails when only a DeepSeek official key is configured
-
-The old startup failure was not caused by DeepSeek itself. `xtalpi-pi-tools`
-registered its models with an empty provider-level `apiKey`, so upstream Pi
-failed provider schema validation before the interactive interface appeared:
-
-```text
-Provider xtalpi-pi-tools: "apiKey" or "oauth" is required when defining models.
-```
-
-Current `xtalpi-pi-tools` registration uses a deferred environment reference,
-so missing company credentials no longer block Pi startup. Verify the fixed
-startup path first:
-
-```powershell
-pi
-```
-
-Upstream Pi 0.80.6 may print `No models available` for
-`pi --list-models xtalpi-pi-tools` until xtalpi has a credential. That output is
-model-discovery filtering, not proof that Pi cannot start. Maintainers can run
-the isolated contract that checks fixture-key registration and zero-key
-`session_start` separately:
-
-```powershell
-.\scripts\pi67-zero-key-startup-smoke.ps1
-```
-
-Then, inside Pi:
-
-```text
-/login
-/model
-```
-
-Choose DeepSeek or any other provider there. Exit and run `pi` again to verify
-that upstream Pi restores the selection. pi-67 intentionally does not switch
-`settings.json` or rewrite `auth.json` for this flow.
-
-Run doctor only as an additional workspace check:
-
-```powershell
-pi-67 doctor
-```
-
-## xtalpi-pi-tools still returns empty or gets stuck
-
-`xtalpi-pi-tools` is designed to avoid the old OpenAI-compatible tool continuation issue. It does not send native `tools`, `tool_choice`, `parallel_tool_calls`, `role=tool`, `thinking`, or `reasoning_effort` to xtalpi.
-
-Runtime requests are retried locally for transient provider/transport failures.
-Defaults are:
-
-```bash
-XTALPI_PI_TOOLS_REQUEST_ATTEMPTS=3
-XTALPI_PI_TOOLS_RETRY_DELAY_MS=1000
-XTALPI_PI_TOOLS_RETRY_MAX_DELAY_MS=8000
-XTALPI_PI_TOOLS_RETRY_JITTER_MS=250
-```
-
-Timeouts, network errors, HTTP 408/5xx, non-JSON responses, and malformed
-responses are retried within that budget. HTTP 429 is classified as rate-limit
-and `retryable=true`, but immediate retry is suppressed to avoid burning more
-requests during a rate-limit window. If all attempts fail, inspect debug
-telemetry for `attempt_count`, `retry_count`, `retry_suppressed_reason`, and
-the structured `errorCode` / `errorCategory`.
-
-The local provider also owns the final-answer protocol boundary. If xtalpi returns
-tool-call-like content as ordinary assistant text, Pi must not accept it as a
-successful final answer. The guard covers JSON action objects, bare
-`id/name/arguments` objects, JSON arrays, OpenAI-style `tool_calls`,
-`function_call`, `pi_tool_...` ids, `until_done_*` tools, and dynamic tools from
-the current selected-tool set. These are repaired into one canonical local JSON
-action before any tool can run. Ordinary business JSON is allowed unless it
-matches the current tool registry or an explicit tool protocol wrapper.
-
-If xtalpi returns a malformed JSON-action final envelope because the natural
-language text contains unescaped quotes, for example
-`{"kind":"final","text":"..."洗护发"..."}`, the provider recovers only the
-`final.text` string and then runs the normal final-answer guard. This is safe
-for user-visible text and prevents Plan mode from stopping on an invalid-JSON
-repair error. The same loose recovery is intentionally not applied to malformed
-`tool_call` envelopes; those still fail closed before any tool can execute.
-
-Targeted smoke also has a final-compliance repair path for a narrower case:
-tools already executed correctly, arguments and telemetry passed local checks,
-but the final answer is missing required marker text. The runner performs one
-`--no-tools` final-answer repair so it does not repeat side-effecting tools.
-Tool absence, bad arguments, runtime errors, raw protocol leaks, and timeouts do
-not use this repair path; they remain failures.
-
-First run the local protocol test:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-test-xtalpi-pi-tools.sh
-```
-
-Then start Pi through the stable launcher:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools.sh
-```
-
-The launcher sets:
-
-```bash
-XTALPI_PI_TOOLS_MAX_TOOLS=24
-XTALPI_PI_TOOLS_MAX_TOOL_RESULT_CHARS=20000
-XTALPI_PI_TOOLS_MAX_EMPTY_RETRIES=2
-XTALPI_PI_TOOLS_MAX_REPAIR_RETRIES=2
-XTALPI_PI_TOOLS_MAX_TOTAL_RECOVERIES=4
-```
-
-If you upgraded from old `xtalpi-tools` and explicitly want the legacy provider
-entries migrated, run the advanced helper once:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-configure.sh --prompt-secrets
-```
-
-This copies any existing `xtalpi` / `xtalpi-tools` key into `xtalpi-pi-tools` and removes the old provider entries by default.
-It is not part of install/update and does not replace selecting the model with
-upstream Pi's `/model` command.
-
-For a live smoke test:
-
-```bash
-bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh
-```
-
-On Windows PowerShell, run the low-risk targeted smoke instead:
-
-```powershell
-.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,read-enoent-recovery,plan-mode-contract,plan-mode-accepted-continuation,until-done-continuation,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
-```
-
-Use `.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -ListCases` to inspect the current
-PowerShell-native targeted case set before narrowing a slow or provider-flaky run.
-
-If the question is whether xtalpi supports native JSON / tools at all, run the
-capability probe instead of guessing from a normal chat success:
-
-```bash
-node ./scripts/pi67-xtalpi-provider-capability-probe.mjs
-node ./scripts/pi67-xtalpi-provider-capability-probe.mjs --json-action-runs 5
-```
-
-PowerShell:
-
-```powershell
-node .\scripts\pi67-xtalpi-provider-capability-probe.mjs
-node .\scripts\pi67-xtalpi-provider-capability-probe.mjs --json-action-runs 5
-```
-
-Interpretation:
-
-- `plain_chat=true` only means the endpoint can chat.
-- `json_object=true` on the generic prompt means JSON syntax can be used as a hint, not as a schema guarantee.
-- `json_action_N` is the targeted runtime probe; if it passes repeatedly, prefer
-  `local_json_action_protocol` even when the generic `json_object` prompt is flaky.
-- `json_schema_strict=false` means `response_format=json_schema` must not be trusted for
-  tool/action schema correctness.
-- native `tools` / strict tools / `role=tool=false` means xtalpi must not be treated as a
-  full OpenAI tool runtime.
-- `recommendedMode=local_json_action_protocol` is the `xtalpi-pi-tools` canonical default:
-  Pi owns tool selection, action/schema validation, repair, execution, and error classification locally.
-- `recommendedMode=unsupported_json_action` means even targeted JSON action is unstable; the
-  provider does not satisfy the `xtalpi-pi-tools` runtime contract.
-
-Test the default local JSON action runtime instead of enabling native OpenAI tools:
-
-```bash
-bash ./scripts/pi67-test-xtalpi-pi-tools.sh
-bash ./scripts/pi67-xtalpi-pi-tools-smoke.sh --case read
-```
-
-PowerShell:
-
-```powershell
-.\scripts\pi67-smoke.ps1 -Ci
-.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile quick
-```
-
-The default JSON action mode sends `response_format: {"type":"json_object"}` only as a syntax hint.
-Pi still validates the local action envelope, selected-tool allowlist, arguments,
-shell semantics, bounded repair, and smoke/debug gates locally.
-Old `<pi_tool_call>` text is treated only as provider drift or historical artifact leakage;
-it is rejected and repaired back to JSON action rather than exposed as a runtime protocol switch.
-The explicit local boundary for this is
-`extensions/xtalpi-pi-tools/json-action-protocol.ts`; do not replace it with
-OpenAI native `tools` / `tool_choice` unless the capability probe proves those
-contracts are stable.
-
-If the task is time-critical and xtalpi continues returning empty content, temporarily switch to another configured provider:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-configure.sh --provider codex --model gpt-5.4 --prompt-secrets
-```
-
-## xtalpi-pi-tools says it cannot see a screenshot or tries to `read` a PNG
-
-Expected current behavior: image/screenshot/OCR tasks should not be sent directly
-to the xtalpi text-only model and should not call `read` for `.png`, `.jpg`,
-`.webp`, clipboard screenshots, or inline image blocks.
-
-The local routing contract is:
-
-1. `xtalpi-pi-tools` detects image paths, `pi-clipboard-*.png`,
-   `codex-clipboard-*.png`, inline image blocks, and “截图 / 看图 / OCR /
-   image analysis” intent.
-2. It selects `vision_read` first when available. `vision_read` is registered by
-   `extensions/pi-vision-bridge` and uses a local multimodal provider, normally
-   `models.json.providers.codex`, to convert the image into text evidence.
-3. If `vision_read` is not available but `image_review` is available, it can fall
-   back to user-assisted review.
-4. If neither tool is selected, Pi returns a local readiness error before calling
-   xtalpi. This is intentional fail-closed behavior.
-
-If you see a message like:
-
-```text
-检测到图片/截图理解任务，但 Pi 本地 vision bridge 当前未 ready
-```
-
-run:
-
-```bash
-cd ~/.pi/agent
-pi-67 update --repair
-bash scripts/pi67-doctor.sh
-bash scripts/pi67-test-xtalpi-pi-tools.sh
-bash scripts/pi67-xtalpi-tool-coverage-audit.sh --include pi-vision-bridge --json
-```
-
-Windows PowerShell:
-
-```powershell
-Set-Location $env:USERPROFILE\.pi\agent
-pi-67 update --repair
-.\scripts\pi67-doctor.ps1
-.\scripts\pi67-smoke.ps1 -Ci
-node .\scripts\pi67-xtalpi-smoke-plan.mjs --json
-```
-
-Check these fields:
-
-- `extensions/pi-vision-bridge/index.ts` exists.
-- coverage audit contains `local:extensions/pi-vision-bridge`.
-- `modelCallableTools` contains `vision_read`.
-- `models.json.providers.codex` has a usable `baseUrl`, `apiKey`, and an image
-  input model; or set `PI67_VISION_PROVIDER`, `PI67_VISION_MODEL`,
-  `PI67_VISION_BASE_URL`, `PI67_VISION_API_KEY`.
-
-If a screenshot task still calls `read`, treat it as a regression and run:
-
-```bash
-bash scripts/pi67-test-xtalpi-pi-tools.sh
-```
-
-That offline test includes a guard for `XTALPI_PI_TOOLS_MAX_TOOLS=1`: image
-paths must select `vision_read` / `image_review`, and `read` must be omitted with
-an `image_path_read_penalty` reason code.
-
-## `web_fetch` returns garbled Chinese for GBK / GB2312 pages
-
-Symptom: a legacy Chinese site declares a response such as
-`Content-Type: text/html; charset=gb2312`, but the title and body look like
-`�������`. `pi-smart-fetch@0.3.12` uses `response.text()`, which assumes UTF-8
-and loses the original bytes before Defuddle extracts the page.
-
-pi-67 applies a version-aware runtime compatibility patch after npm sync. The
-patch reads the declared charset, decodes the original `arrayBuffer()` with the
-direct `iconv-lite` dependency, and leaves UTF-8 responses on the native path.
-It refuses to rewrite an unreviewed `pi-smart-fetch` version.
-
-Run on Windows:
-
-```powershell
-Set-Location $env:USERPROFILE\.pi\agent
-pi-67 update --repair
-node .\scripts\pi67-patch-pi-smart-fetch-charset.mjs --check --agent-dir $env:USERPROFILE\.pi\agent
-```
-
-Expected status is `compatible`. Then restart `pi` and retry the same
-`web_fetch` URL. If the checker reports `review_required`, do not hand-edit the
-installed bundle; update pi-67 after the newer upstream package has been
-reviewed.
-
-## xtalpi-pi-tools says `mcp` is unavailable for a browser67 / Chrome task
-
-Symptom:
-
-```text
-xtalpi-pi-tools 请求了不可用工具：mcp。本轮可用工具：...
-```
-
-For browser work, `browser67` is the skill/runtime name; the executable Pi tool
-is normally `mcp` from `pi-mcp-adapter`, or a direct browser tool such as
-`browser_tab_lifecycle`, `browser_wait`, `browser_execute_js`, or
-`browser_screenshot_ops`. If `mcp` is not in the selected-tool allowlist for the
-current turn, `xtalpi-pi-tools` must reject the call instead of executing a tool
-the model was not shown.
-
-Expected current behavior: prompts that mention browser67, Chrome, Edge, current
-tab, login state, clicking, typing, uploads, downloads, screenshots, DevTools,
-console, DOM, or network inspection should select `mcp` when it is available.
-Chinese prompts where the browser name appears before the action, such as
-`用chrome打开蝉妈妈首页`, or prompts with punctuation between intent and runtime,
-such as `打开浏览器～browser67`, are browser tasks too. Retry follow-ups such as
-`再试一下` reuse recent user context for tool selection, so the second attempt
-should not lose the original browser intent.
-Prompts that only ask to summarize a public URL should still select
-`web_fetch` / `web_search` instead of opening a real browser.
-
-If Pi opens Safari or the macOS default browser, inspect the session log for a
-`bash` tool call such as:
-
-```json
-{"command":"open https://..."}
-{"command":"open -a \"Google Chrome\" \"https://...\""}
-{"command":"open -a \"Google Chrome\""}
-```
-
-That is a browser-route failure: `bash open` talks to the OS default browser (or
-a regular Chrome app launch), not browser67's managed `tmwd_browser` MCP
-surface. Current `xtalpi-pi-tools` blocks this path and either repairs toward
-`mcp({"connect":"tmwd_browser"})` or returns a readiness final if no browser MCP
-tool is selected.
-
-Run:
-
-```bash
-cd ~/.pi/agent
-pi-67 update --repair
-bash scripts/pi67-test-xtalpi-pi-tools.sh
-bash scripts/pi67-doctor.sh
-```
-
-Windows PowerShell:
-
-```powershell
-Set-Location $env:USERPROFILE\.pi\agent
-pi-67 update --repair
-.\scripts\pi67-smoke.ps1 -Ci
-.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile quick
-```
-
-If it still fails after updating, check whether the runtime exposes `mcp`:
-
-- `settings.json` includes the package that provides `pi-mcp-adapter`.
-- `mcp.json` contains the browser67 / `tmwd_browser` MCP server configuration.
-- `pi-67 doctor` does not report MCP adapter or browser67 readiness errors.
-- The selected tools in debug telemetry include `mcp` for browser tasks.
-
-If `mcp` is absent from the runtime, this is an MCP registration/readiness
-problem, not a provider parsing problem; fix `mcp.json`, the browser67 install,
-or the MCP adapter first. If `mcp` is present in `context.tools` but omitted from
-selected tools for a browser task, treat it as a `browser-bridge.ts` regression.
-
-## xtalpi-pi-tools reports raw `previous_pi_tool_call` markup
-
-If Pi stops with an error similar to:
-
-```text
-xtalpi-pi-tools 无法解析模型返回的工具调用，已停止自动修复。
-解析错误：assistant final answer must not contain raw or internal Pi tool protocol markup
-模型原始输出摘录：
-收到，重新发起搜索。
-[previous_pi_tool_call]
-...
-```
-
-the upstream model is not just returning a normal final answer. It copied an
-internal Pi tool-history record into the assistant final text. That record is
-history, not a new tool call and not user-facing content.
-
-Current pi-67 handles this in three layers:
-
-1. Do not serialize prior assistant `toolCall` blocks into model-visible
-   `previous_pi_tool_call` records during normal context construction.
-2. Strip complete legacy `previous_pi_tool_call` history blocks from surrounding text
-   before parser/final-answer guards run.
-3. Treat the remaining text, for example "收到，重新发起搜索。", as a no-progress
-   continuation and run the bounded local repair path so the next response must
-   be either a real tool call or a useful final answer.
-
-Update and verify:
-
-```bash
-cd ~/.pi/agent
-bash scripts/pi67-update.sh
-bash scripts/pi67-test-xtalpi-pi-tools.sh
-node --no-warnings scripts/pi67-fuzz-xtalpi-parser.mjs
-```
-
-On Windows PowerShell:
-
-```powershell
-Set-Location $env:USERPROFILE\.pi\agent
-.\scripts\pi67-update.ps1
-.\scripts\pi67-smoke.ps1 -Ci
-.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Profile extension-low-risk
-```
-
-If the same raw-markup error still appears after those commands, check that the
-repo has the newest commit and that `extensions\xtalpi-pi-tools\parser.ts`
-contains `PREVIOUS_TOOL_CALL_HISTORY_BLOCK_PATTERN`.
-
-## `/until-done` stops with `Agent is already processing` or after `until_done_task_update`
-
-These are `pi-until-done@0.2.2` runtime compatibility problems, not xtalpi
-provider transport problems:
-
-```text
-Extension "<runtime>" error: Agent is already processing. Specify streamingBehavior ('steer' or 'followup') to queue the message.
-```
-
-Newer Pi runtime versions require extension calls to `pi.sendUserMessage(...)`
-to include `streamingBehavior: "followup"` or `streamingBehavior: "steer"` when
-the agent is already processing. `pi-until-done@0.2.2` still contains older call
-sites, so pi-67 patches that installed package locally after npm sync.
-
-There is a second failure mode where the UI shows a real
-`until_done_task_update` tool execution, then the loop stops and only resumes
-after the user types "continue". In `pi-until-done@0.2.2`, `until_done_*` tool
-calls did not increment `progressSignalsThisTurn`; a turn containing only task
-state updates could therefore be classified by the spin guard as "no progress"
-and would not queue the next `followUp`. The same patcher also makes
-`until_done_*` tools count as progress so state transitions can continue
-autonomously within the turn budget.
-
-Check or apply the patch manually:
-
-```bash
-cd ~/.pi/agent
-bash scripts/pi67-patch-pi-until-done-runtime-queue.sh --check --agent-dir ~/.pi/agent
-bash scripts/pi67-patch-pi-until-done-runtime-queue.sh --apply --agent-dir ~/.pi/agent
-```
-
-PowerShell:
-
-```powershell
-Set-Location $env:USERPROFILE\.pi\agent
-.\scripts\pi67-patch-pi-until-done-runtime-queue.ps1 -Check
-.\scripts\pi67-patch-pi-until-done-runtime-queue.ps1 -Apply
-```
-
-`pi67-update.sh`, `pi67-update.ps1`, `install.sh`, doctor, smoke, and release
-checks all include this queue/progress compatibility guard. If the installed
-package version is not `0.2.2`, the patcher does not blindly edit it; it reports
-`review_required` so the new upstream package can be inspected first.
-
-## Hy-Memory initialization or recall fails
-
-First separate initialization, local service, embedding, and outbox state:
-
-```bash
-pi-67 memory status --json
-pi-67 memory doctor
-pi-67 memory doctor --deep
-```
-
-- `DeepSeek auth is missing`: configure provider `deepseek` through upstream
-  Pi `/login`; do not copy the key into Hy-Memory config.
-- `SiliconFlow embedding API key is required`: rerun `pi-67 memory init` in an
-  interactive terminal and use hidden input. Automation may provide
-  `PI67_HY_MEMORY_EMBEDDING_API_KEY` only for that process.
-- `Python 3.11 is required`: install `uv` or Python 3.11. On Windows,
-  `winget install --id Python.Python.3.11 -e --source winget` must make
-  `py -3.11 --version` succeed.
-- service is stopped: run `pi-67 memory restart`, then repeat doctor.
-- deep doctor reports a dimensions request error: restore the canonical
-  contract. SiliconFlow `BAAI/bge-m3` must receive no `dimensions` request
-  parameter, while the local vector store remains 1024-dimensional.
-- outbox has dead-letter files: fix provider/network/runtime health first, then
-  run `pi-67 memory flush`. Treat dead-letter content as private user data.
-
-Logs are under `~/.hy-memory/pi67/logs`. Report only the time and error type;
-never paste `secrets.json`, full user messages, a database, or an entire log.
-`pi-67 memory disable` pauses automatic recall/capture without deleting data,
-which is the safest isolation step when comparing Hy-Memory with a
-user-installed third-party memory MCP, EverOS, or `pi-observational-memory`.
-
-The complete architecture, commands, reset-with-backup, retry/dead-letter and
-SDK upgrade process is in [`hy-memory.md`](hy-memory.md).
-
-## MCP path warnings
-
-Warnings like these mean a managed browser67 MCP is configured, but its local
-dependency is not present yet:
-
-```text
-MCP tmwd_browser path missing or needs local edit
-MCP js-reverse path missing or needs local edit
-```
-
-Fix by installing the dependency or editing:
-
-```text
-~/.pi/agent/mcp.json
-```
-
-Common local dependencies:
-
-```text
-browser67 package clone or local browser67 checkout
-local Codex proxy if using the codex provider
-```
-
-For a normal managed browser67 installation, use the high-level install
-lifecycle. It owns both the checkout and runtime preparation; then use the deep
-doctor to separate deterministic checkout/config readiness from the live
-Hub/extension connection:
-
-```bash
-pi-67 external install browser67 --dry-run
-pi-67 external install browser67
-pi-67 external doctor browser67 --deep
-```
-
-`pi-67 external doctor browser67` without `--deep` checks the repo,
-dependencies, prepared extension files, active skills, and MCP paths. It does
-not prove that Chrome/Edge loaded the unpacked extension. `--deep` additionally
-runs browser67's live doctor. The install output prints the unpacked extension
-directory; load that directory in `chrome://extensions`, start the Hub if it
-was not started with `--start-hub`, and restart Pi before retrying MCP.
-
-For a later version update, run `pi-67 external update browser67`. It safely
-pulls an existing clean checkout and automatically reruns runtime setup when the
-checkout changed or deterministic readiness is incomplete. If doctor reports a
-runtime preparation problem without a repository update, explicitly rebuild it
-with `pi-67 external setup browser67`. Setup requires an existing installation;
-it does not clone a missing checkout.
-
-Do not delete the managed browser67 MCP entries just because doctor warns;
-doctor tells you which dependency still needs local setup. Any additional MCP
-entry in local `mcp.json` is user-managed and should be kept or removed according
-to that tool's own lifecycle.
-
-If Pi shows this while Codex/browser67 works:
-
-```text
-Server "tmwd_browser" not available
-Failed to connect to "tmwd_browser": MCP error -32000: Connection closed
-```
-
-first check whether `~/.pi/agent/mcp.json` contains shell-only path placeholders
-inside MCP `command` or `args`, for example:
-
-```json
-"args": ["$HOME/Documents/.../browser67/src/mcp/browser/server.mjs"]
-```
-
-`pi-mcp-adapter` does not run those fields through a shell. The literal
-`$HOME/...` path is passed to `node`, the MCP server exits immediately, and Pi
-reports `Connection closed`. Codex can still work at the same time because
-Codex often uses a separate MCP config with absolute paths.
-
-Fix it with the normalizer:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-configure.sh --workspace-only --no-doctor
-bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp --mcp-timeout-ms 5000
-```
-
-Then verify the same path through xtalpi/Pi instead of only doctor:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-smoke.sh --case mcp-connect-tmwd-browser
-```
-
-On Windows PowerShell:
-
-```powershell
-.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "mcp-connect-tmwd-browser"
-```
-
-This case performs `mcp({"connect":"tmwd_browser"})` only. It does not call
-browser tools or open a website, but it proves Pi can start the browser67 MCP
-server that Codex may already be able to start through a separate config.
-
-Or explicitly point Pi at a browser67 checkout/package:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-configure.sh \
-  --no-prompt \
-  --tmwd-repo "/path/to/browser67"
-```
-
-Healthy runtime `mcp.json` should use a machine-local absolute `cwd` plus
-relative `args` for browser67 MCP servers. Absolute `command` / `args` also
-work when needed, but `mcp.json` should not rely on `$HOME` in `command` /
-`args`.
-
-Use the configure helper to set the common local paths:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-configure.sh \
-  --no-prompt \
-  --tmwd-repo "/path/to/browser67"
-```
-
-Preview first if you are unsure:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-configure.sh --dry-run --no-prompt
-```
-
-## Shared skill warnings
-
-Warnings like these mean a skill exists in more than one active source:
-
-```text
-legacy ~/.pi/agent/skills duplicates shared skills
-settings.json still declares active skill package source
-package skill cache duplicates shared skills and should not be active
-```
-
-Canonical active skills live in:
-
-```text
-~/.agents/skills
-```
-
-Fix by installing/copying the desired skill into `~/.agents/skills` and removing
-the duplicate active declaration or legacy directory. For pi-67-owned skills,
-rerun:
-
-```bash
-bash ~/.pi/agent/install.sh --no-npm
-```
-
-On old linked installs, the installer moves legacy `~/.pi/agent/skills` into
-the normal backup directory. For existing in-place installs or package-cache
-duplicates, use the migration helper instead of manual deletion:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-migrate-skills.sh --dry-run
-bash ~/.pi/agent/scripts/pi67-migrate-skills.sh --apply --yes
-```
-
-It backs up migrated legacy roots and refuses to overwrite a different
-canonical skill. If a maintained external repo contains the desired skill, sync
-that repo into the global root:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-sync-external-skills.sh \
-  --repo /path/to/design-craft \
-  --repo /path/to/browser67 \
-  --dry-run
-```
-
-The Consumer Brand Commerce and Marketing repository is a Manifest-built
-8-Skill Pack. Use its own Installer so shared resources are materialized:
-
-```bash
-bash /path/to/commerce-growth-os/scripts/install.sh \
-  --install-root ~/.agents/skills \
-  --dry-run
-
-bash /path/to/commerce-growth-os/scripts/install.sh \
-  --install-root ~/.agents/skills
-```
-
-Maintainers refreshing the vendored pi-67 distribution copy should use:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-sync-commerce-skill-pack.sh \
-  --source /path/to/commerce-growth-os \
-  --dry-run
-
-bash ~/.pi/agent/scripts/pi67-sync-commerce-skill-pack.sh \
-  --source /path/to/commerce-growth-os \
-  --apply --yes
-```
-
-If `pi-67 update` preserved an older or locally changed Active Pack, inspect and
-redeploy it from the canonical Git-tracked source:
-
-```bash
-pi-67 skills packs
-pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --dry-run
-pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --yes
-```
-
-Managed Skill deployment does not create `*-skills-sync` content backups.
-`~/.agents/skills` is rebuilt from the Git-tracked, provenance-locked Pack. The
-temporary `.pi67-skills-sync-*` transaction directory is removed on success or
-failure; a later deploy removes stale transaction residue from an interrupted
-process before continuing.
-
-If a writing command reports `another pi-67 Skill deployment appears to be
-running`, do not delete `~/.pi/pi67/locks/skills-deploy.lock` while the reported
-PID is active. Wait for the current sync to finish and retry. A dead-process
-lock and a lock older than four hours are recovered by the next writing command
-when no live same-host owner can be proven. Dry-run inspection remains
-available while the lock is held.
-
-To undo a Pack alignment, do not manually copy individual Active Skill
-directories. Select or revert the desired Git commit/tag in the canonical
-`commerce-growth-os` source, regenerate the vendored Pack plus
-`shared-skill-packs.lock.json`, and redeploy:
-
-```bash
-pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --dry-run
-pi-67 skills sync-pack consumer-brand-commerce-marketing-suite --yes
-```
-
-On another machine, pin or reinstall the pi-67 release containing that exact
-Pack commit before syncing. `pi-67 backups` remains a separate recovery path for
-repo-external runtime configuration such as settings; it does not store or
-restore managed Skill history.
-
-The same mismatch is visible without writing through:
-
-```bash
-node ~/.pi/agent/scripts/pi67-shared-skill-packs-status.mjs --json
-```
-
-If `registry.valid` is `false`, fix the registry or vendored source contract
-before attempting a Pack sync. If the registry is valid and
-`summary.attention > 0`, inspect `missingSkills` / `conflictSkills`, then run the
-reported `sync-pack ... --dry-run` preview. Do not jump directly to `--yes`.
-
-For a read-only summary before applying a real repo sync, use:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-check-external-skills.sh \
-  --repo /path/to/design-craft \
-  --repo /path/to/browser67
-```
-
-For browser67 MCP, keep the source checkout/cache outside active skill roots and
-configure `mcp.json` with:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-configure.sh --tmwd-repo "/path/to/browser67" --no-prompt
-```
-
-## Deep MCP probe warnings
-
-`--deep-mcp` starts each stdio MCP server briefly and checks whether it responds to JSON-RPC `initialize` and `tools/list`.
-
-Common warning causes:
-
-```text
-deep probe skipped: command unavailable
-deep probe skipped: missing path
-deep probe blocked: args uses unsupported runtime placeholder
-deep initialize did not complete
-deep tools/list did not complete
-deep tools/list returned no tools
-```
-
-Fix order:
-
-1. Run the normal MCP path checks first:
-
-   ```bash
-   bash ~/.pi/agent/scripts/pi67-doctor.sh
-   ```
-
-2. Fix missing local paths in:
-
-   ```text
-   ~/.pi/agent/mcp.json
-   ```
-
-3. If the server starts slowly, increase the timeout:
-
-   ```bash
-   bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp --mcp-timeout-ms 5000
-   ```
-
-4. If only the deep probe warns but normal doctor is otherwise ready, run the MCP server command manually from `mcp.json` for local logs. Doctor intentionally does not print MCP stderr because those logs may include local private details.
-
-## `pi list` fails or doctor reports package registry warnings
-
-Run it manually for the detailed error:
-
-```bash
+pi --help
 pi list --no-approve
 ```
 
-Then check:
+不要把 `pi-67 launch` 当标准启动器；它只允许作为 Windows PATH refresh helper。
 
-```text
-~/.pi/agent/skills
-~/.agents/skills
-~/.pi/agent/npm
-~/.pi/agent/npm/node_modules
-```
-
-If npm dependencies were skipped or failed:
+## 3. `pi-67` command missing 或版本错位
 
 ```bash
-cd ~/.pi/agent/npm
-npm ci --ignore-scripts --no-audit --no-fund --prefer-offline
+command -v pi-67
+npm prefix -g
+npm list -g @bigking67/pi-67 --depth=0
+pi-67 version --json
 ```
 
-The tracked `package.json` and `package-lock.json` must already have been copied
-into `~/.pi/agent/npm/`; normally `pi-67 update` does this and is safer than a
-manual dependency repair.
+NVM/fnm 的 global packages 按 Node 版本隔离。切换 Node 后，当前 shell 可能仍指向
+另一个 prefix。
 
-Do not use the removed `pi skill list` form with upstream Pi 0.80.6. It is no
-longer a package/skill listing command; Pi interprets `skill list` as an
-interactive user prompt and may start a real model request. Skill source
-conflicts are diagnosed through `pi-67 skills inventory` and doctor's direct
-shared-skill checks.
-
-## Legacy prompt placeholder failure
-
-Doctor checks for legacy double-brace placeholders in prompts and `AGENTS.md`.
-
-Old style:
-
-```text
-double-brace task placeholder
-```
-
-Pi-compatible style:
-
-```text
-$1
-$ARGUMENTS
-${2:-default}
-```
-
-Update prompt files under:
-
-```text
-~/.pi/agent/prompts
-```
-
-## Existing files were replaced
-
-The installer moves overwritten non-symlink files/directories into a backup directory:
-
-```text
-~/.pi/agent/backup-YYYYmmdd-HHMMSS
-```
-
-The path is printed at the end of installation.
-
-Restore a file:
+显式更新 manager：
 
 ```bash
-cp ~/.pi/agent/backup-YYYYmmdd-HHMMSS/AGENTS.md ~/.pi/agent/AGENTS.md
-```
-
-Restore a directory:
-
-```bash
-rm ~/.pi/agent/rules
-mv ~/.pi/agent/backup-YYYYmmdd-HHMMSS/rules ~/.pi/agent/rules
-```
-
-## Installer preview
-
-To verify what will happen without writing:
-
-```bash
-./install.sh --dry-run --no-npm --no-doctor
-```
-
-Use this before installing on a machine with important existing Pi configuration.
-
-## Installer reports preserved user-modified shared skills
-
-When `~/.agents/skills/<name>` already exists but differs from the pi-67
-bundled copy, current installers keep the existing global skill by default:
-
-```text
-WARN preserved 1 user-modified global Skills: lark-approval
-WARN details: pi-67 skills inventory --json
-```
-
-This is usually the right behavior. `~/.agents/skills` is the active global
-registry shared by Pi and Codex, and a hash mismatch only means "different",
-not "pi-67 is newer". If the existing skill came from a trusted update or a
-maintained external repository, keep it.
-
-The compact summary avoids repeating local absolute paths and hashes during
-every normal update. Use `pi-67 install --verbose`, `pi-67 update --verbose`,
-Bash `--verbose`, or PowerShell `-SkillDriftDetails` only when you need the
-per-Skill source path and directory hashes.
-
-Use strict mode only when you intentionally want the install/update to stop on
-any bundled-skill mismatch:
-
-```bash
-bash install.sh --agent-dir "$PWD" --strict-shared-skills
-bash ~/.pi/agent/scripts/pi67-update.sh --strict-shared-skills
-```
-
-If an existing global skill is old residue and you want to replace it with the
-pi-67 baseline, move that one skill to a backup directory first; do not delete
-it until Pi works after reinstalling.
-
-## Update stops because the checkout is dirty
-
-First keep the two update lifecycles separate.
-
-Update only upstream Pi:
-
-```bash
-npm install -g @earendil-works/pi-coding-agent@latest
-pi --version
-```
-
-Update only pi-67:
-
-```bash
-pi-67 update --check
-pi-67 update
-pi-67 doctor
-```
-
-Normal update automatically resynchronizes managed npm packages when the plan
-detects missing or stale installs. Run `pi-67 self-update` only when update
-reports an outdated manager. Use `pi-67 update --repair` only to force npm
-dependency reinstall when the plan appears current but the install is damaged.
-
-pi-67 never installs, updates, or repairs upstream Pi. It only reports Pi
-installed/tested/latest compatibility. If an old automation still passes
-`--include-pi` or the cross-owner `--all` option, remove that option; current
-pi-67 intentionally exits with `unknown option`.
-
-`pi update --extensions` is the upstream Pi extension updater, not the pi-67
-distribution updater. If it was run manually, use `pi-67 update --repair` to
-re-run the pi-67 npm sync, known patch checks, shared skill checks, smoke,
-doctor, and report path.
-
-If the prompt appears right after `pi-67 update --repair`, check the ownership
-layer before running the upstream command:
-
-```bash
-pi-67 update --check
-pi-67 extensions doctor
-```
-
-`installed stale` means the local `npm/node_modules` copy is behind the pi-67
-baseline and normal `pi-67 update` will sync it automatically. `baseline drift` means a
-new upstream npm package exists beyond the current pi-67 release baseline; the
-clean fix is a new pi-67 release that bumps the managed package and passes
-smoke/release gates.
-
-`pi-67 update` preserves `settings.json` and the selected theme value; it may
-update the installed theme package, but it will not change the selected theme.
-Current releases keep `settings.json` ignored and track only
-`settings.example.json`, so normal provider/model/theme changes do not dirty
-the repository. Upgrades from pre-0.12.0 tracked settings preserve both clean
-and locally modified files, migrate the runtime marker, and remove the legacy
-repository-local clean filter.
-Before a real update/repair, the npm manager writes
-`~/.pi/pi67/locks/update.lock` and blocks unsafe non-runtime dirty worktrees.
-Runtime config backup/restore is delegated to the Bash or PowerShell updater
-only when an in-place checkout needs to temporarily clear dirty preserved
-runtime files. The updater fetches first, compares incoming changed paths, and
-creates `~/.pi/pi67/backups/pre-update-runtime-*` only when the incoming update
-touches those dirty runtime files. Already-up-to-date updates and
-non-overlapping incoming updates leave dirty runtime config in place without
-creating a backup. Unrelated tracked edits still block. If preserved runtime
-files are unchanged from an existing equivalent backup, the updater reuses the
-snapshot instead of creating another timestamped backup directory. Inspect or
-recover runtime snapshots with:
-
-```bash
-pi-67 backups list
-pi-67 backups list --include-legacy
-pi-67 backups inspect <backup-id-or-path>
-pi-67 backups inspect <pre-update-id> --legacy
-pi-67 backups restore --from <backup-id-or-path> --dry-run
-pi-67 backups restore --from <backup-id-or-path> --yes
-```
-
-Real restore writes a pre-restore backup first and only restores preserved
-runtime config files. Change theme only with:
-
-```bash
-pi-67 themes set gruvbox-dark
-```
-
-If update reports that the current branch has no usable remote branch, do not
-force a guessed `main` pull. Either switch to the intended tracking branch or
-pass the target explicitly:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-update.sh --branch main
-```
-
-```powershell
-.\scripts\pi67-update.ps1 -Branch main
-```
-
-Without an explicit branch, the updater accepts only a compatible configured
-upstream, an existing same-name remote branch, or a remote-default branch whose
-commit exactly equals local `HEAD`. Divergent and detached checkouts fail
-closed by design.
-
-If `pi-67 update --check` says the npm manager is outdated, update it explicitly:
-
-```bash
+pi-67 self-update --dry-run
 pi-67 self-update
 ```
 
-Since `0.10.25`, real `pi-67 update` / `pi-67 update --repair` runs block when
-the active npm manager is stale, including the case where the local distro is
-newer than the global manager. This is intentional: update the manager first so
-the next repair uses the latest safety gates.
+然后预览/激活它自带 distro：
 
 ```bash
-npm install -g @bigking67/pi-67@latest
-pi-67 version
+pi-67 update --check --json
 pi-67 update
 ```
 
-Since `0.10.2`, the `Manager latest` field is queried directly from the npm
-registry HTTP API. It no longer spawns local `npm` / `npm.cmd`, so Windows
-PowerShell errors such as `spawnSync npm ENOENT` or `spawnSync npm.cmd EINVAL`
-should not appear in that field. If it still says `unknown`, treat it as a
-network/registry reachability issue rather than a local npm shim issue.
-Explicit npm operations such as `pi-67 self-update` also retry through
-`cmd.exe /d /s /c npm.cmd ...` on Windows when direct npm shim spawning fails.
+不要手工复制 Git checkout 来修 manager/distro 版本错位。
 
-For a Windows machine that already has the current checkout, prefer the
-one-command update and acceptance entrypoint instead of copying a long manual
-command list:
+## 4. install 拒绝非空 `~/.pi/agent`
 
-```powershell
-Set-Location $env:USERPROFILE\.pi\agent
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\pi67-windows-acceptance.ps1
-```
+这是所有权保护，不是安装器故障。
 
-It updates the npm manager with `pi-67 self-update`, updates the distro with the
-smart default `pi-67 update`, and then runs the Windows/xtalpi acceptance
-contract. On failure, use the printed failed-stage output tail, `Recovery`,
-full stage-log path, and `Summary` path. Full command output remains in the
-adjacent stage logs. To diagnose the current install without changing it,
-rerun with `-SkipUpdate`; both update stages will say that this option requested
-the skip. Use `-SelfTest` only for the offline script contract.
-
-If the installed manager is too old to trust, use the latest package for one run:
+若存在 `.git`：
 
 ```bash
-npx -y @bigking67/pi-67@latest update
+pi-67 migrate --check --json
+pi-67 migrate --yes
 ```
 
-`pi67-update.ps1` / `pi67-update.sh` default to safe fast-forward updates.
-On Windows, use the PowerShell-native updater first:
+若非空但不是 legacy checkout，先人工确认来源。不要用 destructive clean、
+`reset --hard` 或递归删除绕过。machine-owned 状态应先备份。
 
-```powershell
-Set-Location $env:USERPROFILE\.pi\agent
-.\scripts\pi67-update.ps1
-```
+## 5. migration 失败
 
-If execution policy blocks local scripts:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\pi67-update.ps1
-```
-
-Older PowerShell updaters from the `xtalpi-compat` -> `xtalpi-pi-tools`
-migration wrote legacy known-conflict snapshots under:
-
-```text
-%USERPROFILE%\.pi\agent-backups\pre-update-*
-```
-
-Current `pi67-update.ps1` no longer writes that legacy directory. These legacy
-conflict backups are read-only diagnostics, not the current runtime restore
-path. The current restore path is `%USERPROFILE%\.pi\pi67\backups`.
-Use this to see both kinds without deleting anything:
-
-```powershell
-pi-67 backups list --include-legacy
-pi-67 backups inspect pre-update-20260707-235901 --legacy
-```
-
-Other tracked local edits still stop the update before pulling. The Bash updater
-also stops on dirty checkouts by default:
-
-```text
-repo has local changes
-```
-
-Recommended fix:
-
-```powershell
-Set-Location $env:USERPROFILE\.pi\agent
-git status --short
-git diff --stat
-```
-
-macOS/Linux:
+### 检查项
 
 ```bash
-cd /path/to/pi-67
-git status --short
-git diff --stat
+pi-67 migrate --check --json
+du -sh ~/.pi/agent/npm ~/.pi/agent/git ~/.pi/agent/sessions ~/.pi/agent/extensions 2>/dev/null
+ls -la ~/.pi/pi67/backups
+ls -la ~/.pi/pi67/migrations
 ```
 
-Then either commit or stash your local edits. If you intentionally want to proceed with a dirty checkout:
+迁移先 rename 原 checkout，再激活新工作台并复制 runtime dirs。复制大目录需要额外
+磁盘与时间。失败路径会把原目录 rename 回去；不要删除 backup。
 
-```powershell
-.\scripts\pi67-update.ps1 -AllowDirty
-```
-
-macOS/Linux:
+回滚：
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-update.sh --allow-dirty
+pi-67 rollback --migration --check
+pi-67 rollback --migration --yes
 ```
 
-To inspect update readiness without pulling or writing files:
+如果同一 blocker 连续出现三次，停止重复重试，回到最早不确定阶段：磁盘、权限、
+源 artifact 完整性或目录所有权。
 
-```powershell
-.\scripts\pi67-update.ps1 -CheckOnly
-```
+## 6. immutable release 激活中断
 
-macOS/Linux:
+检查：
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-update.sh --check-only
+ls -la ~/.pi/pi67/pending-activation.json ~/.pi/pi67/current.json 2>/dev/null
+pi-67 version --json
+pi-67 update --check --json
 ```
 
-This reports remote head status, dirty worktree state, missing local config templates, npm sync status, and whether `~/.pi/agent/pi67-report.json` is stale.
+`pending-activation.json` 表示逐文件激活未完成，或 pointer 已提交但 marker 尚未清理。
+再次执行同一 manager 的 `pi-67 update` 会幂等重放；同版本/不同内容会拒绝继续，
+避免静默污染 immutable release。
 
-Normal updates only perform deterministic workspace maintenance: create newly
-introduced templates when missing, normalize supported JSON encodings on
-Windows, and normalize MCP runtime paths. They do not consume provider-key
-environment variables, write `auth.json`, or switch the provider/model selected
-by upstream Pi:
+上一版本回滚：
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-update.sh
+pi-67 rollback --check --json
+pi-67 rollback --yes
 ```
 
-Windows PowerShell:
+不要直接编辑 `current.json`。
 
-```powershell
-.\scripts\pi67-update.ps1
-```
-
-If the update spends most time in `--- npm sync ---`, it means the repo
-`package.json` and `npm/package.json` differed or npm was explicitly forced.
-After one successful sync, later updates should print `npm package.json already
-synced` and skip npm. For a quick code-only update when dependencies are already
-known-good:
-
-```powershell
-.\scripts\pi67-update.ps1 -NoNpm
-```
-
-The PowerShell updater writes `~/.pi/agent/pi67-report.json` after smoke and
-embeds `scripts\pi67-doctor.ps1 -Json` by default. If report generation itself
-fails, the update should continue with a warning; regenerate the report manually:
-
-```powershell
-.\scripts\pi67-report.ps1 -Operation manual
-.\scripts\pi67-doctor.ps1
-```
-
-To skip report generation for one update:
-
-```powershell
-.\scripts\pi67-update.ps1 -NoReport
-```
-
-To write the report but skip embedded doctor collection:
-
-```powershell
-.\scripts\pi67-update.ps1 -NoDoctor
-```
-
-If you intentionally want to skip workspace template and normalization work in
-that run:
-
-```powershell
-.\scripts\pi67-update.ps1 -NoConfigure
-```
-
-macOS/Linux:
+## 7. extension 状态异常
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-update.sh --no-configure
+pi-67 extensions list --json
+pi-67 extensions inspect <id> --json
+pi-67 extensions diff <id> --json
+pi-67 extensions status --deep --json
 ```
 
-For a Windows machine that has not received the PowerShell updater yet:
+### `missing`
+
+正常 `pi-67 update` 会安装 baseline。npm 被明确跳过时：
+
+```bash
+pi-67 update --check --json
+pi-67 update
+```
+
+确认没有 `--no-npm`。
+
+### `below-baseline`
+
+只有 ledger/hash/source 能证明 pristine 时才自动升级。否则状态应是 conflict。
+
+### `user-managed-ahead`
+
+这是预期状态：保留，不降级。不要为了让 doctor 全绿执行 restore。
+
+### `user-managed-diverged`
+
+pi-67 默认保留。先审阅：
+
+```bash
+pi-67 extensions diff <id> --json
+```
+
+确认确实需要丢弃本机修改后，才运行：
+
+```bash
+pi-67 extensions restore <id> --check --json
+pi-67 extensions restore <id> --yes
+```
+
+restore 先备份，只处理一个 ID。
+
+### `load-failed`
+
+深度检查中的成功 `pi list --no-approve` 没有解析已配置 package。文件/version
+状态会保存在 `baselineStatus`，不会自动覆盖。
+
+```bash
+pi list --no-approve
+pi-67 extensions doctor --deep --json
+```
+
+检查 Pi 输出中的 package path、warning/error、Windows 路径和 settings spec。若 probe
+本身失败，先修 `pi` command/timeout，而不是恢复扩展。
+
+## 8. `pi list` timeout 或 warning
+
+macOS/Linux doctor 默认使用非交互 package probe，可跳过：
+
+```bash
+bash scripts/pi67-doctor.sh --no-pi-list --json
+```
+
+设置 timeout：
+
+```bash
+bash scripts/pi67-doctor.sh --pi-list-timeout-seconds 60 --json
+```
+
+Windows 显式开启：
 
 ```powershell
-Set-Location $env:USERPROFILE\.pi\agent
-$Stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$BackupDir = Join-Path $env:USERPROFILE ".pi\pi67\backups\pre-update-bootstrap-$Stamp"
-New-Item -ItemType Directory -Force $BackupDir | Out-Null
-$KnownPaths = @("settings.json", "models.json", "auth.json", "mcp.json", "image-gen.json")
-$RestorePaths = @()
-foreach ($Path in $KnownPaths) {
-  git ls-files --error-unmatch $Path *> $null
-  if ($LASTEXITCODE -eq 0) { $RestorePaths += $Path }
-}
-if ($RestorePaths.Count -gt 0) {
-  git diff -- $RestorePaths | Set-Content -Path (Join-Path $BackupDir "local.diff") -Encoding UTF8
-  foreach ($Path in $RestorePaths) {
-    Copy-Item $Path (Join-Path $BackupDir ($Path -replace "[\\/]", "__")) -ErrorAction SilentlyContinue
-  }
-  git restore -- $RestorePaths
-}
-git pull --ff-only
-.\scripts\pi67-update.ps1
+& "$env:USERPROFILE\.pi\agent\scripts\pi67-doctor.ps1" -PiList -PiListTimeoutSeconds 60 -Json
 ```
 
-macOS/Linux machine that has not received the updater yet:
+timeout 是 warning，不应被写成 Pi version compatibility failure。`pi list` exit 0 但
+出现 `warning|error|duplicate|conflict|skipped` 时，保留原始输出到本地 artifact，
+只汇报命中行。
+
+## 9. npm extension 安装失败
 
 ```bash
-cd /path/to/pi-67
-git pull --ff-only
-bash scripts/pi67-update.sh
+npm --version
+npm config get registry
+npm ping
+pi-67 extensions inspect <id> --json
 ```
 
-## Repository smoke test
+0.15.0 的 manager 对单个 missing/safe-behind npm extension 使用 targeted install。
+它不会复制整个 release lock 后执行 runtime-wide `npm ci`。因此 registry/network
+失败只应影响目标 extension，不应降级其他已安装 extension。
 
-Before committing installer, doctor, docs, prompts, or rules changes:
+离线时先运行：
 
 ```bash
-bash scripts/pi67-smoke.sh
+pi-67 update --check --no-remote --json
 ```
 
-Smoke creates a temporary Pi agent directory and validates the full install flow without touching your real `~/.pi/agent`.
+不要把 `--no-remote` 误认为“可以离线安装不存在的 npm tarball”。
 
-For narrower checks:
+## 10. Git extension 异常
 
 ```bash
+git -C ~/.pi/agent/git/<path> status --short
+git -C ~/.pi/agent/git/<path> remote -v
+git -C ~/.pi/agent/git/<path> rev-parse HEAD
+```
+
+判断顺序：origin -> tracked dirty -> baseline ancestry。fork、source change、tracked
+dirty 或非祖先关系全部保持 conflict。untracked build output 不自动等同 tracked source
+modification。
+
+不要修改嵌套第三方 checkout 的 lockfile 来让 pi-67 release gate 通过。
+
+## 11. Shared Skill missing/conflict
+
+```bash
+pi-67 skills inventory
+pi-67 skills packs --json
+pi-67 skills plan
+pi-67 skills diff <name>
+```
+
+默认 update 只补 missing。conflict 是“active 内容不同”，通常表示用户自行更新或
+维护，默认保留。严格诊断：
+
+```bash
+pi-67 update --check --strict-shared-skills --json
+```
+
+Commerce/Marketing 和 AI Berkshire 是 `pi67-first-party`、
+`bundled-release-only`；它们只随新 pi-67 baseline 到达。显式 pack 替换：
+
+```bash
+pi-67 skills sync-pack <pack> --dry-run
+pi-67 skills sync-pack <pack> --yes
+```
+
+Legacy/external Skill 维护辅助：
+
+```bash
+bash scripts/pi67-migrate-skills.sh --dry-run
+bash scripts/pi67-sync-external-skills.sh --dry-run
+```
+
+## 12. Lark Skills
+
+默认发行版应有 27 个 Lark Skills。检查 missing/conflict：
+
+```bash
+pi-67 skills inventory --json
+```
+
+如果 active Lark Skill 新于 bundled baseline，normal update 保留 active 版本。这类
+warning 不应通过强制覆盖来“消绿”。只有 missing 才自动补齐。
+
+## 13. 记忆功能
+
+公共默认架构：
+
+- `pi-observational-memory`：session 内 compression；
+- `pi-hy-memory`：cross-session long-term memory。
+
+两者都应保留。个人 `agent_memory` 不在公共模板中，但 ignored `mcp.json` 中已有
+配置会被 update/migrate/repair 保留。
+
+Hy-Memory：
+
+```bash
+pi-67 memory status --json
+pi-67 memory doctor --deep
+pi-67 memory outbox status --json
+```
+
+关注 initialized/enabled/ready/running 与 pending/processing/deadLetter。不要把私有
+memory DB、bearer、raw recall/capture 文本写入 Git 或日志。
+
+## 14. MCP 配置
+
+```bash
+node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); console.log("ok")' ~/.pi/agent/mcp.json
+```
+
+install/update/migrate 不应覆盖已有 `mcp.json`。公共 `mcp.example.json` 只提供公共
+模板。排查时不要打印完整文件，因为它可能包含用户命令参数或环境变量。
+
+## 15. provider/model/auth
+
+这些归 upstream Pi 所有。pi-67 只提供 optional `xtalpi configure` convenience：
+
+```bash
+pi-67 xtalpi configure --verify
+pi-67 xtalpi smoke --quick
+```
+
+缺失 xtalpi credentials 不应阻止 Pi 使用其他 provider 或 zero-key startup path。
+不要把 provider 故障写成 pi-67 distro version 故障。
+
+## 16. browser67
+
+```bash
+pi-67 external doctor browser67 --deep
+```
+
+未安装：
+
+```bash
+pi-67 external install browser67 --dry-run
+pi-67 external install browser67 --yes
+```
+
+dirty：先由 checkout owner 处理或提交本机修改；pi-67 不 reset/clean。真实 Chrome
+profile、OS permissions、managed-tab ownership 属于 browser67 runtime 验收。
+
+## 17. Windows JSON 与 PATH
+
+PATH：
+
+```powershell
+npm prefix --global
+Get-Command pi-67 -ErrorAction SilentlyContinue
+$env:Path -split ';'
+```
+
+JSON 必须用对象序列化，不要手拼反斜杠：
+
+```powershell
+$value | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $path -Encoding UTF8
+```
+
+PowerShell 5.1 UTF-16/BOM 问题由项目 JSON helper 做兼容读取；修复后仍应验证 JSON
+parse 和 exact path。
+
+## 18. release/smoke 失败
+
+按最小范围依次运行：
+
+```bash
+node packages/pi67-cli/scripts/check.mjs
 bash scripts/pi67-test-skill-governance.sh
-bash scripts/pi67-release-artifact-smoke.sh --ref WORKTREE
+bash scripts/pi67-test-ai-berkshire-skill-pack.sh
+bash scripts/pi67-release-check.sh
+bash scripts/pi67-release-artifact-smoke.sh
+bash scripts/pi67-smoke.sh --ci
 ```
 
-## Release script says the tag already exists
+packed artifact 报 `MODULE_NOT_FOUND` 时，源码 check 通过不能证明 package 可用。
+检查 `packages/pi67-cli/package.json#files`、prepack bundle、tarball inventory 和隔离
+prefix/HOME 中的 installed CLI。
 
-`scripts/pi67-release.sh` intentionally blocks duplicate same-version releases:
+`npm pack --dry-run` 也不等于隔离安装。必须实际安装 tarball 并运行至少
+`--help`、`version`、`manifest`、`install/update --dry-run`。
 
-```text
-vX.Y.Z already exists
-```
+## 19. 安全恢复原则
 
-Normal fix:
-
-```bash
-# update VERSION, package.json, and CHANGELOG.md first
-bash scripts/pi67-release.sh --dry-run
-bash scripts/pi67-release.sh --yes
-```
-
-If a release attempt failed halfway and you need to redo the same current `VERSION`, explicitly replace only that same version:
-
-```bash
-bash scripts/pi67-release.sh --replace-existing --yes
-```
-
-Do not delete older release tags just to reduce clutter. Historical tags/releases are the release audit trail.
-
-## Report file keeps changing after install/update
-
-This is expected:
-
-```text
-~/.pi/agent/pi67-report.json
-```
-
-is a current-state report. It is overwritten on every install/update, so there is no cleanup needed for normal usage. If you do not want the file written:
-
-```bash
-./install.sh --no-report
-bash ~/.pi/agent/scripts/pi67-update.sh --no-report
-```
-
-Windows PowerShell:
-
-```powershell
-.\scripts\pi67-update.ps1 -NoReport
-```
-
-Regenerate it manually:
-
-```powershell
-.\scripts\pi67-report.ps1 -Operation manual
-```
-
-The schema contract is documented in:
-
-```text
-docs/report-schema.md
-```
-
-## Safe uninstall
-
-Uninstall removes only symlinks that point back to the pi-67 repository. It does not remove local config files, sessions, npm packages, caches, or unrelated files.
-
-Preview:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-uninstall.sh --dry-run
-```
-
-Apply:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-uninstall.sh --yes
-```
-
-If a target is not a pi-67-owned symlink, uninstall preserves it and prints a warning.
+- 先 `--check` / `--dry-run`，再 `--yes`；
+- 不删除 tracked/user files 来绕过 blocker；
+- 不使用 `git reset --hard`、`git clean -fd` 或 force push；
+- 不把 credentials、raw logs、session 或 memory data 放进 issue；
+- ahead/diverged/unknown 默认保留；
+- rollback 先检查 immutable release 或 migration journal；
+- 如果现场证据与文档冲突，以真实 runtime -> active assets -> current config ->
+  persisted state -> source 的顺序重新定位。

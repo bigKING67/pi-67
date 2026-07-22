@@ -15,8 +15,18 @@ export async function reportCommand(ctx, argv) {
     return;
   }
   const args = isWindows()
-    ? ["-AgentDir", ctx.agentDir, "-RepoRoot", ctx.repoRoot, "-SkillsDir", ctx.skillsDir]
-    : ["--agent-dir", ctx.agentDir, "--repo-root", ctx.repoRoot, "--skills-dir", ctx.skillsDir];
+    ? [
+        "-AgentDir", ctx.agentDir,
+        "-StateDir", ctx.stateDir,
+        "-RepoRoot", ctx.repoRoot,
+        "-SkillsDir", ctx.skillsDir,
+      ]
+    : [
+        "--agent-dir", ctx.agentDir,
+        "--state-dir", ctx.stateDir,
+        "--repo-root", ctx.repoRoot,
+        "--skills-dir", ctx.skillsDir,
+      ];
   if (options.operation) args.push(isWindows() ? "-Operation" : "--operation", options.operation);
   const outputPath = options.output || path.join(ctx.agentDir, "pi67-report.json");
   const resolvedOutputPath = path.isAbsolute(outputPath) ? outputPath : path.resolve(ctx.repoRoot, outputPath);
@@ -29,6 +39,7 @@ export async function reportCommand(ctx, argv) {
       schema: "pi67.report-command.v1",
       dryRun: true,
       output: resolvedOutputPath,
+      stateDir: ctx.stateDir,
       operation: options.operation || "manual",
       doctor: options.noDoctor ? "skipped" : "enabled",
     });

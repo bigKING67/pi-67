@@ -1,230 +1,160 @@
-# pi-67 Doctor Schema
+# pi-67 doctor JSON schema v2
 
-`scripts/pi67-doctor.sh --json` and `scripts/pi67-doctor.ps1 -Json` emit the
-machine-readable readiness result for a pi-67 install.
+`pi-67 doctor --json` delegates to the active distro's POSIX or PowerShell
+doctor and emits `pi67-doctor/v2`.
 
-Doctor answers one question: is the full configuration installed, and which local capabilities still need keys, paths, or binaries?
-
-## Schema versioning
-
-Current schema:
+## Top-level contract
 
 ```json
 {
   "schemaVersion": 2,
-  "schemaId": "pi67-doctor/v2"
+  "schemaId": "pi67-doctor/v2",
+  "generatedAt": "2026-07-22T12:00:00Z",
+  "generatedBy": "scripts/pi67-doctor.sh",
+  "pi67": {
+    "version": "0.15.0"
+  },
+  "piCommandAvailable": true,
+  "diagnostics": {
+    "deepMcp": false,
+    "mcpTimeoutMs": 8000,
+    "piList": true,
+    "piListTimeoutSeconds": 60,
+    "skillList": true,
+    "skillListTimeoutSeconds": 60
+  },
+  "installMode": "immutable-release",
+  "repository": "/home/user/.pi/agent",
+  "agentDir": "/home/user/.pi/agent",
+  "agent": {
+    "dir": "/home/user/.pi/agent",
+    "installMode": "immutable-release"
+  },
+  "result": "READY WITH WARNINGS",
+  "counts": {
+    "pass": 47,
+    "warn": 1,
+    "fail": 0
+  },
+  "checks": [
+    {
+      "level": "PASS",
+      "message": "pi command found"
+    }
+  ]
 }
 ```
 
-Compatibility rule:
+PowerShell adds `diagnostics.strictSharedSkills` and uses
+`generatedBy=scripts/pi67-doctor.ps1`.
 
-- Consumers should require `schemaVersion >= 2` for the `schemaId`, `generatedBy`, `pi67`, and `diagnostics` fields.
-- Legacy fields `repository`, `agentDir`, `result`, `counts`, and `checks` remain stable.
-- New optional fields may be added in future minor releases.
-- Existing stable fields should not be renamed or removed without a schemaVersion bump.
-
-## Top-level fields
-
-| Field | Type | Stability | Meaning |
-| --- | --- | --- | --- |
-| `schemaVersion` | number | stable | Doctor schema version. Current value: `2`. |
-| `schemaId` | string | stable | Schema identifier. Current value: `pi67-doctor/v2`. |
-| `generatedAt` | string | stable | UTC timestamp for doctor JSON generation. |
-| `generatedBy` | string | stable | Script that generated the result. |
-| `pi67` | object | stable | Distribution metadata. |
-| `upstreamPi` | object or null | optional | Installed upstream Pi version, release-tested baseline, compatibility state, update command, and optional registry metadata. |
-| `diagnostics` | object | stable | Doctor mode and timeout settings. |
-| `installMode` | string | stable | `in-place` when the repo root is the agent dir; otherwise `linked`. |
-| `repository` | string | legacy-stable | Repository root inspected by doctor. |
-| `agentDir` | string | legacy-stable | Pi agent directory inspected by doctor. |
-| `agent` | object | stable | Structured agent metadata, including `dir` and `installMode`. |
-| `result` | string | stable | Final readiness result. |
-| `counts` | object | stable | PASS/WARN/FAIL counts. |
-| `checks` | array | stable | Individual check results. |
-
-## `result`
-
-`result` is one of:
-
-| Result | Meaning |
-| --- | --- |
-| `READY` | No blocking failures and no warnings. |
-| `READY WITH WARNINGS` | Full install is structurally usable, but some optional/local capabilities need setup. |
-| `NOT READY` | One or more blocking failures exist. |
-
-Fresh installs often produce `READY WITH WARNINGS` because API keys, MCP paths, or optional local binaries still need user-specific configuration.
-
-Doctor also compares the installed upstream `pi --version` result with the
-release-tested runtime recorded in the distro manifest. An older installed Pi
-produces `READY WITH WARNINGS`, not `NOT READY`: the runtime exists, but it is
-outside the exact version baseline exercised by the current release. Registry
-lookup is skipped in doctor so readiness remains bounded and offline-capable;
-`pi-67 status` and `pi-67 version` expose npm latest-version metadata when
-remote checks are enabled.
-
-Example:
-
-```json
-{
-  "upstreamPi": {
-    "schema": "pi67.upstream-pi-runtime.v1",
-    "package": "@earendil-works/pi-coding-agent",
-    "installedVersion": "0.80.3",
-    "testedVersion": "0.80.6",
-    "compatibility": "behind-release-tested",
-    "installedBehindTested": true,
-    "updateCommand": "npm install -g @earendil-works/pi-coding-agent@latest"
-  }
-}
-```
-
-Doctor also validates shared skill governance:
-
-- `shared-skills/` must contain pi-67's distributable skill source.
-- `~/.agents/skills` must contain installed copies of those shared skills.
-- `shared-skill-packs.json` must satisfy the versioned Pack registry contract;
-  duplicate Pack names, invalid SemVer, duplicate Skill ownership, and unknown
-  vendored Skill references are blocking failures.
-- `shared-skill-packs.lock.json` must match the registry and lock every Pack to
-  an upstream full Git Commit, Manifest SHA-256, Pack SHA-256, and per-Skill
-  SHA-256. Missing, stale, or tampered provenance is a blocking failure.
-- Every registered Pack is compared against the active root through the shared
-  `pi67-shared-skill-packs-status/v1` implementation. Consistent Packs produce
-  `PASS`; missing or different Pack members produce `WARN` by default and
-  `FAIL` under strict shared-skill mode.
-- `settings.json` must not declare `design-craft` or `browser67` as active Pi skill packages; install their skills into `~/.agents/skills` instead.
-- Existing `~/.pi/agent/skills` or package clone skill directories are reported as duplicate sources when they overlap with `~/.agents/skills`.
-- `pi list --no-approve` is used as the bounded, non-interactive upstream package registry probe. Skill duplication is checked directly through the shared-skill inventory and legacy-source checks rather than by sending the removed `pi skill list` command into the interactive agent.
-
-## `counts`
-
-```json
-{
-  "pass": 32,
-  "warn": 8,
-  "fail": 0
-}
-```
-
-`fail > 0` should be treated as blocking. `warn > 0` means the installed configuration is present but not fully locally ready.
-
-## `checks[]`
-
-Each check is a compact object:
-
-```json
-{
-  "level": "WARN",
-  "message": "MCP tmwd_browser path missing or needs local edit: /path/to/browser67"
-}
-```
+## Fields
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `level` | string | `PASS`, `WARN`, or `FAIL`. |
-| `message` | string | Human-readable diagnostic message. |
+| `schemaVersion` | integer | Always `2`. |
+| `schemaId` | string | Always `pi67-doctor/v2`. |
+| `generatedAt` | string | UTC generation time. |
+| `generatedBy` | string | POSIX or PowerShell doctor implementation. |
+| `pi67.version` | string | Active distro version read from `VERSION`. |
+| `piCommandAvailable` | boolean | Whether a real `pi` command is resolvable. |
+| `diagnostics.deepMcp` | boolean | Whether deeper MCP probes ran. |
+| `diagnostics.mcpTimeoutMs` | integer | POSIX deep-MCP timeout. |
+| `diagnostics.piList` | boolean | Whether `pi list --no-approve` was requested. |
+| `diagnostics.piListTimeoutSeconds` | integer | Package probe timeout. |
+| `diagnostics.skillList` | boolean | Deprecated compatibility mirror of `piList`. |
+| `diagnostics.skillListTimeoutSeconds` | integer | Deprecated compatibility mirror. |
+| `diagnostics.strictSharedSkills` | boolean | PowerShell strict Skill conflict mode, when present. |
+| `installMode` | string | Observed workspace layout. |
+| `repository` | string | Distro/workspace root used by the script. |
+| `agentDir` | string | Active Pi workspace. |
+| `agent` | object | Compatibility grouping for dir/installMode. |
+| `result` | enum | `READY`, `READY WITH WARNINGS`, or `NOT READY`. |
+| `counts` | object | PASS/WARN/FAIL totals. |
+| `checks` | array | Ordered check results with `level` and `message`. |
 
-Messages are intended for display and troubleshooting. Do not parse specific wording as a long-term API; use `level`, `counts`, and `result` for automation.
+## Pi boundary
 
-## `diagnostics`
+Doctor v2 intentionally has no Pi version fields, release-tested version,
+registry latest query, compatibility comparison, or Pi update command. Pi is
+an independent runtime.
 
-```json
-{
-  "deepMcp": false,
-  "mcpTimeoutMs": 2500,
-  "piList": true,
-  "piListTimeoutSeconds": 30,
-  "skillList": true,
-  "skillListTimeoutSeconds": 30
-}
+Allowed diagnostics:
+
+1. `piCommandAvailable`;
+2. real `pi list --no-approve` package resolution;
+3. real startup/tool acceptance in the dedicated acceptance scripts.
+
+The non-interactive package probe may report warnings or timeout, but those are
+not Pi version compatibility conclusions.
+
+## Exit and result semantics
+
+```text
+fail > 0  -> NOT READY, non-zero exit
+fail = 0 and warn > 0 -> READY WITH WARNINGS, zero exit
+fail = 0 and warn = 0 -> READY, zero exit
 ```
 
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `deepMcp` | boolean | Whether doctor started stdio MCP servers and called JSON-RPC `initialize` + `tools/list`. |
-| `mcpTimeoutMs` | number | Per-server timeout used by deep MCP probing. |
-| `piList` | boolean | Whether doctor ran the non-interactive `pi list --no-approve` package probe. |
-| `piListTimeoutSeconds` | number | Watchdog timeout for `pi list --no-approve`; timeout becomes a `WARN`. |
-| `skillList` | boolean | Legacy compatibility alias mirroring `piList`. |
-| `skillListTimeoutSeconds` | number | Legacy compatibility alias mirroring `piListTimeoutSeconds`. |
+Preserved user-modified Skills or optional external components may create a
+warning without making the workstation unusable. Consumers should inspect
+`counts.fail` before treating any warning as a failed release.
 
-Normal doctor mode checks MCP commands and paths using the same no-shell
-assumption as `pi-mcp-adapter`. `--deep-mcp` is opt-in because it starts local
-MCP server processes. Deep MCP probing treats adapter-incompatible placeholders
-in stdio `command` / `args` such as `$HOME/...` as `FAIL`, because those values
-would be passed literally to the child process.
+## Commands
 
-The PowerShell doctor is Windows-native and intentionally does not start MCP
-servers. It emits the same `schemaId`/`schemaVersion` contract, sets
-`diagnostics.deepMcp` to `false`, and focuses on local files, config JSON,
-xtalpi provider settings, npm sync state, Node engine readiness, shared-skill
-copies, and the `/chat/completions` endpoint contract.
-
-If `pi list` is slow on a machine, keep doctor bounded:
+Default:
 
 ```bash
-pi-67 doctor --no-pi-list
-pi-67 doctor --pi-list-timeout-seconds 10
+pi-67 doctor --json
 ```
 
-The previous `--no-skill-list` and `--skill-list-timeout-seconds` names remain
-accepted as compatibility aliases. Upstream Pi 0.80.6 removed the old
-`pi skill list` CLI shape; invoking it now starts the interactive agent with
-`skill list` as a user prompt, so doctor must never use that form.
-
-Windows PowerShell parity:
-
-```powershell
-.\scripts\pi67-doctor.ps1 -PiList -PiListTimeoutSeconds 10
-```
-
-By default, doctor reports pi-67 bundled shared skills that differ from
-installed global skills as preserved user-modified `WARN`, not `FAIL`, because
-the global `~/.agents/skills/<name>` copy may be newer or intentionally
-maintained outside pi-67. Use `--strict-shared-skills` when release/parity
-checks should treat those differences as blocking failures.
-For an explainable per-skill inventory with hashes, run
-`bash scripts/pi67-shared-skills-inventory.sh --json`; the helper is read-only
-and keeps existing global skills by default.
-For the compact Pack-level contract used by Doctor, Status, Report, and update
-planning, run:
+Skip package probe:
 
 ```bash
-node scripts/pi67-shared-skill-packs-status.mjs --json
+pi-67 doctor --no-pi-list --json
 ```
 
-The status contains separate `registry.valid` and `lock.valid` fields so
-operators can distinguish declaration errors from vendored integrity errors.
-
-When a Pack differs, first inspect `pi-67 skills packs`, then preview with
-`pi-67 skills sync-pack <pack> --dry-run`. Doctor never recommends or performs
-the writing `--yes` form automatically.
-
-Deep MCP probing uses standard `Content-Length` framed stdio JSON-RPC by default.
-For browser67 / legacy tmwd-browser-mcp, doctor uses newline-delimited JSON-RPC
-because those servers expose line-oriented stdio adapters. User-added MCP
-entries remain user-owned and are inspected on a best-effort basis; their
-presence in local `mcp.json` does not make them pi-67 distribution content.
-
-## Secret handling
-
-Doctor JSON must not contain API keys, tokens, cookies, private keys, session stores, raw MCP stderr, or raw local logs.
-
-Deep MCP probe failures intentionally report compact status messages only. They do not print raw MCP stderr because those logs can include machine-specific private details.
-
-## Consumer guidance
-
-Minimal readiness gate:
-
-```js
-const doctor = JSON.parse(fs.readFileSync("doctor.json", "utf8"));
-if (doctor.schemaVersion < 2) throw new Error("doctor schema too old");
-if (doctor.counts.fail > 0) throw new Error("pi-67 is not ready");
-if (doctor.counts.warn > 0) console.warn("pi-67 has local readiness warnings");
-```
-
-For a quick human summary without generating new JSON, use:
+Set timeout:
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-status.sh
+pi-67 doctor --pi-list-timeout-seconds 60 --json
 ```
+
+POSIX deep MCP:
+
+```bash
+pi-67 doctor --deep-mcp --mcp-timeout-ms 8000 --json
+```
+
+Strict shared Skills:
+
+```bash
+pi-67 doctor --strict-shared-skills --json
+```
+
+## Extension-specific deep doctor
+
+Use the manager-native extension schema when per-extension baseline/load status
+is required:
+
+```bash
+pi-67 extensions doctor --deep --json
+```
+
+That output includes:
+
+```text
+schema=pi67.extensions-doctor.v2
+managedExtensions.schema=pi67.managed-extensions-status.v1
+managedExtensions.loadProbe.schema=pi67.pi-extension-load-probe.v1
+managedExtensions.summary.loadFailed
+```
+
+A successful recognized Pi list probe that omits a configured default package
+marks only that entry `load-failed` and keeps it without automatic overwrite.
+
+## Security
+
+The JSON must not include auth tokens, passwords, cookies, private keys, raw
+MCP environment variables, session text, or memory payloads. Check messages
+must summarize a condition rather than dump a secret-bearing file.

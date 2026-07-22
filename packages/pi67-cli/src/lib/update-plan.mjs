@@ -6,17 +6,11 @@ import { readJsonFileIfExists } from "./config-json.mjs";
 import { listExternal } from "./external-repos.mjs";
 import { inspectSkillPackStatus, inventorySkills } from "./skill-policy.mjs";
 import { readTextIfExists } from "./paths.mjs";
-import {
-  compareSemver,
-  npmLatestVersion,
-  versionFromRange,
-  versionSatisfiesSupportedRange,
-} from "./npm-registry.mjs";
 import { inspectManagerFreshness, managerFreshnessBlockReason } from "./manager-freshness.mjs";
 import { buildDistroManifest } from "./distro-manifest.mjs";
 import { PRESERVED_RUNTIME_FILES } from "./update-safety.mjs";
 import { settingsRuntimeMarkerFromObject } from "./settings-runtime-state.mjs";
-import { inspectUpstreamPiRuntime } from "./upstream-pi-runtime.mjs";
+import { inspectManagedExtensions } from "./managed-extensions.mjs";
 
 export async function buildUpdatePlan(ctx, options = {}) {
   const versionFile = path.join(ctx.repoRoot, "VERSION");
@@ -38,15 +32,10 @@ export async function buildUpdatePlan(ctx, options = {}) {
   const skillPacks = inspectSkillPackStatus(ctx, { inventory: skills });
   const external = listExternal(ctx);
   const manifest = buildDistroManifest(ctx);
-  const [upstreamPi, packageAudit] = await Promise.all([
-    inspectUpstreamPiRuntime(ctx, {
-      manifest,
-      noRemote: ctx.noRemote || options.noRemote,
-    }),
-    auditManagedDependencyPackages(ctx, manifest, {
-      noRemote: ctx.noRemote || options.noRemote,
-    }),
-  ]);
+  const managedExtensions = inspectManagedExtensions(ctx, {
+    sourceRoot: options.sourceRoot || ctx.repoRoot,
+    deepHash: Boolean(options.deepExtensions),
+  });
   const requiredScripts = [
     "pi67-update.sh",
     "pi67-update.ps1",
@@ -74,20 +63,12 @@ export async function buildUpdatePlan(ctx, options = {}) {
     recommendations.push(`Update pi-67 manager: npm install -g ${pkg.name}@latest`);
     recommendations.push(`Always-fresh one-shot: npx -y ${pkg.name}@latest update`);
   }
-  if (!fs.existsSync(ctx.repoRoot)) {
+  if (!fs.existsSync(ctx.agentDir)) {
     recommendations.push("Run: pi-67 install");
-  } else if (!git?.isRepo) {
-    recommendations.push("Agent dir exists but is not a git checkout; preview repair with: pi-67 install --repair --yes --dry-run");
-    recommendations.push("If the preview looks correct, run: pi-67 install --repair --yes");
-  } else if (git.dirty && dirtyClass.unsafeTracked.length > 0) {
-    recommendations.push("Resolve or commit local changes before pi-67 update.");
   } else if (git.dirty && benignRuntime.benign) {
     recommendations.push("No manual action required for benign settings runtime markers; pi-67 migrates lastChangelogVersion to ignored state during update/repair.");
   } else if (git.dirty) {
-    recommendations.push("No manual action required for user runtime config; pi-67 backs up/restores it during update.");
-  } else {
-    const recommendation = cleanDistroUpdateRecommendation(git, remote);
-    if (recommendation) recommendations.push(recommendation);
+    recommendations.push("No manual action required for user runtime config; immutable release activation excludes and preserves it.");
   }
   if (skills.summary.conflicts > 0) {
     recommendations.push("Run: pi-67 skills inventory to inspect preserved user-modified global skills.");
@@ -107,22 +88,11 @@ export async function buildUpdatePlan(ctx, options = {}) {
   if (manifest.summary.userManagedRuntimePackages > 0) {
     recommendations.push("User-managed Pi runtime packages detected; pi-67 will report them but not overwrite them by default.");
   }
-  if (!upstreamPi.commandOk) {
-    recommendations.push(`Install upstream Pi: ${upstreamPi.updateCommand}`);
-  } else if (upstreamPi.installedBehindTested) {
-    recommendations.push(`Update upstream Pi to the release-tested baseline: ${upstreamPi.updateCommand}`);
-  } else if (upstreamPi.installedVersion && upstreamPi.registry.outdated) {
-    recommendations.push(`Upstream Pi ${upstreamPi.installedVersion} has registry latest ${upstreamPi.registry.latestVersion}; review upstream changes before updating.`);
+  if (managedExtensions.summary.automaticActions > 0) {
+    recommendations.push("Run: pi-67 update; missing or safely behind default extensions will be installed to the release minimum baseline.");
   }
-  if (packageAudit.summary.baselineBehindLatest > 0) {
-    const names = packageAudit.packages
-      .filter((item) => item.baselineBehindLatest)
-      .map((item) => `${item.packageName}@${item.latestVersion}`)
-      .join(", ");
-    recommendations.push(`pi-67 release should adopt newer managed package baselines after smoke: ${names}`);
-  }
-  if ((packageAudit.summary.installedDrift || 0) > 0 || (packageAudit.summary.notInstalled || 0) > 0) {
-    recommendations.push("Run: pi-67 update; normal update automatically syncs missing or different managed npm packages to the release lock.");
+  if (managedExtensions.summary.userManagedDiverged > 0) {
+    recommendations.push("Run: pi-67 extensions status; user-modified extension conflicts are preserved and require explicit restore to replace.");
   }
   const decisions = buildPlanDecisions({
     ctx,
@@ -137,7 +107,7 @@ export async function buildUpdatePlan(ctx, options = {}) {
     manifest,
     skills,
     external,
-    packageAudit,
+    managedExtensions,
     scriptStatus,
     theme,
     themeInstalled: theme ? hasTheme(ctx, theme) : false,
@@ -159,6 +129,7 @@ export async function buildUpdatePlan(ctx, options = {}) {
     },
     paths: {
       agentDir: ctx.agentDir,
+      stateDir: ctx.stateDir,
       repoRoot: ctx.repoRoot,
       skillsDir: ctx.skillsDir,
       packagesDir: ctx.packagesDir,
@@ -185,113 +156,19 @@ export async function buildUpdatePlan(ctx, options = {}) {
     },
     scripts: scriptStatus,
     manifest: manifest.summary,
-    runtime: {
-      upstreamPi,
-    },
-    packages: packageAudit,
+    extensions: managedExtensions,
     skills: skills.summary,
     skillPacks,
     runtimeState: {
       settingsLastChangelogVersion: settingsRuntimeMarker?.value || "",
-      storage: "~/.pi/pi67/state.json",
+      storage: path.join(ctx.stateDir, "state.json"),
       policy: "settings.json lastChangelogVersion is runtime-only and is normalized into ignored state on update/repair",
     },
     external,
     actions: decisions.actions,
     blocked: decisions.blocked,
-    warnings: upstreamPiRuntimeWarnings(upstreamPi, decisions.warnings),
+    warnings: decisions.warnings,
     recommendations,
-  };
-}
-
-function upstreamPiRuntimeWarnings(runtime, warnings) {
-  if (!runtime.commandOk) {
-    return [...warnings, "upstream Pi command is missing or failed `pi --version`"];
-  }
-  if (runtime.installedBehindTested) {
-    return [...warnings, `upstream Pi ${runtime.installedVersion} is behind release-tested ${runtime.testedVersion}`];
-  }
-  if (!runtime.installedVersion) {
-    return [...warnings, "upstream Pi version could not be parsed"];
-  }
-  return warnings;
-}
-
-export async function auditManagedDependencyPackages(ctx, manifest, options = {}) {
-  const packages = await Promise.all((manifest.dependencyPackages || []).map(async (item) => {
-    const installedVersion = installedDependencyVersion(ctx, item.packageName);
-    const baselineVersion = item.lockedVersion || versionFromRange(item.versionRange);
-    const registry = await npmLatestVersion(item.packageName, {
-      currentVersion: baselineVersion,
-      noRemote: options.noRemote,
-    });
-    return classifyManagedDependencyPackage(item, { installedVersion, registry });
-  }));
-  const summary = {
-    total: packages.length,
-    current: packages.filter((item) => item.status === "current").length,
-    baselineBehindLatest: packages.filter((item) => item.baselineBehindLatest).length,
-    installedBehind: packages.filter((item) => item.installedBehindBaseline).length,
-    installedAhead: packages.filter((item) => item.installedAheadBaseline).length,
-    installedDrift: packages.filter((item) =>
-      item.installedBehindBaseline || item.installedAheadBaseline).length,
-    notInstalled: packages.filter((item) => item.status === "not-installed").length,
-    registryUnknown: packages.filter((item) => item.status === "registry-unknown").length,
-    registrySkipped: packages.filter((item) => item.status === "registry-skipped").length,
-  };
-  return {
-    schema: "pi67.managed-package-audit.v1",
-    remoteSkipped: Boolean(options.noRemote),
-    summary,
-    packages,
-  };
-}
-
-export function classifyManagedDependencyPackage(item, options = {}) {
-  const baselineVersion = item.lockedVersion || versionFromRange(item.versionRange);
-  const installedVersion = String(options.installedVersion || "").trim();
-  const registry = options.registry || { skipped: true, ok: false, latestVersion: "" };
-  const latestVersion = registry.latestVersion || "";
-  const latestSatisfiesRange = Boolean(latestVersion) &&
-    versionSatisfiesSupportedRange(latestVersion, item.versionRange);
-  const baselineBehindLatest = Boolean(registry.ok) &&
-    Boolean(latestVersion) &&
-    Boolean(baselineVersion) &&
-    compareSemver(baselineVersion, latestVersion) < 0;
-  const installedBehindBaseline = Boolean(installedVersion) &&
-    Boolean(baselineVersion) &&
-    compareSemver(installedVersion, baselineVersion) < 0;
-  const installedAheadBaseline = Boolean(installedVersion) &&
-    Boolean(baselineVersion) &&
-    compareSemver(installedVersion, baselineVersion) > 0;
-  const installedBehindRangeLatest = Boolean(installedVersion) &&
-    Boolean(latestVersion) &&
-    latestSatisfiesRange &&
-    compareSemver(installedVersion, latestVersion) < 0;
-
-  let status = "current";
-  if (!installedVersion) status = "not-installed";
-  else if (installedBehindBaseline) status = "installed-behind-baseline";
-  else if (installedAheadBaseline) status = "installed-ahead-of-baseline";
-  else if (registry.skipped) status = "registry-skipped";
-  else if (!registry.ok) status = "registry-unknown";
-  else if (baselineBehindLatest) status = "baseline-behind-latest";
-
-  return {
-    packageName: item.packageName,
-    role: item.role,
-    versionRange: item.versionRange,
-    baselineVersion,
-    baselineSource: item.lockedVersion ? "package-lock.json" : "package.json-range-floor",
-    installedVersion,
-    latestVersion,
-    latestSatisfiesRange,
-    baselineBehindLatest,
-    installedBehindBaseline,
-    installedAheadBaseline,
-    installedBehindRangeLatest,
-    status,
-    registry,
   };
 }
 
@@ -341,7 +218,7 @@ export function buildPlanDecisions(context) {
       id: "settings-runtime-state",
       kind: "runtime-state",
       operation: "migrate-lastChangelogVersion-to-ignored-state",
-      writes: ["~/.pi/pi67/state.json", "settings.json only when removing runtime-only lastChangelogVersion"],
+      writes: [path.join(context.ctx.stateDir, "state.json"), "settings.json only when removing runtime-only lastChangelogVersion"],
       preserves: ["settings.json.theme", "settings.json.defaultProvider", "settings.json.defaultModel", "settings.json.packages"],
       risk: "low",
       reason: "lastChangelogVersion is Pi runtime UI state, not pi-67 source configuration",
@@ -349,68 +226,28 @@ export function buildPlanDecisions(context) {
     });
   }
 
-  if (!context.git?.isRepo) {
-    blocked.push({
-      id: "repo-root",
-      kind: "distro",
-      reason: "repo root is not a git checkout; pi-67 will not overwrite an existing plain folder silently",
-      recovery: "pi-67 install --repair --yes",
-    });
-  } else if (context.git.dirty && dirty.unsafeTracked.length > 0) {
-    blocked.push({
-      id: "repo-root",
-      kind: "distro",
-      reason: `repo has non-runtime local changes; pi-67 update blocks by default to avoid overwriting local work: ${dirty.unsafeTracked.join(", ")}`,
-      recovery: "commit/stash intentional changes or rerun the script-level updater with an explicit dirty override",
-    });
-  } else if (context.git.dirty && dirty.preservedRuntime.length > 0) {
-    const remoteStatus = classifyIncomingRemoteStatus(context.git, context.remote);
-    const preserveInPlace = remoteStatus.upToDate;
+  if (context.git?.dirty && dirty.preservedRuntime.length > 0) {
     actions.push({
       id: "user-runtime-config",
       kind: "runtime-config",
-      operation: preserveInPlace
-        ? "preserve-in-place-no-backup"
-        : "conditional-backup-if-incoming-update-touches-runtime-config",
-      writes: preserveInPlace
-        ? []
-        : ["~/.pi/pi67/backups/pre-update-runtime-* only if incoming update touches preserved runtime files"],
+      operation: "preserve-in-place-no-overwrite",
+      writes: [],
       preserves: dirty.preservedRuntime,
       risk: "low",
-      reason: runtimeConfigActionReason({ benignRuntime, preserveInPlace, remoteStatus }),
+      reason: benignRuntime.benign
+        ? `benign runtime marker only: ${benignRuntime.reasons.join("; ")}`
+        : "runtime configuration is user-owned and excluded from release activation",
       benign: benignRuntime.benign,
       benignReasons: benignRuntime.reasons,
-      createsNewBackup: !preserveInPlace,
-      backupCondition: preserveInPlace
-        ? "none: remote already matches the local checkout"
-        : "only when fetched incoming changes overlap preserved runtime files",
+      createsNewBackup: false,
+      backupCondition: "none: immutable release activation excludes preserved runtime files",
     });
     warnings.push(
-      preserveInPlace
-        ? `dirty user runtime config will stay in place; current remote is already at the local commit: ${dirty.preservedRuntime.join(", ")}`
-        : (
-          benignRuntime.benign
-            ? `benign user runtime marker will be preserved; backup is conditional on incoming path overlap: ${dirty.preservedRuntime.join(", ")}`
-            : `dirty user runtime config will be preserved; backup is conditional on incoming path overlap: ${dirty.preservedRuntime.join(", ")}`
-        ),
+      `user runtime config is preserved outside release ownership: ${dirty.preservedRuntime.join(", ")}`,
     );
   }
   if (context.git?.dirty && dirty.untracked.length > 0) {
     warnings.push(`untracked files are present and will be preserved unless Git reports a path collision: ${dirty.untracked.join(", ")}`);
-  }
-
-  for (const item of context.manifest.localExtensions || []) {
-    if (item.owner === "pi67-managed" && !item.exists) {
-      actions.push({
-        id: item.name,
-        kind: "local-extension",
-        operation: "repair",
-        writes: [item.path],
-        preserves: preservedRuntimeFiles,
-        risk: "low",
-        reason: "required pi-67 managed local extension is missing",
-      });
-    }
   }
 
   const missingScripts = Object.entries(context.scriptStatus)
@@ -466,26 +303,29 @@ export function buildPlanDecisions(context) {
     }
   }
 
-  const packageAudit = context.packageAudit || { summary: {}, packages: [] };
-  const packagesNeedingSync = packageAudit.packages.filter((item) =>
-    item.status === "installed-behind-baseline" ||
-    item.status === "installed-ahead-of-baseline" ||
-    item.status === "not-installed");
-  if (packagesNeedingSync.length > 0) {
+  const managedExtensions = context.managedExtensions || { summary: {}, extensions: [] };
+  const extensionsNeedingSync = managedExtensions.extensions.filter((item) =>
+    ["install", "upgrade", "configure"].includes(item.action));
+  if (extensionsNeedingSync.length > 0) {
     actions.push({
-      id: "managed-npm-packages",
-      kind: "npm-package-sync",
-      operation: "sync-to-release-lock",
-      writes: ["npm/package.json", "npm/package-lock.json", "npm/node_modules"],
-      preserves: preservedRuntimeFiles,
+      id: "managed-extensions",
+      kind: "managed-extension-baseline",
+      operation: "apply-missing-and-safe-behind-minimums",
+      writes: extensionsNeedingSync.map((item) => item.installPath || item.settingsSpec),
+      preserves: [
+        ...preservedRuntimeFiles,
+        "extensions newer than the release baseline",
+        "extensions with user-modified source, ref, or content",
+        "unknown third-party extensions",
+      ],
       risk: "low",
-      reason: `${packagesNeedingSync.length} managed npm package(s) are missing or differ from the release-locked baseline`,
+      reason: `${extensionsNeedingSync.length} default extension(s) are missing, unconfigured, or safely behind the release minimum baseline`,
       explicitCommand: "pi-67 update",
     });
   }
-  for (const item of packageAudit.packages.filter((entry) => entry.baselineBehindLatest)) {
+  for (const item of managedExtensions.extensions.filter((entry) => entry.status === "user-managed-diverged")) {
     warnings.push(
-      `managed package ${item.packageName} latest ${item.latestVersion} is newer than release-locked baseline ${item.baselineVersion} (range ${item.versionRange}); wait for a pi-67 release that updates the lock after smoke instead of running upstream pi update --extensions`,
+      `default extension ${item.id} differs from the last pi-67-managed copy; preserving it without overwrite`,
     );
   }
   for (const repo of context.external) {
@@ -518,36 +358,6 @@ export function buildPlanDecisions(context) {
   }
 
   return { actions, blocked, warnings };
-}
-
-function installedDependencyVersion(ctx, packageName) {
-  const packageFile = path.join(ctx.agentDir, "npm", "node_modules", ...packageName.split("/"), "package.json");
-  const pkg = readJsonFileIfExists(packageFile);
-  return typeof pkg?.version === "string" ? pkg.version : "";
-}
-
-function classifyIncomingRemoteStatus(git, remote) {
-  if (remote?.skipped) return { upToDate: false, known: false, reason: "remote check skipped" };
-  if (!remote?.commit || !git?.commit) return { upToDate: false, known: false, reason: remote?.message || "remote commit unknown" };
-  const local = String(git.commit);
-  const remoteCommit = String(remote.commit);
-  return {
-    upToDate: remoteCommit.startsWith(local),
-    known: true,
-    reason: remoteCommit.startsWith(local)
-      ? "remote already matches local commit"
-      : "remote differs from local commit; updater will inspect changed paths after fetch",
-  };
-}
-
-function runtimeConfigActionReason({ benignRuntime, preserveInPlace, remoteStatus }) {
-  const prefix = benignRuntime.benign
-    ? `benign runtime marker only: ${benignRuntime.reasons.join("; ")}`
-    : "only user-owned runtime config files are dirty";
-  if (preserveInPlace) {
-    return `${prefix}; ${remoteStatus.reason}; no runtime backup is needed`;
-  }
-  return `${prefix}; updater fetches first and creates a runtime backup only if incoming changes touch these preserved files`;
 }
 
 export function classifyGitShort(short) {

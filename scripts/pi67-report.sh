@@ -7,6 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PI_AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
+PI67_STATE_DIR="${PI67_STATE_DIR:-}"
 SHARED_SKILLS_DIR="${SHARED_SKILLS_DIR:-$HOME/.agents/skills}"
 OPERATION="manual"
 OUTPUT=""
@@ -32,6 +33,7 @@ Usage:
 Options:
       --repo-root DIR       pi-67 checkout. Defaults to parent of this script.
       --agent-dir DIR       Pi agent dir. Defaults to ~/.pi/agent.
+      --state-dir DIR       pi-67 state root. Derived from --agent-dir by default.
       --skills-dir DIR      Shared skill root. Defaults to ~/.agents/skills.
       --operation NAME      Report operation: install, update, manual. Defaults to manual.
       --output FILE         Output path. Defaults to ~/.pi/agent/pi67-report.json.
@@ -68,6 +70,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --agent-dir)
       PI_AGENT_DIR="${2:?--agent-dir requires a path}"
+      shift 2
+      ;;
+    --state-dir)
+      PI67_STATE_DIR="${2:?--state-dir requires a path}"
       shift 2
       ;;
     --skills-dir)
@@ -154,7 +160,8 @@ fi
 
 mkdir -p "$(dirname "$OUTPUT")"
 
-node - "$REPO_ROOT" "$PI_AGENT_DIR" "$SHARED_SKILLS_DIR" "$OPERATION" "$OUTPUT" "$RUN_DOCTOR" "$DOCTOR_TIMEOUT_MS" "$DOCTOR_DEEP_MCP" "$MCP_TIMEOUT_MS" "$XTALPI_SMOKE" "$XTALPI_SMOKE_DIR" "$XTALPI_SMOKE_HISTORY" "$XTALPI_SMOKE_TREND" "$XTALPI_SMOKE_DRIFT" "$XTALPI_SMOKE_TIMEOUT_MS" "$SCRIPT_DIR" <<'NODE'
+node - "$REPO_ROOT" "$PI_AGENT_DIR" "$PI67_STATE_DIR" "$SHARED_SKILLS_DIR" "$OPERATION" "$OUTPUT" "$RUN_DOCTOR" "$DOCTOR_TIMEOUT_MS" "$DOCTOR_DEEP_MCP" "$MCP_TIMEOUT_MS" "$XTALPI_SMOKE" "$XTALPI_SMOKE_DIR" "$XTALPI_SMOKE_HISTORY" "$XTALPI_SMOKE_TREND" "$XTALPI_SMOKE_DRIFT" "$XTALPI_SMOKE_TIMEOUT_MS" "$SCRIPT_DIR" <<'NODE'
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
@@ -165,6 +172,7 @@ const [
   ,
   repoRoot,
   agentDir,
+  stateDirArg,
   sharedSkillsDir,
   operation,
   output,
@@ -223,7 +231,35 @@ function realPathMaybe(target) {
   }
 }
 
-const installMode = realPathMaybe(repoRoot) === realPathMaybe(agentDir) ? "in-place" : "linked";
+function pathIdentity(target) {
+  const resolved = path.resolve(target);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+function resolveStateDir(targetAgentDir) {
+  const stateRoot = path.join(os.homedir(), ".pi", "pi67");
+  const canonicalAgentDir = path.join(os.homedir(), ".pi", "agent");
+  if (pathIdentity(targetAgentDir) === pathIdentity(canonicalAgentDir)) return stateRoot;
+  const workspaceId = crypto
+    .createHash("sha256")
+    .update(pathIdentity(targetAgentDir))
+    .digest("hex")
+    .slice(0, 16);
+  return path.join(stateRoot, "workspaces", workspaceId);
+}
+
+const stateDir = path.resolve(stateDirArg || resolveStateDir(agentDir));
+const releasePointerPath = path.join(stateDir, "current.json");
+const releasePointerCandidate = readJsonIfExists(releasePointerPath);
+const canonicalAgentDir = path.join(os.homedir(), ".pi", "agent");
+const releasePointer = releasePointerCandidate?.schema === "pi67.release-pointer.v1" && (
+  releasePointerCandidate.agentDir
+    ? realPathMaybe(releasePointerCandidate.agentDir) === realPathMaybe(agentDir)
+    : realPathMaybe(canonicalAgentDir) === realPathMaybe(agentDir)
+) ? releasePointerCandidate : null;
+const installMode = releasePointer
+  ? "immutable-release"
+  : (realPathMaybe(repoRoot) === realPathMaybe(agentDir) ? "source-checkout" : "linked-source");
 
 function commandVersion(binary, args = ["--version"]) {
   const result = command(binary, args, { cwd: repoRoot, timeout: 5000 });
@@ -250,7 +286,7 @@ function fileState(file, rel = "") {
     let classification = type;
     if (type === "symlink") {
       classification = "symlink";
-    } else if (installMode === "in-place" && gitTracks(rel)) {
+    } else if (installMode === "source-checkout" && gitTracks(rel)) {
       classification = stat.isDirectory() ? "tracked_dir" : stat.isFile() ? "tracked_file" : "other";
     } else if (["models.json", "mcp.json", "auth.json", "image-gen.json"].includes(rel) && gitIgnores(rel)) {
       classification = "local_file";
@@ -468,6 +504,12 @@ const report = {
   pi67: {
     version,
     packageVersion: packageJson?.version || null,
+    stateDir,
+    release: releasePointer ? {
+      version: releasePointer.version || null,
+      path: releasePointer.releasePath || null,
+      activatedAt: releasePointer.activatedAt || null,
+    } : null,
   },
   reportPolicy: {
     currentFileOverwritten: true,
@@ -524,7 +566,7 @@ const report = {
     hostname: os.hostname(),
     node: process.version,
     npm: commandVersion("npm", ["-v"]),
-    pi: commandVersion("pi", ["--version"]),
+    piCommandAvailable: command("pi", ["--help"], { cwd: repoRoot, timeout: 5000 }).ok,
   },
   doctor: runDoctorJson(),
   xtalpiSmoke: xtalpiSmokeEnabled

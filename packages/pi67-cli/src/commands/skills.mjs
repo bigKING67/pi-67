@@ -178,10 +178,11 @@ Safety:
   Missing skills are copied by default. Existing different global skills are
   preserved as user-modified unless you name the skill explicitly and pass
   --yes. Bulk overwrite of preserved user-modified skills is intentionally
-  blocked. Managed Skills are deployed transactionally from the Git-tracked
-  source and do not create persistent content backups. To roll back, select or
-  revert the desired Git commit/tag and run sync-pack again. Writing syncs are
-  serialized by a state-scoped deploy lock; dry-runs remain lock-free.
+  blocked. Managed Skills are deployed transactionally from the current
+  release-bundled source and do not create persistent content backups. To roll
+  back a first-party Pack baseline, activate the desired pi-67 release and run
+  sync-pack again. Writing syncs are serialized by a state-scoped deploy lock;
+  dry-runs remain lock-free.
 
 Examples:
   pi-67 skills inventory

@@ -6,6 +6,7 @@
 param(
   [string]$RepoRoot,
   [string]$AgentDir,
+  [string]$StateDir,
   [string]$SkillsDir,
   [string]$Operation = "manual",
   [string]$Output,
@@ -26,6 +27,7 @@ Usage:
 Options:
   -RepoRoot DIR    pi-67 checkout. Defaults to this script's repo.
   -AgentDir DIR    Pi agent dir. Defaults to `$HOME\.pi\agent.
+  -StateDir DIR    pi-67 state root. Derived from -AgentDir by default.
   -SkillsDir DIR   Shared skills dir. Defaults to `$HOME\.agents\skills.
   -Operation NAME  install, update, or manual. Defaults to manual.
   -Output FILE     Output path. Defaults to `$HOME\.pi\agent\pi67-report.json.
@@ -66,6 +68,35 @@ if (-not $RepoRoot) {
 if (-not $AgentDir) {
   $AgentDir = Join-Path (Join-Path $HomePath ".pi") "agent"
 }
+
+function Get-Pi67StateDir {
+  param(
+    [Parameter(Mandatory = $true)][string]$TargetAgentDir,
+    [Parameter(Mandatory = $true)][string]$TargetHome
+  )
+  $stateRoot = Join-Path (Join-Path $TargetHome ".pi") "pi67"
+  $canonicalAgentDir = Join-Path (Join-Path $TargetHome ".pi") "agent"
+  $resolvedAgentDir = [System.IO.Path]::GetFullPath($TargetAgentDir)
+  $resolvedCanonical = [System.IO.Path]::GetFullPath($canonicalAgentDir)
+  $isWindowsPlatform = [System.IO.Path]::DirectorySeparatorChar -eq "\"
+  $identity = if ($isWindowsPlatform) { $resolvedAgentDir.ToLowerInvariant() } else { $resolvedAgentDir }
+  $canonicalIdentity = if ($isWindowsPlatform) { $resolvedCanonical.ToLowerInvariant() } else { $resolvedCanonical }
+  if ($identity -ceq $canonicalIdentity) { return $stateRoot }
+
+  $sha256 = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($identity)
+    $hash = [System.BitConverter]::ToString($sha256.ComputeHash($bytes)).Replace("-", "").ToLowerInvariant()
+  } finally {
+    $sha256.Dispose()
+  }
+  return Join-Path (Join-Path $stateRoot "workspaces") $hash.Substring(0, 16)
+}
+
+if (-not $StateDir) {
+  $StateDir = Get-Pi67StateDir -TargetAgentDir $AgentDir -TargetHome $HomePath
+}
+$StateDir = [System.IO.Path]::GetFullPath($StateDir)
 
 if (-not $SkillsDir) {
   $SkillsDir = Join-Path (Join-Path $HomePath ".agents") "skills"
@@ -228,10 +259,10 @@ function Detect-InstallMode {
   try {
     $repoReal = (Resolve-Path $RepoRoot).ProviderPath
     $agentReal = (Resolve-Path $AgentDir).ProviderPath
-    if ($repoReal -eq $agentReal) { return "in-place" }
+    if ($repoReal -eq $agentReal) { return "source-checkout" }
   } catch {
   }
-  return "linked"
+  return "linked-source"
 }
 
 function Get-SharedSkillsSummary {
@@ -359,7 +390,21 @@ if ($DryRun) {
 $package = Read-JsonFile (Join-Path $RepoRoot "package.json")
 $version = Read-Text (Join-Path $RepoRoot "VERSION")
 $packageVersion = if ($package) { $package.version } else { $null }
-$installMode = Detect-InstallMode
+$releasePointerPath = Join-Path $StateDir "current.json"
+$releasePointer = $null
+if (Test-Path -LiteralPath $releasePointerPath -PathType Leaf) {
+  try {
+    $candidate = Get-Content -LiteralPath $releasePointerPath -Raw | ConvertFrom-Json
+    $canonicalAgentDir = Join-Path (Join-Path $HomePath ".pi") "agent"
+    $pointerAgentDir = if ($candidate.PSObject.Properties["agentDir"]) { [string]$candidate.agentDir } else { $canonicalAgentDir }
+    if ($candidate.schema -eq "pi67.release-pointer.v1" -and
+        [System.IO.Path]::GetFullPath($pointerAgentDir) -eq [System.IO.Path]::GetFullPath($AgentDir)) {
+      $releasePointer = $candidate
+    }
+  } catch {
+  }
+}
+$installMode = if ($null -ne $releasePointer) { "immutable-release" } else { Detect-InstallMode }
 $dirtyText = Get-GitText @("status", "--porcelain=v1", "--untracked-files=all")
 $remote = Get-GitText @("remote", "get-url", "origin")
 
@@ -374,6 +419,16 @@ $report = [ordered]@{
   pi67 = [ordered]@{
     version = $version
     packageVersion = $packageVersion
+    stateDir = $StateDir
+    release = if ($null -ne $releasePointer) {
+      [ordered]@{
+        version = $releasePointer.version
+        path = $releasePointer.releasePath
+        activatedAt = $releasePointer.activatedAt
+      }
+    } else {
+      $null
+    }
   }
   reportPolicy = [ordered]@{
     currentFileOverwritten = $true
@@ -423,7 +478,7 @@ $report = [ordered]@{
     hostname = [System.Net.Dns]::GetHostName()
     node = Get-CommandVersion "node" @("-v")
     npm = Get-CommandVersion "npm" @("-v")
-    pi = Get-CommandVersion "pi" @("--version")
+    piCommandAvailable = [bool](Get-Command "pi" -ErrorAction SilentlyContinue)
   }
   doctor = Invoke-DoctorJson
 }

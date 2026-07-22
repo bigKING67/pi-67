@@ -500,6 +500,7 @@ if (report.schemaVersion !== 2) throw new Error(`unexpected report schemaVersion
 if (report.schemaId !== "pi67-report/v2") throw new Error(`unexpected report schemaId: ${report.schemaId}`);
 if (report.operation !== "install") throw new Error(`unexpected report operation: ${report.operation}`);
 if (report.pi67?.version !== report.pi67Version) throw new Error("pi67.version does not match legacy pi67Version");
+if (!report.pi67?.stateDir || !report.pi67.stateDir.includes(`${require("path").sep}workspaces${require("path").sep}`)) throw new Error(`custom agent report stateDir is not isolated: ${report.pi67?.stateDir}`);
 if (!report.reportPolicy?.currentFileOverwritten) throw new Error("report overwrite policy missing");
 if (!report.sharedSkills || report.sharedSkills.sourceCount < 1) throw new Error("report sharedSkills missing");
 if (report.sharedSkillsRoot !== expectedSkillsRoot) throw new Error(`report sharedSkillsRoot mismatch: ${report.sharedSkillsRoot}`);
@@ -1091,7 +1092,7 @@ if [ -f "$REPO_ROOT/scripts/pi67-patch-pi-smart-fetch-charset.mjs" ]; then
 fi
 pass "xtalpi-pi-tools protocol tests completed"
 
-section "Temp in-place install"
+section "Temp source checkout install"
 INPLACE_AGENT="$TMP_ROOT/in-place-agent"
 mkdir -p "$INPLACE_AGENT"
 
@@ -1157,11 +1158,11 @@ fi
 node -e '
 const fs = require("fs");
 const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-if (data.installMode !== "in-place") throw new Error(`unexpected installMode: ${data.installMode}`);
-if (data.agent?.installMode !== "in-place") throw new Error(`unexpected agent.installMode: ${data.agent?.installMode}`);
-if (!data.counts || data.counts.fail !== 0) throw new Error("in-place doctor JSON reported failures");
+if (data.installMode !== "source-checkout") throw new Error(`unexpected installMode: ${data.installMode}`);
+if (data.agent?.installMode !== "source-checkout") throw new Error(`unexpected agent.installMode: ${data.agent?.installMode}`);
+if (!data.counts || data.counts.fail !== 0) throw new Error("source-checkout doctor JSON reported failures");
 ' "${SMOKE_LOG_DIR}/inplace-doctor-json.log"
-pass "in-place doctor JSON accepted"
+pass "source-checkout doctor JSON accepted"
 
 PATH="$FAKE_BIN:$PATH" "$INPLACE_AGENT/scripts/pi67-status.sh" \
   --repo-root "$INPLACE_AGENT" \
@@ -1172,12 +1173,12 @@ PATH="$FAKE_BIN:$PATH" "$INPLACE_AGENT/scripts/pi67-status.sh" \
 node -e '
 const fs = require("fs");
 const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-if (data.installMode !== "in-place") throw new Error(`unexpected status installMode: ${data.installMode}`);
-if (data.agent?.installMode !== "in-place") throw new Error(`unexpected status agent.installMode: ${data.agent?.installMode}`);
-if (data.sharedSkillPacks?.summary?.attention !== 0) throw new Error("in-place status shared Skill Pack should be consistent");
-if (!["READY", "READY_WITH_WARNINGS"].includes(data.result)) throw new Error(`unexpected in-place status result: ${data.result}`);
+if (data.installMode !== "source-checkout") throw new Error(`unexpected status installMode: ${data.installMode}`);
+if (data.agent?.installMode !== "source-checkout") throw new Error(`unexpected status agent.installMode: ${data.agent?.installMode}`);
+if (data.sharedSkillPacks?.summary?.attention !== 0) throw new Error("source-checkout status shared Skill Pack should be consistent");
+if (!["READY", "READY_WITH_WARNINGS"].includes(data.result)) throw new Error(`unexpected source-checkout status result: ${data.result}`);
 ' "${SMOKE_LOG_DIR}/inplace-status-json.log"
-pass "in-place status JSON accepted"
+pass "source-checkout status JSON accepted"
 
 section "Workspace-only configure boundary"
 WORKSPACE_ONLY_AGENT="$TMP_ROOT/workspace-only-agent"
@@ -1865,6 +1866,7 @@ if (report.schemaVersion !== 2) throw new Error(`unexpected report schemaVersion
 if (report.schemaId !== "pi67-report/v2") throw new Error(`unexpected report schemaId: ${report.schemaId}`);
 if (report.operation !== "update") throw new Error(`unexpected report operation: ${report.operation}`);
 if (report.pi67?.version !== report.pi67Version) throw new Error("pi67.version does not match legacy pi67Version");
+if (!report.pi67?.stateDir) throw new Error("report pi67.stateDir missing");
 if (!report.reportPolicy?.currentFileOverwritten) throw new Error("report overwrite policy missing");
 if (report.doctor?.skipped !== true) throw new Error("update --no-doctor report should mark doctor skipped");
 ' "$AGENT_DIR/pi67-report.json"

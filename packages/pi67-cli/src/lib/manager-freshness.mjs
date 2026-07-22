@@ -1,10 +1,11 @@
 import path from "node:path";
 import { compareSemver, npmLatestVersion } from "./npm-registry.mjs";
 import { readCliPackageJson, readTextIfExists } from "./paths.mjs";
+import { readCurrentRelease } from "./release-store.mjs";
 
 export async function inspectManagerFreshness(ctx, options = {}) {
   const pkg = readCliPackageJson();
-  const distroVersion = readTextIfExists(path.join(ctx.repoRoot, "VERSION")).trim();
+  const distroVersion = readCurrentRelease(ctx)?.version || readTextIfExists(path.join(ctx.repoRoot, "VERSION")).trim();
   const registry = await npmLatestVersion(pkg.name, {
     currentVersion: pkg.version,
     noRemote: ctx.noRemote || options.noRemote,

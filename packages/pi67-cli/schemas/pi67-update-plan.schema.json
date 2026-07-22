@@ -57,52 +57,29 @@
       },
       "additionalProperties": true
     },
-    "runtime": {
+    "extensions": {
       "type": "object",
+      "required": ["schema", "policy", "summary", "extensions", "unknown"],
       "properties": {
-        "upstreamPi": {
+        "schema": { "const": "pi67.managed-extensions-status.v1" },
+        "policy": { "type": "object" },
+        "summary": {
           "type": "object",
           "required": [
-            "package",
-            "command",
-            "installed",
-            "installedVersion",
-            "testedVersion",
-            "compatibility",
-            "registry"
+            "total",
+            "missing",
+            "belowBaseline",
+            "atBaseline",
+            "userManagedAhead",
+            "userManagedDiverged",
+            "loadFailed",
+            "unknown",
+            "automaticActions"
           ],
-          "properties": {
-            "package": {
-              "const": "@earendil-works/pi-coding-agent"
-            },
-            "command": {
-              "const": "pi"
-            },
-            "installed": {
-              "type": "boolean"
-            },
-            "installedVersion": {
-              "type": "string"
-            },
-            "testedVersion": {
-              "type": "string"
-            },
-            "compatibility": {
-              "enum": [
-                "missing-or-failed",
-                "unknown-version",
-                "installed-unbounded",
-                "behind-release-tested",
-                "release-tested",
-                "newer-than-release-tested"
-              ]
-            },
-            "registry": {
-              "type": "object"
-            }
-          },
           "additionalProperties": true
-        }
+        },
+        "extensions": { "type": "array", "minItems": 21 },
+        "unknown": { "type": "array" }
       },
       "additionalProperties": true
     },

@@ -95,7 +95,7 @@ $script:PassCount = 0
 $script:WarnCount = 0
 $script:FailCount = 0
 $script:Checks = @()
-$UpstreamPiStatus = $null
+$PiCommandAvailable = $false
 
 function Add-Check {
   param(
@@ -334,10 +334,13 @@ function Detect-InstallMode {
   try {
     $repoReal = (Resolve-Path $RepoRoot).ProviderPath
     $agentReal = (Resolve-Path $AgentDir).ProviderPath
-    if ($repoReal -eq $agentReal) { return "in-place" }
+    if ($repoReal -eq $agentReal) {
+      if (Test-Path -LiteralPath (Join-Path $RepoRoot ".git") -PathType Container) { return "source-checkout" }
+      return "immutable-release"
+    }
   } catch {
   }
-  return "linked"
+  return "linked-source"
 }
 
 $InstallMode = Detect-InstallMode
@@ -383,46 +386,21 @@ if (Test-CommandExists "git") {
     Pass "git found"
   }
 } else {
-  Fail "git is required for update/status checks; install Git for Windows with: winget install --id Git.Git -e --source winget"
+  Warn "git not found; only Git-sourced extension installation is unavailable"
 }
 
-if ((Test-CommandExists "node") -and (Test-Path -LiteralPath (RepoPath "scripts" "pi67-upstream-pi-status.mjs") -PathType Leaf)) {
-  $upstreamPiResult = Invoke-External "node" @(
-    (RepoPath "scripts" "pi67-upstream-pi-status.mjs"),
-    "--repo-root", $RepoRoot,
-    "--agent-dir", $AgentDir,
-    "--skills-dir", $SkillsDir,
-    "--json",
-    "--no-remote"
-  )
-  if ($upstreamPiResult.exitCode -eq 0) {
-    try {
-      $UpstreamPiStatus = $upstreamPiResult.text | ConvertFrom-Json
-      switch ([string]$UpstreamPiStatus.check.level) {
-        "PASS" { Pass ([string]$UpstreamPiStatus.check.message) }
-        "WARN" { Warn ([string]$UpstreamPiStatus.check.message) }
-        "FAIL" { Fail ([string]$UpstreamPiStatus.check.message) }
-        default { Warn "upstream Pi compatibility checker returned an unknown result" }
-      }
-    } catch {
-      Warn ("could not parse upstream Pi compatibility status: {0}" -f $_.Exception.Message)
-    }
-  } else {
-    Warn "could not inspect upstream Pi release compatibility"
-  }
-} elseif (Test-CommandExists "pi") {
-  $piVersion = Invoke-External "pi" @("--version")
-  $versionText = if ($piVersion.exitCode -eq 0) { ($piVersion.output | Select-Object -First 1) } else { "unknown" }
-  Warn ("upstream Pi compatibility checker missing; pi found: {0}" -f $versionText)
+if (Test-CommandExists "pi") {
+  $PiCommandAvailable = $true
+  Pass "pi command found"
 } else {
-  Warn "pi command not found on PATH"
+  Fail "pi command not found on PATH"
 }
 
-Section "Repository"
+Section "Distro assets"
 if (Test-Path -LiteralPath (RepoPath ".git")) {
-  Pass "repository is a git checkout"
+  Pass "legacy/source Git checkout detected"
 } else {
-  Fail "repository .git directory missing"
+  Pass "immutable runtime layout does not require a Git checkout"
 }
 
 $versionPath = RepoPath "VERSION"
@@ -463,7 +441,6 @@ $requiredFiles = @(
   "scripts/pi67-json-utils.ps1",
   "scripts/pi67-json-utils.cjs",
   "scripts/pi67-mcp-config-utils.cjs",
-  "scripts/pi67-upstream-pi-status.mjs",
   "scripts/pi67-provider-status.mjs",
   "scripts/pi67-shared-skill-packs-status.mjs",
   "scripts/pi67-xtalpi-pi-tools-smoke.ps1",
@@ -841,7 +818,7 @@ if ($Json) {
     pi67 = [ordered]@{
       version = $version
     }
-    upstreamPi = $UpstreamPiStatus
+    piCommandAvailable = [bool]$PiCommandAvailable
     diagnostics = [ordered]@{
       deepMcp = $false
       mcpTimeoutMs = 0

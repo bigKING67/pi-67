@@ -161,7 +161,7 @@ async function buildPublishCheck(ctx, options) {
 function manifestReleaseCheck(manifest) {
   const requiredPreserve = ["settings.json", "models.json", "auth.json", "mcp.json", "image-gen.json", "settings.json.theme"];
   const missingPreserve = requiredPreserve.filter((file) => !manifest.runtimeFiles?.preserve?.includes(file));
-  const requiredCommands = ["update", "repair", "alwaysFreshUpdate", "alwaysFreshRepair", "upstreamPiExtensions"];
+  const requiredCommands = ["update", "repair", "alwaysFreshUpdate", "alwaysFreshRepair"];
   const missingCommands = requiredCommands.filter((name) => !manifest.commands?.[name]);
   const missingLocalExtensions = (manifest.localExtensions || [])
     .filter((item) => item.required && !item.exists)
@@ -189,11 +189,11 @@ function manifestReleaseCheck(manifest) {
   if (manifest.externalReposPolicy?.dirtyRepo !== "preserve-and-block-update") {
     policyProblems.push("dirty external repos must block update instead of being overwritten");
   }
-  if (manifest.upstreamPi?.owner !== "upstream-pi") {
-    policyProblems.push("upstream Pi must remain owned by upstream-pi");
+  if (manifest.releaseStore?.policy !== "manager-bundled-immutable-distro-no-github-main-clone-or-pull") {
+    policyProblems.push("pi-67 distro must use the manager-bundled immutable release store");
   }
-  if (manifest.upstreamPi?.mutationPolicy !== "report-only-never-install-or-update-through-pi67") {
-    policyProblems.push("pi-67 must treat upstream Pi as report-only and never install or update it");
+  if (manifest.managedExtensions?.extensions?.length !== 21) {
+    policyProblems.push("pi-67 must retain all 21 default extension baselines");
   }
 
   const problems = [

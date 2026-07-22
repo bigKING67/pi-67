@@ -4,10 +4,12 @@ import { EXTERNAL_REPOS } from "./external-repos.mjs";
 import { readJsonFileIfExists } from "./config-json.mjs";
 import { packageRoot } from "./paths.mjs";
 import { readExtensionRegistry } from "./extension-registry.mjs";
+import { readManagedExtensionBaselines } from "./managed-extensions.mjs";
 
 export function buildDistroManifest(ctx) {
   const base = readBaseManifest();
   const extensionRegistry = readExtensionRegistry();
+  const managedExtensions = readManagedExtensionBaselines();
   const rootPackage = readJsonFileIfExists(path.join(ctx.repoRoot, "package.json")) || {};
   const rootLock = readJsonFileIfExists(path.join(ctx.repoRoot, "package-lock.json")) || {};
   const settings = readJsonFileIfExists(path.join(ctx.agentDir, "settings.json")) || {};
@@ -53,7 +55,7 @@ export function buildDistroManifest(ctx) {
   const localExtensions = (base.localExtensions || []).map((item) => ({
     ...item,
     owner: "pi67-managed",
-    exists: fs.existsSync(path.join(ctx.repoRoot, item.path)),
+    exists: fs.existsSync(path.join(ctx.agentDir, item.path)),
   })).concat(scanUserLocalExtensions(ctx, managedExtensionNames));
   const userManagedPackages = runtimePackages.filter((item) => item.owner === "user-managed");
 
@@ -62,7 +64,13 @@ export function buildDistroManifest(ctx) {
     createdAt: new Date().toISOString(),
     ownership: base.ownership,
     commands: base.commands,
-    upstreamPi: base.upstreamPi,
+    releaseStore: base.releaseStore,
+    managedExtensions: {
+      ...base.managedExtensions,
+      schema: managedExtensions.schema,
+      policyModel: managedExtensions.policy,
+      extensions: managedExtensions.extensions,
+    },
     runtimeFiles: base.runtimeFiles,
     theme: base.theme,
     sharedSkills: {
@@ -85,6 +93,7 @@ export function buildDistroManifest(ctx) {
       externalRepos: Object.keys(EXTERNAL_REPOS).length,
       runtimeFilesPreserved: base.runtimeFiles.preserve.length,
       registeredExtensions: extensionRegistry.extensions.length,
+      managedExtensions: managedExtensions.extensions.length,
     },
     userManagedPackages,
   };
@@ -121,7 +130,7 @@ function npmPackageName(value) {
 }
 
 function scanUserLocalExtensions(ctx, managedNames) {
-  const extensionsRoot = path.join(ctx.repoRoot, "extensions");
+  const extensionsRoot = path.join(ctx.agentDir, "extensions");
   if (!fs.existsSync(extensionsRoot)) return [];
   return fs.readdirSync(extensionsRoot, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && !managedNames.has(entry.name))

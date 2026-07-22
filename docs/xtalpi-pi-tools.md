@@ -158,7 +158,7 @@ envelope，Pi 本地解析、schema validate、repair、分类错误并执行工
 ```
 
 如果模型偶发把 selected tool name 错放进 `kind`，例如
-`{"kind":"bash","command":"pi update --extensions","timeout":120}`，运行时只会在
+`{"kind":"bash","command":"npm test","timeout":120}`，运行时只会在
 `bash` 确实属于本轮 selected tools 时把它分类为专用协议漂移，并在总 repair 预算内额外要求一次
 规范 `tool_call` envelope。该扁平对象本身永远不会执行；未选中的 `kind` 仍按普通无效 envelope
 fail closed。
@@ -603,7 +603,7 @@ PI67_XTALPI_TOOLS_API_KEY=...
 升级已有安装时，普通 update 会自动做一次无提示迁移，不会覆盖已有 key：
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-update.sh
+pi-67 update
 ```
 
 如果只想手动迁移配置：
@@ -732,18 +732,18 @@ Set-Location $env:USERPROFILE\.pi\agent
 .\scripts\pi67-smoke.ps1 -Ci
 ```
 
-Windows 日常更新使用 PowerShell-native updater：
+Windows 日常更新使用 npm manager 与 immutable distro：
 
 ```powershell
-.\scripts\pi67-update.ps1
+pi-67 self-update
+pi-67 update --check --json
+pi-67 update
 ```
 
-它会保留本地 key/config。当前 updater 会先 `git fetch`，比较 incoming changed
-paths；只有远端更新会触碰 dirty 的 `settings.json`、`models.json` 等 preserved
-runtime 文件时，才会在 `$env:USERPROFILE\.pi\pi67\backups\pre-update-runtime-*`
-创建快照、临时清理、fast-forward、再恢复。早期
-`$env:USERPROFILE\.pi\agent-backups\pre-update-*` 只作为 legacy conflict backup
-只读保留，正常更新不再写入该目录。
+manager 激活自身内置的同版本 distro，并按 extension minimum baseline 只安装
+missing/安全 behind 内容；本地 key/config、ahead/diverged extensions 和 user-managed
+Skills 均保留。`scripts/pi67-update.ps1` 只为尚未迁移的旧 Git source checkout 提供
+兼容入口，不是 0.15.0 标准更新链路。
 如果 Windows/PowerShell 把 `models.json` 等本地 JSON 保存成 UTF-16、UTF-8 BOM
 或带前导 NUL 字节，updater 会在写入 `*.bak-*-encoding` 备份后规范化为
 UTF-8 without BOM；这一步只重新序列化已能解析的 JSON，不打印真实 API key。

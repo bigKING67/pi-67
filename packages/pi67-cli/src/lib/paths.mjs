@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -23,25 +24,44 @@ export function expandHome(input) {
   return input;
 }
 
+export function defaultAgentDir(homeDir = os.homedir()) {
+  return path.resolve(homeDir, ".pi", "agent");
+}
+
+export function resolveStateDir(agentDir, homeDir = os.homedir()) {
+  const stateRoot = path.resolve(homeDir, ".pi", "pi67");
+  const resolvedAgentDir = path.resolve(agentDir);
+  if (pathIdentity(resolvedAgentDir) === pathIdentity(defaultAgentDir(homeDir))) {
+    return stateRoot;
+  }
+  const workspaceId = crypto
+    .createHash("sha256")
+    .update(pathIdentity(resolvedAgentDir))
+    .digest("hex")
+    .slice(0, 16);
+  return path.join(stateRoot, "workspaces", workspaceId);
+}
+
 export function resolveContext(globalOptions = {}) {
+  const homeDir = os.homedir();
   const agentDir = path.resolve(expandHome(
     globalOptions.agentDir ||
       process.env.PI67_AGENT_DIR ||
       process.env.PI_CODING_AGENT_DIR ||
-      path.join(os.homedir(), ".pi", "agent"),
+      defaultAgentDir(homeDir),
   ));
   const repoRoot = path.resolve(expandHome(globalOptions.repoRoot || agentDir));
   const skillsDir = path.resolve(expandHome(
     globalOptions.skillsDir ||
       process.env.PI67_SKILLS_DIR ||
-      path.join(os.homedir(), ".agents", "skills"),
+      path.join(homeDir, ".agents", "skills"),
   ));
   const packagesDir = path.resolve(expandHome(
     globalOptions.packagesDir ||
       process.env.PI67_PACKAGES_DIR ||
-      path.join(os.homedir(), ".agents", "packages"),
+      path.join(homeDir, ".agents", "packages"),
   ));
-  const stateDir = path.join(os.homedir(), ".pi", "pi67");
+  const stateDir = resolveStateDir(agentDir, homeDir);
   return {
     agentDir,
     repoRoot,
@@ -55,6 +75,11 @@ export function resolveContext(globalOptions = {}) {
     yes: Boolean(globalOptions.yes),
     noRemote: Boolean(globalOptions.noRemote),
   };
+}
+
+function pathIdentity(input) {
+  const resolved = path.resolve(input);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 }
 
 export function scriptPath(ctx, scriptName) {

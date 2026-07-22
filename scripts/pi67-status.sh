@@ -145,6 +145,7 @@ fi
 
 node - "$REPO_ROOT" "$PI_AGENT_DIR" "$SHARED_SKILLS_DIR" "$OUTPUT_FORMAT" "$CHECK_REMOTE" "$REMOTE" "$BRANCH" "$REMOTE_TIMEOUT_MS" "$XTALPI_SMOKE" "$XTALPI_SMOKE_DIR" "$XTALPI_SMOKE_HISTORY" "$XTALPI_SMOKE_TREND" "$XTALPI_SMOKE_DRIFT" "$XTALPI_SMOKE_TIMEOUT_MS" "$SCRIPT_DIR" <<'NODE'
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
@@ -284,7 +285,16 @@ function realPathMaybe(target) {
 }
 
 function deriveInstallMode() {
-  return realPathMaybe(repoRoot) === realPathMaybe(agentDir) ? "in-place" : "linked";
+  const pointerResult = readJson(path.join(os.homedir(), ".pi", "pi67", "current.json"));
+  const pointer = pointerResult.ok ? pointerResult.data : null;
+  const canonicalAgentDir = path.join(os.homedir(), ".pi", "agent");
+  const pointerMatchesAgent = pointer?.schema === "pi67.release-pointer.v1" && (
+    pointer.agentDir
+      ? realPathMaybe(pointer.agentDir) === realPathMaybe(agentDir)
+      : realPathMaybe(canonicalAgentDir) === realPathMaybe(agentDir)
+  );
+  if (pointerMatchesAgent) return "immutable-release";
+  return realPathMaybe(repoRoot) === realPathMaybe(agentDir) ? "source-checkout" : "linked-source";
 }
 
 function deriveRepository() {
@@ -338,6 +348,14 @@ function deriveRepository() {
 
 function deriveRemote(repository) {
   const targetBranch = branchArg || repository.branch;
+  if (installMode === "immutable-release") {
+    return {
+      checked: false,
+      branch: null,
+      status: "not-applicable",
+      summary: "immutable release updates are managed by pi-67, not Git",
+    };
+  }
   if (!checkRemote) {
     return {
       checked: false,
@@ -558,14 +576,14 @@ function deriveResult(repository, remote, report, xtalpiSmoke, skillPacks) {
   const recommendations = [];
   const warnings = [];
   const blockers = [];
-  const updateCommand = installMode === "in-place"
-    ? `Run: git -C ${agentDir} pull --ff-only`
-    : "Run: bash ~/.pi/agent/scripts/pi67-update.sh";
-  const updateCheckCommand = installMode === "in-place"
-    ? `Run: bash ${path.join(agentDir, "scripts", "pi67-update.sh")} --check-only`
-    : "Run: bash ~/.pi/agent/scripts/pi67-update.sh --check-only";
+  const updateCommand = installMode === "immutable-release"
+    ? "Run: pi-67 update"
+    : `Run: bash ${path.join(agentDir, "scripts", "pi67-update.sh")}`;
+  const updateCheckCommand = installMode === "immutable-release"
+    ? "Run: pi-67 update --check --json"
+    : `Run: bash ${path.join(agentDir, "scripts", "pi67-update.sh")} --check-only`;
 
-  if (!repository.isGit) {
+  if (!repository.isGit && installMode !== "immutable-release") {
     blockers.push("repository is not a git checkout");
   }
 
@@ -581,7 +599,7 @@ function deriveResult(repository, remote, report, xtalpiSmoke, skillPacks) {
     }
   }
 
-  if (repository.dirty) {
+  if (repository.isGit && repository.dirty) {
     if (repository.localState?.benignRuntimeOnly) {
       recommendations.push("Run pi-67 update to migrate settings runtime marker into ignored state.");
     } else {
@@ -593,9 +611,6 @@ function deriveResult(repository, remote, report, xtalpiSmoke, skillPacks) {
   if (["behind", "remote_different"].includes(remote.status)) {
     warnings.push(remote.summary);
     recommendations.push(updateCommand);
-    if (installMode === "in-place") {
-      recommendations.push(`Or run: bash ${path.join(agentDir, "scripts", "pi67-update.sh")}`);
-    }
   } else if (remote.status === "diverged") {
     blockers.push(remote.summary);
     recommendations.push("Resolve the local/remote branch divergence before running pi67-update.");

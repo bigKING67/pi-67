@@ -1,261 +1,199 @@
-# pi-67 Status
+# pi-67 状态与更新计划
 
-`scripts/pi67-status.sh` is the read-only "what state am I in?" command for pi-67 installs.
+适用版本：`0.15.0`。
 
-It summarizes:
+## 命令层级
 
-- installed pi-67 version and package version
-- install mode (`in-place` or `linked`)
-- local Git branch, commit, dirty state, upstream ahead/behind
-- optional remote branch head status
-- live shared Skill Pack version/parity status against `~/.agents/skills`
-- `~/.pi/agent/pi67-report.json` freshness
-- doctor summary from the latest report
-- latest local `xtalpi-pi-tools` smoke artifact history and `full-suite-strict` trend status
-- recommended next command
+| 命令 | 写入 | 成本 | 用途 |
+| --- | --- | --- | --- |
+| `pi-67 version --json` | 否 | 很低 | manager/distro/Node/platform/theme |
+| `pi-67 status --json` | 否 | 低 | 当前工作台、extensions、Skills、external 摘要 |
+| `pi-67 update --check --json` | 否 | 中 | 生成可执行 update plan |
+| `pi-67 extensions status --deep --json` | 否 | 中 | 内容 hash + 真实 Pi package load probe |
+| `pi-67 doctor --json` | 否 | 高 | 配置、脚本、MCP、package 与运行态检查 |
+| `pi-67 update` | 是 | 中/高 | 激活 distro 并执行安全 baseline action |
 
-It does **not** run `git pull`, `npm install`, `pi67-doctor.sh`, `pi67-report.sh`, or live smoke tests, and it does not write files.
+所有命令都不安装、更新或比较 Pi 版本。
 
-## Usage
-
-```bash
-bash ~/.pi/agent/scripts/pi67-status.sh
-```
-
-From a checkout:
-
-```bash
-bash scripts/pi67-status.sh
-```
-
-Machine-readable output:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-status.sh --json
-```
-
-Skip the remote `git ls-remote` check:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-status.sh --no-remote
-```
-
-Inspect a non-default shared skill root:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-status.sh --skills-dir /path/to/skills
-```
-
-Inspect a specific branch or remote:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-status.sh --remote origin --branch main
-```
-
-Inspect a non-default xtalpi smoke artifact directory:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-status.sh --xtalpi-smoke-dir /path/to/xtalpi-pi-tools-smoke
-```
-
-Skip local smoke artifact summarization:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-status.sh --no-xtalpi-smoke
-```
-
-## Status results
-
-The JSON `result` field is one of:
-
-| Result | Meaning |
-| --- | --- |
-| `READY` | Checkout, report, and latest doctor summary are current with no doctor warnings. |
-| `READY_WITH_WARNINGS` | No blocking failure, but local readiness warnings, stale/missing report, dirty checkout, or unknown remote state need attention. |
-| `UPDATE_AVAILABLE` | Remote has a different/newer head and `pi67-update.sh` should be run. |
-| `ACTION_REQUIRED` | Blocking state, such as invalid report JSON, doctor failures, or diverged Git history. |
-
-Human text prints the same value with spaces:
-
-```text
-Result: READY WITH WARNINGS
-```
-
-## Schema
-
-Current JSON schema:
+## `pi67.version.v2`
 
 ```json
 {
-  "schemaVersion": 1,
-  "schemaId": "pi67-status/v1"
+  "schema": "pi67.version.v2",
+  "manager": {
+    "package": "@bigking67/pi-67",
+    "version": "0.15.0"
+  },
+  "distro": {
+    "version": "0.15.0",
+    "releasePath": "~/.pi/pi67/releases/0.15.0",
+    "immutable": true
+  },
+  "runtime": {
+    "node": "v24.x",
+    "platform": "darwin-arm64"
+  },
+  "theme": {},
+  "paths": {
+    "agentDir": "~/.pi/agent",
+    "stateDir": "~/.pi/pi67"
+  },
+  "recommendations": []
 }
 ```
 
-Stable top-level fields:
+源码 checkout maintainer mode 可能显示 `immutable=false`、空 `releasePath`；只有真实
+install/migrate 后的 active pointer 能证明 immutable runtime 已激活。
 
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `schemaVersion` | number | Status schema version. Current value: `1`. |
-| `schemaId` | string | Schema identifier. Current value: `pi67-status/v1`. |
-| `generatedAt` | string | ISO timestamp for status generation. |
-| `generatedBy` | string | Script that generated the result. |
-| `pi67` | object | Version metadata from `VERSION` and `package.json`. |
-| `repository` | object | Local checkout state. |
-| `remote` | object | Optional remote head state. |
-| `installMode` | string | `in-place` when the repo root is the agent dir; otherwise `linked`. |
-| `agent` | object | Pi agent directory path. |
-| `report` | object | Existing `pi67-report.json` parse/freshness state. |
-| `sharedSkillPacks` | object | Live `pi67-shared-skill-packs-status/v1` registry/version/hash-parity status. |
-| `xtalpiSmoke` | object | Read-only compact summary of local xtalpi smoke artifacts, `full-suite-strict` trend status, and full-suite drift status. |
-| `result` | string | Overall status result. |
-| `blockers` | array | Blocking issues. |
-| `warnings` | array | Non-blocking issues. |
-| `recommendations` | array | Concrete next commands/actions. |
+canonical `~/.pi/agent` 继续使用 `~/.pi/pi67`；custom `--agent-dir` 的
+`paths.stateDir` 为稳定的 `~/.pi/pi67/workspaces/<id>`，用于隔离 pointer、
+ledger、locks、backups、journals 和 migrations。
 
-`settings.json` is ignored machine-owned runtime state in current releases, so
-provider/model/theme changes and `lastChangelogVersion` do not appear in Git
-status. During upgrades from older tracked-settings releases, update/repair
-migrates the marker into `~/.pi/pi67/state.json`, removes it from
-`settings.json`, and removes the obsolete local Git clean filter. The
-`benignRuntimeOnly` classification remains for inspecting an old checkout
-before that migration. Other tracked or non-ignored changes still appear as a
-normal dirty worktree warning.
+## `pi67.update-plan.v1`
 
-## Shared Skill Pack status
+顶层：
 
-Both `pi-67 status` and `scripts/pi67-status.sh` expose the read-only
-`pi67-shared-skill-packs-status/v1` contract. It validates
-`shared-skill-packs.json` and `shared-skill-packs.lock.json`, verifies the
-vendored source against its locked upstream provenance, compares every
-registered vendored Skill with the active `~/.agents/skills` copy, and reports:
-
-- Pack name and SemVer version
-- locked upstream full Commit, Manifest SHA-256, Pack SHA-256, and verified vendored integrity
-- total, identical, missing, and conflicting Skill counts
-- exact missing/conflicting Skill names
-- `pi-67 skills packs` as the inspection command
-- `pi-67 skills sync-pack <pack> --dry-run` as the non-writing preview
-
-An invalid registry or provenance Lock is `ACTION_REQUIRED`. A valid trusted
-Pack with inconsistent Active Skills is a warning. Status never recommends the
-writing `--yes` form automatically.
-
-## xtalpi smoke status
-
-By default, status reads the local smoke artifact directory
-`~/tmp/xtalpi-pi-tools-smoke` through:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --history 3 --json
-bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --trend-gate 3 --profile full-suite-strict --json
-bash ~/.pi/agent/scripts/pi67-xtalpi-pi-tools-debug-summary.sh --drift 10 --run-kind full-suite --json
+```text
+schema
+createdAt
+manager
+paths
+policy
+distro
+runtimeState
+settings
+extensions
+skills
+skillPacks
+external
+actions
+blocked
+warnings
+recommendations
 ```
 
-These debug-summary modes are read-only. When an older persisted summary lacks
-request-latency fields but its per-case debug JSONL files still exist,
-debug-summary backfills the compact request-latency telemetry from those JSONL
-files without running live smoke.
+### `extensions.summary`
 
-The resulting `xtalpiSmoke` block uses schema
-`pi67-xtalpi-smoke-status/v1` and includes:
-
-- `artifactDir`, `historyLimit`, `strictTrendLimit`, `driftLimit`, and command
-  timeout
-- compact `history` data with newest run ids, `runKind`, selected cases,
-  recoveries, provider errors, request latency, slow request counts, and summary
-  gate status
-- compact `strictTrendGate` data with `ok`, gate failures, run-kind counts, and
-  recovery trend, plus request latency / slow request telemetry for selected
-  trend runs
-- compact `rankingTrendGate` data using `full-suite-ranking-strict` when the
-  selected full-suite artifacts already contain reason-code telemetry; legacy
-  artifacts without reason-code counts are marked as a compatibility skip rather
-  than failing status
-- compact selected-tool telemetry for the newest strict trend run, including
-  selected tool names, `maxTools`, valid / omitted tool counts, clipping state,
-  and selected / omitted reason-code counts
-- compact `drift` data for newest full-suite artifacts, including provider/model,
-  case-set hash, runtime fingerprint hash, runtime bounds hash, provider-health
-  hash, request-latency quality signal totals, per-run latency telemetry, and
-  drift booleans
-- compact `providerHealthTrend` data derived from recent full-suite artifacts,
-  including preflight count, retry count, failed preflight count, retryable /
-  timeout attempt counts when available, and max/average elapsed time
-- `result`: `OK`, `ATTENTION`, `NO_ARTIFACTS`, or `UNAVAILABLE`
-
-`full-suite-strict` filters the trend gate to `runKind=full-suite` before
-selecting newest N, while the plain history block still shows the latest overall
-artifacts. Text output includes `eligible`, `filtered_out`, and
-`run_kind_filter` so a targeted diagnostic run can be distinguished from full
-suite evidence instead of silently weakening the trend gate.
-
-`full-suite-strict` is strict about user-visible protocol quality: empty final
-answers, raw Pi tool markup, tool-envelope-only finals, process lifecycle
-failures, provider errors, and case-set drift remain gated. It allows bounded
-local repair for known xtalpi malformed / invalid JSON behavior so a recovered
-turn does not become an operational `ATTENTION` by itself. Recovery counts and
-rates are still preserved in history, trend, and drift output for provider
-quality monitoring.
-
-The drift block is observational rather than a gate: it can show historical
-runtime or provider-health changes even when the strict trend gate is currently
-green. Text output prints drift flags for provider/model, case-set,
-runtime-fingerprint, runtime-bounds, provider-health, and quality-signal
-presence. When artifact summaries contain request telemetry, text output also
-prints compact `request_latency_ms=max/avg/count`, `slow_requests`, and
-`slow_request_threshold_ms` fields for the latest history and strict trend runs,
-plus drift-level request-latency quality totals.
-
-Provider-health trend is a lightweight upstream/network/key signal. It does not
-run live requests. If recent persisted preflights failed, status recommends
-checking provider health before long tasks. If many recent preflights recovered
-only after retries, status reports a warning so operators can distinguish
-transient xtalpi latency from local parser/tool-protocol regressions.
-
-The ranking gate is compatibility-aware. `pi67-status.sh` first evaluates the
-ordinary `full-suite-strict` trend gate and checks whether every selected
-full-suite run contains reason-code telemetry. If yes, it also runs
-`full-suite-ranking-strict` and treats failures as `ATTENTION`. If not, it prints
-`Ranking gate: skipped` with the unsupported run ids; this is informational for
-older artifact directories and does not by itself change the top-level status
-result. Text output also prints `Tool select:` so newly installed extensions can
-be triaged by checking whether they appeared in selected tool names, whether
-`maxTools` clipped the list, and how many tools were valid / omitted.
-
-`NO_ARTIFACTS` is informational and does not by itself change the top-level
-status result. `ATTENTION` and `UNAVAILABLE` are reported as warnings with a
-debug-summary command recommendation.
-
-## Report freshness
-
-Status marks the report stale when:
-
-- `pi67-report.json` is missing or invalid
-- report schema is older than `pi67-report/v2`
-- report version does not match current `VERSION`
-- report commit does not match current checkout commit
-- report dirty state does not match current checkout dirty state
-- embedded doctor JSON is older than `pi67-doctor/v2`
-
-Regenerate the report with:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-report.sh --operation manual
+```text
+total
+missing
+belowBaseline
+atBaseline
+userManagedAhead
+userManagedDiverged
+loadFailed
+unknown
+automaticActions
 ```
 
-Or update the installed checkout and regenerate report in one flow:
+普通 plan 不运行 Pi load probe，因此 `loadFailed` 通常为 0；使用
+`extensions doctor/status --deep` 才能产生真实 load-probe 结论。
 
-```bash
-bash ~/.pi/agent/scripts/pi67-update.sh
+### action 语义
+
+每个 action 至少含：
+
+```text
+id
+kind
+operation
+writes[]
+preserves[]
+risk
+reason
+explicitCommand?
 ```
 
-## Choosing status vs update check-only
+`actions` 只包含 manager 能安全执行的写入；ahead/diverged/unknown 不应出现自动
+overwrite action。
 
-Use `pi67-status.sh` for the current local summary and recommendation.
+### blockers
 
-Use `pi67-update.sh --check-only` when you want the full update plan preview, including local config template checks and npm sync status:
+`blocked` 表示必须先由 owner 处理的状态，例如 manager freshness、strict Skill
+conflict 或 dirty external repo。legacy active workspace 由 `migrate --check` 独立
+诊断，不通过 Git pull plan 接管。
+
+### warnings
+
+常见 warning：
+
+- user-modified active Skills 被保留；
+- diverged extension 被保留；
+- remote check 被跳过；
+- optional external repo 未安装。
+
+warning 不等于失败。先看 `blocked`、missing 和真实 load failure。
+
+## Extension 状态
+
+`pi67.managed-extensions-status.v1` 包含：
+
+```text
+policy
+ledger
+loadProbe
+summary
+extensions[]
+unknown[]
+```
+
+最低 baseline policy：
+
+```json
+{
+  "versionModel": "minimum-supported-baseline",
+  "missing": "install",
+  "behindManaged": "upgrade",
+  "atBaseline": "keep",
+  "ahead": "keep-never-downgrade",
+  "diverged": "keep-and-report-conflict",
+  "unknown": "keep-user-managed"
+}
+```
+
+深度 load probe schema：`pi67.pi-extension-load-probe.v1`。只有 probe exit 0、识别
+`User packages:` 且已配置 spec 未出现在 resolved list 时，才把该 entry 标记
+`load-failed`；探针自身失败不会伪装成单个 extension 内容故障。
+
+## Skills 状态
+
+shared Skills 摘要：
+
+```text
+source
+missing
+identical
+conflicts
+preservedUserModified
+```
+
+默认策略：missing 自动补齐，conflict 保留。first-party Pack status 额外输出：
+
+```text
+owner=pi67-first-party
+distribution=bundled-release-only
+```
+
+## 推荐读取顺序
 
 ```bash
-bash ~/.pi/agent/scripts/pi67-update.sh --check-only
+pi-67 version --json
+pi-67 update --check --no-remote --json
+pi-67 extensions doctor --deep --json
+pi-67 doctor --json
 ```
+
+解读：
+
+1. manager/distro 是否同版本；
+2. active immutable release path 是否存在；
+3. `blocked` 是否为空；
+4. extension missing/below/ahead/diverged/loadFailed；
+5. Skill missing/conflict；
+6. warning 是否只是保留用户修改；
+7. `pi` command 与真实 package resolution 是否通过。
+
+## 输出与隐私
+
+状态 JSON 不应包含 token/password/private key/cookie、完整 auth、MCP environment、
+session 文本或 memory payload。若需要提交诊断，先保存本地 artifact并做字段级摘要。

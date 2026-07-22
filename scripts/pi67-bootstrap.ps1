@@ -3,7 +3,7 @@
 
 [CmdletBinding()]
 param(
-  [ValidateSet("Auto", "Install", "Update")]
+  [ValidateSet("Auto", "Install", "Update", "Migrate")]
   [string]$Mode = "Auto",
   [switch]$DryRun,
   [switch]$SelfTest,
@@ -30,12 +30,14 @@ Usage:
   powershell -NoProfile -ExecutionPolicy Bypass -File .\pi67-bootstrap.ps1
   powershell -NoProfile -ExecutionPolicy Bypass -File .\pi67-bootstrap.ps1 -Mode Install
   powershell -NoProfile -ExecutionPolicy Bypass -File .\pi67-bootstrap.ps1 -Mode Update
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\pi67-bootstrap.ps1 -Mode Migrate
   powershell -NoProfile -ExecutionPolicy Bypass -File .\pi67-bootstrap.ps1 -DryRun
   powershell -NoProfile -ExecutionPolicy Bypass -File .\pi67-bootstrap.ps1 -SelfTest
 
 Options:
-  -Mode Auto|Install|Update
-                   Auto updates an existing Git checkout and installs otherwise.
+  -Mode Auto|Install|Update|Migrate
+                   Auto migrates a legacy Git checkout, updates an immutable
+                   workspace, and installs when neither exists.
   -DryRun          Print the pi-67 plan without changing the computer.
   -SelfTest        Run deterministic offline contract tests only.
   -AgentDir        Override the managed workspace. Default: `$HOME\.pi\agent.
@@ -92,19 +94,21 @@ function Test-NodeVersionSupported {
 
 function Get-WorkspaceAction {
   param(
-    [Parameter(Mandatory = $true)][ValidateSet("Auto", "Install", "Update")][string]$RequestedMode,
-    [Parameter(Mandatory = $true)][bool]$HasGitCheckout
+    [Parameter(Mandatory = $true)][ValidateSet("Auto", "Install", "Update", "Migrate")][string]$RequestedMode,
+    [Parameter(Mandatory = $true)][bool]$HasGitCheckout,
+    [Parameter(Mandatory = $true)][bool]$HasImmutableRelease
   )
 
   if ($RequestedMode -eq "Auto") {
-    if ($HasGitCheckout) { return "update" }
+    if ($HasGitCheckout) { return "migrate" }
+    if ($HasImmutableRelease) { return "update" }
     return "install"
   }
   return $RequestedMode.ToLowerInvariant()
 }
 
 function Get-BootstrapFlow {
-  param([Parameter(Mandatory = $true)][ValidateSet("install", "update")][string]$WorkspaceAction)
+  param([Parameter(Mandatory = $true)][ValidateSet("install", "update", "migrate")][string]$WorkspaceAction)
 
   return @(
     "preflight",
@@ -121,15 +125,31 @@ function Get-BootstrapFlow {
 
 function Get-WorkspaceCommandArguments {
   param(
-    [Parameter(Mandatory = $true)][ValidateSet("install", "update")][string]$WorkspaceAction,
+    [Parameter(Mandatory = $true)][ValidateSet("install", "update", "migrate")][string]$WorkspaceAction,
     [Parameter(Mandatory = $true)][string]$WorkspacePath
   )
 
   $arguments = @("--agent-dir", $WorkspacePath, "--repo-root", $WorkspacePath)
   if ($WorkspaceAction -eq "install") {
-    return @($arguments + @("install", "--repair", "--yes"))
+    return @($arguments + @("install"))
   }
+  if ($WorkspaceAction -eq "migrate") { return @($arguments + @("migrate", "--yes")) }
   return @($arguments + @("update"))
+}
+
+function Get-CurrentReleasePointer {
+  param([Parameter(Mandatory = $true)][string]$WorkspacePath)
+  $pointerPath = Join-Path (Join-Path (Join-Path (Get-HomePath) ".pi") "pi67") "current.json"
+  if (-not (Test-Path -LiteralPath $pointerPath -PathType Leaf)) { return $null }
+  try {
+    $pointer = Get-Content -LiteralPath $pointerPath -Raw | ConvertFrom-Json -ErrorAction Stop
+    $canonicalAgentDir = Join-Path (Join-Path (Get-HomePath) ".pi") "agent"
+    $pointerAgentDir = if ($pointer.PSObject.Properties["agentDir"]) { [string]$pointer.agentDir } else { $canonicalAgentDir }
+    if ($pointer.schema -eq "pi67.release-pointer.v1" -and $pointer.releasePath -and
+        [System.IO.Path]::GetFullPath($pointerAgentDir) -eq [System.IO.Path]::GetFullPath($WorkspacePath)) { return $pointer }
+  } catch {
+  }
+  return $null
 }
 
 function Resolve-CommandPath {
@@ -331,25 +351,32 @@ function Run-SelfTest {
   if (Test-NodeVersionSupported "22.18.9") {
     throw "Node minimum version must reject 22.18.9"
   }
-  if ((Get-WorkspaceAction "Auto" $false) -ne "install") {
-    throw "Auto mode must install when no Git checkout exists"
+  if ((Get-WorkspaceAction "Auto" $false $false) -ne "install") {
+    throw "Auto mode must install when no managed workspace exists"
   }
-  if ((Get-WorkspaceAction "Auto" $true) -ne "update") {
-    throw "Auto mode must update an existing Git checkout"
+  if ((Get-WorkspaceAction "Auto" $true $false) -ne "migrate") {
+    throw "Auto mode must migrate an existing legacy Git checkout"
   }
-  if ((Get-WorkspaceAction "Install" $true) -ne "install") {
+  if ((Get-WorkspaceAction "Auto" $false $true) -ne "update") {
+    throw "Auto mode must update an existing immutable workspace"
+  }
+  if ((Get-WorkspaceAction "Install" $true $false) -ne "install") {
     throw "Install mode must remain explicit"
   }
-  if ((Get-WorkspaceAction "Update" $false) -ne "update") {
+  if ((Get-WorkspaceAction "Update" $false $false) -ne "update") {
     throw "Update mode must remain explicit"
   }
   $installArguments = @(Get-WorkspaceCommandArguments "install" "C:\fixture\.pi\agent")
   $updateArguments = @(Get-WorkspaceCommandArguments "update" "C:\fixture\.pi\agent")
-  if (($installArguments -join " ") -notmatch ' install --repair --yes$') {
+  $migrateArguments = @(Get-WorkspaceCommandArguments "migrate" "C:\fixture\.pi\agent")
+  if (($installArguments -join " ") -notmatch ' install$') {
     throw "install command contract drifted"
   }
   if (($updateArguments -join " ") -notmatch ' update$') {
     throw "update command contract drifted"
+  }
+  if (($migrateArguments -join " ") -notmatch ' migrate --yes$') {
+    throw "migrate command contract drifted"
   }
 
   $installFlow = @(Get-BootstrapFlow "install")
@@ -365,7 +392,8 @@ function Run-SelfTest {
   $source = [System.IO.File]::ReadAllText($scriptPath)
   foreach ($required in @(
     "@bigking67/pi-67@latest",
-    '"install", "--repair", "--yes"',
+    'return @($arguments + @("install"))',
+    'return @($arguments + @("migrate", "--yes"))',
     'return @($arguments + @("update"))',
     '"version", "--json"',
     '"doctor", "--json"',
@@ -418,7 +446,8 @@ function Resolve-LogDir {
 function Show-DryRunPlan {
   $resolvedAgentDir = Resolve-AgentDir $AgentDir
   $hasGitCheckout = Test-Path -LiteralPath (Join-Path $resolvedAgentDir ".git")
-  $workspaceAction = Get-WorkspaceAction $Mode $hasGitCheckout
+  $hasImmutableRelease = $null -ne (Get-CurrentReleasePointer $resolvedAgentDir)
+  $workspaceAction = Get-WorkspaceAction $Mode $hasGitCheckout $hasImmutableRelease
   $workspaceArguments = @(Get-WorkspaceCommandArguments $workspaceAction $resolvedAgentDir)
 
   Write-Host ""
@@ -429,8 +458,11 @@ function Show-DryRunPlan {
   Write-Host ""
   Write-Host "Manual prerequisites checked during a real run:"
   Write-Host "  Git, Node.js >= $MinimumNodeVersion, npm, and upstream pi on PATH"
-  if ($Mode -eq "Update" -and -not $hasGitCheckout) {
-    Write-Host "  WARN Update mode requires an existing Git checkout at the agent directory." -ForegroundColor Yellow
+  if ($Mode -eq "Update" -and -not $hasImmutableRelease) {
+    Write-Host "  WARN Update mode expects an existing immutable release pointer." -ForegroundColor Yellow
+  }
+  if ($Mode -eq "Migrate" -and -not $hasGitCheckout) {
+    Write-Host "  WARN Migrate mode requires a legacy Git checkout at the agent directory." -ForegroundColor Yellow
   }
   Write-Host ""
   foreach ($stage in @(Get-BootstrapFlow $workspaceAction)) {
@@ -463,7 +495,8 @@ if (-not (Test-IsWindows)) {
 $script:AgentDir = Resolve-AgentDir $AgentDir
 $resolvedLogDir = Resolve-LogDir $LogDir
 $hasGitCheckout = Test-Path -LiteralPath (Join-Path $script:AgentDir ".git")
-$script:WorkspaceAction = Get-WorkspaceAction $Mode $hasGitCheckout
+$hasImmutableRelease = $null -ne (Get-CurrentReleasePointer $script:AgentDir)
+$script:WorkspaceAction = Get-WorkspaceAction $Mode $hasGitCheckout $hasImmutableRelease
 
 $stamp = (Get-Date).ToUniversalTime().ToString("yyyyMMdd-HHmmss")
 $script:RunLogDir = Join-Path $resolvedLogDir ("manager-bootstrap-{0}-{1}" -f $stamp, $PID)
@@ -482,7 +515,7 @@ $script:NodeVersion = ""
 $script:NpmCommand = ""
 $script:NpmVersion = ""
 $script:PiCommand = ""
-$script:PiVersion = ""
+$script:PiCommandAvailable = $false
 $script:Pi67Command = ""
 $script:ManagerVersion = ""
 $script:DistroVersion = ""
@@ -505,8 +538,11 @@ try {
     if ($PSVersionTable.PSVersion -lt [version]"5.1") {
       throw "PowerShell 5.1 or newer is required"
     }
-    if ($Mode -eq "Update" -and -not $hasGitCheckout) {
-      throw "Update mode requires an existing pi-67 Git checkout at $script:AgentDir. Use -Mode Install or -Mode Auto."
+    if ($Mode -eq "Update" -and -not $hasImmutableRelease) {
+      throw "Update mode requires an existing immutable pi-67 release. Use -Mode Install, -Mode Migrate, or -Mode Auto."
+    }
+    if ($Mode -eq "Migrate" -and -not $hasGitCheckout) {
+      throw "Migrate mode requires a legacy pi-67 Git checkout at $script:AgentDir."
     }
   }
 
@@ -545,8 +581,8 @@ try {
     if (-not $script:PiCommand) {
       throw "The upstream pi command is required but was not found on PATH. Complete the Windows manual, reopen the terminal, and rerun this script: $InstallGuide"
     }
-    $result = Invoke-CapturedNative "pi-version" $script:PiCommand @("--version")
-    $script:PiVersion = Get-FirstOutputLine $result.text
+    Invoke-CapturedNative "pi-command" $script:PiCommand @("--help") | Out-Null
+    $script:PiCommandAvailable = $true
   }
 
   Invoke-Stage "pi-67-manager" {
@@ -564,8 +600,8 @@ try {
   Invoke-Stage "pi-67-workspace-$script:WorkspaceAction" {
     $workspaceArguments = @(Get-WorkspaceCommandArguments $script:WorkspaceAction $script:AgentDir)
     Invoke-LoggedNative "pi-67-workspace-$script:WorkspaceAction" $script:Pi67Command $workspaceArguments
-    if (-not (Test-Path -LiteralPath (Join-Path $script:AgentDir ".git"))) {
-      throw "pi-67 workspace command completed without a Git checkout at $script:AgentDir"
+    if (-not (Test-Path -LiteralPath (Join-Path $script:AgentDir "VERSION") -PathType Leaf)) {
+      throw "pi-67 workspace command completed without an active VERSION file at $script:AgentDir"
     }
   }
 
@@ -592,7 +628,7 @@ try {
     )
     try {
       $doctorData = $result.text | ConvertFrom-Json -ErrorAction Stop
-      $script:DoctorSchema = [string]$doctorData.schema
+      $script:DoctorSchema = [string]$doctorData.schemaId
     } catch {
       throw "pi-67 doctor --json returned invalid JSON; see $($result.logPath)"
     }
@@ -629,7 +665,7 @@ $summary = [pscustomobject][ordered]@{
     git = $script:GitVersion
     node = $script:NodeVersion
     npm = $script:NpmVersion
-    pi = $script:PiVersion
+    piCommandAvailable = [bool]$script:PiCommandAvailable
     manager = $script:ManagerVersion
     distro = $script:DistroVersion
   }

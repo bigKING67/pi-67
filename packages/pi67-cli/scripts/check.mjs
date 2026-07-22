@@ -19,14 +19,13 @@ import {
   spawnCommandWithFallback,
 } from "../src/lib/shell-runner.mjs";
 import { parseCommandOptions, splitGlobalArgs } from "../src/lib/args.mjs";
-import { readExtensionRegistry, validateExtensionRegistry } from "../src/lib/extension-registry.mjs";
 import {
-  buildPlanDecisions,
-  classifyGitShort,
-  classifyManagedDependencyPackage,
-  cleanDistroUpdateRecommendation,
-} from "../src/lib/update-plan.mjs";
-import { lockedDependencyVersion } from "../src/lib/distro-manifest.mjs";
+  defaultAgentDir,
+  resolveContext,
+  resolveStateDir,
+} from "../src/lib/paths.mjs";
+import { readExtensionRegistry, validateExtensionRegistry } from "../src/lib/extension-registry.mjs";
+import { buildPlanDecisions } from "../src/lib/update-plan.mjs";
 import {
   beginUpdateLifecycle,
   inspectLegacyConflictBackup,
@@ -36,14 +35,18 @@ import {
   restoreRuntimeBackup,
 } from "../src/lib/update-safety.mjs";
 import {
-  managerFreshnessBlockReason,
-  managerFreshnessStatus,
-} from "../src/lib/manager-freshness.mjs";
+  classifyNpmExtension,
+  inspectManagedExtensions,
+  parsePiListOutput,
+  readManagedExtensionBaselines,
+} from "../src/lib/managed-extensions.mjs";
 import {
-  inspectUpstreamPiRuntime,
-  upstreamPiCheck,
-} from "../src/lib/upstream-pi-runtime.mjs";
-import { shouldForceNpmSync } from "../src/commands/update.mjs";
+  activateDistroRelease,
+  migrateRuntimeLayout,
+  readCurrentRelease,
+  rollbackDistroRelease,
+  rollbackRuntimeMigration,
+} from "../src/lib/release-store.mjs";
 import {
   configureBrowser67Mcp,
   inspectBrowser67Runtime,
@@ -82,24 +85,24 @@ for (const file of files.filter((item) => item.endsWith(".json"))) {
 }
 runManifestOwnershipSelfTests();
 await runNpmRegistrySelfTests();
-await runUpstreamPiRuntimeSelfTests();
 runBrowser67RuntimeSelfTests();
 runExternalLifecycleSelfTests();
 runPackedArtifactSelfTests(root);
 runArgsSelfTests();
+runPathContextSelfTests();
 runCliHelpContractSelfTests();
 runXtalpiConfigureSelfTests();
 runProviderStatusSelfTests();
-runInstallNonGitAgentDirSelfTests();
+runImmutableInstallSelfTests();
 runVersionRecommendationSelfTests();
 runPublishTargetSelfTests();
 runShellRunnerSelfTests();
 runExtensionRegistrySelfTests();
 runSettingsRuntimeStateSelfTests();
-runUpdatePreflightMigrationSelfTests();
-runManagedPackageLockPolicySelfTests();
-runUpdatePlanSelfTests();
-runUpdateCommandPolicySelfTests();
+runReleaseStoreSelfTests();
+runManagedExtensionBaselineSelfTests();
+runPiLoadProbeSelfTests();
+runMinimumBaselinePlanSelfTests();
 runUpdateSafetySelfTests();
 runSkillPackPolicySelfTests();
 
@@ -116,14 +119,14 @@ function runManifestOwnershipSelfTests() {
   const manifest = JSON.parse(
     fs.readFileSync(path.join(root, "src", "data", "distro-manifest.json"), "utf8"),
   );
-  assert(manifest.upstreamPi?.owner === "upstream-pi", "upstream Pi must retain independent ownership");
+  assert(manifest.upstreamPi === undefined, "pi-67 manifest must not manage or version the independent Pi runtime");
   assert(
-    manifest.upstreamPi?.mutationPolicy === "report-only-never-install-or-update-through-pi67",
-    "pi-67 must never install or update the upstream Pi runtime",
+    manifest.releaseStore?.policy === "manager-bundled-immutable-distro-no-github-main-clone-or-pull",
+    "pi-67 must activate manager-bundled immutable distro releases",
   );
   assert(
-    manifest.upstreamPi?.updateCommand === "npm install -g @earendil-works/pi-coding-agent@latest",
-    "upstream Pi must expose a standalone npm update command",
+    manifest.managedExtensions?.policy === "minimum-baseline-install-missing-upgrade-safe-behind-preserve-ahead-and-diverged",
+    "pi-67 must use minimum extension baselines without downgrading user versions",
   );
   assert(
     manifest.commands?.alwaysFreshUpdate === "npx -y @bigking67/pi-67@latest update",
@@ -155,6 +158,38 @@ function runArgsSelfTests() {
     parseCommandOptions(["--json"], { bools: ["json"] }).options.json,
     "command option parser must accept command-level --json",
   );
+}
+
+function runPathContextSelfTests() {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-path-context-"));
+  const home = path.join(tmpRoot, "home");
+  const canonicalAgent = defaultAgentDir(home);
+  const canonicalState = path.join(home, ".pi", "pi67");
+  const customOne = path.join(tmpRoot, "workspace-one");
+  const customTwo = path.join(tmpRoot, "workspace-two");
+  const customOneState = resolveStateDir(customOne, home);
+  const customTwoState = resolveStateDir(customTwo, home);
+
+  assert(resolveStateDir(canonicalAgent, home) === canonicalState, "canonical ~/.pi/agent must retain the legacy pi-67 state root");
+  assert(
+    customOneState.startsWith(path.join(canonicalState, "workspaces") + path.sep) &&
+      /^[0-9a-f]{16}$/.test(path.basename(customOneState)),
+    "custom agent dirs must use a stable hashed workspace state root",
+  );
+  assert(resolveStateDir(customOne, home) === customOneState, "custom workspace state mapping must be stable");
+  assert(customOneState !== customTwoState, "different custom workspaces must not share pi-67 state");
+
+  const liveCanonical = resolveContext({ agentDir: defaultAgentDir() });
+  assert(
+    liveCanonical.stateDir === path.join(os.homedir(), ".pi", "pi67"),
+    "resolveContext must preserve the canonical state root",
+  );
+  const liveCustom = resolveContext({ agentDir: customOne });
+  assert(
+    liveCustom.stateDir === resolveStateDir(customOne),
+    "resolveContext must isolate custom workspace state",
+  );
+  fs.rmSync(tmpRoot, { recursive: true, force: true });
 }
 
 function runSkillPackPolicySelfTests() {
@@ -560,6 +595,8 @@ function runCliHelpContractSelfTests() {
     ["backups", "--help"],
     ["launch", "--help"],
     ["memory", "--help"],
+    ["migrate", "--help"],
+    ["rollback", "--help"],
   ];
   const backupRoot = path.join(home, ".pi", "pi67", "backups");
   for (const command of commands) {
@@ -609,8 +646,9 @@ function runCliHelpContractSelfTests() {
     }
     if (command[0] === "update") {
       assert(
-        result.stdout.includes("It never installs or") &&
-          result.stdout.includes("@earendil-works/pi-coding-agent@latest") &&
+        result.stdout.includes("does not clone/pull GitHub") &&
+          result.stdout.includes("newer -> keep; never downgrade") &&
+          !result.stdout.includes("@earendil-works/pi-coding-agent@latest") &&
           !result.stdout.includes("--include-pi") &&
           !/(^|\n)\s*--all(?:\s|$)/m.test(result.stdout) &&
           !/(^|\n)\s*--yes(?:\s|$)/m.test(result.stdout) &&
@@ -1066,7 +1104,7 @@ function swapUtf16ForTest(buffer, includeBom = false) {
   return swapped;
 }
 
-function runInstallNonGitAgentDirSelfTests() {
+function runImmutableInstallSelfTests() {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-install-non-git-"));
   const home = path.join(tmpRoot, "home");
   const agentDir = path.join(tmpRoot, "agent");
@@ -1082,65 +1120,34 @@ function runInstallNonGitAgentDirSelfTests() {
       "--agent-dir",
       agentDir,
       "--repo-root",
-      agentDir,
+      path.resolve(root, "../.."),
       "--skills-dir",
       skillsDir,
       "install",
-      "--repo",
-      "https://example.invalid/pi-67.git",
+      "--no-npm",
     ];
 
     const blocked = spawnSync(process.execPath, baseArgs, { cwd: root, env, encoding: "utf8" });
-    assert(blocked.status !== 0, "non-git agent dir install must block by default");
+    assert(blocked.status !== 0, "unmanaged non-empty agent dir install must block by default");
     assert(
-      blocked.stderr.includes("agent dir exists but is not a git checkout") &&
-        blocked.stderr.includes("pi-67 install --repair --yes --dry-run"),
-      `non-git agent dir error must include actionable repair guidance\n${blocked.stderr}`,
+      blocked.stderr.includes("explicit layout migration") && blocked.stderr.includes("pi-67 migrate --check"),
+      `unmanaged agent error must route through the explicit migration\n${blocked.stderr}`,
     );
 
-    const preview = spawnSync(process.execPath, [...baseArgs, "--repair", "--yes", "--dry-run"], {
+    const preview = spawnSync(process.execPath, [
+      path.join(root, "bin", "pi-67.mjs"),
+      "--agent-dir", agentDir,
+      "--repo-root", path.resolve(root, "../.."),
+      "--skills-dir", skillsDir,
+      "migrate", "--check", "--json",
+    ], {
       cwd: root,
       env,
       encoding: "utf8",
     });
-    assert(preview.status === 0, `non-git agent dir repair dry-run failed\n${preview.stderr || preview.stdout}`);
-    assert(
-      preview.stdout.includes("DRY-RUN would move existing non-git agent dir") &&
-        preview.stdout.includes("git clone https://example.invalid/pi-67.git"),
-      `repair dry-run must preview backup move and clone\n${preview.stdout}`,
-    );
-    assert(fs.existsSync(path.join(agentDir, "settings.json")), "repair dry-run must not move the existing non-git folder");
-
-    const noGitEnv = {
-      ...env,
-      PATH: "",
-      Path: "",
-      PI67_GIT_EXE: "",
-      ProgramW6432: "",
-      ProgramFiles: "",
-      "ProgramFiles(x86)": "",
-      LOCALAPPDATA: path.join(tmpRoot, "no-localappdata"),
-      LocalAppData: path.join(tmpRoot, "no-localappdata"),
-      ChocolateyInstall: "",
-    };
-    const noGitRepair = spawnSync(process.execPath, [...baseArgs, "--repair", "--yes"], {
-      cwd: root,
-      env: noGitEnv,
-      encoding: "utf8",
-    });
-    assert(noGitRepair.status !== 0, "repair install must fail when git is not available");
-    assert(
-      noGitRepair.stderr.includes("git is required before pi-67 can clone") &&
-        noGitRepair.stderr.includes("git --version") &&
-        noGitRepair.stderr.includes("pi-67 install --repair --yes"),
-      `missing git error must be actionable\n${noGitRepair.stderr}`,
-    );
-    assert(fs.existsSync(path.join(agentDir, "settings.json")), "missing git repair must not move the existing non-git folder");
-    const backupRoot = path.join(home, ".pi", "pi67", "backups");
-    assert(
-      !fs.existsSync(backupRoot) || fs.readdirSync(backupRoot).length === 0,
-      "missing git repair must not create non-git takeover backups before clone is possible",
-    );
+    assert(preview.status === 0, `runtime migration preview failed\n${preview.stderr || preview.stdout}`);
+    assert(JSON.parse(preview.stdout).required, "runtime migration preview must identify unmanaged runtime state");
+    assert(fs.existsSync(path.join(agentDir, "settings.json")), "migration preview must not move the existing runtime");
 
     const emptyAgentDir = path.join(tmpRoot, "empty-agent");
     fs.mkdirSync(emptyAgentDir, { recursive: true });
@@ -1149,23 +1156,21 @@ function runInstallNonGitAgentDirSelfTests() {
       "--agent-dir",
       emptyAgentDir,
       "--repo-root",
-      emptyAgentDir,
+      path.resolve(root, "../.."),
       "--skills-dir",
       skillsDir,
       "install",
-      "--repo",
-      "https://example.invalid/pi-67.git",
       "--dry-run",
+      "--no-npm",
     ], {
       cwd: root,
       env,
       encoding: "utf8",
     });
-    assert(emptyPreview.status === 0, `empty agent dir install dry-run should be allowed\n${emptyPreview.stderr || emptyPreview.stdout}`);
+    assert(emptyPreview.status === 0, `empty agent install dry-run should be allowed\n${emptyPreview.stderr || emptyPreview.stdout}`);
     assert(
-      emptyPreview.stdout.includes("agent dir exists and is empty") &&
-        emptyPreview.stdout.includes("git clone https://example.invalid/pi-67.git"),
-      `empty agent dir dry-run must preview clone into existing empty directory\n${emptyPreview.stdout}`,
+      emptyPreview.stdout.includes("Immutable release") && !emptyPreview.stdout.includes("git clone"),
+      `fresh install must preview the bundled immutable release without Git clone\n${emptyPreview.stdout}`,
     );
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
@@ -1173,47 +1178,14 @@ function runInstallNonGitAgentDirSelfTests() {
 }
 
 function runVersionRecommendationSelfTests() {
-  if (spawnSync("git", ["--version"], { encoding: "utf8" }).status !== 0) return;
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-version-recommendation-"));
   const home = path.join(tmpRoot, "home");
   const repo = path.join(tmpRoot, "agent");
   fs.mkdirSync(home, { recursive: true });
   fs.mkdirSync(repo, { recursive: true });
-  fs.writeFileSync(path.join(repo, "VERSION"), "0.10.0\n");
-  fs.writeFileSync(path.join(repo, "settings.json"), "{\n  \"lastChangelogVersion\": \"0.80.3\",\n  \"theme\": \"gruvbox-dark\"\n}\n");
-  for (const args of [
-    ["-C", repo, "init", "-q"],
-    ["-C", repo, "config", "user.email", "pi67-check@example.invalid"],
-    ["-C", repo, "config", "user.name", "pi67-check"],
-    ["-C", repo, "add", "VERSION", "settings.json"],
-    ["-C", repo, "commit", "-q", "-m", "init"],
-  ]) {
-    const result = spawnSync("git", args, { encoding: "utf8" });
-    assert(result.status === 0, `git setup failed for version recommendation self-test: git ${args.join(" ")}\n${result.stderr}`);
-  }
-  fs.writeFileSync(path.join(repo, "settings.json"), "{\n  \"lastChangelogVersion\": \"0.80.4\",\n  \"theme\": \"gruvbox-dark\"\n}\n");
+  fs.writeFileSync(path.join(repo, "VERSION"), "0.15.0\n");
+  fs.writeFileSync(path.join(repo, "settings.json"), "{\n  \"theme\": \"gruvbox-dark\"\n}\n");
   const env = { ...process.env, HOME: home, USERPROFILE: home };
-  const result = spawnSync(process.execPath, [
-    path.join(root, "bin", "pi-67.mjs"),
-    "--agent-dir",
-    repo,
-    "--repo-root",
-    repo,
-    "--no-remote",
-    "version",
-  ], {
-    cwd: root,
-    env,
-    encoding: "utf8",
-  });
-  assert(result.status === 0, `version recommendation command failed\n${result.stderr || result.stdout}`);
-  assert(
-    result.stdout.includes("npm install updated only the manager package") &&
-      result.stdout.includes(" update") &&
-      !result.stdout.includes("update --repair") &&
-      result.stdout.includes("settings.json has Pi runtime changelog marker state"),
-    `version output must explain manager/distro mismatch and normal update migration\n${result.stdout}`,
-  );
   const json = spawnSync(process.execPath, [
     path.join(root, "bin", "pi-67.mjs"),
     "--agent-dir",
@@ -1231,57 +1203,31 @@ function runVersionRecommendationSelfTests() {
   assert(json.status === 0, `version --json recommendation command failed\n${json.stderr || json.stdout}`);
   const parsed = JSON.parse(json.stdout);
   assert(
-    parsed.recommendations?.some((item) => item.message.endsWith(" update")) &&
-      !parsed.recommendations?.some((item) => item.message.includes("update --repair")),
-    "version --json must include actionable recommendations",
+    parsed.schema === "pi67.version.v2" &&
+      parsed.paths?.stateDir === resolveStateDir(repo, home) &&
+      parsed.runtime?.pi === undefined &&
+      parsed.runtime?.upstreamPi === undefined &&
+      JSON.stringify(parsed).includes("testedVersion") === false,
+    "version --json must report only pi-67 manager/distro state and never Pi version policy",
+  );
+  const reportDryRun = spawnSync(process.execPath, [
+    path.join(root, "bin", "pi-67.mjs"),
+    "--agent-dir", repo,
+    "--repo-root", repo,
+    "--dry-run",
+    "report",
+    "--json",
+  ], {
+    cwd: root,
+    env,
+    encoding: "utf8",
+  });
+  assert(reportDryRun.status === 0, `report dry-run command failed\n${reportDryRun.stderr || reportDryRun.stdout}`);
+  assert(
+    JSON.parse(reportDryRun.stdout).stateDir === resolveStateDir(repo, home),
+    "report dry-run must expose the isolated workspace state root",
   );
   fs.rmSync(tmpRoot, { recursive: true, force: true });
-}
-
-async function runUpstreamPiRuntimeSelfTests() {
-  const manifest = {
-    upstreamPi: {
-      packageName: "@earendil-works/pi-coding-agent",
-      command: "pi",
-      owner: "upstream-pi",
-      mutationPolicy: "report-only-never-install-or-update-through-pi67",
-      testedVersion: "0.80.6",
-      compatibilityPolicy: "warn-if-installed-behind-release-tested-version",
-      updateCommand: "npm install -g @earendil-works/pi-coding-agent@latest",
-    },
-  };
-  const behind = await inspectUpstreamPiRuntime({}, {
-    manifest,
-    captureCommand: () => ({ ok: true, stdout: "0.80.3\n", stderr: "" }),
-    registryOptions: {
-      fetchImpl: async () => jsonResponse(200, { version: "0.80.6" }),
-    },
-  });
-  assert(behind.installedVersion === "0.80.3", "upstream Pi inspection must parse the installed version");
-  assert(behind.testedVersion === "0.80.6", "upstream Pi inspection must expose the release-tested version");
-  assert(behind.installedBehindTested, "upstream Pi inspection must detect a runtime behind the tested baseline");
-  assert(behind.registry.outdated, "upstream Pi inspection must detect a registry update");
-  assert(
-    upstreamPiCheck(behind).level === "WARN" && upstreamPiCheck(behind).message.includes("release-tested 0.80.6"),
-    "upstream Pi doctor check must warn when the installed runtime is behind the tested baseline",
-  );
-
-  const current = await inspectUpstreamPiRuntime({}, {
-    manifest,
-    captureCommand: () => ({ ok: true, stdout: "pi 0.80.6\n", stderr: "" }),
-    noRemote: true,
-  });
-  assert(current.compatibility === "release-tested", "matching upstream Pi must satisfy the tested baseline");
-  assert(upstreamPiCheck(current).level === "PASS", "matching upstream Pi must pass the doctor check");
-  assert(current.registry.skipped, "no-remote upstream Pi inspection must skip the npm registry");
-
-  const missing = await inspectUpstreamPiRuntime({}, {
-    manifest,
-    captureCommand: () => ({ ok: false, stdout: "", stderr: "not found" }),
-    noRemote: true,
-  });
-  assert(missing.compatibility === "missing-or-failed", "missing upstream Pi must be observable");
-  assert(upstreamPiCheck(missing).level === "FAIL", "missing upstream Pi must fail the doctor check");
 }
 
 function runPublishTargetSelfTests() {
@@ -1609,406 +1555,317 @@ function runExtensionRegistrySelfTests() {
   );
 }
 
-function runUpdatePreflightMigrationSelfTests() {
-  if (spawnSync("git", ["--version"], { encoding: "utf8" }).status !== 0) return;
-  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-update-preflight-migration-"));
-  const home = path.join(tmpRoot, "home");
-  const repo = path.join(tmpRoot, "agent");
-  const skillsDir = path.join(tmpRoot, "skills");
-  const packagesDir = path.join(tmpRoot, "packages");
-  fs.mkdirSync(path.join(repo, "scripts"), { recursive: true });
-  fs.mkdirSync(home, { recursive: true });
-  fs.mkdirSync(skillsDir, { recursive: true });
-  fs.mkdirSync(packagesDir, { recursive: true });
-  fs.writeFileSync(path.join(repo, "VERSION"), "0.10.0\n");
-  fs.writeFileSync(path.join(repo, "settings.json"), "{\n  \"theme\": \"gruvbox-dark\"\n}\n");
-  fs.writeFileSync(path.join(repo, "scripts", "pi67-update.sh"), `#!/usr/bin/env bash
-set -euo pipefail
-agent_dir=""
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    --agent-dir)
-      agent_dir="$2"
-      shift 2
-      ;;
-    *)
-      shift
-      ;;
-  esac
-done
-if grep -q "lastChangelogVersion" "$agent_dir/settings.json"; then
-  echo "marker still present before distro script" >&2
-  exit 44
-fi
-`);
-  fs.writeFileSync(path.join(repo, "scripts", "pi67-update.ps1"), `param(
-  [string]$AgentDir,
-  [string]$RepoRoot,
-  [string]$SkillsDir,
-  [switch]$DryRun,
-  [switch]$ForceNpm,
-  [switch]$NoNpm,
-  [switch]$AllowDirty,
-  [switch]$StrictSharedSkills
-)
-$settings = Get-Content -LiteralPath (Join-Path $AgentDir "settings.json") -Raw
-if ($settings -match "lastChangelogVersion") {
-  Write-Error "marker still present before distro script"
-  exit 44
-}
-`);
-  for (const args of [
-    ["-C", repo, "init", "-q"],
-    ["-C", repo, "config", "user.email", "pi67-check@example.invalid"],
-    ["-C", repo, "config", "user.name", "pi67-check"],
-    ["-C", repo, "add", "VERSION", "settings.json", "scripts/pi67-update.sh", "scripts/pi67-update.ps1"],
-    ["-C", repo, "commit", "-q", "-m", "init"],
-  ]) {
-    const result = spawnSync("git", args, { encoding: "utf8" });
-    assert(result.status === 0, `git setup failed for update preflight migration self-test: git ${args.join(" ")}\n${result.stderr}`);
+function runReleaseStoreSelfTests() {
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-release-store-"));
+  const ctx = {
+    agentDir: path.join(tmpRoot, "agent"),
+    repoRoot: path.join(tmpRoot, "source-v1"),
+    stateDir: path.join(tmpRoot, "state"),
+  };
+  const sourceV1 = createReleaseFixture(ctx.repoRoot, "0.15.0", "release-one\n");
+  const sourceV2 = createReleaseFixture(path.join(tmpRoot, "source-v2"), "0.15.1", "release-two\n");
+  fs.mkdirSync(ctx.agentDir, { recursive: true });
+  fs.writeFileSync(path.join(ctx.agentDir, "settings.json"), "{\"theme\":\"user-theme\"}\n");
+
+  const first = activateDistroRelease(ctx, { sourceRoot: sourceV1 });
+  assert(first.version === "0.15.0", "release store must activate the selected immutable version");
+  assert(readCurrentRelease(ctx).agentDir === ctx.agentDir, "release pointer must bind to the active workspace path");
+  assert(
+    readCurrentRelease({ ...ctx, agentDir: path.join(tmpRoot, "different-agent") }) === null,
+    "release pointer from another workspace must not be treated as the active release",
+  );
+  const legacyPointerCtx = {
+    ...ctx,
+    agentDir: defaultAgentDir(),
+    stateDir: path.join(tmpRoot, "legacy-pointer-state"),
+  };
+  fs.mkdirSync(legacyPointerCtx.stateDir, { recursive: true });
+  fs.writeFileSync(path.join(legacyPointerCtx.stateDir, "current.json"), `${JSON.stringify({
+    schema: "pi67.release-pointer.v1",
+    version: first.version,
+    releasePath: first.releasePath,
+  }, null, 2)}\n`);
+  assert(readCurrentRelease(legacyPointerCtx)?.version === first.version, "legacy pointers without agentDir must remain valid only for canonical ~/.pi/agent");
+  assert(
+    readCurrentRelease({ ...legacyPointerCtx, agentDir: path.join(tmpRoot, "legacy-custom-agent") }) === null,
+    "legacy pointers without agentDir must never bind to a custom workspace",
+  );
+  assert(fs.readFileSync(path.join(ctx.agentDir, "README.md"), "utf8") === "release-one\n", "release assets must activate into the runtime");
+  assert(fs.readFileSync(path.join(ctx.agentDir, "settings.json"), "utf8").includes("user-theme"), "release activation must preserve user settings");
+  assert(!fs.existsSync(path.join(ctx.agentDir, "extensions", "fixture")), "release activation must defer extension ownership to the baseline state machine");
+
+  const repeated = activateDistroRelease(ctx, { sourceRoot: sourceV1 });
+  assert(repeated.noOp && repeated.copied.length === 0, "repeated activation of the current immutable release must be a no-op");
+  fs.writeFileSync(path.join(ctx.agentDir, "README.md"), "damaged\n");
+  const repaired = activateDistroRelease(ctx, { sourceRoot: sourceV1, operation: "repair" });
+  assert(
+    !repaired.noOp && fs.readFileSync(path.join(ctx.agentDir, "README.md"), "utf8") === "release-one\n",
+    "explicit repair must reapply current package-owned release assets",
+  );
+  fs.writeFileSync(path.join(sourceV1, "README.md"), "mutated-same-version\n");
+  let collisionRejected = false;
+  try {
+    activateDistroRelease(ctx, { sourceRoot: sourceV1 });
+  } catch (error) {
+    collisionRejected = String(error.message).includes("already exists with different content");
   }
-  fs.writeFileSync(path.join(repo, "settings.json"), "{\n  \"lastChangelogVersion\": \"0.80.4\",\n  \"theme\": \"gruvbox-dark\"\n}\n");
-  const env = { ...process.env, HOME: home, USERPROFILE: home };
-  const result = spawnSync(process.execPath, [
-    path.join(root, "bin", "pi-67.mjs"),
-    "--agent-dir",
-    repo,
-    "--repo-root",
-    repo,
-    "--skills-dir",
-    skillsDir,
-    "--packages-dir",
-    packagesDir,
-    "update",
-    "--repair",
-    "--no-remote",
-    "--no-npm",
-  ], {
-    cwd: root,
-    env,
-    encoding: "utf8",
-  });
+  assert(collisionRejected, "an existing immutable version must reject different source content");
+  fs.writeFileSync(path.join(sourceV1, "README.md"), "release-one\n");
+
+  fs.writeFileSync(path.join(ctx.stateDir, "pending-activation.json"), JSON.stringify({
+    schema: "pi67.release-activation.v1",
+    releasePath: first.releasePath,
+    status: "interrupted",
+  }));
+  const recovered = activateDistroRelease(ctx, { sourceRoot: sourceV1 });
   assert(
-    result.status === 0,
-    `update must preflight-normalize settings runtime marker before calling the distro script\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+    recovered.noOp && recovered.recoveredPending?.recovery === "cleared-after-pointer-commit" &&
+      !fs.existsSync(path.join(ctx.stateDir, "pending-activation.json")),
+    "activation must clear a stale pending marker after the release pointer was committed",
   );
+
+  activateDistroRelease(ctx, { sourceRoot: sourceV2 });
+  assert(readCurrentRelease(ctx).version === "0.15.1", "release pointer must advance atomically");
+  rollbackDistroRelease(ctx);
+  assert(readCurrentRelease(ctx).version === "0.15.0", "release rollback must reactivate the previous immutable release");
+  assert(fs.readFileSync(path.join(ctx.agentDir, "README.md"), "utf8") === "release-one\n", "release rollback must restore prior package-owned assets");
+
+  const migrationCtx = {
+    agentDir: path.join(tmpRoot, "legacy-agent"),
+    repoRoot: sourceV1,
+    stateDir: path.join(tmpRoot, "migration-state"),
+  };
+  fs.mkdirSync(path.join(migrationCtx.agentDir, ".git"), { recursive: true });
+  fs.mkdirSync(path.join(migrationCtx.agentDir, "sessions"), { recursive: true });
+  fs.writeFileSync(path.join(migrationCtx.agentDir, "mcp.json"), '{"mcpServers":{"agent_memory":{"command":"private"}}}\n');
+  fs.writeFileSync(path.join(migrationCtx.agentDir, "sessions", "fixture.jsonl"), "session\n");
+  const migration = migrateRuntimeLayout(migrationCtx, { sourceRoot: sourceV1 });
+  assert(migration.status === "completed" && migration.backupAgentDir, "legacy migration must journal the original checkout backup");
+  assert(fs.readFileSync(path.join(migrationCtx.agentDir, "mcp.json"), "utf8").includes("agent_memory"), "migration must preserve user-managed MCP configuration");
+  assert(fs.existsSync(path.join(migrationCtx.agentDir, "sessions", "fixture.jsonl")), "migration must preserve sessions");
+  rollbackRuntimeMigration(migrationCtx);
+  assert(fs.existsSync(path.join(migrationCtx.agentDir, ".git")), "migration rollback must restore the original legacy checkout");
+  assert(fs.readFileSync(path.join(migrationCtx.agentDir, "mcp.json"), "utf8").includes("agent_memory"), "migration rollback must preserve personal MCP state");
+
+  const failedMigrationCtx = {
+    agentDir: path.join(tmpRoot, "failed-legacy-agent"),
+    repoRoot: sourceV1,
+    stateDir: path.join(tmpRoot, "failed-migration-state"),
+  };
+  fs.mkdirSync(path.join(failedMigrationCtx.agentDir, ".git"), { recursive: true });
+  fs.symlinkSync(tmpRoot, path.join(failedMigrationCtx.agentDir, "settings.json"));
+  let migrationFailed = false;
+  try {
+    migrateRuntimeLayout(failedMigrationCtx, { sourceRoot: sourceV1 });
+  } catch {
+    migrationFailed = true;
+  }
+  assert(migrationFailed, "migration fixture must exercise the post-activation rollback path");
   assert(
-    result.stdout.includes("Preflight: Migrated settings.json lastChangelogVersion") &&
-      result.stdout.includes("Preflight: Normalized settings.json"),
-    `update output must report preflight runtime marker migration\n${result.stdout}`,
-  );
-  const settings = JSON.parse(fs.readFileSync(path.join(repo, "settings.json"), "utf8"));
-  assert(settings.lastChangelogVersion === undefined, "update preflight migration must remove lastChangelogVersion from settings.json");
-  const state = JSON.parse(fs.readFileSync(path.join(home, ".pi", "pi67", "state.json"), "utf8"));
-  assert(
-    state.runtimeMarkers?.lastChangelogVersion?.value === "0.80.4",
-    "update preflight migration must persist lastChangelogVersion into ignored state",
-  );
-  const status = spawnSync("git", ["-C", repo, "status", "--short"], { encoding: "utf8" });
-  assert(status.status === 0, `git status failed for update preflight migration self-test\n${status.stderr}`);
-  assert(
-    !status.stdout.split(/\r?\n/).some((line) => line.trim().endsWith("settings.json")),
-    `settings.json should be clean after preflight marker migration\n${status.stdout}`,
+    fs.existsSync(path.join(failedMigrationCtx.agentDir, ".git")) && readCurrentRelease(failedMigrationCtx) === null,
+    "failed migration must restore both the legacy runtime and the previous release pointer",
   );
   fs.rmSync(tmpRoot, { recursive: true, force: true });
 }
 
-function runUpdatePlanSelfTests() {
-  assert(
-    cleanDistroUpdateRecommendation(
-      { isRepo: true, dirty: false, commit: "abc123" },
-      { ok: true, commit: "abc123456789" },
-    ) === "",
-    "a clean checkout already at the remote commit must not recommend a no-op pi-67 update",
-  );
-  assert(
-    cleanDistroUpdateRecommendation(
-      { isRepo: true, dirty: false, commit: "abc123" },
-      { ok: true, commit: "def456" },
-    ).includes("remote branch differs"),
-    "a clean checkout whose remote branch differs must retain an actionable update recommendation",
-  );
-  assert(
-    cleanDistroUpdateRecommendation(
-      { isRepo: true, dirty: false, commit: "abc123" },
-      { skipped: true },
-    ) === "",
-    "offline checks must not recommend an unproven distro update",
-  );
-
-  assert(
-    classifyGitShort(" M settings.json\n?? tmp.txt").preservedRuntime.includes("settings.json"),
-    "git short classifier must identify preserved runtime config",
-  );
-  assert(
-    classifyGitShort("M settings.json").preservedRuntime.includes("settings.json"),
-    "git short classifier must tolerate status output whose first leading space was trimmed",
-  );
-  assert(
-    classifyGitShort(" M README.md").unsafeTracked.includes("README.md"),
-    "git short classifier must identify unsafe tracked edits",
-  );
-
-  const clean = decisionsFixture();
-  assert(
-    buildPlanDecisions(clean).blocked.length === 0,
-    "clean repo must not be blocked",
-  );
-
-  const dirtyRuntime = decisionsFixture({
-    git: { dirty: true, short: " M settings.json" },
-  });
-  const dirtyRuntimeDecisions = buildPlanDecisions(dirtyRuntime);
-  assert(
-    dirtyRuntimeDecisions.actions.some((item) => item.id === "user-runtime-config"),
-    "dirty runtime config must be planned for backup/restore instead of overwrite",
-  );
-  assert(
-    !dirtyRuntimeDecisions.blocked.some((item) => item.id === "repo-root"),
-    "dirty runtime config alone must not block the distro update plan",
-  );
-
-  const dirtyRuntimeRemoteCurrent = decisionsFixture({
-    git: { dirty: true, short: " M settings.json", commit: "abcdef123456" },
-    remote: { ok: true, commit: "abcdef1234567890" },
-  });
-  const currentRemoteAction = buildPlanDecisions(dirtyRuntimeRemoteCurrent).actions.find((item) => item.id === "user-runtime-config");
-  assert(
-    currentRemoteAction?.operation === "preserve-in-place-no-backup" &&
-      currentRemoteAction.createsNewBackup === false &&
-      currentRemoteAction.writes.length === 0,
-    "dirty runtime config must not plan a new backup when the remote already matches local HEAD",
-  );
-
-  const dirtyReadme = decisionsFixture({
-    git: { dirty: true, short: " M README.md" },
-  });
-  assert(
-    buildPlanDecisions(dirtyReadme).blocked.some((item) => item.id === "repo-root"),
-    "non-runtime dirty tracked files must block the distro update plan",
-  );
-
-  const missingExtension = decisionsFixture({
-    manifest: {
-      localExtensions: [{ name: "xtalpi-pi-tools", owner: "pi67-managed", exists: false, path: "extensions/xtalpi-pi-tools" }],
-    },
-  });
-  assert(
-    buildPlanDecisions(missingExtension).actions.some((item) => item.id === "xtalpi-pi-tools"),
-    "missing managed local extension must create a repair action",
-  );
-
-  const missingTheme = decisionsFixture({ theme: "current-theme", themeInstalled: false });
-  const missingThemeDecisions = buildPlanDecisions(missingTheme);
-  assert(
-    missingThemeDecisions.actions.some((item) => item.id === "pi-curated-themes" && item.preserves.includes("settings.json.theme")),
-    "missing theme assets must preserve selected theme while planning asset repair",
-  );
-
-  const sharedSkillConflict = decisionsFixture({
-    skills: { summary: { missing: 0, conflicts: 2 } },
-  });
-  assert(
-    buildPlanDecisions(sharedSkillConflict).warnings.some((item) => item.includes("preserved user-modified global skills")),
-    "preserved user-modified shared skills must warn and preserve by default",
-  );
-  const strictSharedSkillConflict = decisionsFixture({
-    strictSharedSkills: true,
-    skills: { summary: { missing: 0, conflicts: 2 } },
-  });
-  assert(
-    buildPlanDecisions(strictSharedSkillConflict).blocked.some((item) => item.id === "shared-skills"),
-    "strict shared skill conflicts must block instead of overwriting",
-  );
-
-  const externalDirty = decisionsFixture({
-    external: [{ name: "browser67", exists: true, path: "/tmp/browser67", git: { isRepo: true, dirty: true, branch: "main" } }],
-  });
-  assert(
-    buildPlanDecisions(externalDirty).blocked.some((item) => item.id === "browser67"),
-    "dirty external repos must block destructive external updates",
-  );
-
-  const managerOutdated = decisionsFixture({
-    manager: { name: "@bigking67/pi-67", version: "0.10.24" },
-    managerRegistry: { outdated: true },
-  });
-  assert(
-    buildPlanDecisions(managerOutdated).actions.some((item) => item.id === "pi67-manager"),
-    "outdated npm manager must produce an explicit self-update action",
-  );
-  assert(
-    buildPlanDecisions(managerOutdated).blocked.some((item) => item.id === "pi67-manager"),
-    "outdated npm manager must block distro update/repair until the manager is refreshed",
-  );
-  const managerBehindDistro = decisionsFixture({
-    manager: { name: "@bigking67/pi-67", version: "0.10.24" },
-    managerRegistry: { outdated: false },
-    managerBehindLocalDistro: true,
-    managerFreshness: {
-      managerVersion: "0.10.24",
-      distroVersion: "0.10.25",
-      managerBehindLocalDistro: true,
-      registryOutdated: false,
-    },
-  });
-  assert(
-    buildPlanDecisions(managerBehindDistro).blocked.some((item) => item.id === "pi67-manager"),
-    "manager older than local distro must block update/repair even when registry latest is not known",
-  );
-  assert(
-    managerFreshnessStatus(managerBehindDistro.managerFreshness).includes("older than local distro"),
-    "manager freshness status must explain local distro skew",
-  );
-  assert(
-    managerFreshnessBlockReason(managerBehindDistro.managerFreshness).includes("latest safety gates"),
-    "manager freshness block reason must explain why self-update comes first",
-  );
-
-  const installedPackageBehind = decisionsFixture({
-    packageAudit: {
-      packages: [{ packageName: "pi-subagents", status: "installed-behind-baseline" }],
-    },
-  });
-  assert(
-    buildPlanDecisions(installedPackageBehind).actions.some((item) =>
-      item.id === "managed-npm-packages" && item.explicitCommand === "pi-67 update"),
-    "installed managed npm package drift must create a package sync action",
-  );
-
-  const installedPackageAhead = decisionsFixture({
-    packageAudit: {
-      packages: [{ packageName: "pi-simplify", status: "installed-ahead-of-baseline" }],
-    },
-  });
-  assert(
-    buildPlanDecisions(installedPackageAhead).actions.some((item) =>
-      item.id === "managed-npm-packages" && item.operation === "sync-to-release-lock"),
-    "managed npm packages ahead of the release lock must create a deterministic sync action",
-  );
-
-  const missingManagedPackage = decisionsFixture({
-    packageAudit: {
-      packages: [{ packageName: "pi-subagents", status: "not-installed" }],
-    },
-  });
-  assert(
-    buildPlanDecisions(missingManagedPackage).actions.some((item) => item.id === "managed-npm-packages"),
-    "missing managed npm packages must create a package sync action",
-  );
-
-  const baselinePackageBehind = decisionsFixture({
-    packageAudit: {
-      packages: [{
-        packageName: "pi-subagents",
-        status: "baseline-behind-latest",
-        baselineVersion: "0.33.1",
-        baselineBehindLatest: true,
-        versionRange: "^0.33.1",
-        latestVersion: "0.34.0",
-      }],
-    },
-  });
-  assert(
-    buildPlanDecisions(baselinePackageBehind).warnings.some((item) => item.includes("pi-subagents latest 0.34.0")),
-    "managed npm package baseline drift must be visible as a warning",
-  );
-  assert(
-    !buildPlanDecisions(baselinePackageBehind).actions.some((item) => item.id === "managed-npm-packages"),
-    "registry versions newer than the release lock must not be installed before a new pi-67 release",
-  );
+function createReleaseFixture(rootDir, version, readme) {
+  fs.mkdirSync(path.join(rootDir, "scripts"), { recursive: true });
+  fs.mkdirSync(path.join(rootDir, "extensions", "fixture"), { recursive: true });
+  fs.mkdirSync(path.join(rootDir, "shared-skills", "fixture"), { recursive: true });
+  fs.writeFileSync(path.join(rootDir, "VERSION"), `${version}\n`);
+  fs.writeFileSync(path.join(rootDir, "AGENTS.md"), "fixture\n");
+  fs.writeFileSync(path.join(rootDir, "README.md"), readme);
+  fs.writeFileSync(path.join(rootDir, "scripts", "fixture.sh"), "#!/bin/sh\n");
+  fs.writeFileSync(path.join(rootDir, "extensions", "fixture", "index.ts"), "export {};\n");
+  fs.writeFileSync(path.join(rootDir, "shared-skills", "fixture", "SKILL.md"), "fixture\n");
+  fs.writeFileSync(path.join(rootDir, "shared-skill-packs.json"), '{"schema":"pi67.shared-skill-packs.v1","packs":[]}\n');
+  return rootDir;
 }
 
-function runManagedPackageLockPolicySelfTests() {
+function runManagedExtensionBaselineSelfTests() {
+  const cases = [
+    [{ installedVersion: "", minimumVersion: "1.2.0", configured: true, managedPristine: true }, "missing", "install"],
+    [{ installedVersion: "1.1.0", minimumVersion: "1.2.0", configured: true, managedPristine: true }, "below-baseline", "upgrade"],
+    [{ installedVersion: "1.2.0", minimumVersion: "1.2.0", configured: true, managedPristine: true }, "at-baseline", "keep"],
+    [{ installedVersion: "1.3.0", minimumVersion: "1.2.0", configured: true, managedPristine: false }, "user-managed-ahead", "keep"],
+    [{ installedVersion: "1.1.0", minimumVersion: "1.2.0", configured: true, managedPristine: false }, "user-managed-diverged", "keep-conflict"],
+    [{ installedVersion: "1.2.0", minimumVersion: "1.2.0", configured: true, managedPristine: false }, "user-managed-diverged", "keep-conflict"],
+    [{ installedVersion: "1.2.0", minimumVersion: "1.2.0", configured: false, managedPristine: true }, "missing", "configure"],
+  ];
+  for (const [input, status, action] of cases) {
+    const actual = classifyNpmExtension(input);
+    assert(actual.status === status && actual.action === action, `minimum baseline classification failed: ${JSON.stringify(input)}`);
+  }
+  const registry = readManagedExtensionBaselines();
+  assert(registry.extensions.length === 21, "all 17 package and 4 first-party default extensions must remain bundled");
   assert(
-    lockedDependencyVersion({
-      packages: { "node_modules/pi-simplify": { version: "0.2.2" } },
-    }, "pi-simplify") === "0.2.2",
-    "managed dependency baselines must come from the tracked package lock",
+    registry.extensions.find((item) => item.id === "pi-observational-memory")?.role === "session-compression" &&
+      registry.extensions.find((item) => item.id === "pi-hy-memory")?.role === "cross-session-long-term-memory",
+    "session compression and cross-session long-term memory must remain distinct default layers",
   );
-  assert(
-    lockedDependencyVersion({
-      dependencies: { "pi-simplify": { version: "0.2.1" } },
-    }, "pi-simplify") === "0.2.1",
-    "managed dependency baselines must support legacy package-lock layouts",
-  );
+  assert(!JSON.stringify(registry).includes("agent_memory"), "personal agent_memory MCP must never enter the public extension baseline");
 
-  const registryPatch = {
-    skipped: false,
-    ok: true,
-    latestVersion: "0.2.3",
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-bundled-baseline-"));
+  const sourceRoot = path.join(tmpRoot, "source");
+  const agentDir = path.join(tmpRoot, "agent");
+  const bundlePath = path.join("extensions", "fixture-bundled");
+  const sourceBundle = path.join(sourceRoot, bundlePath);
+  const installedBundle = path.join(agentDir, bundlePath);
+  fs.mkdirSync(sourceBundle, { recursive: true });
+  fs.mkdirSync(installedBundle, { recursive: true });
+  fs.writeFileSync(path.join(sourceBundle, "index.ts"), "baseline\n");
+  fs.writeFileSync(path.join(installedBundle, "index.ts"), "future managed copy\n");
+  const bundledRegistry = {
+    schema: "pi67.managed-extension-baselines.v1",
+    policy: {},
+    extensions: [{
+      id: "fixture-bundled",
+      sourceKind: "bundled",
+      bundlePath,
+      minimumVersion: "0.15.0",
+      contentHash: hashDirectory(sourceBundle),
+    }],
   };
-  const releaseCurrent = classifyManagedDependencyPackage({
-    packageName: "pi-simplify",
-    role: "pi-package",
-    versionRange: "^0.2.2",
-    lockedVersion: "0.2.2",
-  }, {
-    installedVersion: "0.2.2",
-    registry: registryPatch,
+  const futureHash = hashDirectory(installedBundle);
+  const bundledStatus = inspectManagedExtensions({ agentDir, stateDir: path.join(tmpRoot, "state") }, {
+    registry: bundledRegistry,
+    sourceRoot,
+    ledger: {
+      schema: "pi67.extension-ledger.v1",
+      extensions: {
+        "fixture-bundled": {
+          lastManagedVersion: "0.16.0",
+          lastManagedHash: futureHash,
+        },
+      },
+    },
   });
   assert(
-    releaseCurrent.status === "baseline-behind-latest" &&
-      releaseCurrent.baselineVersion === "0.2.2" &&
-      releaseCurrent.baselineBehindLatest,
-    "an in-range registry patch newer than the lock must be release baseline drift, not employee install drift",
+    bundledStatus.extensions[0].status === "user-managed-ahead" &&
+      bundledStatus.extensions[0].action === "keep",
+    "a bundled extension managed by a newer pi-67 release must never be downgraded",
   );
-
-  const installedAhead = classifyManagedDependencyPackage({
-    packageName: "pi-simplify",
-    role: "pi-package",
-    versionRange: "^0.2.2",
-    lockedVersion: "0.2.2",
-  }, {
-    installedVersion: "0.2.3",
-    registry: registryPatch,
+  const olderBundledStatus = inspectManagedExtensions({ agentDir, stateDir: path.join(tmpRoot, "state") }, {
+    registry: bundledRegistry,
+    sourceRoot,
+    ledger: {
+      schema: "pi67.extension-ledger.v1",
+      extensions: {
+        "fixture-bundled": {
+          lastManagedVersion: "0.14.0",
+          lastManagedHash: futureHash,
+        },
+      },
+    },
   });
   assert(
-    installedAhead.status === "installed-ahead-of-baseline" && installedAhead.installedAheadBaseline,
-    "an employee runtime ahead of the release lock must be resynchronized deterministically",
+    olderBundledStatus.extensions[0].status === "below-baseline" &&
+      olderBundledStatus.extensions[0].action === "upgrade",
+    "a pristine bundled extension managed by an older pi-67 release must upgrade to the minimum baseline",
   );
-
-  const offlineAhead = classifyManagedDependencyPackage({
-    packageName: "pi-simplify",
-    role: "pi-package",
-    versionRange: "^0.2.2",
-    lockedVersion: "0.2.2",
-  }, {
-    installedVersion: "0.2.3",
-    registry: { skipped: true, ok: false, latestVersion: "" },
+  const sameVersionDifferentContent = inspectManagedExtensions({ agentDir, stateDir: path.join(tmpRoot, "state") }, {
+    registry: bundledRegistry,
+    sourceRoot,
+    ledger: {
+      schema: "pi67.extension-ledger.v1",
+      extensions: {
+        "fixture-bundled": {
+          lastManagedVersion: "0.15.0",
+          lastManagedHash: futureHash,
+        },
+      },
+    },
   });
   assert(
-    offlineAhead.status === "installed-ahead-of-baseline" && offlineAhead.installedAheadBaseline,
-    "local runtime versions ahead of the release lock must remain repairable offline",
+    sameVersionDifferentContent.extensions[0].status === "user-managed-diverged" &&
+      sameVersionDifferentContent.extensions[0].action === "keep-conflict",
+    "same-version bundled content drift must be preserved and reported instead of overwritten",
   );
-
-  const offlineBehind = classifyManagedDependencyPackage({
-    packageName: "pi-simplify",
-    role: "pi-package",
-    versionRange: "^0.2.2",
-    lockedVersion: "0.2.2",
-  }, {
-    installedVersion: "0.2.1",
-    registry: { skipped: true, ok: false, latestVersion: "" },
-  });
-  assert(
-    offlineBehind.status === "installed-behind-baseline" && offlineBehind.installedBehindBaseline,
-    "local release-lock drift must remain repairable when registry checks are skipped",
-  );
+  fs.rmSync(tmpRoot, { recursive: true, force: true });
 }
 
-function runUpdateCommandPolicySelfTests() {
+function runPiLoadProbeSelfTests() {
+  const parsed = parsePiListOutput(`User packages:
+  npm:pi-subagents
+    /tmp/npm/node_modules/pi-subagents
+  git:github.com/justhil/pi-image-gen
+    /tmp/git/github.com/justhil/pi-image-gen
+`);
   assert(
-    !shouldForceNpmSync({ actions: [] }),
-    "normal update must not force npm when the plan is already current",
+    parsed.recognized &&
+      parsed.loadedSpecs.includes("npm:pi-subagents") &&
+      parsed.loadedSpecs.includes("git:github.com/justhil/pi-image-gen"),
+    "pi list load probe must recognize resolved npm and Git package specs",
   );
+
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-load-probe-"));
+  const sourceRoot = path.join(tmpRoot, "source");
+  const agentDir = path.join(tmpRoot, "agent");
+  fs.mkdirSync(sourceRoot, { recursive: true });
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "settings.json"), '{"packages":["npm:probe-extension"]}\n');
+  fs.mkdirSync(path.join(agentDir, "npm", "node_modules", "probe-extension"), { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "npm", "node_modules", "probe-extension", "package.json"), '{"name":"probe-extension","version":"1.0.0"}\n');
+  const probeHash = hashDirectory(path.join(agentDir, "npm", "node_modules", "probe-extension"));
+  const registry = {
+    schema: "pi67.managed-extension-baselines.v1",
+    policy: {},
+    extensions: [{
+      id: "probe-extension",
+      sourceKind: "npm",
+      packageName: "probe-extension",
+      settingsSpec: "npm:probe-extension",
+      minimumVersion: "1.0.0",
+      contentHash: probeHash,
+    }],
+  };
+  const status = inspectManagedExtensions({ agentDir, stateDir: path.join(tmpRoot, "state") }, {
+    registry,
+    sourceRoot,
+    loadProbe: {
+      ok: true,
+      recognized: true,
+      loadedSpecs: [],
+    },
+  });
   assert(
-    shouldForceNpmSync({ actions: [] }, { repair: true }),
-    "explicit repair must force managed npm dependency installation",
+    status.extensions[0].status === "load-failed" &&
+      status.extensions[0].baselineStatus === "at-baseline" &&
+      status.summary.loadFailed === 1 &&
+      status.extensions[0].action === "keep-conflict",
+    "a configured package omitted by a successful pi list probe must be observable without automatic overwrite",
   );
+  fs.rmSync(tmpRoot, { recursive: true, force: true });
+}
+
+function runMinimumBaselinePlanSelfTests() {
+  const behind = decisionsFixture({
+    managedExtensions: { extensions: [{ id: "pi-subagents", action: "upgrade", status: "below-baseline", installPath: "/tmp/pi-subagents" }] },
+  });
   assert(
-    shouldForceNpmSync({ actions: [{ id: "managed-npm-packages" }] }),
-    "normal update must automatically resync managed npm packages when the plan detects drift",
+    buildPlanDecisions(behind).actions.some((item) => item.id === "managed-extensions"),
+    "missing and safely-behind extensions must create a targeted baseline action",
+  );
+  const ahead = decisionsFixture({
+    managedExtensions: { extensions: [{ id: "pi-subagents", action: "keep", status: "user-managed-ahead" }] },
+  });
+  assert(
+    !buildPlanDecisions(ahead).actions.some((item) => item.id === "managed-extensions"),
+    "extensions ahead of the release baseline must never create a downgrade action",
+  );
+  const diverged = decisionsFixture({
+    managedExtensions: { extensions: [{ id: "pi-subagents", action: "keep-conflict", status: "user-managed-diverged" }] },
+  });
+  const divergedDecision = buildPlanDecisions(diverged);
+  assert(
+    !divergedDecision.actions.some((item) => item.id === "managed-extensions") &&
+      divergedDecision.warnings.some((item) => item.includes("preserving it without overwrite")),
+    "modified lower/equal extensions must be preserved and reported as conflicts",
+  );
+  const dirtySource = decisionsFixture({ git: { isRepo: true, dirty: true, short: " M README.md" } });
+  assert(
+    !buildPlanDecisions(dirtySource).blocked.some((item) => item.id === "repo-root"),
+    "immutable release activation must not depend on or overwrite a source checkout",
   );
 }
 
@@ -2116,7 +1973,7 @@ function runUpdateSafetySelfTests() {
 
 function decisionsFixture(overrides = {}) {
   const base = {
-    ctx: { skillsDir: "/tmp/pi67-skills" },
+    ctx: { skillsDir: "/tmp/pi67-skills", stateDir: "/tmp/pi67-state" },
     git: { isRepo: true, dirty: false, short: "" },
     managerRegistry: { outdated: false },
     manifest: {

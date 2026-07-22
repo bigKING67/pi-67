@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+## [0.15.0]
+
+- Ships the exact-version pi-67 distro inside the manager package and activates
+  immutable release directories with atomic pointers, journals, pending
+  recovery, collision detection, no-op repeated activation, migration, and
+  rollback.
+- Replaces whole-lock extension convergence with 21 independent minimum
+  baselines and an ownership ledger: missing/safely-behind pristine extensions
+  update, while ahead/diverged/forked/unknown extensions are preserved.
+- Adds extension inspect/plan/status/diff/single-ID restore and a deep real Pi
+  package resolution probe with observable `load-failed` status.
+- Removes Pi version comparison, recommendation, and mutation from manager
+  output and lifecycle. Pi remains an independent runtime.
+- Keeps all 27 Lark Skills and declares the Commerce/Marketing and AI Berkshire
+  packs first-party bundled-only assets whose active user-modified copies are
+  not overwritten by normal update.
+- Keeps `pi-observational-memory` for session compression and `pi-hy-memory` for
+  cross-session long-term memory while excluding personal `agent_memory` MCP
+  configuration from public defaults and preserving existing local state.
+- Keeps canonical state at `~/.pi/pi67` while isolating every custom
+  `--agent-dir` under a stable hashed `~/.pi/pi67/workspaces/<id>` root, so
+  pointers, ledgers, locks, backups, and migration journals cannot cross
+  workspaces.
+
 ## [0.14.3]
 
 - Aligns the manager with the pi-67 0.14.3 distribution, which stops seeding

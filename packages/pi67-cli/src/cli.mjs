@@ -19,6 +19,8 @@ import { manifestCommand } from "./commands/manifest.mjs";
 import { backupsCommand } from "./commands/backups.mjs";
 import { launchCommand } from "./commands/launch.mjs";
 import { memoryCommand } from "./commands/memory.mjs";
+import { migrateCommand } from "./commands/migrate.mjs";
+import { rollbackCommand } from "./commands/rollback.mjs";
 
 const COMMANDS = {
   install: installCommand,
@@ -39,6 +41,8 @@ const COMMANDS = {
   backups: backupsCommand,
   launch: launchCommand,
   memory: memoryCommand,
+  migrate: migrateCommand,
+  rollback: rollbackCommand,
 };
 
 export async function main(argv) {
@@ -67,8 +71,8 @@ Usage:
   pi-67 [global options] <command> [options]
 
 Global options:
-  --agent-dir DIR      Pi agent checkout. Default: ~/.pi/agent
-  --repo-root DIR      pi-67 repo root. Default: same as --agent-dir
+  --agent-dir DIR      Active Pi workspace. Default: ~/.pi/agent
+  --repo-root DIR      Distro source override for maintainers. Default: --agent-dir
   --skills-dir DIR     Shared skills root. Default: ~/.agents/skills
   --packages-dir DIR   External package root. Default: ~/.agents/packages
   --json               Emit JSON when the command supports it
@@ -78,7 +82,7 @@ Global options:
   -h, --help           Show help
 
 Commands:
-  install              Clone/install pi-67 safely
+  install              Install the manager-bundled pi-67 distro safely
   update               Update pi-67; use --check for read-only plan
   doctor               Run readiness diagnostics
   smoke                Run repository smoke gates
@@ -96,6 +100,8 @@ Commands:
   backups              list/inspect/restore/prune/archive runtime backups
   launch               Optional Windows PATH compatibility wrapper for pi
   memory               Initialize and manage private local Hy-Memory recall/capture
+  migrate              Move a legacy Git checkout to immutable releases
+  rollback             Restore the previous release or legacy layout
 
 Examples:
   pi-67 install

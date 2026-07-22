@@ -4,7 +4,8 @@
     {
       "name": "ai-berkshire-investment-suite",
       "version": "1.0.0",
-      "upstream": "https://github.com/xbtlin/ai-berkshire",
+      "owner": "pi67-first-party",
+      "distribution": "bundled-release-only",
       "sync_helper": "scripts/pi67-sync-ai-berkshire-skill-pack.sh",
       "skills": [
         "bottleneck-hunter",
@@ -33,7 +34,8 @@
     {
       "name": "consumer-brand-commerce-marketing-suite",
       "version": "2.0.0",
-      "upstream": "https://github.com/bigKING67/commerce-growth-os",
+      "owner": "pi67-first-party",
+      "distribution": "bundled-release-only",
       "sync_helper": "scripts/pi67-sync-commerce-skill-pack.sh",
       "skills": [
         "commerce-growth-os",

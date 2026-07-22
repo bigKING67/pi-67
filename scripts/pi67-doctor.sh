@@ -33,7 +33,7 @@ trap cleanup EXIT
 PASS_COUNT=0
 WARN_COUNT=0
 FAIL_COUNT=0
-UPSTREAM_PI_JSON="null"
+PI_COMMAND_AVAILABLE=false
 
 usage() {
   cat <<'USAGE'
@@ -189,7 +189,7 @@ emit_json() {
   printf '  "pi67": {\n'
   printf '    "version": "%s"\n' "$(json_escape "$pi67_version")"
   printf '  },\n'
-  printf '  "upstreamPi": %s,\n' "${UPSTREAM_PI_JSON:-null}"
+  printf '  "piCommandAvailable": %s,\n' "$PI_COMMAND_AVAILABLE"
   printf '  "diagnostics": {\n'
   printf '    "deepMcp": %s,\n' "$DEEP_MCP"
   printf '    "mcpTimeoutMs": %s,\n' "$MCP_TIMEOUT_MS"
@@ -244,9 +244,13 @@ detect_install_mode() {
   repo_real="$(real_dir "$REPO_ROOT")"
   agent_real="$(real_dir "$PI_AGENT_DIR")"
   if [ "$repo_real" = "$agent_real" ]; then
-    printf 'in-place\n'
+    if git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      printf 'source-checkout\n'
+    else
+      printf 'immutable-release\n'
+    fi
   else
-    printf 'linked\n'
+    printf 'linked-source\n'
   fi
 }
 
@@ -310,30 +314,39 @@ check_asset() {
     return
   fi
 
-  if [ "$INSTALL_MODE" = "in-place" ]; then
+  if [ "$INSTALL_MODE" = "immutable-release" ]; then
+    if [ "$local_mode" = "local-ok" ]; then
+      pass "installed preserved local file: $rel"
+    else
+      pass "installed immutable release asset: $rel"
+    fi
+    return
+  fi
+
+  if [ "$INSTALL_MODE" = "source-checkout" ]; then
     if ! git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-      fail "in-place mode requires a Git checkout: $REPO_ROOT"
+      fail "source-checkout mode requires a Git checkout: $REPO_ROOT"
       return
     fi
 
     if [ "$local_mode" = "local-ok" ]; then
       if git_tracks_path "$rel"; then
-        fail "in-place local runtime file must not be tracked by Git: $rel"
+        fail "source-checkout local runtime file must not be tracked by Git: $rel"
       elif git -C "$REPO_ROOT" check-ignore -q -- "$rel"; then
         pass "installed ignored local file: $rel"
       else
-        fail "in-place local runtime file is not ignored by Git: $rel"
+        fail "source-checkout local runtime file is not ignored by Git: $rel"
       fi
       return
     fi
 
     if ! git_tracks_path "$rel"; then
-      fail "in-place asset exists but is not tracked by Git: $rel"
+      fail "source-checkout asset exists but is not tracked by Git: $rel"
       return
     fi
 
     if [ -L "$target" ]; then
-      warn "in-place asset is a symlink, expected tracked file/dir: $target"
+      warn "source-checkout asset is a symlink, expected tracked file/dir: $target"
       return
     fi
 
@@ -1213,26 +1226,9 @@ if detailed_text_enabled; then
 fi
 
 section "Core tools"
-upstream_pi_status="$REPO_ROOT/scripts/pi67-upstream-pi-status.mjs"
-if command_exists node && [ -f "$upstream_pi_status" ]; then
-  if UPSTREAM_PI_JSON="$(node "$upstream_pi_status" \
-    --repo-root "$REPO_ROOT" \
-    --agent-dir "$PI_AGENT_DIR" \
-    --skills-dir "$SHARED_SKILLS_DIR" \
-    --json \
-    --no-remote 2>/dev/null)"; then
-    run_node_report "$upstream_pi_status" \
-      --repo-root "$REPO_ROOT" \
-      --agent-dir "$PI_AGENT_DIR" \
-      --skills-dir "$SHARED_SKILLS_DIR" \
-      --check \
-      --no-remote
-  else
-    UPSTREAM_PI_JSON="null"
-    warn "could not inspect upstream Pi release compatibility"
-  fi
-elif command_exists pi; then
-  warn "upstream Pi compatibility checker missing; pi found: $(pi --version 2>/dev/null || echo unknown)"
+if command_exists pi; then
+  PI_COMMAND_AVAILABLE=true
+  pass "pi command found"
 else
   fail "pi command not found"
 fi

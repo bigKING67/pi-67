@@ -43,9 +43,11 @@ provider integration, bootstrap, acceptance, documentation, or release flows.
 - Acceptance must use the real `pi` binary, real configuration loading, and a
   real tool or startup path. Wrappers, mocks, and temporary launch shims prove
   only their narrow compatibility surface.
-- Keep upstream Pi installation/update as a separate explicit lifecycle.
-  pi-67 may report installed/tested/latest compatibility but must not silently
-  mutate the upstream runtime.
+- Upstream Pi installation and version management are completely outside
+  pi-67. User-facing pi-67 commands must not compare installed/tested/latest
+  Pi versions, recommend a Pi upgrade, or mutate the Pi runtime.
+- Diagnostics may check only that the `pi` command exists and that the active
+  configuration/extensions can load through a real Pi startup or list probe.
 - New or upgraded extensions, Skills, rules, prompts, and MCP templates must
   improve the team Pi workflow without taking over upstream runtime duties.
 - Before changing CLI positioning, install/update ownership, launch behavior,

@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# PowerShell-native updater for Windows users.
+# Deprecated PowerShell compatibility updater for legacy Git source checkouts.
 # It preserves local runtime config files through the first-class
 # ~/.pi/pi67/backups path. Legacy ~/.pi/agent-backups snapshots are no longer
 # written by the normal updater.
@@ -30,7 +30,7 @@ $ErrorActionPreference = "Stop"
 
 function Show-Usage {
   @"
-pi67-update.ps1 safely updates an existing pi-67 checkout from PowerShell.
+pi67-update.ps1 updates only a legacy pi-67 Git source checkout.
 
 Usage:
   .\scripts\pi67-update.ps1 [options]
@@ -45,7 +45,7 @@ Options:
   -DryRun             Print planned actions without changing files.
   -CheckOnly          Inspect update status without pulling or writing files.
   -NoNpm              Skip npm dependency sync.
-  -ForceNpm           Run npm ci even when package.json/package-lock.json did not change.
+  -ForceNpm           Deprecated compatibility flag; never runs whole-lock npm ci.
   -NoConfigure        Skip workspace template sync and config normalization.
   -NoSmoke            Skip PowerShell smoke after update.
   -NoReport           Skip pi67-report.json generation.
@@ -60,10 +60,11 @@ Options:
                        files when incoming changed paths overlap them.
   -Help               Show this help.
 
-Normal Windows update:
+After migrating to 0.15.0 immutable releases, use:
 
-  Set-Location `$env:USERPROFILE\.pi\agent
-  .\scripts\pi67-update.ps1
+  pi-67 self-update
+  pi-67 update --check --json
+  pi-67 update
 
 This script never overwrites existing local config files such as models.json,
 auth.json, mcp.json, or image-gen.json. Missing files are copied from examples.
@@ -611,82 +612,16 @@ function Sync-Npm {
     return
   }
 
-  Write-Section "npm sync"
-  if (-not (Test-CommandExists "npm")) {
-    Write-Warn "npm not found; skipped npm sync"
-    return
-  }
-
-  $repoPackage = Join-Path $RepoRoot "package.json"
-  $repoLock = Join-Path $RepoRoot "package-lock.json"
-  $agentPackage = Join-Path $NpmDir "package.json"
-  $agentLock = Join-Path $NpmDir "package-lock.json"
-  if (-not (Test-Path -LiteralPath $repoPackage -PathType Leaf) -or -not (Test-Path -LiteralPath $repoLock -PathType Leaf)) {
-    Write-Warn "package.json/package-lock.json missing; skipped npm sync"
-    return
-  }
-
-  $repoHash = "$(Get-FileHashValue $repoPackage):$(Get-FileHashValue $repoLock)"
-  $agentHash = "$(Get-FileHashValue $agentPackage):$(Get-FileHashValue $agentLock)"
-  if (-not $ForceNpm -and $repoHash -eq $agentHash) {
-    Write-Pass "npm package.json/package-lock.json already synced"
-    return
-  }
-
-  if ($DryRun) {
-    Write-Host ("  DRY-RUN copy {0} -> {1}" -f $repoPackage, $agentPackage) -ForegroundColor Cyan
-    Write-Host ("  DRY-RUN copy {0} -> {1}" -f $repoLock, $agentLock) -ForegroundColor Cyan
-    Write-Host ("  DRY-RUN npm {0} in {1}" -f ($NpmInstallArgs -join " "), $NpmDir) -ForegroundColor Cyan
-    return
-  }
-
-  New-Item -ItemType Directory -Force -Path $NpmDir | Out-Null
-  Copy-Item -LiteralPath $repoPackage -Destination $agentPackage -Force
-  Copy-Item -LiteralPath $repoLock -Destination $agentLock -Force
-  Invoke-PlannedExternal "npm" $NpmInstallArgs -WorkingDirectory $NpmDir | Out-Null
-  Write-Pass ("npm packages synced in {0}" -f $NpmDir)
+  Write-Warn "legacy whole-lock npm sync is disabled to prevent extension downgrades"
+  Write-Warn "run pi-67 update so missing/safely-behind extensions are updated individually"
 }
 
 function Invoke-UntilDoneRuntimeQueuePatch {
-  Write-Section "pi-until-done runtime queue patch"
-  $patcher = Join-Path (Join-Path $RepoRoot "scripts") "pi67-patch-pi-until-done-runtime-queue.ps1"
-  if (-not (Test-Path -LiteralPath $patcher -PathType Leaf)) {
-    Write-Warn "pi-until-done runtime queue patcher missing"
-    return
-  }
-  if (-not (Test-CommandExists "node")) {
-    Write-Warn "node not found; skipped pi-until-done runtime queue patch"
-    return
-  }
-  if ($DryRun) {
-    Write-Host ("  DRY-RUN {0} -Apply -AgentDir {1}" -f $patcher, $AgentDir) -ForegroundColor Cyan
-    return
-  }
-  & $patcher -Apply -AgentDir $AgentDir
-  if ($LASTEXITCODE -ne 0) {
-    throw "pi-until-done runtime queue patch failed"
-  }
+  Write-Warn "legacy bulk updater does not patch extensions; pi-67 manager applies version/hash-gated patches"
 }
 
 function Invoke-SmartFetchCharsetPatch {
-  Write-Section "pi-smart-fetch charset patch"
-  $patcher = Join-Path (Join-Path $RepoRoot "scripts") "pi67-patch-pi-smart-fetch-charset.mjs"
-  if (-not (Test-Path -LiteralPath $patcher -PathType Leaf)) {
-    Write-Warn "pi-smart-fetch charset patcher missing"
-    return
-  }
-  if (-not (Test-CommandExists "node")) {
-    Write-Warn "node not found; skipped pi-smart-fetch charset patch"
-    return
-  }
-  if ($DryRun) {
-    Write-Host ("  DRY-RUN node {0} --apply --agent-dir {1}" -f $patcher, $AgentDir) -ForegroundColor Cyan
-    return
-  }
-  & node $patcher --apply --agent-dir $AgentDir
-  if ($LASTEXITCODE -ne 0) {
-    throw "pi-smart-fetch charset patch failed"
-  }
+  Write-Warn "legacy bulk updater does not patch extensions; pi-67 manager applies version/hash-gated patches"
 }
 
 function Test-UntilDoneRuntimeQueueStatus {
@@ -1169,17 +1104,7 @@ function Show-CheckOnly {
   if ($NoNpm) {
     Write-Warn "npm sync would be skipped"
   } else {
-    $repoPackage = Join-Path $RepoRoot "package.json"
-    $repoLock = Join-Path $RepoRoot "package-lock.json"
-    $agentPackage = Join-Path $NpmDir "package.json"
-    $agentLock = Join-Path $NpmDir "package-lock.json"
-    $repoHash = "$(Get-FileHashValue $repoPackage):$(Get-FileHashValue $repoLock)"
-    $agentHash = "$(Get-FileHashValue $agentPackage):$(Get-FileHashValue $agentLock)"
-    if ($repoHash -eq $agentHash -and -not $ForceNpm) {
-      Write-Pass "npm package.json/package-lock.json already synced"
-    } else {
-      Write-Warn "npm package.json/package-lock.json differs or -ForceNpm is set; npm sync would run"
-    }
+    Write-Pass "whole-lock npm sync is disabled; pi-67 manager evaluates each default extension independently"
   }
   Test-UntilDoneRuntimeQueueStatus
   Test-SmartFetchCharsetStatus

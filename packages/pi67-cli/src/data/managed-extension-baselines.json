@@ -1,0 +1,203 @@
+{
+  "schema": "pi67.managed-extension-baselines.v1",
+  "policy": {
+    "versionModel": "minimum-supported-baseline",
+    "missing": "install",
+    "behindManaged": "upgrade",
+    "atBaseline": "keep",
+    "ahead": "keep-never-downgrade",
+    "diverged": "keep-and-report-conflict",
+    "unknown": "keep-user-managed"
+  },
+  "extensions": [
+    {
+      "id": "pi-subagents",
+      "sourceKind": "npm",
+      "settingsSpec": "npm:pi-subagents",
+      "packageName": "pi-subagents",
+      "minimumVersion": "0.34.0",
+      "contentHash": "e67fee1fe14a38413ae44d895ed11f58762aa22a7a7bee7b077c9f517ba176af",
+      "role": "subagents"
+    },
+    {
+      "id": "pi-observational-memory",
+      "sourceKind": "npm",
+      "settingsSpec": "npm:pi-observational-memory",
+      "packageName": "pi-observational-memory",
+      "minimumVersion": "3.0.3",
+      "contentHash": "bf6636a84e3ddb58ba54423cad9541ba954b43a35c5daab282e5144870be00cd",
+      "role": "session-compression"
+    },
+    {
+      "id": "pi-until-done",
+      "sourceKind": "npm",
+      "settingsSpec": "npm:pi-until-done",
+      "packageName": "pi-until-done",
+      "minimumVersion": "0.2.2",
+      "contentHash": "1480b5f790cc7bd0007aed68656f9f454cc6586021736da56e07582d18e14452",
+      "role": "goal-loop",
+      "compatibilityPatch": "exact-version-and-content-hash-only"
+    },
+    {
+      "id": "pi-fff",
+      "sourceKind": "npm",
+      "settingsSpec": "npm:@ff-labs/pi-fff",
+      "packageName": "@ff-labs/pi-fff",
+      "minimumVersion": "0.9.6",
+      "contentHash": "0e58aaaf876e42b30dee6a89527c725024d44c6b4da570cc430447af8c7c27f8",
+      "role": "file-search"
+    },
+    {
+      "id": "pi-web-access",
+      "sourceKind": "npm",
+      "settingsSpec": "npm:pi-web-access",
+      "packageName": "pi-web-access",
+      "minimumVersion": "0.13.0",
+      "contentHash": "f6b68a4641d3160eb314c37260766024f20a1d46839e57ccba73df516526aa11",
+      "role": "web-access"
+    },
+    {
+      "id": "pi-smart-fetch",
+      "sourceKind": "npm",
+      "settingsSpec": "npm:pi-smart-fetch",
+      "packageName": "pi-smart-fetch",
+      "minimumVersion": "0.3.12",
+      "contentHash": "3f5511ea95ac83a2b91b80a95b97e450ebfdae4815957111507edfa9c37debcd",
+      "role": "content-fetch",
+      "compatibilityPatch": "exact-version-and-content-hash-only"
+    },
+    {
+      "id": "rpiv-advisor",
+      "sourceKind": "npm",
+      "settingsSpec": "npm:@juicesharp/rpiv-advisor",
+      "packageName": "@juicesharp/rpiv-advisor",
+      "minimumVersion": "1.20.0",
+      "contentHash": "0be526d9337c394d32d4747bb31be3f2a40f96760e409efa447f187becfd1b64",
+      "role": "review-advisor"
+    },
+    {
+      "id": "pi-simplify",
+      "sourceKind": "npm",
+      "settingsSpec": "npm:pi-simplify",
+      "packageName": "pi-simplify",
+      "minimumVersion": "0.2.2",
+      "contentHash": "4e43f21e5b2f784e3a146d3166a67e4962f7b4894011d91ffccbf4da9c2990a8",
+      "role": "code-simplification"
+    },
+    {
+      "id": "pi-plan-mode",
+      "sourceKind": "npm",
+      "settingsSpec": "npm:@narumitw/pi-plan-mode",
+      "packageName": "@narumitw/pi-plan-mode",
+      "minimumVersion": "0.11.0",
+      "contentHash": "5c22f5f3ba0ae79cd2bb227929694639c6836803ab386b0b6c7e523aa380280e",
+      "role": "planning"
+    },
+    {
+      "id": "pi-sequential-thinking",
+      "sourceKind": "npm",
+      "settingsSpec": "npm:@feniix/pi-sequential-thinking",
+      "packageName": "@feniix/pi-sequential-thinking",
+      "minimumVersion": "5.0.3",
+      "contentHash": "c35390155fcb8af0d93f56c2dbd6b0ad176c5e0c8754e0b31d32c325631caef9",
+      "role": "structured-thinking"
+    },
+    {
+      "id": "pi-image-gen",
+      "sourceKind": "git",
+      "settingsSpec": "git:github.com/justhil/pi-image-gen",
+      "packageName": "pi-image-gen",
+      "repoUrl": "https://github.com/justhil/pi-image-gen.git",
+      "checkoutPath": "git/github.com/justhil/pi-image-gen",
+      "minimumCommit": "1128581dff7374d2201d70438fa328b2a40e6cc1",
+      "role": "image-generation"
+    },
+    {
+      "id": "pi-btw",
+      "sourceKind": "npm",
+      "settingsSpec": "npm:@narumitw/pi-btw",
+      "packageName": "@narumitw/pi-btw",
+      "minimumVersion": "0.11.0",
+      "contentHash": "0dce46a7ef364ae9d0f92a90227c17c19ac9444e00a0c0637105a66feea3c88f",
+      "role": "side-question"
+    },
+    {
+      "id": "pi-rewind",
+      "sourceKind": "git",
+      "settingsSpec": "git:github.com/arpagon/pi-rewind",
+      "packageName": "pi-rewind",
+      "repoUrl": "https://github.com/arpagon/pi-rewind.git",
+      "checkoutPath": "git/github.com/arpagon/pi-rewind",
+      "minimumCommit": "91611ad87992fb7b635a41ba68f67916ff6e6ae3",
+      "role": "session-rewind"
+    },
+    {
+      "id": "pi-mcp-adapter",
+      "sourceKind": "npm",
+      "settingsSpec": "npm:pi-mcp-adapter",
+      "packageName": "pi-mcp-adapter",
+      "minimumVersion": "2.11.0",
+      "contentHash": "23a0a09e64b5f197deaa28ff7373092f3487bee5e471a923a07f7ab7ecae87f8",
+      "role": "mcp-adapter"
+    },
+    {
+      "id": "pi-curated-themes",
+      "sourceKind": "npm",
+      "settingsSpec": "npm:@victor-software-house/pi-curated-themes",
+      "packageName": "@victor-software-house/pi-curated-themes",
+      "minimumVersion": "0.2.1",
+      "contentHash": "b5ac472989323845ebbfc398688d9eabd1f167db31e160c01143ef685b1a2b99",
+      "role": "theme-package"
+    },
+    {
+      "id": "pi-markdown-preview",
+      "sourceKind": "npm",
+      "settingsSpec": "npm:pi-markdown-preview",
+      "packageName": "pi-markdown-preview",
+      "minimumVersion": "0.10.0",
+      "contentHash": "1f8dac093bad5a47a2a0e6b3cab487b527bda7398b901f314e5a62684948091f",
+      "role": "markdown-preview"
+    },
+    {
+      "id": "rpiv-ask-user-question",
+      "sourceKind": "npm",
+      "settingsSpec": "npm:@juicesharp/rpiv-ask-user-question",
+      "packageName": "@juicesharp/rpiv-ask-user-question",
+      "minimumVersion": "1.20.0",
+      "contentHash": "25cce5f254f3cc9819ba6a30ef9750883f880c3ed2a6df436fde6f2c82d318c3",
+      "role": "structured-user-input"
+    },
+    {
+      "id": "xtalpi-pi-tools",
+      "sourceKind": "bundled",
+      "bundlePath": "extensions/xtalpi-pi-tools",
+      "minimumVersion": "0.15.0",
+      "contentHash": "7ab746d1e29770c734c667f1ea268121eaa151c6c582e026c65defa6774036ed",
+      "role": "first-party-provider"
+    },
+    {
+      "id": "pi-vision-bridge",
+      "sourceKind": "bundled",
+      "bundlePath": "extensions/pi-vision-bridge",
+      "minimumVersion": "0.15.0",
+      "contentHash": "f6ec824c39d32d38ad3a181666dfd679d494a9e6714dd3885a263440ab9a91e5",
+      "role": "first-party-vision-bridge"
+    },
+    {
+      "id": "pi-rules-loader",
+      "sourceKind": "bundled",
+      "bundlePath": "extensions/pi-rules-loader",
+      "minimumVersion": "0.15.0",
+      "contentHash": "0f30d44c8a799bf1a9229a27b34abab79786d1b6f9469bad1bed11936b38020a",
+      "role": "first-party-rules-loader"
+    },
+    {
+      "id": "pi-hy-memory",
+      "sourceKind": "bundled",
+      "bundlePath": "extensions/pi-hy-memory",
+      "minimumVersion": "0.15.0",
+      "contentHash": "34db24ce01d69b2c68c1cf14a00b625841de5437b731e66e3816d2d4406fd53c",
+      "role": "cross-session-long-term-memory"
+    }
+  ]
+}

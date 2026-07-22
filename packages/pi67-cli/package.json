@@ -1,6 +1,6 @@
 {
   "name": "@bigking67/pi-67",
-  "version": "0.14.3",
+  "version": "0.15.0",
   "description": "Cross-platform workspace distribution and configuration manager for upstream Pi.",
   "type": "module",
   "bin": {
@@ -12,12 +12,15 @@
     "src/",
     "scripts/",
     "schemas/",
+    "distro/",
     "README.md",
     "CHANGELOG.md"
   ],
   "scripts": {
     "check": "node scripts/check.mjs",
     "smoke": "node bin/pi-67.mjs --help && node bin/pi-67.mjs --agent-dir ../.. version --json && node bin/pi-67.mjs --agent-dir ../.. manifest --json && node bin/pi-67.mjs --agent-dir ../.. extensions doctor --json --no-remote && node bin/pi-67.mjs --agent-dir ../.. backups list --json && node bin/pi-67.mjs --agent-dir ../.. update --check --json --no-remote && node bin/pi-67.mjs --agent-dir ../.. update --check --json --no-remote --strict-shared-skills && node bin/pi-67.mjs --agent-dir ../.. --repo-root ../.. publish-check --json --no-remote && node bin/pi-67.mjs --dry-run self-update",
+    "prepack": "node scripts/build-distro-bundle.mjs",
+    "postpack": "node scripts/clean-distro-bundle.mjs",
     "prepublishOnly": "node scripts/check.mjs && node bin/pi-67.mjs --agent-dir ../.. --repo-root ../.. publish-check --quiet --strict --no-remote"
   },
   "keywords": [

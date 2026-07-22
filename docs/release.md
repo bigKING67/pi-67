@@ -1,783 +1,411 @@
-# pi-67 Release Workflow
+# pi-67 发行流程
 
-pi-67 is a full-stack Pi workspace distribution. A release should communicate exactly what a user gets after `git pull` or a fresh install, and whether any local readiness steps are required.
+适用版本：`0.15.0`。本文面向维护者。普通 install/update 不执行本文的 publish、
+tag、push 或 GitHub Release 操作。
 
-## Version source of truth
+## 1. 发行合同
 
-- `VERSION` is the pi-67 distribution version.
-- `package.json.version` mirrors `VERSION` for tooling visibility.
-- `packages/pi67-cli/package.json.version` mirrors `VERSION` for the
-  `@bigking67/pi-67` npm manager package.
-- root `package-lock.json` mirrors the root version and is the deterministic
-  dependency source for install, update, CI, and release preparation.
-- `CHANGELOG.md` records user-visible changes.
+一个 pi-67 release 必须同时证明：
 
-Do not use the upstream Pi CLI version as the pi-67 release version. Pi itself has its own lifecycle.
+1. manager package version 与 distro `VERSION` 相同；
+2. npm artifact 内含完整、可校验、不可变 distro；
+3. 安装/更新不 clone/pull GitHub `main`；
+4. 21 个 default extension minimum baselines 完整；
+5. ahead extension 不降级，diverged/unknown 不覆盖；
+6. 27 个 Lark Skills 全部 bundled；
+7. Commerce/Marketing 与 AI Berkshire 为 pi67-first-party bundled assets；
+8. `pi-observational-memory` 与 `pi-hy-memory` 的职责分别是 session compression
+   和 cross-session long-term memory；
+9. 个人 `agent_memory` 不进入公共 template/manifest/baseline，但 migration fixture
+   证明本机配置会保留；
+10. Pi version management 完全在 pi-67 之外；
+11. packed artifact 在隔离 prefix/HOME 中真实安装并运行；
+12. Git tag/GitHub Release 只使用已提交的精确 HEAD 资产。
 
-## Release checklist
+## 2. 授权层
 
-Before tagging or publishing release notes:
+分别确认：
 
-If the Consumer Brand Commerce and Marketing upstream changed, refresh the
-vendored Pack before running platform gates:
+| 动作 | 需要的用户授权 |
+| --- | --- |
+| 修改、测试、commit | 实现/commit 授权 |
+| push | 当前明确 push 授权 |
+| npm publish | 当前明确 publish 授权 |
+| Git tag/GitHub Release | 当前明确发布授权 |
+| 升级本机全局 manager/Pi/Lark CLI | 当前明确全局依赖变更授权 |
+
+“commit”不等于 push/publish/release。
+
+## 3. 版本文件
+
+以下必须一致：
+
+```text
+VERSION
+package.json
+package-lock.json
+packages/pi67-cli/package.json
+packages/pi67-cli/CHANGELOG.md
+CHANGELOG.md
+README.md
+```
+
+检查：
 
 ```bash
-bash scripts/pi67-sync-commerce-skill-pack.sh \
-  --source /path/to/commerce-growth-os \
-  --dry-run
-bash scripts/pi67-sync-commerce-skill-pack.sh \
-  --source /path/to/commerce-growth-os \
-  --apply --yes
-bash scripts/pi67-sync-commerce-skill-pack.sh \
-  --source /path/to/commerce-growth-os \
-  --dry-run
+version=$(tr -d '[:space:]' < VERSION)
+node -e 'const fs=require("fs"); for (const f of process.argv.slice(1)) console.log(f, JSON.parse(fs.readFileSync(f)).version)' package.json packages/pi67-cli/package.json
+grep -n "\[$version\]" CHANGELOG.md packages/pi67-cli/CHANGELOG.md
 ```
 
-The source checkout must be clean. The final dry-run must report `NOOP`. It
-proves the upstream Commit and Manifest build, all eight vendored directories,
-`shared-skill-packs.json`, and `shared-skill-packs.lock.json` agree before the
-release is distributed to other machines.
+不要让 npm manager 与 bundled distro 使用不同版本号。
 
-If AI Berkshire upstream changed, refresh from a separate clean checkout. The
-helper reads and adapts Skill/tool files but does not execute upstream code:
+## 4. Extension baseline gate
+
+Canonical registry：
+
+```text
+packages/pi67-cli/src/data/managed-extension-baselines.json
+```
+
+检查：
 
 ```bash
-bash scripts/pi67-sync-ai-berkshire-skill-pack.sh \
-  --source /path/to/ai-berkshire \
-  --dry-run
-bash scripts/pi67-sync-ai-berkshire-skill-pack.sh \
-  --source /path/to/ai-berkshire \
-  --apply --yes
-bash scripts/pi67-sync-ai-berkshire-skill-pack.sh \
-  --source /path/to/ai-berkshire \
-  --dry-run
-```
-
-The final command must also report `NOOP`. Every pi-67 release locks one full
-upstream commit and SHA-256 set. Daily `ai-berkshire-refresh.yml` automation may
-open a review PR for a newer `main`, but it never auto-merges, publishes, tags,
-or releases it.
-
-PowerShell smoke for Windows-facing changes:
-
-```powershell
-.\scripts\pi67-bootstrap.ps1 -SelfTest
-.\scripts\pi67-bootstrap.ps1 -DryRun
-.\scripts\pi67-bootstrap.ps1 -DryRun -Mode Install
-.\scripts\pi67-bootstrap.ps1 -DryRun -Mode Update
-.\scripts\pi67-smoke.ps1 -Ci
-.\scripts\pi67-doctor.ps1 -Json
-.\scripts\pi67-report.ps1 -Operation manual
-.\scripts\pi67-patch-pi-until-done-runtime-queue.ps1 -Check
-.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest
-.\scripts\pi67-windows-acceptance.ps1 -SelfTest
-npm run -s typecheck:hy-memory
-npm run -s test:hy-memory
-node packages/pi67-cli/bin/pi-67.mjs memory --help
-```
-
-The offline Windows/CLI gates must cover these separate contracts:
-
-- upstream `pi` starts and loads the `xtalpi-pi-tools` extension with no API
-  key at all;
-- missing credentials produce `piStartupReady=true` and
-  `modelRequestReady=false`, not an installation or startup failure;
-- company `xtalpi-pi-tools` authentication can come from upstream `/login`, a
-  supported environment reference, or the optional `pi-67 xtalpi configure`;
-- DeepSeek official remains an upstream Pi built-in provider and is never
-  duplicated in `models.json` by pi-67.
-
-If xtalpi targeted tool calling changed and a live xtalpi key is available on
-Windows, also run:
-
-```powershell
-.\scripts\pi67-windows-acceptance.ps1 -SkipUpdate
-.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "read-package,read-enoent-recovery,plan-mode-contract,plan-mode-accepted-continuation,until-done-continuation,fffind-package,ffgrep-package,batch-web-fetch-example,seq-thinking-status,mcp-status,subagent-list,recall-not-found"
-```
-
-If upstream provider persistence or DeepSeek behavior changed and a live
-DeepSeek official key is available on Windows, perform the native Pi flow:
-
-```powershell
-pi
-```
-
-Inside Pi, use `/login`, then `/model` to select DeepSeek. Exit normally, run
-`pi` again, and confirm upstream Pi restores the selection. Then run the
-read-only acceptance assertion:
-
-```powershell
-.\scripts\pi67-windows-acceptance.ps1 -ProviderProfile deepseek -SkipUpdate
-```
-
-Do not add a pi-67 provider selector or write `auth.json` directly for this
-test.
-
-If the release changes MCP/browser67 startup behavior and the machine has a
-configured browser67 checkout/package, additionally run:
-
-```powershell
-.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -Case "mcp-connect-tmwd-browser"
-```
-
-macOS/Linux and full release gate:
-
-```bash
-node scripts/pi67-prompt-governance-check.mjs
-bash scripts/pi67-test-ai-berkshire-skill-pack.sh
-bash scripts/pi67-test-skill-governance.sh
-npm run -s typecheck:hy-memory
-npm run -s test:hy-memory
+jq '.schema, (.extensions | length)' packages/pi67-cli/src/data/managed-extension-baselines.json
 node packages/pi67-cli/scripts/check.mjs
-bash scripts/pi67-release-check.sh
-bash scripts/pi67-patch-pi-until-done-runtime-queue.sh --check --agent-dir ~/.pi/agent
+```
+
+必须是 17 个 npm/Git + 4 个 bundled first-party，总数 21。每个 npm baseline 包含
+精确 minimum version 和 package-tree SHA-256；Git baseline 包含 origin 和 commit；
+bundled baseline 包含 bundle path、version 和内容 hash。
+
+状态回归至少覆盖：
+
+```text
+missing -> install
+behind pristine -> upgrade
+equal pristine -> keep
+ahead -> keep
+lower/equal modified -> keep-conflict
+source/fork/diverged -> keep-conflict
+unknown -> keep
+successful pi list omits configured spec -> load-failed
+```
+
+`pi-until-done` 与 `pi-smart-fetch` compatibility patch 只能在 manager 安装/升级精确
+匹配内容后调用。
+
+## 5. Immutable distro bundle
+
+`packages/pi67-cli/scripts/build-distro-bundle.mjs` 只复制明确 allowlist，排除：
+
+```text
+.git/
+node_modules/
+__pycache__/
+*.pyc
+machine-owned settings/auth/models/mcp/sessions
+```
+
+prepack 生成：
+
+```text
+packages/pi67-cli/distro/
+packages/pi67-cli/distro/.pi67-bundle.json
+```
+
+manifest 逐文件记录 path、size、SHA-256，且不写动态时间戳，减少不可复现内容。
+postpack 清理生成目录。
+
+手工查看 artifact：
+
+```bash
+cd packages/pi67-cli
+node scripts/build-distro-bundle.mjs
+npm pack --ignore-scripts --json
+node scripts/clean-distro-bundle.mjs
+```
+
+不要把生成的 `distro/` 或 `.tgz` 提交到 Git。
+
+## 6. Shared Skill Pack parity
+
+两个 first-party Pack：
+
+```text
+consumer-brand-commerce-marketing-suite
+ai-berkshire-investment-suite
+```
+
+registry/lock：
+
+```text
+shared-skill-packs.json
+shared-skill-packs.lock.json
+```
+
+metadata 必须为：
+
+```text
+owner=pi67-first-party
+distribution=bundled-release-only
+```
+
+维护者从受控 source 生成 vendored baseline：
+
+```bash
+bash scripts/pi67-sync-commerce-skill-pack.sh --dry-run
+bash scripts/pi67-sync-ai-berkshire-skill-pack.sh --dry-run
+```
+
+当 source、manifest、skill set、version 和 lock 已完全一致时，helper 必须
+report `NOOP`。若需要更新，先审阅 dry-run，再按脚本要求显式 apply，随后重新运行：
+
+```bash
+bash scripts/pi67-test-skill-governance.sh
+bash scripts/pi67-test-ai-berkshire-skill-pack.sh
+```
+
+维护 helper 可以引用受控 source provenance，但用户 `pi-67 update` 不自动从这些
+source 拉取 runtime assets。
+
+Lark inventory 必须为 27；normal update 保留 active conflicts，只补 missing。
+
+## 7. Memory boundary gate
+
+公共默认：
+
+```text
+pi-observational-memory -> session-compression
+pi-hy-memory            -> cross-session-long-term-memory
+```
+
+检查：
+
+```bash
+rg -n "agent_memory" mcp.example.json settings.example.json packages/pi67-cli/src/data README.md docs
+```
+
+允许命中：历史 changelog、Hy-Memory 边界说明、migration preservation fixture。
+禁止命中：公共 MCP template、extension baseline/manifest、推荐安装配置。
+
+## 8. Pi independence gate
+
+当前实现和文档不得出现 Pi version policy：
+
+```bash
+rg -n --glob '!CHANGELOG.md' --glob '!packages/pi67-cli/CHANGELOG.md' \
+  "upstreamPi|testedVersion|installedBehindTested|pi-coding-agent@latest" \
+  README.md docs packages/pi67-cli/src scripts
+```
+
+预期只有明确的负向 regression assertion；不应存在 status script、registry query、
+upgrade command 或 manifest ownership entry。doctor 可检查 `pi` command 和真实
+`pi list --no-approve` load path。
+
+## 9. Targeted validation
+
+先跑最相关 gate：
+
+```bash
+node packages/pi67-cli/scripts/check.mjs
+node scripts/pi67-prompt-governance-check.mjs
+npm run typecheck:xtalpi
+npm run typecheck:hy-memory
+npm run test:rules-loader
+npm run test:xtalpi
+npm run test:hy-memory
+bash scripts/pi67-test-skill-governance.sh
+bash scripts/pi67-test-ai-berkshire-skill-pack.sh
+```
+
+Windows script syntax/contract 由 PowerShell self-test、CI 或真实 Windows runner 验收；
+非 Windows host 不能把文本 grep 冒充原生 PowerShell 运行证据。
+
+## 10. Full local gates
+
+```bash
 bash scripts/pi67-smoke.sh --ci
-bash scripts/pi67-release-artifact-smoke.sh --ref WORKTREE
-bash scripts/pi67-release.sh --dry-run
-npm pack --dry-run ./packages/pi67-cli
+bash scripts/pi67-release-check.sh
+bash scripts/pi67-release-artifact-smoke.sh
+```
+
+`scripts/pi67-release-check.sh` 校验 metadata、schemas、docs、extension/Skills/memory/
+Pi boundaries、typechecks/tests 和 Git tracked scope。
+
+`scripts/pi67-release-artifact-smoke.sh` 生成隔离 release artifact；它证明 Git release
+资产，不替代 npm tarball install gate。
+
+## 11. Packed artifact isolation gate
+
+必须实际执行 package-contained gate：
+
+```bash
+node packages/pi67-cli/scripts/check.mjs
+```
+
+其中 `scripts/checks/installed-artifact.mjs` 应：
+
+1. build distro；
+2. `npm pack --ignore-scripts`；
+3. 解包/安装到隔离 prefix；
+4. 使用隔离 HOME；
+5. 从 installed package 执行真实 CLI；
+6. 验证 `distro/VERSION` 和 `.pi67-bundle.json`；
+7. 验证 install/update dry-run 不含 Git clone；
+8. 验证 memory/help 和关键 commands 在 tarball 中可加载。
+
+如果出现 `MODULE_NOT_FOUND`，即使 source smoke、CI 或 publish-check 通过，也不得
+发布。
+
+## 12. Schema validation
+
+至少验证：
+
+```text
+pi67-distro-manifest.schema.json
+pi67-update-plan.schema.json
+pi67-extension-registry.schema.json
+pi67-publish-check.schema.json
+pi67-state.schema.json
+```
+
+使用 Draft 2020-12 validator 校验真实 CLI JSON，而不只是 `JSON.parse` schema 文件。
+典型输入：
+
+```bash
+pi-67 manifest --json > /tmp/pi67-manifest.json
+pi-67 update --check --no-remote --json > /tmp/pi67-update-plan.json
+```
+
+验证 artifact 只放 `/tmp` 或 CI artifact，不提交。
+
+## 13. 性能与大小
+
+记录：
+
+```bash
+du -sh packages/pi67-cli/distro 2>/dev/null || true
+npm pack --ignore-scripts --json
+```
+
+关注：
+
+- packed/unpacked size；
+- 文件数量；
+- build/stage/activate duration；
+- repeated activation 是否 no-op；
+- same-version collision 是否 fail closed；
+- legacy migration 对大型 `npm/git/sessions` 的磁盘与时间成本。
+
+不要为减小 artifact 删除默认扩展、27 个 Lark Skills、Commerce/Marketing 或 AI
+Berkshire。先优化重复文件、生成产物和无用 assets。
+
+## 14. `publish-check`
+
+```bash
+pi-67 publish-check --json --no-remote
+pi-67 publish-check --strict --json
+```
+
+strict remote check 应验证 package name、version 是否已存在、registry 状态、
+Trusted Publishing workflow 和 Git cleanliness/HEAD contract。源码测试不应自行 publish。
+
+## 15. npm Trusted Publishing
+
+仅在明确发布授权后，通过 `.github/workflows/npm-publish.yml` 执行。workflow 必须：
+
+- 使用 npm 支持 Trusted Publishing 的版本；
+- `id-token: write`；
+- 不保存长期 npm token；
+- 先跑 release gates；
+- 执行 `npm publish ... --access public`；
+- 验证 exact package version；
+- 验证 `latest` dist-tag 指向该版本。
+
+发布后真实验证：
+
+```bash
+npm view @bigking67/pi-67@0.15.0 version
+npm view @bigking67/pi-67@latest version
+```
+
+然后在新的隔离目录执行真实 global/npx smoke。`npm pack --dry-run` 不足以证明
+registry artifact 可用。
+
+## 16. Git commit
+
+发行前先复核：
+
+```bash
 git status --short
+git diff --check
+git diff --stat
+git diff --name-only
 ```
 
-The same Bash smoke runs natively on Ubuntu and macOS CI. Windows-facing
-PowerShell contracts run on the Windows Node 22/24 matrix. A release that
-changes platform scripts is not complete until the corresponding hosted job is
-green; the maintainer's fresh Windows workstation acceptance remains a
-separate final manual proof when that guide or workstation contract changes.
+只 scoped stage 本次任务文件，不使用 `git add -A`；不带入嵌套第三方 checkout
+lockfile、生成 distro、tarball、真实 runtime config、credentials 或 session。
 
-Also prove the release from a clean checkout/worktree with no ignored `npm/`
-directory and no local `settings.json`. `pi67-release.sh --dry-run` must prepare
-dependencies from tracked `package-lock.json`, create temporary settings from
-`settings.example.json`, run the gates, and remove only the runtime state it
-created before exit. The checkout must remain clean.
+commit 不等于 push。
 
-Expected result:
+## 17. Tag 与 GitHub Release
 
-- release metadata is internally consistent
-- both registered shared Skill Pack metadata entries and all 29 vendored bundles are
-  internally consistent
-- Windows PowerShell smoke passes on a PowerShell runtime when Windows-facing files changed
-- Windows manager/workspace bootstrap self-test and dry-run pass without
-  changing the host
-- bootstrap source and Windows CI prove that system/runtime prerequisites are
-  fail-fast checks only; the script installs the npm manager, selects
-  install/update deterministically, and validates version/doctor JSON without
-  UAC, Terminal/profile, registry, provider-key, or upstream-Pi installation
-- Windows PowerShell doctor/report run on a PowerShell runtime when Windows install/update diagnostics changed
-- Windows one-command acceptance self-test passes; a credentialed Windows host
-  passes `pi67-windows-acceptance.ps1 -ValidateWorkstation -SkipUpdate` before
-  release when the separate workstation acceptance contract changed
-- upstream runtime registration passes `pi --version` plus discovery-only
-  `--list-models` checks with non-secret fixture credentials; zero-key startup
-  independently passes `pi67-zero-key-startup-smoke.ps1` and reaches real
-  `session_start`. Upstream Pi 0.80.6 may hide a provider's models from
-  `--list-models` until that provider has a credential
-- DeepSeek persistence changes pass the native `/login` + `/model` + restart
-  flow and the read-only `pi67-windows-acceptance.ps1 -ProviderProfile
-  deepseek -SkipUpdate` assertion; xtalpi-only stages are `SKIP`, not failures
-- PowerShell xtalpi targeted smoke self-test passes; live targeted smoke covers
-  read, deterministic `ENOENT` repeated-call recovery, FFF, batch fetch,
-  sequential-thinking status, MCP, subagent, and recall when xtalpi credentials
-  are available
-- xtalpi provider error-contract and debug-summary/profile self-tests pass
-- Hy-Memory TypeScript and Python-wrapper tests pass on Linux, macOS, and
-  Windows; the packed npm manager starts `pi-67 memory --help` from an isolated
-  tarball installation
-- rules-loader unit coverage and the isolated real upstream-Pi prompt probe
-  prove that matching frontmatter triggers inject only the active rule bodies
-  before a provider request, including contextual follow-up inheritance
-- dependency-free clean-artifact inspection verifies that the tracked
-  rules-loader test is present but skips executing it; the normal release check
-  and cross-platform CI execute the test after extension dependencies exist
-- Hy-Memory deep doctor returns a finite 1024-dimensional SiliconFlow
-  `BAAI/bge-m3` vector in an isolated `PI67_HY_MEMORY_HOME` when release
-  credentials are available; the test does not read or alter an employee's
-  existing memory databases
-- `pi-until-done` runtime queue/progress compatibility check passes on the installed agent package when `/until-done` behavior or npm extensions changed
-- smoke test passes locally
-- clean artifact smoke passes for the current worktree candidate
-- npm manager package packs as `@bigking67/pi-67`
-- the exact npm manager version is published and the npm `latest` dist-tag
-  points to it before a GitHub Release exposes the bootstrap asset that installs
-  `@bigking67/pi-67@latest`
-- release notes preview is generated from `CHANGELOG.md`
-- GitHub Release plan includes `pi67-bootstrap.ps1` and
-  `pi67-bootstrap.ps1.sha256`
-- worktree is clean except the intentional release commit before committing
-- GitHub Actions passes after push
-- optional user-machine MCP check passes when MCP behavior changed: `bash ~/.pi/agent/scripts/pi67-doctor.sh --deep-mcp`
+仅在 npm exact/latest artifact 验证通过、且用户明确授权发布后：
 
-## Updating a release
+1. 确认 release commit 已 push 且 CI green；
+2. 创建 annotated tag；
+3. `scripts/pi67-release.sh` 从 exact committed HEAD 取得 bootstrap assets；
+4. 生成 `pi67-bootstrap.ps1.sha256`；
+5. 使用 `gh release create`；
+6. 下载 release assets 并重新校验 checksum；
+7. 不从 dirty worktree 上传文件。
 
-1. Update `VERSION`.
-2. Update `package.json.version`.
-3. Update `packages/pi67-cli/package.json.version`.
-4. Add a dated entry at the top of `CHANGELOG.md`.
-5. If install/configure/doctor/manager behavior changed, update:
-   - `README.md`
-   - `docs/full-install.md`
-   - `docs/troubleshooting.md`
-   - `docs/hy-memory.md` if the memory SDK, model, runtime, data, command, or
-     privacy contract changed
-   - `packages/pi67-cli/README.md` if public npm command behavior changed
-   - `packages/pi67-cli/CHANGELOG.md` if npm manager behavior changed
-   - `docs/report-schema.md` if `pi67-report.json` fields changed
-   - `docs/doctor-schema.md` if doctor JSON fields changed
-   - `docs/status.md` if `scripts/pi67-status.sh` behavior changed
-   - `docs/skill-migration-schema.md` if `scripts/pi67-migrate-skills.sh --json` behavior changed
-   - `docs/external-skill-sync-schema.md` if `scripts/pi67-sync-external-skills.sh --json` behavior changed
-   - `docs/skill-governance.md` if skill registry, migration, or external sync behavior changed
-   - `shared-skill-packs.json`, `shared-skill-packs.lock.json`, and the vendored
-     Pack directories when an upstream Pack version or source Commit changed
-   - update workflow docs if `scripts/pi67-update.sh` or `scripts/pi67-update.ps1` changed
-   - `docs/windows-fresh-install.md` if `scripts/pi67-bootstrap.ps1` or the
-     Node/runtime prerequisite contract changed
-   - Windows acceptance docs if `scripts/pi67-windows-acceptance.ps1` changed
-   - release artifact docs if `scripts/pi67-release-artifact-smoke.sh` changed
-6. Run:
+GitHub Release 之前必须确认 npm exact 和 `latest` dist-tag，避免发布一个指向不存在
+manager 的 bootstrap。
 
-```powershell
-.\scripts\pi67-bootstrap.ps1 -SelfTest
-.\scripts\pi67-bootstrap.ps1 -DryRun
-.\scripts\pi67-bootstrap.ps1 -DryRun -Mode Install
-.\scripts\pi67-bootstrap.ps1 -DryRun -Mode Update
-.\scripts\pi67-smoke.ps1 -Ci
-.\scripts\pi67-doctor.ps1 -Json
-.\scripts\pi67-report.ps1 -Operation manual
-.\scripts\pi67-patch-pi-until-done-runtime-queue.ps1 -Check
-.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest
-.\scripts\pi67-windows-acceptance.ps1 -SelfTest
-npm run -s typecheck:hy-memory
-npm run -s test:hy-memory
-node packages/pi67-cli/bin/pi-67.mjs memory --help
-```
+## 18. 发布后运行态验收
+
+至少分层验证：
 
 ```bash
-node scripts/pi67-prompt-governance-check.mjs
-bash scripts/pi67-test-ai-berkshire-skill-pack.sh
-bash scripts/pi67-test-skill-governance.sh
-npm run -s typecheck:hy-memory
-npm run -s test:hy-memory
-node packages/pi67-cli/scripts/check.mjs
-bash scripts/pi67-release-check.sh
-bash scripts/pi67-patch-pi-until-done-runtime-queue.sh --check --agent-dir ~/.pi/agent
-bash scripts/pi67-smoke.sh --ci
-bash scripts/pi67-release-artifact-smoke.sh --ref WORKTREE
-bash scripts/pi67-release.sh --dry-run
-npm pack --dry-run ./packages/pi67-cli
+command -v pi-67
+npm prefix -g
+pi-67 version --json
+pi-67 manifest --validate
+pi-67 update --check --json
+pi-67 extensions doctor --deep --json
+pi-67 doctor --json
 ```
 
-7. Commit with a scoped message, for example:
+报告 manager version、distro version、release path、21 extension summary、Skill
+missing/conflicts 与唯一 warning。不要把 npm `latest` 等同于当前 shell 已升级。
+
+## 19. 回滚
+
+发行后的用户 workspace 回滚：
 
 ```bash
-git commit -m "chore: release pi-67 0.2.0"
+pi-67 rollback --check --json
+pi-67 rollback --yes
 ```
 
-8. Push and confirm CI:
-
-```bash
-git push
-gh run list --limit 3 --branch main
-```
-
-9. Publish the exact npm manager version, then verify both the exact version and
-   the `latest` dist-tag before exposing the Windows bootstrap through GitHub
-   Releases:
-
-```bash
-VERSION="$(tr -d '[:space:]' < VERSION)"
-gh workflow run npm-publish.yml \
-  -f version="$VERSION" \
-  -f tag=latest \
-  -f dry_run=false \
-  -f auth_mode=trusted
-npm view "@bigking67/pi-67@$VERSION" version
-npm view "@bigking67/pi-67@latest" version
-```
-
-Both commands must print the value from `VERSION`. If the exact version exists
-but `latest` points elsewhere, repair the dist-tag before continuing:
-
-```bash
-npm dist-tag add "@bigking67/pi-67@$VERSION" latest
-```
-
-This order is mandatory for bootstrap-bearing releases. The standalone
-`pi67-bootstrap.ps1` installs `@bigking67/pi-67@latest`; publishing the GitHub
-asset first would create a window where a new machine downloads the new
-bootstrap but npm still serves an older manager without the required commands.
-The real release command blocks before creating a tag when the exact npm
-version is unavailable or the `latest` dist-tag does not resolve to that
-version. `--dry-run` only reports the missing prerequisites.
-
-## Automated tagging and GitHub Release
-
-After the release commit is pushed, CI passes, and both the exact npm manager
-version and `@latest` resolve to `VERSION`, create the tag and GitHub Release:
-
-```bash
-bash scripts/pi67-release.sh --yes
-```
-
-The script:
-
-1. Reads `VERSION`.
-2. Extracts the matching `CHANGELOG.md` entry.
-3. Runs `scripts/pi67-release-check.sh`.
-4. Runs `scripts/pi67-smoke.sh --ci` unless `--no-smoke` is passed.
-5. Verifies the exact npm version and the npm `latest` dist-tag.
-6. Verifies that release metadata and `scripts/pi67-bootstrap.ps1` exist in
-   committed `HEAD`; `--allow-dirty` cannot publish an uncommitted candidate.
-7. Stages the bootstrap from committed `HEAD` and generates
-   `pi67-bootstrap.ps1.sha256`.
-8. Creates and pushes annotated tag `vX.Y.Z`.
-9. Creates a GitHub Release through `gh release create` and uploads both
-   Windows bootstrap assets.
-
-Preview without writing:
-
-```bash
-bash scripts/pi67-release.sh --dry-run
-```
-
-The dry-run output must include both asset paths. The published stable URLs are:
-
-```text
-https://github.com/bigKING67/pi-67/releases/latest/download/pi67-bootstrap.ps1
-https://github.com/bigKING67/pi-67/releases/latest/download/pi67-bootstrap.ps1.sha256
-```
-
-## npm manager package
-
-The npm package is a thin, long-term public entrypoint for users:
-
-```bash
-npm install -g @bigking67/pi-67
-pi-67 install
-pi-67 update
-pi-67 doctor
-```
-
-It does not replace or shadow the upstream `pi` binary. The two release
-lifecycles are intentionally independent:
-
-```bash
-# Update only upstream Pi runtime.
-npm install -g @earendil-works/pi-coding-agent@latest
-pi --version
-
-# Update only pi-67 manager, workspace, and managed capabilities.
-pi-67 self-update
-pi-67 update
-pi-67 doctor
-```
-
-The normal update path must automatically resynchronize managed npm packages
-when the plan detects missing or stale installs. `--repair` is reserved for a
-forced npm reinstall when the plan appears current but the local dependency
-tree remains damaged. The command-level `pi-67 update --yes` option is not a
-valid release contract; install recovery retains `pi-67 install --repair --yes`.
-
-`pi-67 update` may report upstream Pi installed/tested/latest compatibility,
-but must never install, update, or repair that runtime. `pi update
---extensions` remains limited to user-managed upstream Pi extensions. The
-retired `--include-pi` and cross-owner `--all` paths must fail closed and the
-release gate must reject any reintroduction of `runCommand("pi", ...)` in the
-pi-67 updater.
-
-The manager update path is preserve-first. A real `pi-67 update` / `pi-67
-update --repair` builds the update plan, blocks unsafe non-runtime dirty
-worktrees, and acquires `~/.pi/pi67/locks/update.lock` before dispatching the
-Bash or PowerShell updater. Runtime config backup/restore is owned by the
-platform updater script. Current `settings.json` is ignored machine-owned state
-created from tracked `settings.example.json`; it is not overwritten by update
-and does not dirty the checkout. The old incoming-path backup/restore path is
-retained only to migrate pre-0.12.0 tracked settings without losing either
-clean defaults or user modifications.
-Those script-level snapshots live under
-`~/.pi/pi67/backups/pre-update-runtime-*`. The selected theme lives in the
-`settings.json` `theme` field and must not be changed by update. Unrelated
-tracked edits still block. Runtime snapshots are deduplicated by preserved-file
-content, so repeated no-change migrations do not create new timestamped backup
-directories. `--help`, blocked update plans, already-up-to-date updates, and
-the manager orchestration layer must not create runtime backup directories.
-
-Both platform updaters must copy `package.json` and `package-lock.json` together
-and use `npm ci`. Branch selection must follow explicit branch, compatible
-upstream, matching remote branch, then exact remote-default commit equivalence;
-ambiguous, detached, or divergent checkouts fail closed. Default Skill-drift
-logs stay compact, while verbose/strict modes retain diagnostic paths and
-hashes. Successful real updates expose phase timings for Git, config, Skills,
-npm, verification, and total duration.
-
-Before publishing the npm package:
-
-```bash
-node packages/pi67-cli/bin/pi-67.mjs --help
-node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" version --json
-node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" manifest --json
-node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" manifest --validate
-node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" extensions doctor --json --no-remote
-node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" update --check --json --no-remote
-node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" update --check --json --no-remote --strict-shared-skills
-node scripts/pi67-shared-skill-packs-status.mjs --repo-root "$PWD" --skills-dir "$PWD/shared-skills" --json
-node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" publish-check --json --no-remote
-node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" themes current --json
-node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" backups list --json
-node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" backups list --include-legacy --json
-node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" backups prune --keep-last 10 --dry-run --json
-node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" xtalpi smoke --self-test
-node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" doctor --no-skill-list --dry-run
-node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" report --json --dry-run
-node packages/pi67-cli/bin/pi-67.mjs --dry-run self-update
-npm pack --dry-run ./packages/pi67-cli
-```
-
-The GitHub `npm-publish.yml` workflow repeats the release metadata check and
-runs the full `bash scripts/pi67-smoke.sh --ci` gate before `npm publish`. This
-keeps Trusted Publishing from publishing a package whose local release/smoke
-contract is already known to be failing.
-
-For release/parity checks where preserved user-modified global shared skills
-should block instead of being kept, run:
-
-```bash
-pi-67 update --check --strict-shared-skills
-```
-
-`pi-67 update --check --json` must include `actions`, `blocked`, and `warnings`
-so release consumers can see planned writes, preserved user-owned paths, and
-policy blockers before a real update.
-It must also include a valid `skillPacks` block with schema
-`pi67-shared-skill-packs-status/v1`; when comparing the vendored source against
-itself, `registry.valid` and `lock.valid` must be true and `summary.attention`
-must be `0`. Release automation must not replace this with a writing Pack sync.
-It must also expose `policy.preservedRuntimeFiles`, `policy.themePolicy`,
-`policy.sharedSkillsPolicy`, and `policy.externalDirtyPolicy` so scripts and
-docs can prove that update behavior is governed by the same manifest contract.
-`pi-67 backups list`, `pi-67 backups inspect <backup-id-or-path>`,
-`pi-67 backups restore --from <backup-id-or-path> --dry-run|--yes`,
-`pi-67 backups prune --keep-last N --dry-run|--yes`, and
-`pi-67 backups archive --keep-last N --older-than 30d --dry-run|--yes` are the
-supported recovery and retention paths for repo-external runtime snapshots;
-restore only writes preserved runtime files and creates a pre-restore backup
-first.
-Legacy PowerShell `~/.pi/agent-backups/pre-update-*` known-conflict snapshots
-are exposed as read-only diagnostics with `pi-67 backups list --include-legacy`
-and `pi-67 backups inspect <pre-update-id> --legacy`; they are not restored by
-the runtime backup restore path and are no longer written by the normal
-PowerShell updater.
-
-After the local release gates pass, use the public manager command to inspect
-the end-to-end npm publish path:
-
-```bash
-pi-67 publish-check
-```
-
-The check reports version consistency, Trusted Publishing workflow readiness,
-npm registry state, npm namespace visibility, local npm auth state, and
-`npm pack --dry-run`. A missing local `npm whoami` is not a blocker for GitHub
-Actions Trusted Publishing.
-It also gates the ownership manifest release policy, so preserved runtime
-config files, required local extensions, theme preservation, shared-skill
-preservation, external-repo dirty blocking, and unknown baseline runtime
-packages cannot drift silently before publish.
-Use `pi-67 manifest --json` when changing packages, extensions, themes, shared
-skills, or external repo behavior; it is the user-visible ownership contract
-that separates pi-67 managed resources from report-only user resources.
-Use `pi-67 manifest --validate` for the standalone registry policy gate before
-publishing, even when no npm publish check is being run.
-Use `pi-67 extensions doctor` / `pi-67 extensions inspect <id>` for the
-operator-facing view of the same extension registry without editing user state.
-New extensions must also be registered in
-`packages/pi67-cli/src/data/extension-registry.json` with owner,
-install/update/repair strategy, config patch mode, and smoke gates. The release
-gate and `publish-check` use the same validator and reject duplicate extension
-ids, missing smoke gates, unsupported config patch modes, and forbidden
-behaviors such as overwriting user config, selecting a theme during update,
-overwriting different shared skills, or updating dirty external repos.
-
-Preferred publish path: GitHub Actions with npm Trusted Publishing / OIDC.
-This keeps long-lived npm publish tokens out of the repository and out of
-maintainer machines. The workflow still uses `--access public` because
-`@bigking67/pi-67` is a scoped public package.
-
-If npm refuses the first Trusted Publishing attempt with a registry `E404` for
-`@bigking67/pi-67`, treat it as an npm-side identity/bootstrap problem, not a
-package build problem. It means the package is not visible to the publishing
-identity yet, the scope is not controlled by the maintainer account, or the
-Trusted Publisher has not been attached to the package. `npm publish --dry-run`
-does not prove this write permission.
-
-Manual publish remains a fallback when a trusted publisher has not been
-configured yet:
-
-```bash
-npm publish ./packages/pi67-cli --access public --provenance
-```
-
-After publishing, verify the public latest-version path from a clean shell:
-
-```bash
-npx -y @bigking67/pi-67@latest --help
-npx -y @bigking67/pi-67@latest update --check --no-remote
-```
-
-If publishing manually, verify identity first:
-
-```bash
-npm whoami
-```
-
-For normal releases, do not configure `NODE_AUTH_TOKEN` in the workflow. npm
-Trusted Publishing uses GitHub Actions OIDC (`id-token: write`) and generates
-provenance for supported CI publishes.
-
-### GitHub Actions npm publish
-
-The checked-in workflow is:
-
-```text
-.github/workflows/npm-publish.yml
-```
-
-It is intentionally manual-only (`workflow_dispatch`) so normal pushes cannot
-publish a package by accident. It validates:
-
-- workflow input `version`
-- `VERSION`
-- root `package.json.version`
-- `packages/pi67-cli/package.json.version`
-- npm version support for Trusted Publishing
-- setup-node's bundled npm is used directly; do not float the workflow to
-  `npm@latest`, because npm major releases can drift and break CI publishing
-  independently of pi-67.
-- npm manager smoke commands
-- `scripts/pi67-release-check.sh`
-- `npm pack --dry-run ./packages/pi67-cli`
-- for real publishes, a remote `pi-67 publish-check --strict --no-pack`
-  preflight so missing npm scopes and unconfirmed first publishes fail before
-  the final `npm publish`
-
-Repository setup:
-
-1. Make sure the npm scope `@bigking67` exists and is controlled by the
-   maintainer. If npm reports `Scope not found`, create or claim that npm
-   user/org first, or rename the package to a scope/name the maintainer owns.
-2. In npm, configure a trusted publisher for `@bigking67/pi-67`.
-3. Use provider `GitHub Actions`, repository `bigKING67/pi-67`, and workflow
-   filename `npm-publish.yml`.
-4. Allow the `npm publish` action for the trusted publisher.
-5. Keep GitHub Actions permissions for the workflow at `contents: read` and
-   `id-token: write`.
-6. Keep the workflow manual-only (`workflow_dispatch`) so ordinary pushes cannot
-   publish a package.
-
-`npm publish --dry-run` does not prove that a first publish can write the scoped
-package. For a package that has never been published, the real-publish workflow
-will stop during `Validate npm publish target` unless the maintainer explicitly
-types the package name in the `first_publish_confirm` input:
-
-```text
-first_publish_confirm: @bigking67/pi-67
-```
-
-Only use that confirmation after the npm scope exists and the Trusted Publisher
-is configured. The confirmation is intentionally not needed after the package is
-visible on the npm registry.
-
-If npm requires the package to exist before Trusted Publishing can be attached,
-publish the first version once from an npm-authenticated maintainer shell, then
-immediately configure the trusted publisher and use the workflow for future
-releases.
-
-The workflow also has an explicit first-publish fallback:
-
-1. Create a short-lived npm granular access token with publish permission for
-   the owned scope/package.
-2. Add it as the repository secret `NPM_TOKEN`.
-3. Run the workflow with `auth_mode: token-bootstrap` and
-   `first_publish_confirm: @bigking67/pi-67`.
-4. Verify the package is public on npm.
-5. Delete or restrict `NPM_TOKEN`.
-6. Configure npm Trusted Publishing for future releases and return to
-   `auth_mode: trusted`.
-
-CLI equivalent:
-
-```bash
-gh workflow run npm-publish.yml \
-  -f version=<VERSION> \
-  -f tag=latest \
-  -f dry_run=false \
-  -f auth_mode=token-bootstrap \
-  -f first_publish_confirm=@bigking67/pi-67
-```
-
-Dry-run first from GitHub Actions:
-
-```text
-Actions -> npm publish pi-67 manager -> Run workflow
-version: <VERSION>
-tag: latest
-dry_run: true
-auth_mode: trusted
-```
-
-Publish after CI and dry-run pass:
-
-```text
-Actions -> npm publish pi-67 manager -> Run workflow
-version: <VERSION>
-tag: latest
-dry_run: false
-auth_mode: trusted
-first_publish_confirm: @bigking67/pi-67   # first publish only
-```
-
-Manual publish remains valid when an npm-authenticated maintainer shell is
-available:
-
-```bash
-npm whoami
-npm publish ./packages/pi67-cli --access public --provenance
-```
-
-## Artifact smoke
-
-Use `scripts/pi67-release-artifact-smoke.sh` to verify that a clean copy/ref can
-perform the essential release-consumer checks without touching the real Pi
-config:
-
-```bash
-bash scripts/pi67-release-artifact-smoke.sh --ref WORKTREE
-bash scripts/pi67-release-artifact-smoke.sh --ref HEAD
-bash scripts/pi67-release-artifact-smoke.sh --ref v0.9.0
-```
-
-`WORKTREE` is for pre-commit local candidates and copies Git-tracked plus
-non-ignored candidate files into a temporary Git repo. Both primary checkouts
-and linked `git worktree` checkouts are supported. `HEAD` and tag refs use a
-normal clone checkout, which is the right shape for post-commit or published
-release validation.
-
-Duplicate policy:
-
-- Historical release tags are retained. Do not delete old versions just to reduce clutter; release history is the audit trail.
-- Same-version duplicates are blocked by default. If `v$(cat VERSION)` already exists, the script stops.
-- If a release attempt failed and you must redo the same current version, use:
-
-```bash
-bash scripts/pi67-release.sh --replace-existing --yes
-```
-
-`--replace-existing --yes` is intentionally scoped: it only replaces the tag/release for the current `VERSION`, not older versions.
-
-## Manual tagging fallback
-
-Use annotated tags for release points:
-
-```bash
-git tag -a "v$(cat VERSION)" -m "pi-67 $(cat VERSION)"
-git push origin "v$(cat VERSION)"
-```
-
-Do not tag before CI passes on the release commit.
-
-## GitHub release notes template
-
-````markdown
-## pi-67 vX.Y.Z
-
-### What changed
-
-- ...
-
-### Install / update
-
-Fresh install after completing the Windows prerequisites in
-`docs/windows-fresh-install.md`:
-
-Windows PowerShell:
-
-```powershell
-$Bootstrap = Join-Path $env:TEMP "pi67-bootstrap.ps1"
-Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/bigKING67/pi-67/releases/latest/download/pi67-bootstrap.ps1" -OutFile $Bootstrap
-powershell -NoProfile -ExecutionPolicy Bypass -File $Bootstrap -Mode Auto
-```
-
-macOS/Linux:
-
-```bash
-git clone https://github.com/bigKING67/pi-67.git
-cd pi-67
-./install.sh
-```
-
-Update existing install:
-
-Windows PowerShell:
-
-```powershell
-$Bootstrap = Join-Path $env:TEMP "pi67-bootstrap.ps1"
-Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/bigKING67/pi-67/releases/latest/download/pi67-bootstrap.ps1" -OutFile $Bootstrap
-powershell -NoProfile -ExecutionPolicy Bypass -File $Bootstrap -Mode Update
-```
-
-macOS/Linux:
-
-```bash
-cd /path/to/pi-67
-git pull --ff-only
-bash scripts/pi67-update.sh
-bash ~/.pi/agent/scripts/pi67-doctor.sh
-bash ~/.pi/agent/scripts/pi67-status.sh
-```
-
-Configure local readiness:
-
-```bash
-bash ~/.pi/agent/scripts/pi67-configure.sh --prompt-secrets
-```
-
-### Verification
-
-- `.\scripts\pi67-bootstrap.ps1 -SelfTest` on Windows PowerShell / PowerShell Core
-- `.\scripts\pi67-bootstrap.ps1 -DryRun` on Windows PowerShell / PowerShell Core
-- `.\scripts\pi67-bootstrap.ps1 -DryRun -Mode Install` and `-Mode Update`
-- `.\scripts\pi67-smoke.ps1 -Ci` on Windows PowerShell / PowerShell Core
-- `.\scripts\pi67-xtalpi-pi-tools-smoke.ps1 -SelfTest` on Windows PowerShell / PowerShell Core
-- `.\scripts\pi67-windows-acceptance.ps1 -SelfTest` on Windows PowerShell / PowerShell Core
-- `.\scripts\pi67-windows-acceptance.ps1 -ValidateWorkstation -SkipUpdate` on a credentialed Windows workstation when the separate workstation acceptance behavior changed
-- `bash scripts/pi67-smoke.sh --ci`
-- GitHub Actions CI: passed
-
-### Notes
-
-- pi-67 remains full-install by default.
-- Fresh Windows machines install Windows Terminal, PowerShell 7, Notepad4 with
-  Explorer/Windows Notepad integration, Git, fnm, Node.js 24 LTS, npm, and
-  upstream Pi manually before the lightweight pi-67 bootstrap runs.
-- Git acceptance requires `where.exe git` and `git --version` to work after a
-  Terminal restart, with the resolved Git `cmd` directory present in persistent
-  User or Machine PATH.
-- The manager bootstrap requires Node.js `>=22.19.0`; the recommended manual
-  path uses fnm `lts/krypton` for Node.js 24 LTS.
-- The fnm stage creates the PowerShell 7 `$PROFILE` when missing, edits it with
-  `notepad $PROFILE`, loads
-  `fnm env --use-on-cd --shell powershell | Out-String | Invoke-Expression`,
-  and runs `fnm install/default/use lts/krypton` only after reopening Terminal.
-- The final workstation npm registry is `https://registry.npmmirror.com/`.
-  `pi67-windows-acceptance.ps1 -ValidateWorkstation` reads and validates this
-  setting but never writes it; a temporary official-registry fallback must be
-  switched back before final acceptance.
-- Oh My Posh remains optional UI polish. The manual guide uses
-  `JanDeDobbeleer.OhMyPosh`, the SHA-256-verified official
-  `MapleMono-NF-CN.zip`, and the standard
-  `oh-my-posh init pwsh | Invoke-Expression` profile initializer. Terminal uses
-  `Maple Mono NF CN` for Nerd Font icons, CJK coverage, and 2:1 alignment;
-  Meslo is only a compatibility fallback. The slower `--eval` form is retained
-  only as an ExecutionPolicy fallback. Release and acceptance gates verify that
-  bootstrap does not take ownership of the appearance layer.
-- Missing API keys, local MCP paths, or optional binaries are reported by doctor as readiness warnings.
-````
+npm/tag/GitHub Release 回滚属于独立外部动作，必须重新授权并遵循 registry/GitHub
+不可变性策略。不要 unpublish 或改写 Git 历史作为常规回滚方式。
+
+## 20. Release checklist
+
+- [ ] 版本文件和 changelog 一致；
+- [ ] 21 extension baselines 完整且 hash/commit 可复现；
+- [ ] ahead/diverged/load-failed 回归通过；
+- [ ] immutable collision/no-op/pending recovery 回归通过；
+- [ ] 27 Lark + 8 Commerce/Marketing + 21 AI Berkshire 默认保留；
+- [ ] first-party Pack metadata 正确；
+- [ ] 两层 memory 角色正确且个人 MCP 未分发；
+- [ ] Pi version policy 已完全移除；
+- [ ] schema 用真实 payload 验证；
+- [ ] shell/PowerShell/Node/typecheck/tests 通过；
+- [ ] packed artifact 隔离安装通过；
+- [ ] `git diff --check` 与 scoped status 通过；
+- [ ] 已明确区分 commit、push、publish、tag、GitHub Release；
+- [ ] 发布后 exact/latest/installed runtime 分层验收完成。

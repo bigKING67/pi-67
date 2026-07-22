@@ -1,212 +1,96 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parseCommandOptions } from "../lib/args.mjs";
-import { DEFAULT_REPO_URL } from "../lib/paths.mjs";
-import { captureCommand, repairWindowsGitPath, runCommand } from "../lib/shell-runner.mjs";
-import { runDistroScript } from "../lib/distro-scripts.mjs";
-import { isWindows } from "../lib/platform.mjs";
-import { isGitRepo } from "../lib/git.mjs";
-import { CliError, info, warn } from "../lib/output.mjs";
-import { writeState } from "../lib/state-store.mjs";
+import { applyManagedExtensionBaselines } from "../lib/managed-extensions.mjs";
+import {
+  activateDistroRelease,
+  readCurrentRelease,
+  resolveDistroSourceRoot,
+} from "../lib/release-store.mjs";
+import { syncSkills } from "../lib/skill-policy.mjs";
 import { migrateSettingsRuntimeState } from "../lib/settings-runtime-state.mjs";
+import { writeState } from "../lib/state-store.mjs";
+import { CliError, info, keyValue, printJson, section } from "../lib/output.mjs";
 
-export async function installCommand(ctx, argv) {
+export function installCommand(ctx, argv) {
   const { options } = parseCommandOptions(argv, {
-    strings: ["repo", "branch"],
-    bools: ["dry-run", "yes", "repair", "verbose"],
+    bools: ["dry-run", "json", "repair", "no-npm"],
   });
-  if (options.help) {
-    printInstallHelp();
-    return;
-  }
+  if (options.help) return printInstallHelp();
   const dryRun = ctx.dryRun || options.dryRun;
-  const repo = options.repo || DEFAULT_REPO_URL;
-  const repairConfirmed = Boolean(options.repair && (options.yes || ctx.yes));
-
-  const cloneAgent = () => {
-    if (!dryRun) ensureGitAvailable({ persistWindowsUserPath: repairConfirmed });
-    fs.mkdirSync(path.dirname(ctx.agentDir), { recursive: true });
-    const cloneArgs = ["clone"];
-    if (options.branch) cloneArgs.push("--branch", options.branch);
-    cloneArgs.push(repo, ctx.agentDir);
-    runCommand("git", cloneArgs, { dryRun });
-    if (dryRun) {
-      info(`DRY-RUN would run installer from ${ctx.agentDir}`);
-      return;
-    }
-  };
-
-  const missingAgent = !fs.existsSync(ctx.agentDir);
-  if (missingAgent) {
-    cloneAgent();
-    if (dryRun) return;
-  } else if (isGitRepo(ctx.agentDir)) {
-    warn(`agent checkout already exists: ${ctx.agentDir}`);
-  } else if (isEmptyDirectory(ctx.agentDir)) {
-    info(`agent dir exists and is empty; cloning into it: ${ctx.agentDir}`);
-    cloneAgent();
-    if (dryRun) return;
-  } else if (repairConfirmed) {
-    const backupDir = nonGitAgentBackupDir(ctx);
-    const backupTarget = path.join(backupDir, "agent");
-    if (dryRun) {
-      info(`DRY-RUN would move existing non-git agent dir to: ${backupTarget}`);
-      cloneAgent();
-      return;
-    }
-    ensureGitAvailable({ persistWindowsUserPath: repairConfirmed });
-    fs.mkdirSync(backupDir, { recursive: true, mode: 0o700 });
-    fs.renameSync(ctx.agentDir, backupTarget);
-    info(`Moved existing non-git agent dir to backup: ${backupTarget}`);
-    try {
-      cloneAgent();
-    } catch (error) {
-      fs.rmSync(ctx.agentDir, { recursive: true, force: true });
-      fs.renameSync(backupTarget, ctx.agentDir);
-      warn(`Git clone failed; restored original non-git agent dir from backup: ${ctx.agentDir}`);
-      throw error;
-    }
-  } else {
+  const json = ctx.json || options.json;
+  const sourceRoot = resolveDistroSourceRoot(ctx);
+  const legacyCheckout = fs.existsSync(path.join(ctx.agentDir, ".git"));
+  const current = readCurrentRelease(ctx);
+  const nonEmptyUnmanaged = isNonEmptyDirectory(ctx.agentDir) && !current;
+  if ((legacyCheckout || nonEmptyUnmanaged) && !options.repair) {
     throw new CliError([
-      `agent dir exists but is not a git checkout: ${ctx.agentDir}`,
-      "",
-      "This usually means Pi or a previous manual install already created ~/.pi/agent as a plain folder.",
-      "pi-67 will not overwrite it silently.",
-      "",
-      "To preserve that folder and reinstall pi-67, run:",
-      "  pi-67 install --repair --yes",
-      "",
-      "This moves the existing folder into ~/.pi/pi67/backups/<timestamp>-non-git-agent-dir/agent,",
-      "then clones the pi-67 Git checkout into ~/.pi/agent.",
-      "",
-      "Preview first with:",
-      "  pi-67 install --repair --yes --dry-run",
-    ].join("\n"));
+      `existing Pi agent runtime needs an explicit layout migration: ${ctx.agentDir}`,
+      "Preview: pi-67 migrate --check",
+      "Apply:   pi-67 migrate --yes",
+      "The migration preserves personal MCP, provider/model/theme/auth state, sessions, extensions, and Skills.",
+    ].join("\n"), 2);
+  }
+  if ((legacyCheckout || nonEmptyUnmanaged) && options.repair) {
+    throw new CliError("`pi-67 install --repair` does not replace a legacy/unmanaged agent directory; run `pi-67 migrate --check` first", 2);
   }
 
-  if (isWindows()) {
-    const args = ["-AgentDir", ctx.agentDir, "-RepoRoot", ctx.repoRoot, "-SkillsDir", ctx.skillsDir];
-    if (dryRun) args.push("-DryRun");
-    if (options.repair) args.push("-ForceNpm");
-    if (options.verbose) args.push("-SkillDriftDetails");
-    runDistroScript(ctx, { sh: "pi67-update.sh", ps1: "pi67-update.ps1" }, args, { dryRun: false });
-  } else {
-    const args = ["--agent-dir", ctx.agentDir, "--skills-dir", ctx.skillsDir, "--yes"];
-    if (dryRun) args.push("--dry-run");
-    if (options.verbose) args.push("--verbose");
-    runCommand("bash", [path.join(ctx.repoRoot, "install.sh"), ...args], { cwd: ctx.repoRoot, dryRun: false });
-  }
-  if (!dryRun) {
-    writeState(ctx, "install");
-    const runtimeState = migrateSettingsRuntimeState(ctx, {
-      normalizeSettingsJson: true,
-      installGitFilter: true,
-    });
-    if (runtimeState.markerFound && runtimeState.stateWritten) {
-      info("Migrated settings.json lastChangelogVersion to ignored state: ~/.pi/pi67/state.json");
-    }
-    if (runtimeState.settingsNormalized) {
-      info("Normalized settings.json runtime marker/line endings.");
-    }
-    if (runtimeState.settingsCreatedFromTemplate) {
-      info("Created ignored settings.json from settings.example.json.");
-    }
-    if (runtimeState.gitIndexRefreshed) {
-      info("Refreshed settings.json Git index stat cache.");
-    }
-    if (runtimeState.gitFilterInstalled) {
-      info("Installed local git clean filter for future settings.json runtime markers.");
-    }
-    if (runtimeState.gitFilterRemoved) {
-      info("Removed legacy settings.json Git clean filter.");
-    }
-    for (const error of runtimeState.errors) {
-      warn(`settings runtime marker migration skipped: ${error}`);
-    }
-  }
-  info("Install finished. Run `pi-67 doctor` next.");
-}
-
-function ensureGitAvailable(options = {}) {
-  const repair = repairWindowsGitPath({
-    persistUserPath: Boolean(options.persistWindowsUserPath),
+  const activation = activateDistroRelease(ctx, {
+    sourceRoot,
+    dryRun,
+    operation: options.repair ? "install-repair" : "install",
   });
-  if (repair.found && repair.processPathPatched) {
-    info(`Found Git for Windows outside PATH: ${repair.gitExe}`);
-    info(`Added Git directory to current pi-67 process PATH: ${repair.gitDir}`);
-  }
-  if (repair.persisted) {
-    info(`Permanently added Git directory to Windows User PATH: ${repair.gitDir}`);
-    if (repair.persistence?.broadcasted) {
-      info("Broadcasted the Windows environment change for newly opened terminals.");
-    }
-    info("Close and reopen PowerShell if the already-open window still cannot run `git --version`.");
-  } else if (repair.alreadyPersisted) {
-    info(`Git directory already exists in Windows user PATH: ${repair.gitDir}`);
-  } else if (repair.found && options.persistWindowsUserPath && repair.persistence && !repair.persistence.ok) {
-    warn(`Could not persist Git directory to Windows user PATH: ${repair.persistence.error}`);
-    warn("Install will continue with the current pi-67 process PATH repaired.");
-  }
+  const activeSource = dryRun ? sourceRoot : (activation.releasePath || sourceRoot);
+  const extensions = applyManagedExtensionBaselines(ctx, {
+    sourceRoot: activeSource,
+    dryRun,
+    skipNpm: options.noNpm,
+  });
+  const skills = syncSkills({ ...ctx, repoRoot: activeSource }, { dryRun });
+  const runtimeState = dryRun ? null : migrateSettingsRuntimeState(ctx, {
+    normalizeSettingsJson: true,
+    installGitFilter: false,
+  });
+  if (!dryRun) writeState(ctx, options.repair ? "install-repair" : "install");
 
-  const result = captureCommand("git", ["--version"]);
-  if (result.ok) return;
-  const detail = (result.stderr || result.error || `exit status ${result.status}`).trim();
-  const guidance = isWindows()
-    ? [
-        "Install Git for Windows, then close and reopen PowerShell:",
-        "  winget install --id Git.Git -e --source winget",
-        "  git --version",
-        "  pi-67 install --repair --yes",
-      ]
-    : [
-        "Install Git, then retry:",
-        "  git --version",
-        "  pi-67 install --repair --yes",
-      ];
-  throw new CliError([
-    "git is required before pi-67 can clone the managed agent checkout, but git was not found.",
-    detail ? `git check failed: ${detail}` : "",
-    "",
-    ...guidance,
-  ].filter(Boolean).join("\n"));
+  const result = {
+    schema: "pi67.install.v1",
+    createdAt: new Date().toISOString(),
+    dryRun,
+    activation,
+    extensions,
+    skills: { summary: skills.summary, actions: skills.actions },
+    runtimeState,
+  };
+  if (json) return printJson(result);
+  section("pi-67 install");
+  keyValue("Distro", activation.version);
+  keyValue("Immutable release", activation.releasePath);
+  keyValue("Extension actions", extensions.applied.length);
+  keyValue("Preserved extension conflicts", extensions.before.summary.userManagedDiverged);
+  keyValue("Missing Skills copied", skills.actions.filter((item) => ["copy", "copy-dry-run"].includes(item.action)).length);
+  info(dryRun ? "Dry run completed; no files were changed." : "Install finished. Run `pi-67 doctor` next.");
 }
 
-function isEmptyDirectory(dir) {
+function isNonEmptyDirectory(dir) {
   try {
-    return fs.statSync(dir).isDirectory() && fs.readdirSync(dir).length === 0;
+    return fs.statSync(dir).isDirectory() && fs.readdirSync(dir).length > 0;
   } catch {
     return false;
   }
 }
 
-function nonGitAgentBackupDir(ctx) {
-  return path.join(ctx.stateDir, "backups", `${timestamp()}-non-git-agent-dir`);
-}
-
-function timestamp() {
-  return new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "Z");
-}
-
 function printInstallHelp() {
-  process.stdout.write(`pi-67 install - clone/install pi-67 safely
+  process.stdout.write(`pi-67 install - install the manager-bundled distro safely
 
 Usage:
-  pi-67 install [--repo URL] [--branch NAME] [--dry-run] [--repair] [--verbose]
+  pi-67 install [--dry-run] [--json] [--no-npm]
+  pi-67 install --repair [--dry-run]
 
-Options:
-  --repo URL      Git repository URL. Defaults to the pi-67 upstream repo.
-  --branch NAME   Clone a specific branch.
-  --dry-run       Print planned writes without changing files.
-  --repair        Force owned asset repair during the installer update phase.
-                  With --yes, also backs up a non-git agent dir before recloning.
-                  On Windows, also repairs installed Git-for-Windows PATH.
-  --yes           Confirm explicit non-git agent dir backup/reclone repair.
-  --verbose       Print per-Skill paths and hashes for preserved drift.
-
-Examples:
-  pi-67 install
-  pi-67 install --dry-run
-  pi-67 install --repair --yes --dry-run
-  pi-67 install --repair --yes
+Install activates an immutable distro bundled with this exact pi-67 manager.
+It never clones GitHub main and never installs or updates the Pi runtime.
+Existing legacy Git checkouts must use pi-67 migrate --check / --yes.
+Default extensions use minimum baselines: missing and safe-behind copies update,
+newer and user-modified copies are preserved. Unknown extensions are untouched.
 `);
 }

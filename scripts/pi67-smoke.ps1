@@ -224,7 +224,7 @@ if ($GitAvailable) {
 if ($PiAvailable) {
   Pass "upstream pi found"
 } else {
-  Warn "upstream pi not found; skipped real extension-load check" "install with: npm install -g @earendil-works/pi-coding-agent"
+  Warn "upstream pi not found; skipped real extension-load check" "repair the independent Pi installation, then rerun this smoke"
 }
 
 Section "Release metadata"
@@ -916,129 +916,44 @@ Run-Check "xtalpi-pi-tools endpoint contract uses chat/completions" {
 
 Section "PowerShell documentation"
 Run-Check "PowerShell update/doctor/report/smoke entrypoints are documented" {
-  Assert-ContentContains (RepoPath "README.md") "pi67-bootstrap.ps1"
-  Assert-ContentContains (RepoPath "docs/full-install.md") "pi67-bootstrap.ps1"
-  Assert-ContentContains (RepoPath "docs/release.md") "pi67-bootstrap.ps1"
-  Assert-ContentContains (RepoPath "docs/troubleshooting.md") "pi67-bootstrap.ps1"
-  Assert-ContentContains (RepoPath "docs/windows-fresh-install.md") "pi67-bootstrap.ps1"
-  Assert-ContentContains (RepoPath "README.md") "pi67-smoke.ps1"
-  Assert-ContentContains (RepoPath "docs/full-install.md") "pi67-smoke.ps1"
-  Assert-ContentContains (RepoPath "docs/release.md") "pi67-smoke.ps1"
-  Assert-ContentContains (RepoPath "README.md") "pi67-update.ps1"
-  Assert-ContentContains (RepoPath "docs/full-install.md") "pi67-update.ps1"
-  Assert-ContentContains (RepoPath "docs/release.md") "pi67-update.ps1"
-  Assert-ContentContains (RepoPath "README.md") "pi67-windows-acceptance.ps1"
-  Assert-ContentContains (RepoPath "docs/full-install.md") "pi67-windows-acceptance.ps1"
-  Assert-ContentContains (RepoPath "docs/release.md") "pi67-windows-acceptance.ps1"
-  Assert-ContentContains (RepoPath "docs/troubleshooting.md") "pi67-windows-acceptance.ps1"
-  Assert-ContentContains (RepoPath "README.md") "pi67-doctor.ps1"
-  Assert-ContentContains (RepoPath "docs/full-install.md") "pi67-doctor.ps1"
-  Assert-ContentContains (RepoPath "docs/release.md") "pi67-doctor.ps1"
-  Assert-ContentContains (RepoPath "README.md") "pi67-report.ps1"
-  Assert-ContentContains (RepoPath "docs/full-install.md") "pi67-report.ps1"
-  Assert-ContentContains (RepoPath "docs/release.md") "pi67-report.ps1"
-  Assert-ContentContains (RepoPath "README.md") "pi67-xtalpi-pi-tools-smoke.ps1"
-  Assert-ContentContains (RepoPath "docs/full-install.md") "pi67-xtalpi-pi-tools-smoke.ps1"
-  Assert-ContentContains (RepoPath "docs/release.md") "pi67-xtalpi-pi-tools-smoke.ps1"
+  foreach ($name in @("pi67-bootstrap.ps1", "pi67-doctor.ps1", "pi67-smoke.ps1", "pi67-windows-acceptance.ps1")) {
+    Assert-ContentContains (RepoPath "README.md") $name
+    Assert-ContentContains (RepoPath "docs/windows-fresh-install.md") $name
+  }
   Assert-ContentContains (RepoPath "docs/xtalpi-pi-tools.md") "PowerShell"
-  Assert-ContentContains (RepoPath "README.md") "pi67-xtalpi-smoke-plan.mjs"
-  Assert-ContentContains (RepoPath "docs/xtalpi-pi-tools.md") "pi67-xtalpi-smoke-plan.mjs"
-  Assert-ContentContains (RepoPath "README.md") "pi67-fuzz-xtalpi-parser.mjs"
-  Assert-ContentContains (RepoPath "docs/xtalpi-pi-tools.md") "pi67-fuzz-xtalpi-parser.mjs"
-  Assert-ContentContains (RepoPath "docs/skill-governance.md") "pi67-shared-skills-inventory.sh"
 }
 
 Run-Check "Windows manual fresh-install product contract is documented" {
   $freshInstall = RepoPath "docs/windows-fresh-install.md"
   Assert-ContentContains $freshInstall "Node.js 24 LTS"
   Assert-ContentContains $freshInstall "22.19.0"
-  Assert-ContentContains $freshInstall "App Installer"
-  Assert-ContentContains $freshInstall "Microsoft.WindowsTerminal"
-  Assert-ContentContains $freshInstall "Add-AppxPackage"
-  Assert-ContentContains $freshInstall "Microsoft.DesktopAppInstaller_8wekyb3d8bbwe"
-  Assert-ContentContains $freshInstall "Microsoft.WinGet.Client"
-  Assert-ContentContains $freshInstall "Repair-WinGetPackageManager -AllUsers"
-  Assert-ContentContains $freshInstall "Microsoft.PowerShell"
-  Assert-ContentContains $freshInstall "pwsh --version"
-  Assert-ContentContains $freshInstall "zufuliu.notepad4"
-  Assert-ContentContains $freshInstall "设置 -> 高级设置 -> 系统集成"
-  Assert-ContentContains $freshInstall "Windows 资源管理器的右键菜单"
-  Assert-ContentContains $freshInstall "通过注册表替换 Windows 记事本"
-  Assert-ContentContains $freshInstall 'HKCR\*\shell\Notepad4\command'
-  Assert-ContentContains $freshInstall 'Image File Execution Options\notepad.exe'
-  Assert-ContentContains $freshInstall "Start-Process notepad.exe"
-  Assert-ContentContains $freshInstall "where.exe git"
-  Assert-ContentContains $freshInstall "GetEnvironmentVariable('Path', 'Machine')"
-  Assert-ContentContains $freshInstall "GetEnvironmentVariable('Path', 'User')"
-  Assert-ContentContains $freshInstall "GitPersisted"
-  Assert-ContentContains $freshInstall "SetEnvironmentVariable"
-  Assert-ContentContains $freshInstall "'Git\cmd'"
-  Assert-ContentContains $freshInstall "defaultProfile"
-  Assert-ContentContains $freshInstall "574e775e-4f2a-5b96-ac1e-a2962a402336"
-  Assert-ContentContains $freshInstall '"elevate": true'
-  Assert-ContentContains $freshInstall "Automatically run as Administrator"
-  Assert-ContentContains $freshInstall "Pi67-WindowsTerminal-Admin"
-  Assert-ContentContains $freshInstall "New-ScheduledTaskPrincipal"
-  Assert-ContentContains $freshInstall "-RunLevel Highest"
-  Assert-ContentContains $freshInstall "Windows Terminal (Administrator).lnk"
-  Assert-ContentContains $freshInstall "Unregister-ScheduledTask"
-  Assert-ContentContains $freshInstall "PSEdition = Core"
-  Assert-ContentContains $freshInstall "Git.Git"
-  Assert-ContentContains $freshInstall "Schniz.fnm"
-  Assert-ContentContains $freshInstall "lts/krypton"
-  Assert-ContentContains $freshInstall "We can't find the necessary environment variables"
-  Assert-ContentContains $freshInstall '$ProfileDir'
-  Assert-ContentContains $freshInstall 'New-Item -Path $PROFILE -ItemType File -Force'
-  Assert-ContentContains $freshInstall 'notepad $PROFILE'
-  Assert-ContentContains $freshInstall "fnm env --use-on-cd --shell powershell"
-  Assert-ContentContains $freshInstall '. $PROFILE'
-  Assert-ContentContains $freshInstall "fnm default lts/krypton"
-  Assert-ContentContains $freshInstall "npm config set registry https://registry.npmmirror.com"
-  Assert-ContentContains $freshInstall "npm config get registry"
-  Assert-ContentContains $freshInstall "https://registry.npmjs.org/"
-  Assert-ContentContains $freshInstall "JanDeDobbeleer.OhMyPosh"
-  Assert-ContentContains $freshInstall "MapleMono-NF-CN.zip"
-  Assert-ContentContains $freshInstall "MapleMono-NF-CN.sha256"
-  Assert-ContentContains $freshInstall 'Get-FileHash -LiteralPath $MapleZip -Algorithm SHA256'
-  Assert-ContentContains $freshInstall 'oh-my-posh font install $MapleZip --headless'
-  Assert-ContentContains $freshInstall "Maple Mono NF CN"
-  Assert-ContentContains $freshInstall "oh-my-posh font install meslo"
-  Assert-ContentContains $freshInstall "MesloLGM Nerd Font"
-  Assert-ContentContains $freshInstall "subframe7536/maple-font/blob/variable/README_CN.md"
-  Assert-ContentContains $freshInstall "oh-my-posh init pwsh | Invoke-Expression"
-  Assert-ContentContains $freshInstall "oh-my-posh init pwsh --eval | Invoke-Expression"
-  Assert-ContentContains $freshInstall "https://ohmyposh.dev/docs/themes"
-  Assert-ContentContains $freshInstall "@earendil-works/pi-coding-agent@latest"
-  Assert-ContentContains $freshInstall "pi-67 不会安装或更新 upstream Pi"
+  Assert-ContentContains $freshInstall "npm install --global @bigking67/pi-67@0.15.0"
   Assert-ContentContains $freshInstall "pi67-bootstrap.ps1"
-  Assert-ContentContains $freshInstall "-Mode Auto"
-  Assert-ContentContains $freshInstall "不会安装 Windows Terminal"
+  Assert-ContentContains $freshInstall "pi-67 migrate --check --json"
+  Assert-ContentContains $freshInstall "pi-67 update --check --json"
+  Assert-ContentContains $freshInstall "never downgrade"
+  Assert-ContentContains $freshInstall "27 个 Lark Skills"
+  Assert-ContentContains $freshInstall "session compression"
+  Assert-ContentContains $freshInstall "cross-session long-term memory"
   Assert-ContentContains $freshInstall "pi-67 xtalpi configure --verify"
-  Assert-ContentContains $freshInstall "/login"
-  Assert-ContentContains $freshInstall "/model"
-  Assert-ContentNotContains $freshInstall "READY_WITHOUT_PROVIDER"
-  Assert-ContentNotContains $freshInstall "READY_WITHOUT_XTALPI"
-  Assert-ContentContains $freshInstall "Invoke-WebRequest"
-  Assert-ContentContains $freshInstall "UseBasicParsing"
-  Assert-ContentNotContains $freshInstall "irm | iex"
+  Assert-ContentNotContains $freshInstall "@earendil-works/pi-coding-agent@latest"
+  Assert-ContentNotContains $freshInstall "git clone https://github.com/bigKING67/pi-67"
 }
 
-Run-Check "upstream Pi and pi-67 lifecycle ownership is enforced" {
+Run-Check "independent Pi and immutable pi-67 lifecycle ownership is enforced" {
   $updateCommand = RepoPath "packages/pi67-cli/src/commands/update.mjs"
   $manifest = RepoPath "packages/pi67-cli/src/data/distro-manifest.json"
-  Assert-ContentContains $updateCommand "@earendil-works/pi-coding-agent@latest"
-  Assert-ContentNotContains $updateCommand '"include-pi"'
-  Assert-ContentNotContains $updateCommand "options.includePi"
   Assert-ContentNotContains $updateCommand 'runCommand("pi"'
-  Assert-ContentNotContains $updateCommand "pi update --all"
-  Assert-ContentNotContains $updateCommand '      "yes",'
-  Assert-ContentContains $updateCommand "pi-67 update does not use --yes"
-  Assert-ContentContains $updateCommand "shouldForceNpmSync"
-  Assert-ContentContains $updateCommand "managed-npm-packages"
-  Assert-ContentContains $manifest '"owner": "upstream-pi"'
-  Assert-ContentContains $manifest '"mutationPolicy": "report-only-never-install-or-update-through-pi67"'
-  Assert-ContentContains (RepoPath "README.md") "pi-67 不会安装或更新 upstream Pi"
-  Assert-ContentContains (RepoPath "packages/pi67-cli/README.md") "never installs or updates upstream Pi"
+  Assert-ContentNotContains $updateCommand 'captureCommand("pi"'
+  Assert-ContentNotContains $manifest '"upstreamPi"'
+  Assert-ContentContains $manifest '"policy": "manager-bundled-immutable-distro-no-github-main-clone-or-pull"'
+  Assert-ContentContains $manifest '"versionModel": "minimum-supported-baseline"'
+  Assert-ContentContains (RepoPath "README.md") "Pi 与 pi-67 是两个独立产品"
+  Assert-ContentContains (RepoPath "packages/pi67-cli/README.md") "never installs, updates, compares, recommends, or constrains"
+  Assert-ContentContains (RepoPath "scripts/pi67-report.ps1") '[string]$StateDir'
+  Assert-ContentContains (RepoPath "scripts/pi67-report.ps1") '"workspaces"'
+  Assert-ContentNotContains (RepoPath "scripts/pi67-report.ps1") 'Get-CommandVersion "pi"'
+  Assert-ContentNotContains (RepoPath "scripts/pi67-bootstrap.ps1") 'pi-version'
   Assert-ContentNotContains (RepoPath "README.md") "pi-67 update --repair --yes"
   Assert-ContentNotContains (RepoPath "packages/pi67-cli/README.md") "pi-67 update --repair --yes"
   Assert-ContentNotContains (RepoPath "docs/windows-fresh-install.md") "pi-67 update --repair --yes"
@@ -1051,7 +966,6 @@ Run-Check "PowerShell xtalpi targeted smoke expanded cases are documented" {
   Assert-ContentContains (RepoPath "scripts/pi67-xtalpi-pi-tools-smoke.ps1") "fffind-package"
   Assert-ContentContains (RepoPath "scripts/pi67-xtalpi-pi-tools-smoke.ps1") "batch-web-fetch-example"
   Assert-ContentContains (RepoPath "scripts/pi67-xtalpi-pi-tools-smoke.ps1") "seq-thinking-status"
-  Assert-ContentContains (RepoPath "README.md") $expandedCaseSet
   Assert-ContentContains (RepoPath "docs/xtalpi-pi-tools.md") $expandedCaseSet
 }
 
@@ -1080,7 +994,11 @@ if ($GitAvailable) {
     "shared-skill-packs.json",
     "shared-skill-packs.lock.json",
     "docs/full-install.md",
+    "docs/doctor-schema.md",
+    "docs/report-schema.md",
     "docs/release.md",
+    "docs/skill-governance.md",
+    "docs/status.md",
     "docs/troubleshooting.md",
     "docs/windows-fresh-install.md",
     "docs/xtalpi-pi-tools.md",
@@ -1105,12 +1023,19 @@ if ($GitAvailable) {
     "packages/pi67-cli/README.md",
     "packages/pi67-cli/CHANGELOG.md",
     "packages/pi67-cli/bin/pi-67.mjs",
+    "packages/pi67-cli/scripts/build-distro-bundle.mjs",
+    "packages/pi67-cli/scripts/clean-distro-bundle.mjs",
     "packages/pi67-cli/src/cli.mjs",
+    "packages/pi67-cli/src/commands/migrate.mjs",
+    "packages/pi67-cli/src/commands/rollback.mjs",
     "packages/pi67-cli/src/commands/self-update.mjs",
     "packages/pi67-cli/src/commands/skills.mjs",
     "packages/pi67-cli/src/commands/memory.mjs",
     "packages/pi67-cli/src/lib/memory-runtime.mjs",
+    "packages/pi67-cli/src/data/managed-extension-baselines.json",
+    "packages/pi67-cli/src/lib/managed-extensions.mjs",
     "packages/pi67-cli/src/lib/npm-registry.mjs",
+    "packages/pi67-cli/src/lib/release-store.mjs",
     "packages/pi67-cli/src/lib/skill-policy.mjs",
     "packages/pi67-cli/src/lib/skill-pack-integrity.mjs",
     "packages/pi67-cli/src/lib/settings-runtime-clean.mjs",
@@ -1118,7 +1043,10 @@ if ($GitAvailable) {
     "packages/pi67-cli/src/lib/xtalpi-config.mjs",
     "packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs",
     "packages/pi67-cli/schemas/pi67-state.schema.json",
+    "packages/pi67-cli/schemas/pi67-distro-manifest.schema.json",
     "packages/pi67-cli/schemas/pi67-update-plan.schema.json",
+    "shared-skills/lark-apps/SKILL.md",
+    "shared-skills/lark-note/SKILL.md",
     "scripts/pi67-xtalpi-pi-tools-smoke.ps1",
     "scripts/pi67-xtalpi-smoke-plan.mjs",
     "scripts/pi67-fuzz-xtalpi-parser.mjs",

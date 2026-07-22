@@ -8,6 +8,8 @@
     "createdAt",
     "ownership",
     "commands",
+    "releaseStore",
+    "managedExtensions",
     "runtimeFiles",
     "theme",
     "sharedSkills",
@@ -30,34 +32,27 @@
     },
     "commands": {
       "type": "object",
-      "required": ["update", "repair", "alwaysFreshUpdate", "alwaysFreshRepair", "upstreamPiExtensions"]
+      "required": ["update", "repair", "alwaysFreshUpdate", "alwaysFreshRepair"]
     },
-    "upstreamPi": {
+    "releaseStore": {
       "type": "object",
-      "required": ["packageName", "command", "owner", "mutationPolicy", "testedVersion", "compatibilityPolicy", "updateCommand"],
+      "required": ["root", "pointer", "policy"],
       "properties": {
-        "packageName": {
-          "const": "@earendil-works/pi-coding-agent"
-        },
-        "command": {
-          "const": "pi"
-        },
-        "owner": {
-          "const": "upstream-pi"
-        },
-        "mutationPolicy": {
-          "const": "report-only-never-install-or-update-through-pi67"
-        },
-        "testedVersion": {
-          "type": "string",
-          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+].*)?$"
-        },
-        "compatibilityPolicy": {
-          "const": "warn-if-installed-behind-release-tested-version"
-        },
-        "updateCommand": {
-          "type": "string"
-        }
+        "root": { "const": "~/.pi/pi67/releases/<version>" },
+        "pointer": { "const": "~/.pi/pi67/current.json" },
+        "policy": { "const": "manager-bundled-immutable-distro-no-github-main-clone-or-pull" }
+      },
+      "additionalProperties": true
+    },
+    "managedExtensions": {
+      "type": "object",
+      "required": ["registry", "policy", "schema", "policyModel", "extensions"],
+      "properties": {
+        "registry": { "const": "managed-extension-baselines.json" },
+        "policy": { "type": "string" },
+        "schema": { "const": "pi67.managed-extension-baselines.v1" },
+        "policyModel": { "type": "object" },
+        "extensions": { "type": "array", "minItems": 21 }
       },
       "additionalProperties": true
     },
@@ -170,7 +165,8 @@
         "missingLocalExtensions",
         "externalRepos",
         "runtimeFilesPreserved",
-        "registeredExtensions"
+        "registeredExtensions",
+        "managedExtensions"
       ]
     }
   }

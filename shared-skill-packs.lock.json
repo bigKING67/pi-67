@@ -4,7 +4,7 @@
     {
       "name": "ai-berkshire-investment-suite",
       "version": "1.0.0",
-      "upstream": "https://github.com/xbtlin/ai-berkshire",
+      "upstream": "",
       "source_commit": "bf216491b6c58054457ff8b8b1b43d2085225e58",
       "manifest_sha256": "22a1b37ffb84f4bd4652c25e934234ebeff339d7fbdbe2d09a5002923ae89b1e",
       "bundle_sha256": "974362299c10ca39057c1b49ca08eec3d35a37564059927a40fe3e5061a3b613",
@@ -98,7 +98,7 @@
     {
       "name": "consumer-brand-commerce-marketing-suite",
       "version": "2.0.0",
-      "upstream": "https://github.com/bigKING67/commerce-growth-os",
+      "upstream": "",
       "source_commit": "83186cb008f415965c50eca4a70dfa9471799095",
       "manifest_sha256": "ceb9c244d7eedfe5ec7c4b619531f571258050a2ebfd64b60e130b2ae9fe7c74",
       "bundle_sha256": "c1a115a23ba401487717e93d8245ebe74a277e08201a09e8da511ab04cec74d7",

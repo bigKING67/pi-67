@@ -154,6 +154,8 @@ export function inspectSkillPackStatus(ctx, { inventory = null } = {}) {
       packs: packInventory.packs.map((pack) => ({
         name: pack.name,
         version: pack.version,
+        owner: pack.owner || "",
+        distribution: pack.distribution || "",
         upstream: pack.upstream || "",
         skills: pack.summary.skills,
         identical: pack.summary.identical,
@@ -339,7 +341,7 @@ function buildSkillSyncPlan(ctx, { dryRun, names, yes }) {
           name: entry.name,
           action: "warn",
           reason: targeted
-            ? "target differs; commit desired changes to the canonical Git source or rerun with --yes to redeploy it"
+            ? "target differs; publish desired changes in a new pi-67 release or rerun with --yes to restore this release baseline"
             : "target differs; bulk overwrite of preserved user-modified skills is intentionally blocked",
         });
         continue;
@@ -347,7 +349,7 @@ function buildSkillSyncPlan(ctx, { dryRun, names, yes }) {
       actions.push({
         name: entry.name,
         action: dryRun ? "replace-dry-run" : "replace",
-        reason: "target differs and was explicitly redeployed from the canonical Git-tracked source with --yes",
+        reason: "target differs and was explicitly restored from the current release-bundled source with --yes",
       });
       operations.push({ entry, action: "replace" });
       continue;

@@ -8,6 +8,12 @@ export function runPackedArtifactSelfTests(packageRoot) {
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
   const npmChildEnv = npmLifecycleChildEnv();
   try {
+    const buildBundle = spawnSync(process.execPath, [path.join(packageRoot, "scripts", "build-distro-bundle.mjs")], {
+      cwd: packageRoot,
+      encoding: "utf8",
+      env: npmChildEnv,
+    });
+    assert(buildBundle.status === 0, `distro bundle build failed: ${buildBundle.stderr || buildBundle.stdout}`);
     const pack = spawnSync(npm, ["pack", packageRoot, "--ignore-scripts", "--json", "--pack-destination", tmpRoot], {
       cwd: tmpRoot,
       encoding: "utf8",
@@ -62,6 +68,31 @@ export function runPackedArtifactSelfTests(packageRoot) {
     );
 
     const installedRoot = path.join(tmpRoot, "node_modules", "@bigking67", "pi-67");
+    assert(
+      fs.existsSync(path.join(installedRoot, "distro", "VERSION")) &&
+        fs.existsSync(path.join(installedRoot, "distro", ".pi67-bundle.json")),
+      "packed artifact must include the matching immutable distro bundle",
+    );
+    const installHome = path.join(tmpRoot, "install-home");
+    const installAgent = path.join(installHome, ".pi", "agent");
+    const installSkills = path.join(installHome, ".agents", "skills");
+    const installPreview = spawnSync(process.execPath, [
+      bin,
+      "--agent-dir", installAgent,
+      "--repo-root", installAgent,
+      "--skills-dir", installSkills,
+      "install", "--dry-run", "--no-npm", "--json",
+    ], {
+      cwd: tmpRoot,
+      encoding: "utf8",
+      env: { ...npmChildEnv, HOME: installHome, USERPROFILE: installHome },
+    });
+    assert(installPreview.status === 0, `packed artifact install preview failed: ${installPreview.stderr || installPreview.stdout}`);
+    const installPlan = JSON.parse(installPreview.stdout);
+    assert(
+      installPlan.activation?.version === "0.15.0" && !String(installPreview.stdout).includes("git clone"),
+      "packed artifact install must use its own matching distro without Git clone",
+    );
     for (const checkModule of ["installed-artifact.mjs", "settings-runtime-state.mjs"]) {
       const modulePath = path.join(installedRoot, "scripts", "checks", checkModule);
       const imported = spawnSync(process.execPath, [
@@ -79,6 +110,10 @@ export function runPackedArtifactSelfTests(packageRoot) {
       );
     }
   } finally {
+    spawnSync(process.execPath, [path.join(packageRoot, "scripts", "clean-distro-bundle.mjs")], {
+      cwd: packageRoot,
+      encoding: "utf8",
+    });
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }
 }
