@@ -2,9 +2,10 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { requireSourcePackageLayout, resolveSourceRepoRoot } from "./source-package-layout.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const repoRoot = path.resolve(process.env.PI67_REPO_ROOT || path.join(packageRoot, "../.."));
+const repoRoot = requireSourcePackageLayout(packageRoot, resolveSourceRepoRoot(packageRoot));
 const targetRoot = path.join(packageRoot, "distro");
 
 const ROOT_FILES = [
@@ -23,6 +24,7 @@ const ROOT_FILES = [
   "models.example.json",
   "package-lock.json",
   "package.json",
+  "packages/pi67-cli/package.json",
   "settings.example.json",
   "shared-skill-packs.json",
   "shared-skill-packs.lock.json",
@@ -36,6 +38,9 @@ const ROOT_DIRS = [
   "docs",
   "extensions",
   "prompts",
+  // Runtime scripts keep source-relative imports to these package-owned libraries.
+  "packages/pi67-cli/src/data",
+  "packages/pi67-cli/src/lib",
   "rules",
   "scripts",
   "shared-skills",

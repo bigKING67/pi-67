@@ -70,8 +70,13 @@ import {
 } from "../src/lib/skill-pack-integrity.mjs";
 import { runPackedArtifactSelfTests } from "./checks/installed-artifact.mjs";
 import { runSettingsRuntimeStateSelfTests } from "./checks/settings-runtime-state.mjs";
+import { isSourcePackageLayout, resolveSourceRepoRoot } from "./source-package-layout.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const sourceRepoRoot = resolveSourceRepoRoot(root);
+const releaseSourceRoot = isSourcePackageLayout(root, sourceRepoRoot)
+  ? sourceRepoRoot
+  : path.join(root, "distro");
 const files = [];
 walk(path.join(root, "bin"), files);
 walk(path.join(root, "src"), files);
@@ -1000,7 +1005,7 @@ function runXtalpiConfigureSelfTests() {
 
 function runProviderStatusSelfTests() {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-provider-status-"));
-  const repoRoot = path.resolve(root, "../..");
+  const repoRoot = releaseSourceRoot;
   const script = path.join(repoRoot, "scripts", "pi67-provider-status.mjs");
   const baseModels = JSON.parse(fs.readFileSync(path.join(repoRoot, "models.example.json"), "utf8"));
 
@@ -1120,7 +1125,7 @@ function runImmutableInstallSelfTests() {
       "--agent-dir",
       agentDir,
       "--repo-root",
-      path.resolve(root, "../.."),
+      releaseSourceRoot,
       "--skills-dir",
       skillsDir,
       "install",
@@ -1137,7 +1142,7 @@ function runImmutableInstallSelfTests() {
     const preview = spawnSync(process.execPath, [
       path.join(root, "bin", "pi-67.mjs"),
       "--agent-dir", agentDir,
-      "--repo-root", path.resolve(root, "../.."),
+      "--repo-root", releaseSourceRoot,
       "--skills-dir", skillsDir,
       "migrate", "--check", "--json",
     ], {
@@ -1156,7 +1161,7 @@ function runImmutableInstallSelfTests() {
       "--agent-dir",
       emptyAgentDir,
       "--repo-root",
-      path.resolve(root, "../.."),
+      releaseSourceRoot,
       "--skills-dir",
       skillsDir,
       "install",

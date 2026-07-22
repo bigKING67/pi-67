@@ -4,6 +4,10 @@
 
 ## [0.15.0]
 
+- Keeps installed npm artifacts immutable during package self-tests: bundle
+  build/cleanup is restricted to the source checkout, installed-package checks
+  preserve `distro/`, and runtime scripts retain their package-owned libraries
+  inside the self-contained immutable release.
 - Ships the exact-version pi-67 distro inside the manager package and activates
   immutable release directories with atomic pointers, journals, pending
   recovery, collision detection, no-op repeated activation, migration, and
