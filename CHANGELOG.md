@@ -6,6 +6,24 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+### Changed
+
+- Changed image-understanding routing to prefer the active model's native
+  multimodal input through Pi attachments or `read`. `vision_read` remains an
+  explicit, observable fallback for text-only providers such as
+  `xtalpi-pi-tools`, while `image_review` remains human review rather than OCR.
+- Removed the always-loaded `vision_read` prompt bias that told native
+  multimodal models to hand every image to a second model, preserving the
+  original pixels, model choice, latency, and context whenever native image
+  transport is available.
+- Added the bundled `pi-vision-bridge` source to the strict xtalpi TypeScript
+  project so fallback metadata and execution changes are covered by the same
+  compile gate as the text-only provider route that consumes it.
+- Added runtime registration and real upstream Pi prompt probes that fail if
+  `pi-vision-bridge` reintroduces a global `promptSnippet`, stops advertising
+  `vision_read` as a text-only fallback, or injects the legacy image-routing
+  bias before a provider request.
+
 ## [0.15.3] - 2026-07-23
 
 ### Fixed

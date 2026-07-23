@@ -1,7 +1,7 @@
 # Pi 全局 AGENTS 规范
 
-> Version: `v1.8-pi`
-> Last Updated: `2026-07-21`
+> Version: `v1.9-pi`
+> Last Updated: `2026-07-23`
 
 核心目标：**质量优先，安全第一，证据优先，效率可控**。默认使用简体中文；代码标识符、命令、日志和报错保持原文。
 
@@ -77,7 +77,12 @@
 | 历史决策和长期偏好 | `briefing` / `recall` |
 | 独立子任务和高风险二审 | `subagent` / `advisor` |
 | 误操作回退 | `/rewind` 或当前可用的检查点能力 |
-| 视觉生成和图片理解 | `image_gen` / `image_review` / `vision_read` |
+| 图片生成或编辑 | `image_gen` |
+| 图片理解、截图分析、OCR | 当前模型原生多模态；粘贴、拖入、`@image`，或用 `read` 返回 image content |
+| text-only 图片理解 fallback | `vision_read`；仅当前模型或 provider 不支持 image input 时使用 |
+| 人工审图和反馈 | `image_review` |
+
+当前模型与 provider 已验证支持 image input 时，不为图片理解调用 `vision_read`；直接把原始图片交给当前模型。若模型声明与真实传输能力不一致，明确报告原生错误后再使用可观察的 fallback，不静默切换模型。
 
 浏览器操作必须保持 scoped：主动操作使用 browser67-owned managed tab；用户 unmanaged tab 默认只读；不得查看无关 cookies、密码、历史、账号或标签页。任务结束按当前 `workspace_key` / `task_id` 清理 `keep:false` 的 owned tabs。
 

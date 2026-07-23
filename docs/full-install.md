@@ -27,7 +27,7 @@ state。`pi-67 version --json` / `pi-67 status --json` 的 `paths.stateDir` 是
 `~/.pi/agent` 从 0.15.0 起不是要求用户维护的 Git checkout。标准 install/update
 不会 clone 或 pull GitHub `main`。
 
-工作台内的 `AGENTS.md` kernel 为 `v1.8-pi`，通过 `pi-rules-loader` 按需路由 11 个
+工作台内的 `AGENTS.md` kernel 为 `v1.9-pi`，通过 `pi-rules-loader` 按需路由 11 个
 长规则；安装验收应同时验证 kernel、rules index 和真实 Pi 配置加载。
 The distribution contains 11 rule files.
 

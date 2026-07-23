@@ -179,8 +179,8 @@
       "id": "pi-vision-bridge",
       "sourceKind": "bundled",
       "bundlePath": "extensions/pi-vision-bridge",
-      "minimumVersion": "0.15.0",
-      "contentHash": "f6ec824c39d32d38ad3a181666dfd679d494a9e6714dd3885a263440ab9a91e5",
+      "minimumVersion": "0.15.4",
+      "contentHash": "c46faeee1c5d621a5719f1b89a76bb9bab3e2ca6819f4eb2c4c4e749c8a318df",
       "role": "first-party-vision-bridge"
     },
     {

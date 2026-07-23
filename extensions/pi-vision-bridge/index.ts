@@ -213,7 +213,7 @@ async function postJson(url: string, apiKey: string, body: Record<string, unknow
       authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify(body),
-    signal,
+    ...(signal ? { signal } : {}),
   });
   const text = await response.text();
   let json: unknown = {};
@@ -288,11 +288,10 @@ export default function piVisionBridge(pi: ExtensionAPI) {
     name: "vision_read",
     label: "Vision Read",
     description:
-      "本地视觉桥接工具。读取图片/截图并返回文本证据，供 text-only provider 使用；适合 OCR、截图报错分析、图片内容理解。图片任务优先调用它，不要用 read 读取 .png/.jpg。",
-    promptSnippet:
-      "遇到图片、截图、OCR、看图、读图、分析图片路径时，优先调用 vision_read 把图片转成文本证据；xtalpi-pi-tools 是 text-only，不要直接用 read 读取图片。",
+      "兼容性视觉桥接工具。仅当当前模型或 provider 无法原生接收图片时，用它读取图片/截图并返回文本证据；原生多模态模型应直接接收图片，或用 read 读取本地图片。适合 text-only provider 的 OCR、截图报错分析和图片内容理解 fallback。",
     parameters: VISION_READ_PARAMS,
-    async execute(_toolCallId, params: VisionReadParams, signal: AbortSignal | undefined, onUpdate, ctx) {
+    async execute(_toolCallId, rawParams, signal: AbortSignal | undefined, onUpdate, ctx) {
+      const params = rawParams as VisionReadParams;
       const cwd = typeof ctx?.cwd === "string" ? ctx.cwd : process.cwd();
       const config = resolveProviderConfig();
       const { imageUrl, sourceLabel } = resolveImageInput(params.image || "", cwd);
@@ -305,7 +304,13 @@ export default function piVisionBridge(pi: ExtensionAPI) {
         details: { provider: config.provider, model: config.model, image: sourceLabel },
       });
 
-      const text = await callVisionModel({ config, imageUrl, prompt, detail, signal });
+      const text = await callVisionModel({
+        config,
+        imageUrl,
+        prompt,
+        detail,
+        ...(signal ? { signal } : {}),
+      });
       const trimmed = text.length > maxOutputChars ? `${text.slice(0, maxOutputChars)}\n\n[vision_read truncated]` : text;
 
       return {

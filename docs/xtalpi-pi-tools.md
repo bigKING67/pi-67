@@ -367,6 +367,12 @@ pi-67 时把晶泰 provider 误切到 Responses API。
 看图/读图类任务必须先在 Pi 本地转换成文本证据，否则模型只会看到被省略的 image block
 或一个本地图片路径，容易误调用 `read` 后给出“我看不了图片”的无效回答。
 
+这条硬路由只适用于 `xtalpi-pi-tools` 等 text-only provider。当前模型与 provider
+已经验证支持 image input 时，Pi 应通过粘贴、拖入、`@image` 或原生 `read` 的 image
+content 把原始图片直接交给当前模型，不先调用 `vision_read`。只有原生图片输入不可用、
+真实传输返回明确的不支持错误，或用户要求独立视觉模型复核时，才使用可观察的
+`vision_read` fallback；不得静默切换模型。
+
 当前 pi-67 用三层硬边界处理这类任务：
 
 1. `extensions/xtalpi-pi-tools/vision-bridge.ts` 在本地识别 `.png/.jpg/.webp/.gif/.bmp/.tif/.heic/.svg`
@@ -394,8 +400,9 @@ Pi。默认配置来源：
 该 endpoint，会 fallback 到 Chat Completions `/chat/completions` 的 image_url 格式。
 本地文件默认限制 20 MB，避免把超大截图或错误文件直接塞进 provider。
 
-注意：`image_review` 是 TUI 人工确认/反馈工具，不是自动 OCR。自动 OCR/图片理解应走
-`vision_read`；如果 `vision_read` 没有 ready，`image_review` 只能作为人工审查 fallback。
+注意：`image_review` 是 TUI 人工确认/反馈工具，不是自动 OCR。在 `xtalpi-pi-tools`
+text-only 模式下，自动 OCR/图片理解应走 `vision_read`；如果 `vision_read` 没有 ready，
+`image_review` 只能作为人工审查 fallback。原生多模态 provider 不适用这条 bridge 路由。
 
 ## browser67 / MCP 的本地 selected-tool 路由
 

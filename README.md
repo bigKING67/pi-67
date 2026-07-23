@@ -73,7 +73,7 @@ package-owned 文件全部落盘后更新。
 
 ### 21 个默认扩展
 
-| ID | 来源 | 0.15.0 最低基线 | 角色 |
+| ID | 来源 | 当前最低基线 | 角色 |
 | --- | --- | --- | --- |
 | `pi-subagents` | npm | `0.34.0` | subagents |
 | `pi-observational-memory` | npm | `3.0.3` | session 内观察与压缩 |
@@ -93,7 +93,7 @@ package-owned 文件全部落盘后更新。
 | `pi-markdown-preview` | npm | `0.10.0` | Markdown preview |
 | `rpiv-ask-user-question` | npm | `1.20.0` | structured input |
 | `xtalpi-pi-tools` | bundled | `0.15.0` | first-party provider/tools |
-| `pi-vision-bridge` | bundled | `0.15.0` | first-party vision bridge |
+| `pi-vision-bridge` | bundled | `0.15.4` | text-only image fallback |
 | `pi-rules-loader` | bundled | `0.15.0` | first-party rule routing |
 | `pi-hy-memory` | bundled | `0.15.0` | cross-session long-term memory |
 
@@ -352,7 +352,7 @@ docs/                   安装、schema、故障排查与治理文档
 tests/                  extension/rule/runtime 回归测试
 ```
 
-当前常驻 `AGENTS.md` kernel 为 `v1.8-pi`，按需路由 11 个 `rules/*.md` 长规则；
+当前常驻 `AGENTS.md` kernel 为 `v1.9-pi`，按需路由 11 个 `rules/*.md` 长规则；
 `pi-rules-loader` 只注入与任务直接匹配的最小规则集合。
 
 治理清单：`rules/` (11 篇)。

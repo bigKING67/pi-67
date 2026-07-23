@@ -123,6 +123,18 @@ function analyze(repoRoot) {
     /仅在实际相关时说明/.test(agents),
     "delivery avoids irrelevant structure, browser, and performance boilerplate",
   );
+  add(
+    "agents.native-image-routing",
+    [
+      "图片生成或编辑",
+      "图片理解、截图分析、OCR",
+      "当前模型原生多模态",
+      "text-only 图片理解 fallback",
+      "人工审图和反馈",
+      "不为图片理解调用 `vision_read`",
+    ].every((value) => agents.includes(value)),
+    "native multimodal image understanding is separated from generation, human review, and text-only fallback",
+  );
 
   for (const name of ["SYSTEM.md", "APPEND_SYSTEM.md"]) {
     add(`system.${name}.absent`, !fs.existsSync(path.join(repoRoot, name)), `${name} does not replace or append to upstream defaults`);
@@ -189,6 +201,20 @@ function analyze(repoRoot) {
 
   const rulesLoaderPath = path.join(repoRoot, "extensions", "pi-rules-loader", "index.ts");
   const rulesLoader = readText(rulesLoaderPath);
+  const visionBridgePath = path.join(repoRoot, "extensions", "pi-vision-bridge", "index.ts");
+  const visionBridge = readText(visionBridgePath);
+  add("vision-bridge.exists", Boolean(visionBridge), "pi-vision-bridge source exists");
+  add(
+    "vision-bridge.fallback-only",
+    [
+      "仅当当前模型或 provider 无法原生接收图片时",
+      "原生多模态模型应直接接收图片",
+      "text-only provider",
+    ].every((value) => visionBridge.includes(value))
+      && !visionBridge.includes("图片任务优先调用它")
+      && !visionBridge.includes("优先调用 vision_read"),
+    "vision_read no longer overrides native multimodal image routing",
+  );
   const projectedIndexChars = projectedRulesIndexChars(repoRoot, ruleFiles);
   add("rules-loader.exists", Boolean(rulesLoader), "pi-rules-loader source exists");
   add(

@@ -20,5 +20,9 @@
       "@earendil-works/*": ["npm/node_modules/@earendil-works/*"]
     }
   },
-  "include": ["extensions/xtalpi-pi-tools/**/*.ts", "extensions/pi-rules-loader/**/*.ts"]
+  "include": [
+    "extensions/xtalpi-pi-tools/**/*.ts",
+    "extensions/pi-vision-bridge/**/*.ts",
+    "extensions/pi-rules-loader/**/*.ts"
+  ]
 }

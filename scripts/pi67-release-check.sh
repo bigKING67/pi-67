@@ -269,6 +269,7 @@ if [ "${PI67_SKIP_RULES_LOADER_TEST:-0}" = "1" ]; then
 else
   run_gate "rules loader tests" npm --prefix "$REPO_ROOT" run -s test:rules-loader
 fi
+run_gate "vision bridge registration tests" npm --prefix "$REPO_ROOT" run -s test:vision-bridge
 
 if [ -f "$REPO_ROOT/npm/node_modules/typescript/bin/tsc" ]; then
   run_gate "xtalpi TypeScript check" npm --prefix "$REPO_ROOT" run -s typecheck:xtalpi
