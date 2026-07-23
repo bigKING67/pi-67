@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.15.4] - 2026-07-23
+
 ### Changed
 
 - Changed image-understanding routing to prefer the active model's native

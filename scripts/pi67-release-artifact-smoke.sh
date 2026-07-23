@@ -164,6 +164,7 @@ fi
 [ -f "$ARTIFACT_DIR/scripts/pi67-release-check.sh" ] || fail "artifact missing release check"
 [ -f "$ARTIFACT_DIR/scripts/pi67-migrate-skills.sh" ] || fail "artifact missing skill migration helper"
 [ -f "$ARTIFACT_DIR/tests/pi-rules-loader/routing.test.mjs" ] || fail "artifact missing rules-loader routing test"
+[ -f "$ARTIFACT_DIR/tests/pi-vision-bridge/registration.test.mjs" ] || fail "artifact missing vision-bridge registration test"
 
 FAKE_BIN="$TMP_ROOT/bin"
 mkdir -p "$FAKE_BIN"
@@ -207,7 +208,9 @@ PATH="$FAKE_BIN:$PATH" "$ARTIFACT_DIR/install.sh" \
 pass "install dry-run completed"
 
 section "Release metadata check"
-PI67_SKIP_RULES_LOADER_TEST=1 bash "$ARTIFACT_DIR/scripts/pi67-release-check.sh" > "$TMP_ROOT/release-check.log"
+PI67_SKIP_RULES_LOADER_TEST=1 \
+  PI67_SKIP_VISION_BRIDGE_TEST=1 \
+  bash "$ARTIFACT_DIR/scripts/pi67-release-check.sh" > "$TMP_ROOT/release-check.log"
 pass "release check completed"
 
 section "Skill migration schema check"

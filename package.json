@@ -1,6 +1,6 @@
 {
   "name": "pi-extensions",
-  "version": "0.15.3",
+  "version": "0.15.4",
   "private": true,
   "scripts": {
     "check:prompt-governance": "node scripts/pi67-prompt-governance-check.mjs",

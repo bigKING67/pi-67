@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## [0.15.4]
+
+- Prefers the active model's native multimodal image input and keeps
+  `vision_read` as an explicit text-only provider fallback instead of injecting
+  a global image-routing prompt bias.
+- Adds strict TypeScript coverage, prompt-governance contracts, extension
+  registration tests, and a real upstream Pi system-prompt probe for the
+  bundled vision bridge.
+
 ## [0.15.3]
 
 - Executes Windows `.ps1` command shims through the current PowerShell host in
