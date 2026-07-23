@@ -488,6 +488,7 @@ exit 2
         -RepoRoot $immutableRoot `
         -AgentDir $immutableRoot `
         -SkillsDir (Join-Path $immutableRoot "shared-skills") `
+        -PiList `
         -Json 2>&1)
       $exitCode = $LASTEXITCODE
       $jsonText = ($raw -join "`n")
@@ -534,6 +535,7 @@ exit 2
         -RepoRoot $immutableRoot `
         -AgentDir $immutableRoot `
         -SkillsDir (Join-Path $immutableRoot "shared-skills") `
+        -PiList `
         -Json 2>&1)
       $failureExitCode = $LASTEXITCODE
       $failureDoctor = ($failureRaw -join "`n") | ConvertFrom-Json
