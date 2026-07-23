@@ -6,6 +6,22 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.15.3] - 2026-07-23
+
+### Fixed
+
+- Fixed the Windows doctor package probe when Scoop, npm, or another shim
+  resolves `pi` to `pi.ps1`. The bounded external-command runner now launches
+  PowerShell scripts through the current PowerShell host while preserving the
+  original argument vector, timeout, output capture, and exit code.
+- Made non-timeout `pi list --no-approve` failures observable by reporting the
+  exit code and a bounded first error line instead of the generic `pi list
+  failed` warning.
+- Extended the immutable Windows doctor regression with a real temporary
+  `pi.ps1` shim, successful package-list execution, argument verification, and
+  a controlled non-zero exit that proves the failure summary remains
+  non-blocking and diagnostic.
+
 ## [0.15.2] - 2026-07-23
 
 ### Fixed

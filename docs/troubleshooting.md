@@ -1,6 +1,6 @@
 # pi-67 故障排查
 
-适用版本：`0.15.2`。先判断故障属于哪一层：
+适用版本：`0.15.3`。先判断故障属于哪一层：
 
 1. 独立 upstream `pi` runtime；
 2. `@bigking67/pi-67` npm manager；
@@ -398,6 +398,27 @@ pi-67 doctor --json
 字节相等，也不会建议普通用户运行 deprecated `pi67-update.ps1`。依赖和扩展健康由
 installed dependency、managed baseline/ledger 及真实兼容性 probe 判断。legacy/source
 layout 如报告 manifest drift，使用 `pi-67 update --check` 决定是否执行 `pi-67 update`。
+
+### Windows doctor 报 `pi list failed`，但手工执行成功
+
+Scoop、npm 或其他 Windows shim 可能把 `pi` 解析为 `pi.ps1`。`0.15.2` 的超时执行器
+曾把该脚本直接交给 `ProcessStartInfo`，从而产生假阳性 WARN；交互式 PowerShell
+执行同一命令仍会返回 `exitCode=0`。`0.15.3` 起，doctor 会通过当前 PowerShell host
+执行 `.ps1` shim，并保留原始参数、timeout、stdout/stderr 和 exit code。
+
+只读复核：
+
+```powershell
+$piListOutput = & pi list --no-approve 2>&1
+$piListExitCode = $LASTEXITCODE
+[pscustomobject]@{
+  exitCode = $piListExitCode
+  output = ($piListOutput -join "`n")
+} | ConvertTo-Json
+```
+
+真实失败时，doctor WARN 会包含 exit code 和最多 240 字符的首条错误摘要；不再只输出
+无法定位的 `pi list failed`。不要因该 probe 的假阳性运行 repair 或升级 upstream Pi。
 
 ## 18. release/smoke 失败
 

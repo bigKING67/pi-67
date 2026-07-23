@@ -183,13 +183,27 @@ function Invoke-ExternalWithTimeout {
 
   $resolved = Get-Command $FilePath -ErrorAction SilentlyContinue
   $exe = if ($resolved) { $resolved.Source } else { $FilePath }
+  $launchFile = $exe
+  $launchArguments = @($Arguments)
+  if ([System.IO.Path]::GetExtension($exe).Equals(".ps1", [System.StringComparison]::OrdinalIgnoreCase)) {
+    $launchFile = (Get-Process -Id $PID).Path
+    $launchArguments = @(
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      $exe
+    ) + @($Arguments)
+  }
   $psi = New-Object System.Diagnostics.ProcessStartInfo
-  $psi.FileName = $exe
+  $psi.FileName = $launchFile
   $psi.WorkingDirectory = $WorkingDirectory
   $psi.UseShellExecute = $false
   $psi.RedirectStandardOutput = $true
   $psi.RedirectStandardError = $true
-  foreach ($arg in $Arguments) {
+  foreach ($arg in $launchArguments) {
     [void]$psi.ArgumentList.Add($arg)
   }
 
@@ -796,7 +810,16 @@ if ($RunPiList) {
     } elseif ($piListResult.timedOut) {
       Warn ("pi list exceeded {0}s; skipped package registry check" -f $EffectivePiListTimeoutSeconds)
     } else {
-      Warn "pi list failed"
+      $firstErrorLine = @($piListResult.output | Where-Object { $_ -and $_.Trim() } | Select-Object -First 1)
+      $failureMessage = "pi list failed: exitCode={0}" -f $piListResult.exitCode
+      if ($firstErrorLine.Count -gt 0) {
+        $failureSummary = ([string]$firstErrorLine[0]).Trim()
+        if ($failureSummary.Length -gt 240) {
+          $failureSummary = $failureSummary.Substring(0, 237) + "..."
+        }
+        $failureMessage += "; " + $failureSummary
+      }
+      Warn $failureMessage
     }
   } else {
     Warn "pi command not found; skipped pi list"

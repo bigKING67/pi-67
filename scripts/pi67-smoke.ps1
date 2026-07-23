@@ -448,7 +448,13 @@ if ($NodeAvailable -and $PiAvailable) {
     $bundleRoot = RepoPath "packages" "pi67-cli" "distro"
     $buildBundle = RepoPath "packages" "pi67-cli" "scripts" "build-distro-bundle.mjs"
     $cleanBundle = RepoPath "packages" "pi67-cli" "scripts" "clean-distro-bundle.mjs"
+    $piShimRoot = Join-Path $tmpRoot "pi-shim"
+    $piShimPath = Join-Path $piShimRoot "pi.ps1"
+    $piShimMarker = Join-Path $tmpRoot "pi-shim-marker.txt"
     $oldXtalpiKey = [Environment]::GetEnvironmentVariable("XTALPI_PI_TOOLS_API_KEY", "Process")
+    $oldPath = [Environment]::GetEnvironmentVariable("PATH", "Process")
+    $oldPiShimMarker = [Environment]::GetEnvironmentVariable("PI67_DOCTOR_PS1_SHIM_MARKER", "Process")
+    $oldPiShimFailure = [Environment]::GetEnvironmentVariable("PI67_DOCTOR_PS1_SHIM_FAILURE", "Process")
     try {
       Invoke-External "node" @($buildBundle) | Out-Null
       Copy-Item -LiteralPath $bundleRoot -Destination $immutableRoot -Recurse -Force
@@ -456,7 +462,27 @@ if ($NodeAvailable -and $PiAvailable) {
         Copy-Item -LiteralPath (Join-Path $immutableRoot "$name.example.json") -Destination (Join-Path $immutableRoot "$name.json") -Force
       }
 
+      New-Item -ItemType Directory -Force -Path $piShimRoot | Out-Null
+      @'
+if ($env:PI67_DOCTOR_PS1_SHIM_MARKER) {
+  [System.IO.File]::WriteAllText($env:PI67_DOCTOR_PS1_SHIM_MARKER, ($args -join "`n"))
+}
+if ($env:PI67_DOCTOR_PS1_SHIM_FAILURE -eq "1") {
+  Write-Output "pi67 doctor PowerShell shim fixture failure"
+  exit 17
+}
+if ($args.Count -eq 2 -and $args[0] -eq "list" -and $args[1] -eq "--no-approve") {
+  Write-Output "User packages:"
+  Write-Output "  npm:pi67-doctor-ps1-shim-fixture"
+  exit 0
+}
+Write-Output ("unexpected pi fixture arguments: " + ($args -join " "))
+exit 2
+'@ | Set-Content -LiteralPath $piShimPath -Encoding utf8
+
       $env:XTALPI_PI_TOOLS_API_KEY = "pi67-doctor-regression-fixture"
+      $env:PI67_DOCTOR_PS1_SHIM_MARKER = $piShimMarker
+      $env:PATH = $piShimRoot + [System.IO.Path]::PathSeparator + $oldPath
       $powerShellExe = (Get-Process -Id $PID).Path
       $raw = @(& $powerShellExe -NoLogo -NoProfile -File (Join-Path $immutableRoot "scripts" "pi67-doctor.ps1") `
         -RepoRoot $immutableRoot `
@@ -489,11 +515,51 @@ if ($NodeAvailable -and $PiAvailable) {
       if ($messages.Contains("run pi67-update.ps1") -or $messages.Contains("without -NoNpm")) {
         throw "immutable doctor recommended the deprecated PowerShell updater"
       }
+      if (-not $messages.Contains("pi list completed without package/resource warnings")) {
+        throw "doctor did not execute the PowerShell pi shim successfully"
+      }
+      if ($messages.Contains("pi list failed")) {
+        throw "doctor reported a false pi list failure for a successful PowerShell shim"
+      }
+      if (-not (Test-Path -LiteralPath $piShimMarker -PathType Leaf)) {
+        throw "PowerShell pi shim was not invoked"
+      }
+      $piShimArguments = Get-Content -LiteralPath $piShimMarker -Raw
+      if (-not $piShimArguments.Contains("list") -or -not $piShimArguments.Contains("--no-approve")) {
+        throw "PowerShell pi shim did not receive the package probe arguments"
+      }
+
+      $env:PI67_DOCTOR_PS1_SHIM_FAILURE = "1"
+      $failureRaw = @(& $powerShellExe -NoLogo -NoProfile -File (Join-Path $immutableRoot "scripts" "pi67-doctor.ps1") `
+        -RepoRoot $immutableRoot `
+        -AgentDir $immutableRoot `
+        -SkillsDir (Join-Path $immutableRoot "shared-skills") `
+        -Json 2>&1)
+      $failureExitCode = $LASTEXITCODE
+      $failureDoctor = ($failureRaw -join "`n") | ConvertFrom-Json
+      $failureMessages = (@($failureDoctor.checks | ForEach-Object { [string]$_.message }) -join "`n")
+      if ($failureExitCode -ne 0 -or $failureDoctor.counts.fail -ne 0) {
+        throw "doctor should keep a failed optional pi list probe non-blocking"
+      }
+      if (-not $failureMessages.Contains("pi list failed: exitCode=17; pi67 doctor PowerShell shim fixture failure")) {
+        throw "doctor did not expose the bounded pi list failure summary"
+      }
     } finally {
       if ($null -eq $oldXtalpiKey) {
         Remove-Item "Env:XTALPI_PI_TOOLS_API_KEY" -ErrorAction SilentlyContinue
       } else {
         $env:XTALPI_PI_TOOLS_API_KEY = $oldXtalpiKey
+      }
+      $env:PATH = $oldPath
+      if ($null -eq $oldPiShimMarker) {
+        Remove-Item "Env:PI67_DOCTOR_PS1_SHIM_MARKER" -ErrorAction SilentlyContinue
+      } else {
+        $env:PI67_DOCTOR_PS1_SHIM_MARKER = $oldPiShimMarker
+      }
+      if ($null -eq $oldPiShimFailure) {
+        Remove-Item "Env:PI67_DOCTOR_PS1_SHIM_FAILURE" -ErrorAction SilentlyContinue
+      } else {
+        $env:PI67_DOCTOR_PS1_SHIM_FAILURE = $oldPiShimFailure
       }
       if (Test-Path -LiteralPath $tmpRoot) {
         Remove-Item -LiteralPath $tmpRoot -Recurse -Force

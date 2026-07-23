@@ -1,4 +1,4 @@
-# Windows 全新安装 pi-67 0.15.2
+# Windows 全新安装 pi-67 0.15.3
 
 本文面向 Windows 10/11 普通用户。pi-67 与 upstream Pi 独立：
 
@@ -6,7 +6,7 @@
 - `pi67-bootstrap.ps1` 只安装/更新 `@bigking67/pi-67` manager 与工作台；
 - pi-67 不检查、比较、推荐或升级 Pi 版本。
 
-本文对应 `0.15.2`；安装前可用 `npm view @bigking67/pi-67@latest version`
+本文对应 `0.15.3`；安装前可用 `npm view @bigking67/pi-67@latest version`
 核对 registry 当前正式版本。
 
 ## 1. 要求
@@ -73,7 +73,7 @@ bootstrap 的职责：
 安装指定版本：
 
 ```powershell
-npm install --global @bigking67/pi-67@0.15.2 --no-audit --no-fund --no-update-notifier
+npm install --global @bigking67/pi-67@0.15.3 --no-audit --no-fund --no-update-notifier
 pi-67 --help
 ```
 
@@ -276,6 +276,11 @@ model 或 auth 配置。
 immutable release 的 `npm/package*.json` 不要求与 distro 根目录 manifest 字节相等。
 doctor 会继续检查 installed dependencies、managed extension 状态和实际兼容性，且不
 再引导普通用户运行 deprecated `pi67-update.ps1`。
+
+`0.15.3` 起，若 Scoop/npm 将 `pi` 解析为 `pi.ps1`，PowerShell doctor 会通过当前
+PowerShell host 执行该 shim，而不是把脚本直接交给 `ProcessStartInfo`。因此手工
+`pi list --no-approve` 成功时不再产生 `pi list failed` 假阳性；真实失败会报告 exit
+code 和有界错误摘要。
 
 ## 11. JSON 编码
 

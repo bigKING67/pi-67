@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## [0.15.3]
+
+- Executes Windows `.ps1` command shims through the current PowerShell host in
+  the bounded doctor runner, fixing false `pi list failed` warnings for Scoop
+  and npm-installed Pi commands.
+- Includes exit codes and a bounded first error line for genuine package-probe
+  failures, plus Windows regression coverage for successful and failing
+  PowerShell shims.
+
 ## [0.15.2]
 
 - Fixes Windows PowerShell doctor parsing for MCP runtime and active provider

@@ -12,7 +12,7 @@ doctor and emits `pi67-doctor/v2`.
   "generatedAt": "2026-07-22T12:00:00Z",
   "generatedBy": "scripts/pi67-doctor.sh",
   "pi67": {
-    "version": "0.15.0"
+    "version": "0.15.3"
   },
   "piCommandAvailable": true,
   "diagnostics": {
@@ -87,6 +87,11 @@ Allowed diagnostics:
 
 The non-interactive package probe may report warnings or timeout, but those are
 not Pi version compatibility conclusions.
+
+On Windows, commands resolved to `.ps1` shims are executed through the current
+PowerShell host rather than passed directly to `ProcessStartInfo`. A failed
+package probe reports its exit code and a bounded first error line; consumers
+must not infer an upstream Pi version problem from that warning.
 
 ## Exit and result semantics
 
