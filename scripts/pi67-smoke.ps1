@@ -486,7 +486,7 @@ if ($NodeAvailable -and $PiAvailable) {
       if ($jsonText.Contains("Unexpected character encountered while parsing value: S")) {
         throw "doctor regressed to parsing the Invoke-External result object instead of its text"
       }
-      if ($messages.Contains("pi67-update.ps1")) {
+      if ($messages.Contains("run pi67-update.ps1") -or $messages.Contains("without -NoNpm")) {
         throw "immutable doctor recommended the deprecated PowerShell updater"
       }
     } finally {
@@ -1021,6 +1021,7 @@ Run-Check "independent Pi and immutable pi-67 lifecycle ownership is enforced" {
   Assert-ContentContains (RepoPath "scripts/pi67-report.ps1") '"workspaces"'
   Assert-ContentNotContains (RepoPath "scripts/pi67-report.ps1") 'Get-CommandVersion "pi"'
   Assert-ContentNotContains (RepoPath "scripts/pi67-bootstrap.ps1") 'pi-version'
+  Assert-ContentNotContains (RepoPath "scripts/pi67-doctor.ps1") 'run pi67-update.ps1'
   Assert-ContentNotContains (RepoPath "README.md") "pi-67 update --repair --yes"
   Assert-ContentNotContains (RepoPath "packages/pi67-cli/README.md") "pi-67 update --repair --yes"
   Assert-ContentNotContains (RepoPath "docs/windows-fresh-install.md") "pi-67 update --repair --yes"

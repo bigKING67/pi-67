@@ -262,7 +262,7 @@ function Test-JsonFile {
     $info = Get-Pi67JsonTextInfo $Path
     $info.Text | ConvertFrom-Json | Out-Null
     if ($info.NeedsNormalization) {
-      Warn ("valid JSON after compatibility decode: {0}; run pi67-update.ps1 to rewrite UTF-8 without BOM" -f $Label)
+      Warn ("valid JSON after compatibility decode: {0}; rewrite it as UTF-8 without BOM before the next edit" -f $Label)
     } else {
       Pass ("valid JSON: {0}" -f $Label)
     }
