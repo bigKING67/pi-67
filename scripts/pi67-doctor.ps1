@@ -474,7 +474,7 @@ $mcpPath = AgentPath "mcp.json"
 if ((Test-Path -LiteralPath $mcpNormalizer -PathType Leaf) -and (Test-Path -LiteralPath $mcpPath -PathType Leaf) -and (Test-CommandExists "node")) {
   try {
     $mcpRuntimeOutput = Invoke-External "node" @($mcpNormalizer, "--inspect-runtime", "--file", $mcpPath, "--agent-dir", $AgentDir, "--json")
-    $mcpRuntime = ($mcpRuntimeOutput -join "`n") | ConvertFrom-Json
+    $mcpRuntime = $mcpRuntimeOutput.text | ConvertFrom-Json
     if ($mcpRuntime.issues.Count -eq 0) {
       Pass "mcp.json runtime paths are adapter-compatible"
     } else {
@@ -509,7 +509,7 @@ if ((Test-Path -LiteralPath $providerStatusScript -PathType Leaf) -and (Test-Com
       "--agent-dir", $AgentDir,
       "--json"
     )
-    $providerStatus = ($providerStatusOutput -join "`n") | ConvertFrom-Json
+    $providerStatus = $providerStatusOutput.text | ConvertFrom-Json
     foreach ($check in @($providerStatus.checks)) {
       switch ([string]$check.level) {
         "PASS" { Pass ([string]$check.message) }
@@ -597,10 +597,12 @@ $packageLockPath = RepoPath "package-lock.json"
 $agentPackageLock = Join-Path $NpmDir "package-lock.json"
 $repoNpmHash = "$(Get-FileHashValue $packagePath):$(Get-FileHashValue $packageLockPath)"
 $agentNpmHash = "$(Get-FileHashValue $agentPackage):$(Get-FileHashValue $agentPackageLock)"
-if ($repoNpmHash -eq $agentNpmHash) {
+if ($InstallMode -eq "immutable-release") {
+  Pass "immutable npm runtime does not require source manifest byte equality"
+} elseif ($repoNpmHash -eq $agentNpmHash) {
   Pass "npm package.json/package-lock.json already synced"
 } else {
-  Warn "npm package.json/package-lock.json differs; run pi67-update.ps1 without -NoNpm"
+  Warn "npm package.json/package-lock.json differs; inspect with pi-67 update --check before applying pi-67 update"
 }
 
 if (Test-Path -LiteralPath $packagePath -PathType Leaf) {

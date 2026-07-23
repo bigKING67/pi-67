@@ -440,6 +440,73 @@ Run-Check "settings.json is ignored runtime state with a tracked template" {
   }
 }
 
+Section "PowerShell doctor regression"
+if ($NodeAvailable -and $PiAvailable) {
+  Run-Check "immutable doctor parses helper JSON and avoids legacy npm sync advice" {
+    $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("pi67-doctor-regression-" + [guid]::NewGuid().ToString("N"))
+    $immutableRoot = Join-Path $tmpRoot "agent"
+    $bundleRoot = RepoPath "packages" "pi67-cli" "distro"
+    $buildBundle = RepoPath "packages" "pi67-cli" "scripts" "build-distro-bundle.mjs"
+    $cleanBundle = RepoPath "packages" "pi67-cli" "scripts" "clean-distro-bundle.mjs"
+    $oldXtalpiKey = [Environment]::GetEnvironmentVariable("XTALPI_PI_TOOLS_API_KEY", "Process")
+    try {
+      Invoke-External "node" @($buildBundle) | Out-Null
+      Copy-Item -LiteralPath $bundleRoot -Destination $immutableRoot -Recurse -Force
+      foreach ($name in @("settings", "models", "mcp", "auth", "image-gen")) {
+        Copy-Item -LiteralPath (Join-Path $immutableRoot "$name.example.json") -Destination (Join-Path $immutableRoot "$name.json") -Force
+      }
+
+      $env:XTALPI_PI_TOOLS_API_KEY = "pi67-doctor-regression-fixture"
+      $powerShellExe = (Get-Process -Id $PID).Path
+      $raw = @(& $powerShellExe -NoLogo -NoProfile -File (Join-Path $immutableRoot "scripts" "pi67-doctor.ps1") `
+        -RepoRoot $immutableRoot `
+        -AgentDir $immutableRoot `
+        -SkillsDir (Join-Path $immutableRoot "shared-skills") `
+        -Json 2>&1)
+      $exitCode = $LASTEXITCODE
+      $jsonText = ($raw -join "`n")
+      $doctor = $jsonText | ConvertFrom-Json
+      $messages = (@($doctor.checks | ForEach-Object { [string]$_.message }) -join "`n")
+
+      if ($exitCode -ne 0 -or $doctor.counts.fail -ne 0) {
+        throw "immutable doctor returned exit=$exitCode fail=$($doctor.counts.fail): $messages"
+      }
+      if ($doctor.installMode -ne "immutable-release") {
+        throw "expected immutable-release, got $($doctor.installMode)"
+      }
+      if (-not $messages.Contains("mcp.json runtime paths are adapter-compatible")) {
+        throw "MCP runtime helper JSON was not parsed"
+      }
+      if (-not $messages.Contains("selected custom provider/model exists: xtalpi-pi-tools/deepseek-v4-pro")) {
+        throw "provider status helper JSON was not parsed"
+      }
+      if (-not $messages.Contains("immutable npm runtime does not require source manifest byte equality")) {
+        throw "immutable npm manifest policy was not applied"
+      }
+      if ($jsonText.Contains("Unexpected character encountered while parsing value: S")) {
+        throw "doctor regressed to parsing the Invoke-External result object instead of its text"
+      }
+      if ($messages.Contains("pi67-update.ps1")) {
+        throw "immutable doctor recommended the deprecated PowerShell updater"
+      }
+    } finally {
+      if ($null -eq $oldXtalpiKey) {
+        Remove-Item "Env:XTALPI_PI_TOOLS_API_KEY" -ErrorAction SilentlyContinue
+      } else {
+        $env:XTALPI_PI_TOOLS_API_KEY = $oldXtalpiKey
+      }
+      if (Test-Path -LiteralPath $tmpRoot) {
+        Remove-Item -LiteralPath $tmpRoot -Recurse -Force
+      }
+      if (Test-Path -LiteralPath $cleanBundle -PathType Leaf) {
+        Invoke-External "node" @($cleanBundle) | Out-Null
+      }
+    }
+  }
+} else {
+  Warn "immutable PowerShell doctor regression skipped" "node and upstream pi are required"
+}
+
 Section "Zero-credential Pi startup"
 if ($PiAvailable) {
   Run-Check "real Pi registers xtalpi-pi-tools and starts with no provider key" {
@@ -927,7 +994,7 @@ Run-Check "Windows manual fresh-install product contract is documented" {
   $freshInstall = RepoPath "docs/windows-fresh-install.md"
   Assert-ContentContains $freshInstall "Node.js 24 LTS"
   Assert-ContentContains $freshInstall "Node.js 22.19+"
-  Assert-ContentContains $freshInstall "npm install --global @bigking67/pi-67@0.15.1"
+  Assert-ContentContains $freshInstall ("npm install --global @bigking67/pi-67@{0}" -f $script:Version)
   Assert-ContentContains $freshInstall "pi67-bootstrap.ps1"
   Assert-ContentContains $freshInstall "pi-67 migrate --check --json"
   Assert-ContentContains $freshInstall "pi-67 update --check --json"

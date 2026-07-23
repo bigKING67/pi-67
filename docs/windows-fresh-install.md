@@ -1,4 +1,4 @@
-# Windows 全新安装 pi-67 0.15.1
+# Windows 全新安装 pi-67 0.15.2
 
 本文面向 Windows 10/11 普通用户。pi-67 与 upstream Pi 独立：
 
@@ -6,7 +6,7 @@
 - `pi67-bootstrap.ps1` 只安装/更新 `@bigking67/pi-67` manager 与工作台；
 - pi-67 不检查、比较、推荐或升级 Pi 版本。
 
-本文对应 `0.15.1`；安装前可用 `npm view @bigking67/pi-67@latest version`
+本文对应 `0.15.2`；安装前可用 `npm view @bigking67/pi-67@latest version`
 核对 registry 当前正式版本。
 
 ## 1. 要求
@@ -73,7 +73,7 @@ bootstrap 的职责：
 安装指定版本：
 
 ```powershell
-npm install --global @bigking67/pi-67@0.15.1 --no-audit --no-fund --no-update-notifier
+npm install --global @bigking67/pi-67@0.15.2 --no-audit --no-fund --no-update-notifier
 pi-67 --help
 ```
 
@@ -266,6 +266,16 @@ pi-67 update --check --json
 
 acceptance 必须验证真实 `pi` command、真实配置加载和至少一个真实 startup/tool
 路径。wrapper/mock 只能证明 wrapper 自身。
+
+`0.15.2` 起，PowerShell doctor 会从 external-command 结果的 `text` 字段解析 MCP
+runtime 与 active provider helper JSON。若旧版报告
+`Unexpected character encountered while parsing value: S`，升级 manager 后执行
+`pi-67 update` 激活同版本 distro；不要为此删除或重写本机 `mcp.json`、provider、
+model 或 auth 配置。
+
+immutable release 的 `npm/package*.json` 不要求与 distro 根目录 manifest 字节相等。
+doctor 会继续检查 installed dependencies、managed extension 状态和实际兼容性，且不
+再引导普通用户运行 deprecated `pi67-update.ps1`。
 
 ## 11. JSON 编码
 

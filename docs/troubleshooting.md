@@ -1,6 +1,6 @@
 # pi-67 故障排查
 
-适用版本：`0.15.0`。先判断故障属于哪一层：
+适用版本：`0.15.2`。先判断故障属于哪一层：
 
 1. 独立 upstream `pi` runtime；
 2. `@bigking67/pi-67` npm manager；
@@ -377,6 +377,27 @@ $value | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $path -Encoding UTF
 
 PowerShell 5.1 UTF-16/BOM 问题由项目 JSON helper 做兼容读取；修复后仍应验证 JSON
 parse 和 exact path。
+
+### doctor 报 `Unexpected character encountered while parsing value: S`
+
+`0.15.1` 的 PowerShell doctor 曾把 external-command 结果对象本身交给
+`ConvertFrom-Json`，从而把 `System.Collections.Specialized.OrderedDictionary` 的首字母
+`S` 误当成 JSON。该问题已在 `0.15.2` 修复；它不是 `mcp.json`、provider 配置或
+credential 损坏。
+
+升级 manager 并激活同版本 distro：
+
+```powershell
+pi-67 self-update
+pi-67 update --check --json
+pi-67 update
+pi-67 doctor --json
+```
+
+`installMode=immutable-release` 时，doctor 不要求 distro 根目录与 `npm/package*.json`
+字节相等，也不会建议普通用户运行 deprecated `pi67-update.ps1`。依赖和扩展健康由
+installed dependency、managed baseline/ledger 及真实兼容性 probe 判断。legacy/source
+layout 如报告 manifest drift，使用 `pi-67 update --check` 决定是否执行 `pi-67 update`。
 
 ## 18. release/smoke 失败
 

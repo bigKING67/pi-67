@@ -6,6 +6,24 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.15.2] - 2026-07-23
+
+### Fixed
+
+- Fixed the Windows PowerShell doctor JSON boundary so MCP runtime and active
+  provider helper results are parsed from the structured external-command
+  result's `text` field instead of stringifying its OrderedDictionary wrapper.
+  This removes the false `Unexpected character encountered while parsing value:
+  S` warning/failure on valid helper JSON.
+- Stopped immutable releases from comparing the distro root manifests with
+  `npm/package.json` and `npm/package-lock.json` byte-for-byte. Immutable doctor
+  runs now rely on installed dependency and extension compatibility checks,
+  while legacy/source layouts direct manifest drift through `pi-67 update`
+  instead of the deprecated `pi67-update.ps1` updater.
+- Added a Windows regression that builds a real immutable distro, executes the
+  PowerShell doctor through both helper call sites, parses its final JSON, and
+  requires zero failures without legacy updater guidance.
+
 ## [0.15.1] - 2026-07-23
 
 ### Fixed

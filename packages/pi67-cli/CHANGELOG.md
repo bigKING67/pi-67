@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## [0.15.2]
+
+- Fixes Windows PowerShell doctor parsing for MCP runtime and active provider
+  JSON helpers by consuming the external-command result's `text` field.
+- Removes source-manifest byte-equality guidance from immutable npm runtimes and
+  routes legacy/source drift through the supported `pi-67 update` lifecycle.
+- Adds an immutable Windows doctor execution regression that requires valid JSON,
+  zero failures, and no deprecated `pi67-update.ps1` recommendation.
+
 ## [0.15.1]
 
 - Excludes `.gitignore` from immutable distro manifests because npm removes it
