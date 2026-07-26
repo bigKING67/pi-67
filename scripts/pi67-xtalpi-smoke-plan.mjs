@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { settingsPackageSource } from "../packages/pi67-cli/src/lib/managed-extensions.mjs";
 
 const require = createRequire(import.meta.url);
 const { readJsonFile: readJsonFileCompatible } = require("./pi67-json-utils.cjs");
@@ -484,7 +485,9 @@ function planEntry(entry) {
 function buildPlan(options) {
   const settingsFile = resolveSettingsFile(options);
   const settings = readJson(settingsFile);
-  const settingsSpecs = Array.isArray(settings.packages) ? settings.packages.map(String) : [];
+  const settingsSpecs = Array.isArray(settings.packages)
+    ? settings.packages.map(settingsPackageSource).filter(Boolean)
+    : [];
   const includeSpecs = options.include.map(normalizeSpec);
   const specs = unique([...settingsSpecs, "local:extensions/pi-rules-loader", "local:extensions/pi-vision-bridge", ...includeSpecs]);
   const entries = specs.map((spec) => packageEntry(options.agentDir, spec, settingsSpecs.includes(spec) ? "settings" : "included"));

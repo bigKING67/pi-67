@@ -415,8 +415,13 @@ function sharedSkillState(settings) {
   }
 
   const packages = Array.isArray(settings?.packages) ? settings.packages : [];
-  const activeSkillPackageSources = packages.filter((item) => {
-    const value = String(item);
+  const activeSkillPackageSources = packages.map((item) => {
+    if (typeof item === "string") return item.trim();
+    if (item && typeof item === "object" && !Array.isArray(item) && typeof item.source === "string") {
+      return item.source.trim();
+    }
+    return "";
+  }).filter((value) => {
     return value.includes("github.com/bigKING67/design-craft") || value.includes("github.com/bigKING67/browser67");
   });
 

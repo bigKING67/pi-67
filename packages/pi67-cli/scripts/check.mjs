@@ -35,6 +35,7 @@ import {
   restoreRuntimeBackup,
 } from "../src/lib/update-safety.mjs";
 import {
+  applyManagedExtensionBaselines,
   classifyNpmExtension,
   inspectManagedExtensions,
   parsePiListOutput,
@@ -1793,14 +1794,16 @@ function runPiLoadProbeSelfTests() {
   const parsed = parsePiListOutput(`User packages:
   npm:pi-subagents
     /tmp/npm/node_modules/pi-subagents
+  npm:pi-observational-memory (filtered)
   git:github.com/justhil/pi-image-gen
     /tmp/git/github.com/justhil/pi-image-gen
 `);
   assert(
     parsed.recognized &&
       parsed.loadedSpecs.includes("npm:pi-subagents") &&
-      parsed.loadedSpecs.includes("git:github.com/justhil/pi-image-gen"),
-    "pi list load probe must recognize resolved npm and Git package specs",
+      parsed.loadedSpecs.includes("git:github.com/justhil/pi-image-gen") &&
+      parsed.filteredSpecs.includes("npm:pi-observational-memory"),
+    "pi list load probe must distinguish resolved and filtered npm/Git package specs",
   );
 
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-load-probe-"));
@@ -1839,6 +1842,51 @@ function runPiLoadProbeSelfTests() {
       status.summary.loadFailed === 1 &&
       status.extensions[0].action === "keep-conflict",
     "a configured package omitted by a successful pi list probe must be observable without automatic overwrite",
+  );
+
+  fs.writeFileSync(
+    path.join(agentDir, "settings.json"),
+    `${JSON.stringify({ packages: [{ source: "npm:probe-extension", extensions: [] }] })}\n`,
+  );
+  const filteredStatus = inspectManagedExtensions({ agentDir, stateDir: path.join(tmpRoot, "state") }, {
+    registry,
+    sourceRoot,
+    loadProbe: {
+      ok: true,
+      recognized: true,
+      loadedSpecs: [],
+      filteredSpecs: ["npm:probe-extension"],
+    },
+  });
+  assert(
+    filteredStatus.extensions[0].configured &&
+      filteredStatus.extensions[0].status === "at-baseline" &&
+      filteredStatus.extensions[0].action === "keep" &&
+      filteredStatus.extensions[0].loadStatus === "filtered" &&
+      filteredStatus.summary.filtered === 1 &&
+      filteredStatus.summary.loadFailed === 0 &&
+      filteredStatus.summary.automaticActions === 0,
+    "an official object package filter must remain configured without becoming a load failure or automatic action",
+  );
+  const filteredApply = applyManagedExtensionBaselines(
+    { agentDir, stateDir: path.join(tmpRoot, "state") },
+    { registry, sourceRoot, dryRun: true },
+  );
+  assert(
+    !filteredApply.settings.changed && filteredApply.settings.added.length === 0,
+    "an object package filter must prevent the default string spec from being appended again",
+  );
+
+  fs.writeFileSync(path.join(agentDir, "settings.json"), '{"packages":[{"extensions":[]}]}\n');
+  const invalidStatus = inspectManagedExtensions({ agentDir, stateDir: path.join(tmpRoot, "state") }, {
+    registry,
+    sourceRoot,
+  });
+  assert(
+    invalidStatus.unknown.length === 1 &&
+      invalidStatus.unknown[0].status === "invalid-settings-package-entry" &&
+      !JSON.stringify(invalidStatus.unknown).includes("[object Object]"),
+    "an invalid object package entry must be explicit without leaking a String(object) placeholder",
   );
   fs.rmSync(tmpRoot, { recursive: true, force: true });
 }

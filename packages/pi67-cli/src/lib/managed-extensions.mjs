@@ -28,8 +28,9 @@ export function inspectManagedExtensions(ctx, options = {}) {
   const registry = options.registry || readManagedExtensionBaselines();
   const sourceRoot = options.sourceRoot || ctx.repoRoot;
   const settings = readJsonFileIfExists(path.join(ctx.agentDir, "settings.json")) || {};
-  const configuredSpecs = Array.isArray(settings.packages) ? settings.packages.map(String) : [];
-  const configuredIds = new Set(configuredSpecs.map(settingsSpecIdentity));
+  const configuredPackages = (Array.isArray(settings.packages) ? settings.packages : [])
+    .map((entry, settingsIndex) => ({ settingsIndex, source: settingsPackageSource(entry) }));
+  const configuredIds = new Set(configuredPackages.map((item) => settingsSpecIdentity(item.source)).filter(Boolean));
   const ledger = options.ledger || readExtensionLedger(ctx);
   const npmLock = readJsonFileIfExists(path.join(ctx.agentDir, "npm", "package-lock.json")) || {};
   const inspectedEntries = registry.extensions.map((baseline) => {
@@ -44,15 +45,26 @@ export function inspectManagedExtensions(ctx, options = {}) {
     return inspectBundledExtension(ctx, baseline, { prior, sourceRoot });
   });
   const entries = applyPiLoadProbe(inspectedEntries, options.loadProbe);
-  const baselineIdentities = new Set(registry.extensions.map((entry) => settingsSpecIdentity(entry.settingsSpec)));
-  const unknown = configuredSpecs
-    .filter((spec) => !baselineIdentities.has(settingsSpecIdentity(spec)))
-    .map((spec) => ({
-      spec,
-      identity: settingsSpecIdentity(spec),
-      status: "unversioned-user-managed",
-      action: "keep",
-    }));
+  const baselineIdentities = new Set(
+    registry.extensions.map((entry) => settingsSpecIdentity(entry.settingsSpec)).filter(Boolean),
+  );
+  const unknown = configuredPackages
+    .filter((item) => !item.source || !baselineIdentities.has(settingsSpecIdentity(item.source)))
+    .map((item) => item.source
+      ? {
+          spec: item.source,
+          identity: settingsSpecIdentity(item.source),
+          settingsIndex: item.settingsIndex,
+          status: "unversioned-user-managed",
+          action: "keep",
+        }
+      : {
+          spec: `settings.packages[${item.settingsIndex}]`,
+          identity: `invalid-settings-package:${item.settingsIndex}`,
+          settingsIndex: item.settingsIndex,
+          status: "invalid-settings-package-entry",
+          action: "keep-conflict",
+        });
   return {
     schema: "pi67.managed-extensions-status.v1",
     createdAt: new Date().toISOString(),
@@ -84,21 +96,27 @@ export function probePiExtensionLoads(ctx, options = {}) {
     error: result.error || (!result.ok ? compactProbeFailure(result.stderr) : ""),
     recognized: parsed.recognized,
     loadedSpecs: parsed.loadedSpecs,
+    filteredSpecs: parsed.filteredSpecs,
     warnings: parsed.warnings,
   };
 }
 
 export function parsePiListOutput(output) {
   const loadedSpecs = [];
+  const filteredSpecs = [];
   const warnings = [];
   for (const rawLine of String(output || "").split(/\r?\n/)) {
-    const specMatch = rawLine.match(/^\s{2}((?:npm|git):\S+)\s*$/);
-    if (specMatch) loadedSpecs.push(settingsSpecIdentity(specMatch[1]));
+    const specMatch = rawLine.match(/^\s{2}((?:npm|git):\S+)(?:\s+\((filtered)\))?\s*$/);
+    if (specMatch) {
+      const target = specMatch[2] ? filteredSpecs : loadedSpecs;
+      target.push(settingsSpecIdentity(specMatch[1]));
+    }
     if (/warning|error|duplicate|conflict|skipped/i.test(rawLine)) warnings.push(rawLine.trim());
   }
   return {
     recognized: /(^|\r?\n)User packages:\s*(\r?\n|$)/.test(String(output || "")),
     loadedSpecs: [...new Set(loadedSpecs)],
+    filteredSpecs: [...new Set(filteredSpecs)],
     warnings,
   };
 }
@@ -582,10 +600,12 @@ function isAncestor(repo, ancestor, descendant) {
 function applyPiLoadProbe(entries, probe) {
   if (!probe?.ok || !probe.recognized) return entries;
   const loaded = new Set((probe.loadedSpecs || []).map(settingsSpecIdentity));
+  const filtered = new Set((probe.filteredSpecs || []).map(settingsSpecIdentity));
   return entries.map((entry) => {
     if (!entry.settingsSpec) return { ...entry, loadStatus: "not-applicable" };
     if (!entry.configured || entry.status === "missing") return { ...entry, loadStatus: "not-configured" };
     if (loaded.has(settingsSpecIdentity(entry.settingsSpec))) return { ...entry, loadStatus: "loaded" };
+    if (filtered.has(settingsSpecIdentity(entry.settingsSpec))) return { ...entry, loadStatus: "filtered" };
     return {
       ...entry,
       baselineStatus: entry.status,
@@ -614,11 +634,13 @@ function summarize(entries, unknown) {
     atBaseline: 0,
     userManagedAhead: 0,
     userManagedDiverged: 0,
+    filtered: 0,
     loadFailed: 0,
     unknown: unknown.length,
     automaticActions: 0,
   };
   for (const entry of entries) {
+    if (entry.loadStatus === "filtered") summary.filtered += 1;
     if (entry.status === "missing") summary.missing += 1;
     else if (entry.status === "below-baseline") summary.belowBaseline += 1;
     else if (entry.status === "at-baseline") summary.atBaseline += 1;
@@ -630,8 +652,21 @@ function summarize(entries, unknown) {
   return summary;
 }
 
-function settingsSpecIdentity(spec) {
-  const value = String(spec || "").trim();
+export function settingsPackageSource(entry) {
+  if (typeof entry === "string") return entry.trim();
+  if (
+    entry &&
+    typeof entry === "object" &&
+    !Array.isArray(entry) &&
+    typeof entry.source === "string"
+  ) {
+    return entry.source.trim();
+  }
+  return "";
+}
+
+export function settingsSpecIdentity(spec) {
+  const value = settingsPackageSource(spec);
   if (value.startsWith("npm:")) {
     const raw = value.slice(4);
     if (raw.startsWith("@")) {

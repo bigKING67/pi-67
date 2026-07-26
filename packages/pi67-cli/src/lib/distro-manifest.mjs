@@ -4,7 +4,7 @@ import { EXTERNAL_REPOS } from "./external-repos.mjs";
 import { readJsonFileIfExists } from "./config-json.mjs";
 import { packageRoot } from "./paths.mjs";
 import { readExtensionRegistry } from "./extension-registry.mjs";
-import { readManagedExtensionBaselines } from "./managed-extensions.mjs";
+import { readManagedExtensionBaselines, settingsPackageSource } from "./managed-extensions.mjs";
 
 export function buildDistroManifest(ctx) {
   const base = readBaseManifest();
@@ -33,7 +33,8 @@ export function buildDistroManifest(ctx) {
   const knownRuntime = new Map((base.runtimePackageSpecs || []).map((item) => [item.spec, item]));
   const knownRuntimeNames = new Set((base.runtimePackageSpecs || []).map((item) => item.packageName));
   const settingsPackages = Array.isArray(settings.packages) ? settings.packages : [];
-  const runtimePackages = settingsPackages.map((spec) => {
+  const runtimePackages = settingsPackages.map((entry) => {
+    const spec = settingsPackageSource(entry);
     const packageName = packageNameFromSpec(spec);
     const known = knownRuntime.get(spec);
     const isThemePackage = packageName === base.theme.packageName;
@@ -108,7 +109,7 @@ export function lockedDependencyVersion(lockfile, packageName) {
 }
 
 export function packageNameFromSpec(spec) {
-  const value = String(spec || "");
+  const value = settingsPackageSource(spec);
   if (value.startsWith("npm:")) return npmPackageName(value.slice(4));
   if (value.startsWith("git:")) {
     const repo = value.split("/").pop() || value;

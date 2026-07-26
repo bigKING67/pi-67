@@ -81,12 +81,13 @@ belowBaseline
 atBaseline
 userManagedAhead
 userManagedDiverged
+filtered
 loadFailed
 unknown
 automaticActions
 ```
 
-普通 plan 不运行 Pi load probe，因此 `loadFailed` 通常为 0；使用
+普通 plan 不运行 Pi load probe，因此 `filtered` 和 `loadFailed` 通常为 0；使用
 `extensions doctor/status --deep` 才能产生真实 load-probe 结论。
 
 ### action 语义
@@ -151,9 +152,14 @@ unknown[]
 }
 ```
 
-深度 load probe schema：`pi67.pi-extension-load-probe.v1`。只有 probe exit 0、识别
-`User packages:` 且已配置 spec 未出现在 resolved list 时，才把该 entry 标记
-`load-failed`；探针自身失败不会伪装成单个 extension 内容故障。
+深度 load probe schema：`pi67.pi-extension-load-probe.v1`。`settings.json.packages`
+支持 Pi 官方字符串和 object entry；object 的 `source` 参与配置识别与去重。`pi list`
+中的 `(filtered)` 会记为 `loadStatus=filtered`，保留原 baseline status/action，不计入
+`loadFailed` 或自动动作。这里的 filtered 表示 package 使用了资源过滤 object，不代表
+所有资源类型都被禁用；例如可关闭 package skill 而继续加载 themes。只有 probe exit 0、
+识别 `User packages:` 且已配置 spec 既未 loaded 也未 filtered 时，才把该 entry 标记
+`load-failed`；探针自身失败不会伪装成单个 extension 内容故障。后续 update 也不会为
+已有 filtered object 重复追加字符串 spec。
 
 ## Skills 状态
 

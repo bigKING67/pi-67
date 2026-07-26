@@ -90,8 +90,11 @@ async function doctor(ctx, argv) {
   }
   for (const warning of validation.warnings) warn(warning);
   if (options.deep) {
-    if (loadProbe?.ok) pass(`pi list resolved ${loadProbe.loadedSpecs.length} configured packages`);
-    else {
+    if (loadProbe?.ok) {
+      pass(
+        `pi list resolved ${loadProbe.loadedSpecs.length} unfiltered and ${(loadProbe.filteredSpecs || []).length} resource-filtered package entries`,
+      );
+    } else {
       fail(`pi list load probe failed${loadProbe?.error ? `: ${loadProbe.error}` : ""}`);
       process.exitCode = 1;
     }
@@ -241,6 +244,7 @@ function printManagedSummary(data) {
   keyValue("Safely behind", summary.belowBaseline);
   keyValue("Ahead preserved", summary.userManagedAhead);
   keyValue("Modified preserved", summary.userManagedDiverged);
+  keyValue("Filtered", summary.filtered);
   keyValue("Load failed", summary.loadFailed);
 }
 

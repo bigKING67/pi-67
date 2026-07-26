@@ -11,7 +11,8 @@ Use this rule for browser-visible behavior, logged-in sessions, current tabs, do
 
 - Use browser67 for real Chrome/Edge state, logged-in pages, managed tabs, downloads/uploads, file chooser, clipboard wrappers, CDP batch checks, and browser smoke. The current MCP tool key remains `tmwd_browser`; `tmwd` is only a transport/protocol term.
 - Use `js-reverse` for API discovery, request initiator tracing, signing chains, script search, network/WS sampling, Hook injection, evidence export, and local environment reproduction.
-- Use web search/fetch for ordinary facts, official docs, latest info, citations, and public source verification.
+- Use `pi-web-access` (`web_search`, `get_search_content`, and `fetch_content`) for search, GitHub repositories, PDF/video extraction, and fallback retrieval. Use `pi-smart-fetch` (`web_fetch` and `batch_web_fetch`) first for known ordinary URLs, cleaned article text, fingerprint-sensitive HTTP/TLS retrieval, batches, and downloads.
+- For a known ordinary URL, try `web_fetch` first; if it fails or returns thin content, use `fetch_content`. Escalate logged-in or dynamic DOM work to browser67 and signing/obfuscated JavaScript work to `js-reverse`; do not repeat the same failed route three times.
 - Use in-app/browser preview only for localhost or file previews without user login state.
 
 ## Managed tab lifecycle

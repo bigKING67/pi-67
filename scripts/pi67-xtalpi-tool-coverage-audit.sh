@@ -491,9 +491,17 @@ function packageEntry(spec, source) {
   };
 }
 
+function packageSource(entry) {
+  if (typeof entry === "string") return entry.trim();
+  if (entry && typeof entry === "object" && !Array.isArray(entry) && typeof entry.source === "string") {
+    return entry.source.trim();
+  }
+  return "";
+}
+
 const settingsFile = path.join(repoRoot, "settings.json");
 const settings = readJson(settingsFile);
-const settingsSpecs = Array.isArray(settings.packages) ? settings.packages.map(String) : [];
+const settingsSpecs = Array.isArray(settings.packages) ? settings.packages.map(packageSource).filter(Boolean) : [];
 const requestedSpecs = includeTargets.map(normalizeSpec);
 const specs = unique([...settingsSpecs, ...requestedSpecs]);
 const entries = specs.map((spec) => packageEntry(spec, settingsSpecs.includes(spec) ? "settings" : "included"));

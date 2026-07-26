@@ -279,7 +279,11 @@ const repoRoot = process.argv[2];
 const settings = JSON.parse(fs.readFileSync(path.join(repoRoot, "settings.example.json"), "utf8"));
 const packages = Array.isArray(settings.packages) ? settings.packages : [];
 for (const spec of packages) {
-  const value = String(spec);
+  const value = typeof spec === "string"
+    ? spec.trim()
+    : spec && typeof spec === "object" && !Array.isArray(spec) && typeof spec.source === "string"
+      ? spec.source.trim()
+      : "";
   if (value.includes("github.com/bigKING67/design-craft") || value.includes("github.com/bigKING67/browser67")) {
     throw new Error(`shared skill source should not be an active Pi package: ${spec}`);
   }

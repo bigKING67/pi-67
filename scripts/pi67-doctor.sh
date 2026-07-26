@@ -656,6 +656,14 @@ function intersection(left, right) {
   return left.filter((item) => rightSet.has(item));
 }
 
+function packageSource(entry) {
+  if (typeof entry === "string") return entry.trim();
+  if (entry && typeof entry === "object" && !Array.isArray(entry) && typeof entry.source === "string") {
+    return entry.source.trim();
+  }
+  return "";
+}
+
 async function main() {
   const settings = readJson(path.join(agentDir, "settings.json"));
   if (settings) {
@@ -667,7 +675,7 @@ async function main() {
         "github.com/bigKING67/browser67",
       ];
       for (const sourceNeedle of bannedSkillPackageSources) {
-        const spec = settings.packages.find((item) => String(item).includes(sourceNeedle));
+        const spec = settings.packages.map(packageSource).find((item) => item.includes(sourceNeedle));
         if (spec) {
           emit("FAIL", `settings.json still declares active skill package source: ${spec}`);
         }
