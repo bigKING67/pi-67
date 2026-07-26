@@ -6,6 +6,27 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.15.5] - 2026-07-26
+
+### Fixed
+
+- Recognized upstream Pi object entries in `settings.json.packages` by their
+  `source`, so resource-filtered packages remain configured, participate in
+  identity deduplication, and are not re-added as unfiltered string entries by
+  update or repair.
+- Distinguished `pi list` resource-filtered entries from genuine package load
+  failures. Deep extension diagnostics now report filtered packages without
+  changing their baseline status, scheduling automatic actions, or emitting
+  `[object Object]` for invalid package configuration.
+- Normalized object package sources across distro manifests, xtalpi smoke and
+  coverage planning, doctor, report, and smoke checks.
+
+### Changed
+
+- Documented explicit routing between `pi-smart-fetch` for known URL and batch
+  retrieval and `pi-web-access` for search, repository, PDF/video, and fallback
+  retrieval, with browser67 and `js-reverse` escalation boundaries.
+
 ## [0.15.4] - 2026-07-23
 
 ### Changed

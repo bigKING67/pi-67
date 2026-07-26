@@ -4,7 +4,7 @@ pi-67 是围绕 upstream Pi 的团队工作台发行与配置管理器。它交�
 prompts、默认扩展、共享 Skills、诊断脚本和可回滚的版本化工作区；日常交互
 入口始终是独立安装的 `pi`。
 
-当前发行版版本：`0.15.4`。
+当前发行版版本：`0.15.5`。
 
 ## 产品边界
 
@@ -166,7 +166,7 @@ pi-67 不安装 Pi。Pi 的安装、升级和版本选择必须由用户按 upst
 正式发布后：
 
 ```bash
-npm install -g @bigking67/pi-67@0.15.4
+npm install -g @bigking67/pi-67@0.15.5
 pi-67 install
 pi-67 doctor --json
 pi

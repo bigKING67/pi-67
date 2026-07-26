@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## [0.15.5]
+
+- Recognizes official Pi object package entries by `source`, preserves
+  resource filters during default-package deduplication, and reports invalid
+  entries explicitly instead of coercing them to `[object Object]`.
+- Distinguishes resource-filtered packages from load failures in deep
+  extension diagnostics, while keeping filtered baseline status and update
+  actions unchanged.
+- Normalizes object package sources in distro manifests and bundled diagnostic,
+  reporting, smoke-plan, and coverage scripts.
+
 ## [0.15.4]
 
 - Prefers the active model's native multimodal image input and keeps
