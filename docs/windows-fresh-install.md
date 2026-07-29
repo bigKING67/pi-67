@@ -1,4 +1,4 @@
-# Windows 全新安装 pi-67 0.15.5
+# Windows 全新安装 pi-67 0.15.6
 
 本文面向 Windows 10/11 普通用户。pi-67 与 upstream Pi 独立：
 
@@ -6,7 +6,7 @@
 - `pi67-bootstrap.ps1` 只安装/更新 `@bigking67/pi-67` manager 与工作台；
 - pi-67 不检查、比较、推荐或升级 Pi 版本。
 
-本文对应 `0.15.5`；安装前可用 `npm view @bigking67/pi-67@latest version`
+本文对应 `0.15.6`；安装前可用 `npm view @bigking67/pi-67@latest version`
 核对 registry 当前正式版本。
 
 ## 1. 要求
@@ -73,7 +73,7 @@ bootstrap 的职责：
 安装指定版本：
 
 ```powershell
-npm install --global @bigking67/pi-67@0.15.5 --no-audit --no-fund --no-update-notifier
+npm install --global @bigking67/pi-67@0.15.6 --no-audit --no-fund --no-update-notifier
 pi-67 --help
 ```
 

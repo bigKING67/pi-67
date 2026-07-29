@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.15.6]
+
+- Bundles `consumer-brand-commerce-marketing-suite@2.2.0` from upstream commit
+  `1c28f48ef002ce7dea18bbf5746eb9b4c2876971`, including all eight refreshed
+  Commerce and Marketing Skills and their self-contained reference assets.
+- Preserves the first-party bundled-only ownership contract when the Commerce
+  Skill Pack registry entry is regenerated during maintainer synchronization.
+
 ## [0.15.5]
 
 - Recognizes official Pi object package entries by `source`, preserves

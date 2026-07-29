@@ -6,6 +6,23 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.15.6] - 2026-07-29
+
+### Changed
+
+- Updated the bundled first-party Consumer Brand Commerce and Marketing Skill
+  Pack from `2.0.0` to `2.2.0` at upstream commit
+  `1c28f48ef002ce7dea18bbf5746eb9b4c2876971`, refreshing all eight Commerce
+  and Marketing Skills, their self-contained references, and the deterministic
+  unit-economics calculator.
+
+### Fixed
+
+- Preserved `owner=pi67-first-party` and
+  `distribution=bundled-release-only` when the Commerce Skill Pack sync helper
+  refreshes `shared-skill-packs.json`, and added regression coverage for the
+  ownership, distribution, and upstream provenance contract.
+
 ## [0.15.5] - 2026-07-26
 
 ### Fixed

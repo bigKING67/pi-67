@@ -12,7 +12,7 @@ doctor and emits `pi67-doctor/v2`.
   "generatedAt": "2026-07-22T12:00:00Z",
   "generatedBy": "scripts/pi67-doctor.sh",
   "pi67": {
-    "version": "0.15.5"
+    "version": "0.15.6"
   },
   "piCommandAvailable": true,
   "diagnostics": {
