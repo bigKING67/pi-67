@@ -33,27 +33,18 @@ ROI = transaction amount / ad spend
 Gross-profit ROI = gross profit / ad spend
 Break-even ROI = 1 / margin available for paid media
 
-Channel net profit =
-GMV
-- product cost
-- platform fee
-- ad spend
-- creator commission
-- pit fee
-- gift cost
-- fulfillment cost
-- refund loss
-- sample cost
-- service fee
-- content cost
+Available before ad =
+GMV - product cost - platform fee - creator commission - pit fee
+- gift cost - sample cost - fulfillment cost - refund loss
+- service fee - content cost
 
-Allowable CAC =
-AOV x comprehensive gross margin
-- fulfillment cost
-- platform fee
-- gift cost
-- target unit profit
+Channel net profit = available before ad - ad spend
+Comprehensive margin = available before ad / GMV
+Break-even ROI = 1 / comprehensive margin
+Allowable CAC = available before ad / orders - target unit profit
 ```
+
+All terms in `available before ad` are totals for the same decision window. A missing cost is not zero: in strict mode, explicitly provide every required cost bucket, using `0` only when the cost is confirmed not to apply. Creator commission and pit fee are additionally mandatory for a talent scenario.
 
 ## Missing-data handling
 

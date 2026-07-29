@@ -424,9 +424,9 @@ if [ ! -f "$COMMERCE_DEST_ROOT/commerce-growth-os/SKILL.md" ] \
   || [ ! -f "$COMMERCE_PACK_LOCK" ]; then
   fail "commerce Skill Pack sync apply did not copy the complete pack"
 fi
-node - "$COMMERCE_PACK_LOCK" "$COMMERCE_SOURCE_COMMIT" <<'NODE'
+node - "$COMMERCE_PACK_LOCK" "$COMMERCE_PACK_REGISTRY" "$COMMERCE_SOURCE_COMMIT" <<'NODE'
 const fs = require("fs");
-const [, , lockFile, sourceCommit] = process.argv;
+const [, , lockFile, registryFile, sourceCommit] = process.argv;
 const lock = JSON.parse(fs.readFileSync(lockFile, "utf8"));
 if (lock.schema !== "pi67.shared-skill-packs-lock.v1") throw new Error("unexpected Skill Pack lock schema");
 const pack = lock.packs?.[0];
@@ -435,6 +435,14 @@ if (!/^[0-9a-f]{64}$/.test(pack?.manifest_sha256 || "")) throw new Error("missin
 if (!/^[0-9a-f]{64}$/.test(pack?.bundle_sha256 || "")) throw new Error("missing bundle SHA-256");
 if (pack?.skills?.length !== 8 || pack.skills.some((skill) => !/^[0-9a-f]{64}$/.test(skill.sha256 || ""))) {
   throw new Error("missing per-Skill SHA-256 provenance");
+}
+const registry = JSON.parse(fs.readFileSync(registryFile, "utf8"));
+const registryPack = registry.packs?.find((entry) => entry.name === "consumer-brand-commerce-marketing-suite");
+if (registryPack?.owner !== "pi67-first-party" || registryPack?.distribution !== "bundled-release-only") {
+  throw new Error("commerce Skill Pack ownership contract mismatch");
+}
+if (registryPack?.upstream !== "https://github.com/bigKING67/commerce-growth-os") {
+  throw new Error("commerce Skill Pack upstream provenance mismatch");
 }
 NODE
 if [ -e "$COMMERCE_DEST_ROOT/commerce-growth-os/.git" ] || [ -e "$COMMERCE_DEST_ROOT/commerce-growth-os/eval/answers" ]; then

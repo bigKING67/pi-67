@@ -36,4 +36,4 @@ Use for premium maternal, infant, toddler, feeding, care, hygiene, safety, devel
 
 ## Specialist application
 
-Product and Supply Chain must eventually own safety/specification and traceability; current Commerce and Marketing skills must surface these dependencies rather than invent assurances.
+Safety, specification, and traceability must be confirmed by the user-designated Product, Quality, Supply, Legal, or external specialist owner. Until confirmed, Commerce and Marketing must surface the dependency as a blocker rather than invent assurances.

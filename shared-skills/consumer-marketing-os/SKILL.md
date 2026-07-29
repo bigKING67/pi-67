@@ -1,6 +1,6 @@
 ---
 name: consumer-marketing-os
-description: 消费品牌全域整合营销中枢。用于年度/季度 Marketing Strategy、新品上市、品牌建设与销售增长平衡、线上线下整合传播、品牌传播/内容社交/效果增长预算分配和跨营销专业编排。仅在问题横跨多个 Marketing 专业域或用户显式调用时使用。
+description: 消费品牌全域整合营销中枢。用于年度/季度 Marketing Strategy、完整新品上市或整合 Campaign、品牌建设与销售增长平衡、线上线下整合传播，以及跨品牌/内容/效果的预算、优先级或目标冲突裁决。仅在需要完整整合方案、跨专业取舍或用户显式调用时使用；边界明确的多专业单项交付直接组合必要 specialists。
 ---
 
 # Consumer Marketing OS
@@ -16,6 +16,8 @@ Orchestrate full-funnel marketing for consumer brands. Align brand assets, conte
 - Paid media, search, conversion, experiments, CRM, retention, or lifecycle: use `growth-performance-lifecycle-marketing`.
 
 Use this orchestrator for annual plans, integrated campaigns, launches, media allocation across brand/content/performance, or conflicts between long-term brand and short-term sales.
+
+For a bounded deliverable such as a creator Brief plus paid amplification, content plus search landing, or brand guidance plus content execution, use only the necessary specialists. Do not add this orchestrator merely because two Marketing domains are present.
 
 ## Workflow
 
@@ -37,6 +39,7 @@ Use this orchestrator for annual plans, integrated campaigns, launches, media al
 
 - `references/contracts/marketing-strategy.md`
 - `references/contracts/answer-quality-rubric.md`
+- `references/contracts/category-overlay-contract.md` before applying a category overlay.
 - `references/currentness/` for current platform claims.
 - `references/category-overlays/` and `references/platform-overlays/` only when relevant.
 

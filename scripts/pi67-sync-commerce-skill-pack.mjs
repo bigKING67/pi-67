@@ -14,6 +14,8 @@ import {
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..");
 const PACK_NAME = "consumer-brand-commerce-marketing-suite";
+const PACK_OWNER = "pi67-first-party";
+const PACK_DISTRIBUTION = "bundled-release-only";
 const UPSTREAM = "https://github.com/bigKING67/commerce-growth-os";
 const EXPECTED_SKILLS = [
   "commerce-growth-os",
@@ -281,6 +283,8 @@ function buildRegistryUpdate(file, manifest) {
   const entry = {
     name: PACK_NAME,
     version: manifest.pack_version,
+    owner: PACK_OWNER,
+    distribution: PACK_DISTRIBUTION,
     upstream: UPSTREAM,
     sync_helper: "scripts/pi67-sync-commerce-skill-pack.sh",
     skills: [...EXPECTED_SKILLS],

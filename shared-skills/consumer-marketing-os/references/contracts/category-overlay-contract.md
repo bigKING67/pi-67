@@ -6,7 +6,9 @@ Category overlays add category-specific invariants to a specialist workflow. The
 
 ## Load when
 
-Load the closest overlay when the category changes evidence, claims, economics, returns, fulfillment, lifecycle, or trust requirements. Default to `beauty-personal-care.md` only when the user does not name a category and a category assumption is necessary.
+Load an overlay only when the category changes evidence, claims, economics, returns, fulfillment, lifecycle, or trust requirements. When the category is unknown, ask for it or continue with the general specialist contract and label category as a missing input; never default to Beauty or another arbitrary category.
+
+For an overlapping category, select one primary overlay by the product's regulatory classification, primary value proposition, and the material risk in the current decision. Load a secondary overlay only when it contributes a distinct material risk. If two overlays conflict, apply the stricter safety, regulatory, and evidence requirement and state the unresolved owner or evidence dependency.
 
 ## Required intake
 
@@ -40,7 +42,7 @@ Do not duplicate:
 - Generic KOL/KOC, content, paid-media, CRM, or campaign methods.
 - Generic store, live, customer-service, or review SOPs.
 - Generic dashboards, attribution, or experiment methods.
-- Supplier, procurement, production, or S&OP methods that belong to future Supply Chain skills.
+- Supplier, procurement, production, or S&OP methods. Route these to the user-designated Supply, Product, Quality, or external specialist owner; if none is confirmed, keep the dependency as a blocker.
 
 ## Routing
 
@@ -54,6 +56,8 @@ Do not duplicate:
 - `nutrition-and-functional-food.md`: nutrition food, functional snacks, protein, low-sugar, wellness beverages, and routine consumables.
 - `consumer-electronics-and-smart-hardware.md`: electronics, smart hardware, wearables, small appliances, and connected devices.
 - `home-paper-and-daily-necessities.md`: tissue, paper goods, cleaning, hygiene, bulky packs, and household consumables.
+
+Overlap examples: a beauty device may use Smart Hardware as primary and Beauty as secondary; a pet supplement, infant nutrition product, or functional beverage should use the regulated Nutrition overlay where formula, allergen, dosage, or claims are the material risk, with Pet, Mother/Baby, or Food as secondary context when needed.
 
 ## Evidence rule
 

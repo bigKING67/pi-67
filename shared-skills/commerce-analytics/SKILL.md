@@ -1,6 +1,6 @@
 ---
 name: commerce-analytics
-description: 消费品牌电商经营分析 Skill。用于指标口径、数据质量、GMV/利润/ROI/退款/转化/搜索/复购漏斗、渠道贡献、Cohort/LTV、归因、实验、异常诊断以及日报周报月报。解决“事实发生了什么、为什么、证据有多强”。
+description: 消费品牌电商经营分析 Skill。用于指标口径、数据质量、GMV/利润/ROI/退款/转化/搜索/复购漏斗、渠道贡献、Cohort/LTV、归因、实验、异常诊断以及日报周报月报。解决“事实发生了什么、为什么、证据有多强”；不负责退款执行 SOP、付费搜索投放、基于 LTV 的预算决策，也不参与已知成本输入下的单次渠道净利润/达人合作测算，后者属于 commerce-commercial-strategy。
 ---
 
 # Commerce Analytics
@@ -30,6 +30,8 @@ Own the facts layer for commerce decisions. Define comparable metrics, diagnose 
 
 - `references/data-review-metrics.md`
 - `references/contracts/answer-quality-rubric.md`
+- `references/contracts/category-overlay-contract.md` before applying a category overlay.
+- `references/currentness/` for current report fields, attribution options, and platform metric definitions.
 - `references/platform-overlays/` for platform-specific metric differences.
 - `references/category-overlays/` for category-specific cycles and risks.
 

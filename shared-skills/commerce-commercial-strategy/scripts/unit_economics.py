@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import difflib
 import json
 import math
 import sys
@@ -23,6 +24,7 @@ RATE_KEYS = {
     "refund_loss_rate",
     "service_fee_rate",
     "content_cost_rate",
+    "refund_rate",
 }
 
 NONNEGATIVE_KEYS = {
@@ -47,12 +49,42 @@ NONNEGATIVE_KEYS = {
     "fulfillment_cost_per_order",
 }
 
+ALLOWED_INPUT_KEYS = RATE_KEYS | NONNEGATIVE_KEYS
+
+STRICT_COMMON_REQUIRED_GROUPS = (
+    ("platform fee", ("platform_fee", "platform_fee_rate")),
+    ("fulfillment cost", ("fulfillment_cost", "fulfillment_cost_rate", "fulfillment_cost_per_order")),
+    ("gift cost", ("gift_cost", "gift_cost_rate", "gift_cost_per_order")),
+    ("sample cost", ("sample_cost", "sample_cost_rate", "sample_cost_per_order")),
+    ("refund loss", ("refund_loss", "refund_loss_rate")),
+    ("service fee", ("service_fee", "service_fee_rate")),
+    ("content cost", ("content_cost", "content_cost_rate")),
+    ("ad spend", ("ad_spend",)),
+    ("target profit", ("target_profit", "target_unit_profit")),
+)
+
 
 def has_value(raw_data: dict[str, Any], *keys: str) -> bool:
     return any(key in raw_data and raw_data[key] not in (None, "") for key in keys)
 
 
+def validate_input_keys(raw_data: dict[str, Any]) -> None:
+    invalid_types = [key for key in raw_data if not isinstance(key, str)]
+    if invalid_types:
+        raise ValueError(f"input keys must be strings, got {invalid_types!r}")
+    unknown = sorted(set(raw_data) - ALLOWED_INPUT_KEYS)
+    if not unknown:
+        return
+
+    rendered: list[str] = []
+    for key in unknown:
+        suggestion = difflib.get_close_matches(key, ALLOWED_INPUT_KEYS, n=1, cutoff=0.65)
+        rendered.append(f"{key} (did you mean {suggestion[0]}?)" if suggestion else key)
+    raise ValueError("unknown input key(s): " + ", ".join(rendered))
+
+
 def parse_number(raw: Any, key: str, warnings: list[str]) -> float:
+    parsed_percent_string = False
     if raw is None or raw == "":
         return 0.0
     if isinstance(raw, bool):
@@ -62,16 +94,19 @@ def parse_number(raw: Any, key: str, warnings: list[str]) -> float:
     elif isinstance(raw, str):
         text = raw.strip().replace(",", "")
         if text.endswith("%"):
+            if key not in RATE_KEYS:
+                raise ValueError(f"{key} does not accept percent values")
             value = float(text[:-1]) / 100.0
+            parsed_percent_string = True
             warnings.append(f"{key} parsed as percent string")
-            return value
-        value = float(text)
+        else:
+            value = float(text)
     else:
         raise ValueError(f"{key} must be numeric, got {type(raw).__name__}")
 
     if not math.isfinite(value):
         raise ValueError(f"{key} must be finite")
-    if key in RATE_KEYS and abs(value) > 1 and abs(value) <= 100:
+    if key in RATE_KEYS and not parsed_percent_string and abs(value) > 1 and abs(value) <= 100:
         warnings.append(f"{key} normalized from percent-like value {value} to {value / 100.0}")
         value = value / 100.0
     if key in RATE_KEYS and not 0.0 <= value <= 1.0:
@@ -120,20 +155,10 @@ def validate_strict_inputs(raw_data: dict[str, Any], scenario: str) -> None:
         missing.append("gmv, or both orders and aov")
     if not has_value(raw_data, "product_cost", "product_cost_rate", "gross_margin_rate"):
         missing.append("product_cost, product_cost_rate, or gross_margin_rate")
-    required_groups = [
-        ("platform fee", ("platform_fee", "platform_fee_rate")),
-        ("fulfillment cost", ("fulfillment_cost", "fulfillment_cost_rate", "fulfillment_cost_per_order")),
-        ("gift cost", ("gift_cost", "gift_cost_rate", "gift_cost_per_order")),
-        ("refund loss", ("refund_loss", "refund_loss_rate")),
-        ("ad spend", ("ad_spend",)),
-        ("target profit", ("target_profit", "target_unit_profit")),
-    ]
-    for label, keys in required_groups:
+    for label, keys in STRICT_COMMON_REQUIRED_GROUPS:
         if not has_value(raw_data, *keys):
             missing.append(f"{label} ({', '.join(keys)})")
 
-    if scenario in {"paid", "talent"} and not has_value(raw_data, "ad_spend"):
-        missing.append("ad_spend for paid-media scenario; use ad_spend=0 only when explicitly no paid media is involved")
     if scenario == "talent":
         if not has_value(raw_data, "creator_commission", "creator_commission_rate"):
             missing.append("creator_commission or creator_commission_rate for talent scenario")
@@ -144,13 +169,26 @@ def validate_strict_inputs(raw_data: dict[str, Any], scenario: str) -> None:
         raise ValueError("strict mode missing required inputs: " + "; ".join(missing))
 
 
-def add_consistency_warnings(data: dict[str, float], warnings: list[str]) -> None:
-    if "gross_margin_rate" in data and "product_cost_rate" in data:
-        implied_margin = 1.0 - data["product_cost_rate"]
-        if abs(implied_margin - data["gross_margin_rate"]) > 0.02:
-            warnings.append(
-                "gross_margin_rate and product_cost_rate differ by more than 2 percentage points"
-            )
+def check_consistency(
+    label: str,
+    candidates: list[tuple[str, float]],
+    warnings: list[str],
+    *,
+    strict: bool,
+) -> None:
+    if len(candidates) < 2:
+        return
+    baseline_name, baseline_value = candidates[0]
+    for name, value in candidates[1:]:
+        if math.isclose(value, baseline_value, rel_tol=0.01, abs_tol=0.01):
+            continue
+        message = (
+            f"inconsistent {label} representations: "
+            f"{baseline_name}={baseline_value:.6g}, {name}={value:.6g}"
+        )
+        if strict:
+            raise ValueError(message)
+        warnings.append(message + f"; using {baseline_name}")
 
 
 def amount(
@@ -163,13 +201,24 @@ def amount(
     gmv: float,
     orders: float | None,
     warn_if_missing: bool = False,
+    strict: bool = False,
 ) -> float:
+    candidates: list[tuple[str, float]] = []
     if name in data:
-        return data[name]
+        candidates.append((name, data[name]))
     if rate_name and rate_name in data:
-        return data[rate_name] * gmv
-    if per_order_name and per_order_name in data and orders:
-        return data[per_order_name] * orders
+        candidates.append((rate_name, data[rate_name] * gmv))
+    if per_order_name and per_order_name in data:
+        if orders:
+            candidates.append((per_order_name, data[per_order_name] * orders))
+        else:
+            message = f"{per_order_name} requires positive orders or enough data to derive orders"
+            if strict:
+                raise ValueError(message)
+            warnings.append(message + "; ignored")
+    if candidates:
+        check_consistency(name, candidates, warnings, strict=strict)
+        return candidates[0][1]
     if warn_if_missing:
         warnings.append(f"{name} missing; assumed 0")
     return 0.0
@@ -182,11 +231,13 @@ def calculate(
     scenario: str = "general",
     sensitivity: bool = False,
 ) -> dict[str, Any]:
+    if scenario not in {"general", "paid", "talent"}:
+        raise ValueError(f"unknown scenario: {scenario}")
+    validate_input_keys(raw_data)
     if strict:
         validate_strict_inputs(raw_data, scenario)
     warnings: list[str] = []
     data = {key: parse_number(value, key, warnings) for key, value in raw_data.items()}
-    add_consistency_warnings(data, warnings)
 
     gmv = data.get("gmv", 0.0)
     aov = data.get("aov", 0.0)
@@ -198,16 +249,23 @@ def calculate(
     if not orders and gmv and aov:
         orders = gmv / aov
         warnings.append("orders derived from gmv / aov")
+    if strict and gmv <= 0:
+        raise ValueError("strict mode requires positive gmv, or positive orders and aov")
     if not gmv:
         warnings.append("gmv missing or zero; ratio outputs may be null")
 
+    product_cost_candidates: list[tuple[str, float]] = []
     if "product_cost" in data:
-        product_cost = data["product_cost"]
-    elif "product_cost_rate" in data:
-        product_cost = data["product_cost_rate"] * gmv
-    elif "gross_margin_rate" in data:
-        product_cost = gmv * (1.0 - data["gross_margin_rate"])
-        warnings.append("product_cost derived from gross_margin_rate")
+        product_cost_candidates.append(("product_cost", data["product_cost"]))
+    if "product_cost_rate" in data:
+        product_cost_candidates.append(("product_cost_rate", data["product_cost_rate"] * gmv))
+    if "gross_margin_rate" in data:
+        product_cost_candidates.append(("gross_margin_rate", gmv * (1.0 - data["gross_margin_rate"])))
+    if product_cost_candidates:
+        check_consistency("product_cost", product_cost_candidates, warnings, strict=strict)
+        product_cost = product_cost_candidates[0][1]
+        if product_cost_candidates[0][0] == "gross_margin_rate":
+            warnings.append("product_cost derived from gross_margin_rate")
     else:
         product_cost = 0.0
         warnings.append("product_cost or gross_margin_rate missing; product_cost assumed 0")
@@ -220,6 +278,7 @@ def calculate(
         gmv=gmv,
         orders=orders,
         warn_if_missing=True,
+        strict=strict,
     )
     ad_spend = data.get("ad_spend", 0.0)
     if "ad_spend" not in data:
@@ -233,6 +292,7 @@ def calculate(
         gmv=gmv,
         orders=orders,
         warn_if_missing=False,
+        strict=strict,
     )
     pit_fee = data.get("pit_fee", 0.0)
     gift_cost = amount(
@@ -244,6 +304,7 @@ def calculate(
         gmv=gmv,
         orders=orders,
         warn_if_missing=True,
+        strict=strict,
     )
     sample_cost = amount(
         data,
@@ -253,7 +314,8 @@ def calculate(
         per_order_name="sample_cost_per_order",
         gmv=gmv,
         orders=orders,
-        warn_if_missing=False,
+        warn_if_missing=True,
+        strict=strict,
     )
     fulfillment_cost = amount(
         data,
@@ -264,6 +326,7 @@ def calculate(
         gmv=gmv,
         orders=orders,
         warn_if_missing=True,
+        strict=strict,
     )
     refund_loss = amount(
         data,
@@ -273,6 +336,7 @@ def calculate(
         gmv=gmv,
         orders=orders,
         warn_if_missing=True,
+        strict=strict,
     )
     if "refund_rate" in data and "refund_loss" not in data and "refund_loss_rate" not in data:
         warnings.append("refund_rate provided without refund_loss/refund_loss_rate; not converted to monetary loss")
@@ -284,7 +348,8 @@ def calculate(
         rate_name="service_fee_rate",
         gmv=gmv,
         orders=orders,
-        warn_if_missing=False,
+        warn_if_missing=True,
+        strict=strict,
     )
     content_cost = amount(
         data,
@@ -293,21 +358,27 @@ def calculate(
         rate_name="content_cost_rate",
         gmv=gmv,
         orders=orders,
-        warn_if_missing=False,
+        warn_if_missing=True,
+        strict=strict,
     )
 
-    if "target_profit" in data:
-        target_profit_total = data["target_profit"]
-    elif "target_unit_profit" in data and orders:
-        target_profit_total = data["target_unit_profit"] * orders
-    else:
-        target_profit_total = 0.0
-        warnings.append("target_profit or target_unit_profit missing; assumed 0")
+    target_profit_total = amount(
+        data,
+        warnings,
+        name="target_profit",
+        per_order_name="target_unit_profit",
+        gmv=gmv,
+        orders=orders,
+        warn_if_missing=True,
+        strict=strict,
+    )
 
     gross_profit = gmv - product_cost
     available_before_ad = (
         gross_profit
         - platform_fee
+        - creator_commission
+        - pit_fee
         - gift_cost
         - sample_cost
         - fulfillment_cost
@@ -315,7 +386,7 @@ def calculate(
         - service_fee
         - content_cost
     )
-    channel_net_profit = available_before_ad - ad_spend - creator_commission - pit_fee
+    channel_net_profit = available_before_ad - ad_spend
     comprehensive_margin = safe_div(available_before_ad, gmv)
     break_even_roi = safe_div(1.0, comprehensive_margin) if comprehensive_margin and comprehensive_margin > 0 else None
 

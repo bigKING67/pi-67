@@ -13,16 +13,9 @@ Separate stable operating principles from current platform facts.
 
 Do not present a current platform fact as confirmed unless it is verified from an authoritative source or from the user's current backend evidence.
 
-## Sources to prefer
+## Required evidence
 
-Use `currentness-source-map.md` to choose the verification surface, then use sources in this order:
-
-1. User-provided current backend screenshots, exported reports, campaign settings, or platform notices.
-2. Official help centers, official product documentation, official announcements, or official platform policy pages.
-3. Official commercial account manager material supplied by the user.
-4. Recent authoritative industry notes only as secondary context.
-
-If sources conflict, trust live backend evidence first, then official documentation, then recent announcements, then third-party commentary.
+Use `currentness-official-sources.md` to choose the verification surface and official entry point. A reachable URL proves only entry-point reachability; it does not prove content freshness, account eligibility, or current capability.
 
 ## Required labels
 
@@ -35,15 +28,7 @@ Label platform-sensitive claims:
 
 Never hide the verification status inside the prose. Put it near the claim or in a short "Currentness" note.
 
-## What must be verified
-
-Verify before making specific claims about:
-
-- Douyin, Ocean Engine, Qianchuan, Xingtu, Douyin Mall, product card, search, and live-room ad capabilities.
-- Tmall/Taobao, Wanxiangtai, search ads, audience promotion, member tools, campaign mechanics, and store operation rules.
-- Xiaohongshu, Pugongying, Juguang Feed/Search, creator cooperation, search interception, and off-platform landing limits.
-- Platform claim review, advertising law risk, creator disclosure rules, medical/health/beauty/mother-baby/pet claim restrictions.
-- Fees, deposits, thresholds, campaign eligibility, creator commission structures, and current data field definitions.
+Verify any product name, entrance, targeting/bidding option, attribution field, fee, eligibility threshold, creator workflow, platform rule, or compliance wording that can change the decision.
 
 ## Response pattern
 

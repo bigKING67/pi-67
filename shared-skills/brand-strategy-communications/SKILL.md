@@ -32,6 +32,7 @@ Own long-term brand meaning, reputation, distinctive assets, earned influence, a
 - `references/contracts/endorsement-plan.md` for spokesperson or ambassador decisions.
 - `references/contracts/campaign-brief.md` for integrated campaigns.
 - `references/contracts/answer-quality-rubric.md`
+- `references/contracts/category-overlay-contract.md` before applying a category overlay.
 
 ## Boundary
 

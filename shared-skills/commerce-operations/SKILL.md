@@ -1,6 +1,6 @@
 ---
 name: commerce-operations
-description: 消费品牌电商运营 Skill。用于抖音/天猫/京东/拼多多/快手/视频号等渠道的店铺、货架、搜索承接、自播与达播执行、活动排期、库存协同、履约、客服、售后、退款、评价和日周月运营 SOP。解决“每天怎么落地执行和稳定经营”。
+description: 消费品牌电商运营 Skill。用于抖音/天猫/京东/拼多多/快手/视频号等渠道的店铺、货架、搜索承接、自播与达播执行、直播产品顺序、活动排期、库存协同、履约、客服、售后、退款、评价和日周月运营 SOP。解决“每天怎么落地执行和稳定经营”；商业货盘/SKU 角色已确认后的直播排品执行由本 Skill 独立负责，纯指标口径、退款根因和数据置信度分析属于 commerce-analytics。
 ---
 
 # Commerce Operations
@@ -30,13 +30,15 @@ Translate commercial and marketing decisions into reliable channel execution. Ow
 ## References
 
 - `references/promotion-fulfillment-data.md`
+- `references/contracts/answer-quality-rubric.md`
+- `references/contracts/category-overlay-contract.md` before applying a category overlay.
 - `references/platform-overlays/` for platform-specific execution.
 - `references/category-overlays/` for category-specific fulfillment, refund, and compliance risks.
 - `references/currentness/` for current platform capabilities.
 
 ## Boundary
 
-Commercial Strategy owns prices and economics. Marketing owns audience, communication, content strategy, and paid-media strategy. Analytics owns data definitions. Future Supply Chain owns demand planning, procurement, production, upstream inventory, and warehouse-network capability.
+Commercial Strategy owns prices and economics. Marketing owns audience, communication, content strategy, and paid-media strategy. Analytics owns data definitions. Demand planning, procurement, production, upstream inventory, quality, or warehouse-network readiness must be confirmed by the user-designated Supply, Product, Quality, or external specialist owner; without one, keep the dependency as a blocker.
 
 ## Output contract
 

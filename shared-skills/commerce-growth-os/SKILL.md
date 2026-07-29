@@ -1,6 +1,6 @@
 ---
 name: commerce-growth-os
-description: 全域电商经营中枢。用于跨商业策略、Marketing、平台运营和经营分析的综合诊断、90 天增长方案、渠道组合与跨专业冲突裁决。仅在问题横跨多个 Commerce 专业域或用户显式调用 $commerce-growth-os 时使用；窄问题应路由到对应专家 Skill。
+description: 全域电商经营中枢。用于跨商业策略、Marketing、平台运营和经营分析的综合诊断、90 天增长方案、渠道组合与跨专业冲突裁决。仅在用户需要综合诊断、完整经营方案、跨专业冲突裁决或显式调用 $commerce-growth-os 时使用；有明确边界的单项交付即使组合两三个专家，也直接组合专家而不额外加入本 Skill。
 ---
 
 # Commerce Growth OS
@@ -21,7 +21,7 @@ Do not duplicate specialist knowledge. Narrow questions should use one specialis
 - Xiaohongshu/Douyin content, creator content, briefs, scripts, storyboards, or creative systems: use `content-creative-social-marketing`.
 - Paid media, search, conversion experiments, CRM, lifecycle, or retention: use `growth-performance-lifecycle-marketing`.
 
-Use this orchestrator when at least two specialist domains are required, or when the user asks for a full commerce operating plan.
+Use this orchestrator when the user asks for a full commerce operating plan, an integrated diagnosis, or a cross-domain conflict that requires one coordinated decision. For a bounded deliverable with clear specialist ownership, compose the necessary specialists directly without adding this orchestrator merely because two domains are involved.
 
 ## Operating sequence
 
@@ -83,11 +83,10 @@ Load only when required:
 - `references/contracts/answer-quality-rubric.md`
 - `references/contracts/category-overlay-contract.md`
 - `references/currentness/platform-currentness.md`
-- `references/currentness/currentness-source-map.md`
 - `references/currentness/currentness-official-sources.md`
 - `references/category-overlays/`
 - `references/platform-overlays/`
 
 ## Quality contract
 
-Every material recommendation must include mechanism, owner, metric, stop condition, scale condition, risk, and review window. Never present GMV growth as success when profit, refunds, cash recovery, brand assets, or supply capability deteriorate.
+Every material recommendation must include mechanism, owner, success/completion signal, material risk, and review window. Commercial or Growth investments must also define stop and scale conditions; Operations, Analytics, Brand, or Content work must use its own domain contract rather than inventing a scale rule. Never present GMV growth as success when profit, refunds, cash recovery, brand assets, or supply capability deteriorate.

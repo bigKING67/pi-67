@@ -36,4 +36,4 @@ Use for older-adult lifestyle, comfort, mobility-adjacent, convenience, sleep-en
 
 ## Specialist application
 
-Product must eventually own accessibility and safety requirements; Marketing must preserve dignity; Operations must provide patient service; Analytics must separate buyer and user outcomes.
+Accessibility and safety requirements must be confirmed by the user-designated Product, Quality, Legal, or external specialist owner; without confirmation they remain blockers. Marketing must preserve dignity, Operations must provide patient service, and Analytics must separate buyer and user outcomes.

@@ -3,6 +3,7 @@
 ## Contents
 
 - Universal quality gates
+- Specialist-specific contracts
 - Mode-specific requirements
 - Lint and currentness validation
 
@@ -19,14 +20,23 @@ A strong answer must pass these gates:
 3. **Economics before scale**: do not recommend budget, creator booking, discount, channel entry, or SKU expansion without unit economics or an explicit missing-data condition.
 4. **Assortment and price before channel**: do not jump to platform tactics before SKU role, price ladder, and price-floor logic.
 5. **Channel job clarity**: explain what each channel is supposed to do and which metric proves it is working.
-6. **Stop and scale rules**: include both stop rule and scale rule for any paid, live, creator, channel-entry, or discount decision.
-7. **Risk ownership**: name the margin, price-channel, fulfillment, refund, compliance, or service risk that can break the plan.
-8. **Review cadence**: define next review window when the answer contains an operating plan or data review.
-9. **Currentness label**: label platform-current claims as `Officially verified`, `Confirmed from user backend`, `Stable operating principle`, or `Needs current verification`.
+6. **Executable contract**: state the mechanism, owner, success/completion signal, material risk, and next review or decision point.
+7. **Domain guardrail**: apply the specialist-specific contract below rather than forcing paid-media language into unrelated work.
+8. **Currentness label**: label platform-current claims as `Officially verified`, `Confirmed from user backend`, `Stable operating principle`, or `Needs current verification`.
+
+## Specialist-specific contracts
+
+- **Commercial / Growth**: economics, stop rule, and scale rule. Paid media, creator economics, discount, channel entry, and budget recommendations fail without both guardrails.
+- **Operations**: exception path, escalation owner, and recovery/reopen condition.
+- **Brand**: approval path, veto condition, and exit/termination condition.
+- **Content**: quality gate, rights/usage boundary, and refresh/retirement rule.
+- **Analytics**: confidence, alternative explanation, and next evidence required.
+
+Do not invent a scale rule for a data-quality diagnosis, crisis response, content review, or operational recovery. Use the contract of the actual decision domain.
 
 ## Anti-patterns
 
-Reject or rewrite answers that use these phrases without a concrete mechanism, owner, metric, and stop/scale rule:
+Reject or rewrite answers that use these phrases without a concrete mechanism, owner, success/completion signal, material risk, and next review or decision. Add stop/scale only when the active specialist contract or an investment decision requires it:
 
 - "提升品牌曝光"
 - "优化内容"
@@ -41,7 +51,7 @@ Reject or rewrite answers that use these phrases without a concrete mechanism, o
 Replace them with:
 
 ```text
-Action -> mechanism -> metric -> stop rule -> scale rule -> owner -> review window
+Decision -> evidence status -> mechanism -> owner -> success signal -> material risk -> next review/decision
 ```
 
 ## Mode-specific checks
@@ -61,10 +71,10 @@ Must include:
 Must include:
 
 - Decision: yes/no/test/hold.
-- Economics or missing economics.
-- Assumptions.
-- Stop rule.
-- Scale rule.
+- Evidence or assumptions.
+- Mechanism and conditions.
+- Owner and success signal.
+- Next decision/review.
 - Main risk.
 
 ### Full operating plan
@@ -87,7 +97,7 @@ Must include:
 - Likely cause.
 - Decision.
 - Owner/action.
-- Stop/scale rule.
+- Confidence, alternative explanation, and next evidence when Analytics owns the review.
 - Next review window.
 
 ## Currentness checks

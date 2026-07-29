@@ -2,7 +2,7 @@
 
 ## Load when
 
-Use this reference with `platform-currentness.md` and `currentness-source-map.md` when an answer needs current platform verification, official source selection, or evidence labeling.
+Use this reference with `platform-currentness.md` when an answer needs current platform verification, source selection, or evidence labeling.
 
 ## Rule
 
@@ -11,6 +11,15 @@ This file lists verification entry points and what to verify. It does not cache 
 Only label an answer `Officially verified` after checking the relevant official page, help center, policy page, or authenticated user backend in the current task. If a page is inaccessible, login-gated, stale-looking, or ambiguous, label the claim `Needs current verification`.
 
 Prefer the user's authenticated backend for operational capability details; public official pages can lag backend rollouts.
+
+## Verification order
+
+1. User-provided current backend screenshots, exports, campaign settings, rejection notices, or platform notices.
+2. Current official help centers, product documentation, announcements, and policy pages.
+3. Official account-manager or platform service material supplied by the user.
+4. Recent authoritative industry notes only as secondary context.
+
+If evidence conflicts, prefer live backend behavior, then current official documentation, then recent official notices, then third-party commentary. For legal, safety, health, efficacy, or regulated-category claims, use the user's review notice, official platform policy, applicable regulator material, or qualified legal review rather than a marketing playbook.
 
 ## Source registry
 
@@ -26,7 +35,7 @@ Prefer the user's authenticated backend for operational capability details; publ
 | Pinduoduo / 拼多多商家 / 多多进宝 | `https://mms.pinduoduo.com/`, `https://jinbao.pinduoduo.com/`, `https://open.yangkeduo.com/` | Merchant backend rules, promotion/CPS tools, subsidy/commission mechanics, product/API docs, order/report fields | High | `Officially verified` or `Confirmed from user backend` |
 | Kuaishou / 磁力引擎 / 快手电商 | `https://e.kuaishou.com/`, `https://knowledge.e.kuaishou.com/`, `https://www.kwaixiaodian.com/index.html`, `https://login.kwaixiaodian.com/`, `https://edu.kwaixiaodian.com/rule/web/category` | Magnetic Engine products, Kuaishou merchant entry, rules, creator/live commerce docs, category access, ads reporting | High | `Officially verified` or `Confirmed from user backend` |
 | WeChat Channels / 视频号小店 / 微信小店 | `https://channels.weixin.qq.com/shop`, `https://developers.weixin.qq.com/doc/channels/Operational_Guidelines/Shop_opening_guidelines.html`, user's WeChat shop/backend | Shop entry, merchant rules, live/shop connection, product display, private-domain handoff, category and after-sale rules | High | `Officially verified` or `Confirmed from user backend` |
-| Platform compliance / claims | Official platform policy centers, user's review rejection notice, applicable regulator or legal counsel source | Claim wording, category access, qualification, ad review, prohibited content, disclosure requirements | High | `Officially verified`, `Confirmed from user backend`, or `Needs legal/platform verification` |
+| Platform compliance / claims | Official platform policy centers, user's review rejection notice, applicable regulator or legal counsel source | Claim wording, category access, qualification, ad review, prohibited content, disclosure requirements | High | `Officially verified`, `Confirmed from user backend`, or `Needs current verification` (then name the required platform, regulator, or legal review) |
 
 ## Verification checklist
 
@@ -56,6 +65,7 @@ Currentness:
 ## Do not do
 
 - Do not say "currently supports" because a URL exists in this registry.
+- Do not interpret a successful reachability audit as proof that the page content is fresh or the capability still exists.
 - Do not cite a third-party article as official platform evidence unless the user explicitly allows non-official research.
 - Do not preserve fee rates, campaign options, or policy wording in memory or in this skill as permanent facts.
 - Do not turn login-gated backend observations into public facts without the user's confirmation.

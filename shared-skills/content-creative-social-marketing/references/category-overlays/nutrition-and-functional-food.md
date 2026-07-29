@@ -35,4 +35,4 @@ Use for nutrition food, functional snacks, protein, low-sugar products, wellness
 
 ## Specialist application
 
-Product and Supply Chain must own formula, allergen, quality, and traceability; Marketing must translate evidence conservatively; Analytics must measure real adherence and cohort retention.
+Formula, allergen, quality, and traceability must be confirmed by the user-designated Product, Quality, Supply, Legal, or external specialist owner; without confirmation they remain blockers. Marketing must translate evidence conservatively, and Analytics must measure real adherence and cohort retention.
