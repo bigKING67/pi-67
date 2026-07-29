@@ -263,7 +263,12 @@ else
   fail "current schema documentation is incomplete"
 fi
 
-run_gate "CLI package self-tests and packed artifact gate" env PI67_FRESH_EXTENSION_INSTALL=1 node "$REPO_ROOT/packages/pi67-cli/scripts/check.mjs"
+if [ "${PI67_SKIP_FRESH_EXTENSION_INSTALL:-0}" = "1" ]; then
+  run_gate "CLI package self-tests and packed artifact gate" node "$REPO_ROOT/packages/pi67-cli/scripts/check.mjs"
+  warn "fresh extension dependency install skipped because the parent smoke already completed it"
+else
+  run_gate "CLI package self-tests and packed artifact gate" env PI67_FRESH_EXTENSION_INSTALL=1 node "$REPO_ROOT/packages/pi67-cli/scripts/check.mjs"
+fi
 run_gate "prompt governance" node "$REPO_ROOT/scripts/pi67-prompt-governance-check.mjs"
 if [ "${PI67_SKIP_RULES_LOADER_TEST:-0}" = "1" ]; then
   warn "rules loader tests skipped for dependency-free artifact inspection"

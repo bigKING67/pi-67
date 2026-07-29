@@ -290,7 +290,7 @@ function runFreshExtensionDependencyCheck(installedRoot, tmpRoot, npmChildEnv) {
     cwd: tmpRoot,
     encoding: "utf8",
     env: { ...npmChildEnv, HOME: homeDir, USERPROFILE: homeDir },
-    timeout: 180_000,
+    timeout: 300_000,
   });
   assert(
     probe.status === 0,

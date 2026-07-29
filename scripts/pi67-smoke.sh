@@ -1071,7 +1071,7 @@ npm --prefix "$REPO_ROOT" run -s test:hy-memory >"${SMOKE_LOG_DIR}/hy-memory-tes
 pass "Hy-Memory typecheck and tests completed"
 
 section "Release artifact smoke"
-"$REPO_ROOT/scripts/pi67-release-artifact-smoke.sh" \
+PI67_SKIP_FRESH_EXTENSION_INSTALL=1 "$REPO_ROOT/scripts/pi67-release-artifact-smoke.sh" \
   --repo-root "$REPO_ROOT" \
   --ref WORKTREE >"${SMOKE_LOG_DIR}/release-artifact.log"
 pass "release artifact smoke completed"
