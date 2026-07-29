@@ -8,10 +8,11 @@ export function runPackedArtifactSelfTests(packageRoot) {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-packed-artifact-"));
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
   const npmChildEnv = npmLifecycleChildEnv();
+  const freshExtensionInstall = process.env.PI67_FRESH_EXTENSION_INSTALL === "1";
   const sourceCheckout = isSourcePackageLayout(packageRoot, resolveSourceRepoRoot(packageRoot));
   try {
     if (!sourceCheckout) {
-      runInstalledArtifactChecks(packageRoot, tmpRoot, npmChildEnv);
+      runInstalledArtifactChecks(packageRoot, tmpRoot, npmChildEnv, { freshExtensionInstall });
       return;
     }
 
@@ -74,7 +75,7 @@ export function runPackedArtifactSelfTests(packageRoot) {
   }
 }
 
-function runInstalledArtifactChecks(installedRoot, tmpRoot, npmChildEnv) {
+function runInstalledArtifactChecks(installedRoot, tmpRoot, npmChildEnv, options = {}) {
   const packageJson = JSON.parse(fs.readFileSync(path.join(installedRoot, "package.json"), "utf8"));
   const packageVersion = String(packageJson.version || "").trim();
   const distroVersionPath = path.join(installedRoot, "distro", "VERSION");
@@ -210,6 +211,100 @@ function runInstalledArtifactChecks(installedRoot, tmpRoot, npmChildEnv) {
       `packed artifact check module failed to import: ${checkModule}\n${imported.stderr || imported.stdout}`,
     );
   }
+
+  if (options.freshExtensionInstall) {
+    runFreshExtensionDependencyCheck(installedRoot, tmpRoot, npmChildEnv);
+  }
+}
+
+function runFreshExtensionDependencyCheck(installedRoot, tmpRoot, npmChildEnv) {
+  const managedExtensionsFile = path.join(installedRoot, "src", "lib", "managed-extensions.mjs");
+  const baselinesFile = path.join(installedRoot, "src", "data", "managed-extension-baselines.json");
+  const sourceRoot = path.join(installedRoot, "distro");
+  const homeDir = path.join(tmpRoot, "fresh-extension-home");
+  const agentDir = path.join(homeDir, ".pi", "agent");
+  const stateDir = path.join(homeDir, ".pi", "pi67");
+  const resultFile = path.join(tmpRoot, "fresh-extension-result.json");
+  const probe = spawnSync(process.execPath, [
+    "--input-type=module",
+    "--eval",
+    [
+      'import fs from "node:fs";',
+      'import path from "node:path";',
+      'import { createRequire } from "node:module";',
+      'import { pathToFileURL } from "node:url";',
+      'const [managedExtensionsFile, baselinesFile, sourceRoot, agentDir, stateDir, resultFile] = process.argv.slice(1);',
+      'const { applyManagedExtensionBaselines } = await import(pathToFileURL(managedExtensionsFile).href);',
+      'const baselines = JSON.parse(fs.readFileSync(baselinesFile, "utf8"));',
+      'const smartFetch = baselines.extensions.find((entry) => entry.id === "pi-smart-fetch");',
+      'if (!smartFetch) throw new Error("packed manager is missing the pi-smart-fetch baseline");',
+      'const registry = { schema: baselines.schema, policy: baselines.policy, extensions: [smartFetch] };',
+      'const applied = applyManagedExtensionBaselines(',
+      '  { agentDir, repoRoot: sourceRoot, stateDir },',
+      '  { registry, sourceRoot },',
+      ');',
+      'const npmRoot = path.join(agentDir, "npm");',
+      'const distFile = path.join(npmRoot, "node_modules", "pi-smart-fetch", "dist", "index.js");',
+      'const expectedIconvRoot = fs.realpathSync(path.join(npmRoot, "node_modules", "iconv-lite"));',
+      'const iconvEntry = createRequire(distFile).resolve("iconv-lite");',
+      'const iconvRelative = path.relative(expectedIconvRoot, fs.realpathSync(iconvEntry));',
+      'if (iconvRelative.startsWith("..") || path.isAbsolute(iconvRelative)) {',
+      '  throw new Error(`iconv-lite resolved outside the fresh extension npm tree: ${iconvEntry}`);',
+      '}',
+      'const runtimePackage = JSON.parse(fs.readFileSync(path.join(npmRoot, "package.json"), "utf8"));',
+      'const runtimeLock = JSON.parse(fs.readFileSync(path.join(npmRoot, "package-lock.json"), "utf8"));',
+      'if (runtimePackage.dependencies?.["iconv-lite"] !== "0.7.3" || runtimeLock.packages?.["node_modules/iconv-lite"]?.version !== "0.7.3") {',
+      '  throw new Error("fresh extension npm metadata does not pin iconv-lite@0.7.3");',
+      '}',
+      'const source = fs.readFileSync(distFile, "utf8");',
+      'if (!source.includes("pi67-smart-fetch-charset-v1") || !source.includes("import iconv from \'iconv-lite\';")) {',
+      '  throw new Error("fresh pi-smart-fetch package was not patched for declared response charsets");',
+      '}',
+      'const peerRoot = path.join(npmRoot, "node_modules", "@earendil-works", "pi-coding-agent");',
+      'if (!fs.existsSync(peerRoot)) {',
+      '  fs.mkdirSync(peerRoot, { recursive: true });',
+      '  fs.writeFileSync(path.join(peerRoot, "package.json"), JSON.stringify({ name: "@earendil-works/pi-coding-agent", version: "0.0.0-fixture", type: "module", exports: "./index.js" }));',
+      '  fs.writeFileSync(path.join(peerRoot, "index.js"), "export function getAgentDir(){return \'\';} export function getMarkdownTheme(){return {};} export function keyText(){return \'\';}\\n");',
+      '}',
+      'globalThis.require = createRequire(distFile);',
+      'const extensionModule = await import(`${pathToFileURL(distFile).href}?fresh=${Date.now()}`);',
+      'if (typeof extensionModule.default !== "function") throw new Error("fresh pi-smart-fetch extension did not load");',
+      'const extension = applied.after.extensions[0];',
+      'if (extension.status !== "at-baseline" || extension.runtimeDependencyClosure?.ready !== true) {',
+      '  throw new Error(`fresh extension dependency closure is not healthy: ${JSON.stringify(extension)}`);',
+      '}',
+      'fs.writeFileSync(resultFile, JSON.stringify({',
+      '  extensionVersion: extension.installedVersion,',
+      '  iconvVersion: runtimeLock.packages["node_modules/iconv-lite"].version,',
+      '  patched: true,',
+      '  loaded: true,',
+      '}));',
+    ].join("\n"),
+    managedExtensionsFile,
+    baselinesFile,
+    sourceRoot,
+    agentDir,
+    stateDir,
+    resultFile,
+  ], {
+    cwd: tmpRoot,
+    encoding: "utf8",
+    env: { ...npmChildEnv, HOME: homeDir, USERPROFILE: homeDir },
+    timeout: 180_000,
+  });
+  assert(
+    probe.status === 0,
+    `fresh packed extension install failed: ${probe.error?.message || probe.stderr || probe.stdout}`,
+  );
+  assert(fs.existsSync(resultFile), "fresh packed extension install did not produce its verification result");
+  const result = JSON.parse(fs.readFileSync(resultFile, "utf8"));
+  assert(
+    result.extensionVersion === "0.3.12" &&
+      result.iconvVersion === "0.7.3" &&
+      result.patched === true &&
+      result.loaded === true,
+    `fresh packed extension install returned an invalid result: ${JSON.stringify(result)}`,
+  );
 }
 
 function npmLifecycleChildEnv() {

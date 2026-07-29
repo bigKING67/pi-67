@@ -6,6 +6,18 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.15.7] - 2026-07-29
+
+### Fixed
+
+- Declared and installed `iconv-lite@0.7.3` as a manager-owned runtime
+  dependency of the `pi-smart-fetch@0.3.12` charset compatibility patch, so a
+  fresh Pi workspace no longer depends on a source-checkout npm tree and the
+  patched extension can resolve its decoder on macOS and Windows.
+- Added a packed-manager fresh-install gate that creates an isolated HOME,
+  installs the real npm extension dependency closure, applies the compatibility
+  patch, verifies local module resolution, and loads the resulting extension.
+
 ## [0.15.6] - 2026-07-29
 
 ### Changed

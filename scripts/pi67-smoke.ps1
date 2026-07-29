@@ -763,7 +763,17 @@ if (String(tmwd.args?.[0] || "").includes(browser67Root) || String(jsReverse.arg
   }
 
   Run-Check "pi-67 npm CLI syntax suite passed" {
-    Invoke-External "node" @((RepoPath "packages/pi67-cli/scripts/check.mjs")) | Out-Null
+    $previousFreshExtensionInstall = [Environment]::GetEnvironmentVariable("PI67_FRESH_EXTENSION_INSTALL", "Process")
+    try {
+      $env:PI67_FRESH_EXTENSION_INSTALL = "1"
+      Invoke-External "node" @((RepoPath "packages/pi67-cli/scripts/check.mjs")) | Out-Null
+    } finally {
+      if ($null -eq $previousFreshExtensionInstall) {
+        Remove-Item "Env:PI67_FRESH_EXTENSION_INSTALL" -ErrorAction SilentlyContinue
+      } else {
+        $env:PI67_FRESH_EXTENSION_INSTALL = $previousFreshExtensionInstall
+      }
+    }
   }
 
   Run-Check "Hy-Memory extension typecheck passed" {

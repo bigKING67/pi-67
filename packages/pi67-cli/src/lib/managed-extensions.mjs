@@ -318,12 +318,21 @@ function inspectNpmExtension(ctx, baseline, options) {
       && baseline.contentHash === contentHash,
   );
   const managedPristine = !installedVersion || priorMatches || baselineHashMatches;
-  const classification = classifyNpmExtension({
+  const runtimeDependencyClosure = inspectNpmRuntimeDependencies(ctx, baseline, options.npmLock);
+  let classification = classifyNpmExtension({
     installedVersion,
     minimumVersion: baseline.minimumVersion,
     configured: options.configured,
     managedPristine,
   });
+  if (
+    installedVersion === baseline.minimumVersion
+      && !runtimeDependencyClosure.ready
+      && classification.status !== "user-managed-diverged"
+      && classification.status !== "user-managed-ahead"
+  ) {
+    classification = { status: "below-baseline", action: "upgrade" };
+  }
   return {
     ...baseline,
     configured: options.configured,
@@ -333,8 +342,30 @@ function inspectNpmExtension(ctx, baseline, options) {
     contentHash,
     observedSource: lockEntry.resolved || baseline.settingsSpec,
     lockMatchesInstalled,
+    runtimeDependencyClosure,
     managedPristine,
     ...classification,
+  };
+}
+
+function inspectNpmRuntimeDependencies(ctx, baseline, npmLock) {
+  const dependencies = Object.entries(baseline.runtimeDependencies || {}).map(([packageName, expectedVersion]) => {
+    const installPath = path.join(ctx.agentDir, "npm", "node_modules", ...packageName.split("/"));
+    const installed = readJsonFileIfExists(path.join(installPath, "package.json")) || {};
+    const installedVersion = typeof installed.version === "string" ? installed.version : "";
+    const lockEntry = npmLock?.packages?.[`node_modules/${packageName}`] || {};
+    return {
+      packageName,
+      expectedVersion,
+      installedVersion,
+      installPath,
+      lockMatchesInstalled: Boolean(installedVersion) && lockEntry.version === installedVersion,
+      ready: installedVersion === expectedVersion && lockEntry.version === expectedVersion,
+    };
+  });
+  return {
+    ready: dependencies.every((entry) => entry.ready),
+    dependencies,
   };
 }
 
@@ -467,6 +498,7 @@ function installNpmBaseline(ctx, entry, options = {}) {
     "--no-audit",
     "--no-fund",
     `${entry.packageName}@${entry.minimumVersion}`,
+    ...Object.entries(entry.runtimeDependencies || {}).map(([packageName, version]) => `${packageName}@${version}`),
   ], { cwd: npmDir });
   applyCompatibilityPatch(ctx, entry, options.sourceRoot || ctx.repoRoot);
 }
@@ -702,11 +734,25 @@ function validateBaselineEntry(entry, ids) {
   if (entry.sourceKind === "npm" && !/^\d+\.\d+\.\d+(?:[-+].*)?$/.test(entry.minimumVersion || "")) {
     throw new CliError(`npm extension baseline ${entry.id} requires minimumVersion`, 2);
   }
+  if (entry.sourceKind === "npm") validateRuntimeDependencies(entry);
   if (entry.sourceKind === "git" && !/^[0-9a-f]{40}$/.test(entry.minimumCommit || "")) {
     throw new CliError(`git extension baseline ${entry.id} requires a 40-character minimumCommit`, 2);
   }
   if (entry.sourceKind === "bundled" && (!entry.bundlePath || !entry.minimumVersion || !entry.contentHash)) {
     throw new CliError(`bundled extension baseline ${entry.id} requires bundlePath, minimumVersion, and contentHash`, 2);
+  }
+}
+
+function validateRuntimeDependencies(entry) {
+  const dependencies = entry.runtimeDependencies;
+  if (dependencies === undefined) return;
+  if (!dependencies || typeof dependencies !== "object" || Array.isArray(dependencies)) {
+    throw new CliError(`npm extension baseline ${entry.id} runtimeDependencies must be an object`, 2);
+  }
+  for (const [packageName, version] of Object.entries(dependencies)) {
+    if (!packageName || packageName === entry.packageName || !/^\d+\.\d+\.\d+(?:[-+].*)?$/.test(version || "")) {
+      throw new CliError(`npm extension baseline ${entry.id} has an invalid runtime dependency: ${packageName || "unknown"}`, 2);
+    }
   }
 }
 

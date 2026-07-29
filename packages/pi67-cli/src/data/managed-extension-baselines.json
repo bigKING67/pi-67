@@ -63,6 +63,9 @@
       "packageName": "pi-smart-fetch",
       "minimumVersion": "0.3.12",
       "contentHash": "3f5511ea95ac83a2b91b80a95b97e450ebfdae4815957111507edfa9c37debcd",
+      "runtimeDependencies": {
+        "iconv-lite": "0.7.3"
+      },
       "role": "content-fetch",
       "compatibilityPatch": "exact-version-and-content-hash-only"
     },

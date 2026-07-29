@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.15.7]
+
+- Installs and locks `iconv-lite@0.7.3` beside `pi-smart-fetch@0.3.12` before
+  applying the charset compatibility patch, and repairs an incomplete runtime
+  dependency closure instead of relying on source-checkout hoisting.
+- Adds an isolated packed-manager install regression that verifies the runtime
+  dependency, patch, and extension module load from a fresh npm tree.
+
 ## [0.15.6]
 
 - Bundles `consumer-brand-commerce-marketing-suite@2.2.0` from upstream commit

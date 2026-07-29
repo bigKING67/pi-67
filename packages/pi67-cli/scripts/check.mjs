@@ -1710,6 +1710,60 @@ function runManagedExtensionBaselineSelfTests() {
     "session compression and cross-session long-term memory must remain distinct default layers",
   );
   assert(!JSON.stringify(registry).includes("agent_memory"), "personal agent_memory MCP must never enter the public extension baseline");
+  assert(
+    registry.extensions.find((item) => item.id === "pi-smart-fetch")?.runtimeDependencies?.["iconv-lite"] === "0.7.3",
+    "pi-smart-fetch must declare the exact iconv-lite dependency required by its charset patch",
+  );
+
+  const dependencyRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-runtime-dependency-"));
+  const dependencyAgent = path.join(dependencyRoot, "agent");
+  const dependencyPackage = path.join(dependencyAgent, "npm", "node_modules", "fixture-extension");
+  fs.mkdirSync(dependencyPackage, { recursive: true });
+  fs.writeFileSync(path.join(dependencyAgent, "settings.json"), '{"packages":["npm:fixture-extension"]}\n');
+  fs.writeFileSync(path.join(dependencyPackage, "package.json"), '{"name":"fixture-extension","version":"1.0.0"}\n');
+  const dependencyRegistry = {
+    schema: "pi67.managed-extension-baselines.v1",
+    policy: {},
+    extensions: [{
+      id: "fixture-extension",
+      sourceKind: "npm",
+      packageName: "fixture-extension",
+      settingsSpec: "npm:fixture-extension",
+      minimumVersion: "1.0.0",
+      contentHash: hashDirectory(dependencyPackage),
+      runtimeDependencies: { "fixture-runtime": "2.0.0" },
+    }],
+  };
+  const missingDependency = inspectManagedExtensions(
+    { agentDir: dependencyAgent, stateDir: path.join(dependencyRoot, "state") },
+    { registry: dependencyRegistry, sourceRoot: dependencyRoot },
+  ).extensions[0];
+  assert(
+    missingDependency.status === "below-baseline" &&
+      missingDependency.action === "upgrade" &&
+      missingDependency.runtimeDependencyClosure.ready === false,
+    "a missing manager-owned runtime dependency must make an otherwise pristine npm baseline actionable",
+  );
+  const runtimePackage = path.join(dependencyAgent, "npm", "node_modules", "fixture-runtime");
+  fs.mkdirSync(runtimePackage, { recursive: true });
+  fs.writeFileSync(path.join(runtimePackage, "package.json"), '{"name":"fixture-runtime","version":"2.0.0"}\n');
+  fs.writeFileSync(path.join(dependencyAgent, "npm", "package-lock.json"), `${JSON.stringify({
+    packages: {
+      "node_modules/fixture-extension": { version: "1.0.0" },
+      "node_modules/fixture-runtime": { version: "2.0.0" },
+    },
+  })}\n`);
+  const completeDependency = inspectManagedExtensions(
+    { agentDir: dependencyAgent, stateDir: path.join(dependencyRoot, "state") },
+    { registry: dependencyRegistry, sourceRoot: dependencyRoot },
+  ).extensions[0];
+  assert(
+    completeDependency.status === "at-baseline" &&
+      completeDependency.action === "keep" &&
+      completeDependency.runtimeDependencyClosure.ready === true,
+    "an exact locked runtime dependency must satisfy the npm baseline dependency closure",
+  );
+  fs.rmSync(dependencyRoot, { recursive: true, force: true });
 
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-bundled-baseline-"));
   const sourceRoot = path.join(tmpRoot, "source");

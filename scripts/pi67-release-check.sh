@@ -129,6 +129,7 @@ if ((counts.npm || 0) + (counts.git || 0) !== 17 || counts.bundled !== 4) throw 
 const byId = new Map(baseline.extensions.map((item) => [item.id, item]));
 if (byId.get("pi-observational-memory")?.role !== "session-compression") throw new Error("observational memory role drifted");
 if (byId.get("pi-hy-memory")?.role !== "cross-session-long-term-memory") throw new Error("Hy-Memory role drifted");
+if (byId.get("pi-smart-fetch")?.runtimeDependencies?.["iconv-lite"] !== "0.7.3") throw new Error("pi-smart-fetch iconv-lite runtime dependency drifted");
 if (JSON.stringify(baseline).includes("agent_memory")) throw new Error("personal MCP entered public baseline");
 for (const item of baseline.extensions) {
   if (item.sourceKind === "npm" && (!item.minimumVersion || !/^[0-9a-f]{64}$/.test(item.contentHash || ""))) throw new Error(`invalid npm baseline: ${item.id}`);
@@ -262,7 +263,7 @@ else
   fail "current schema documentation is incomplete"
 fi
 
-run_gate "CLI package self-tests and packed artifact gate" node "$REPO_ROOT/packages/pi67-cli/scripts/check.mjs"
+run_gate "CLI package self-tests and packed artifact gate" env PI67_FRESH_EXTENSION_INSTALL=1 node "$REPO_ROOT/packages/pi67-cli/scripts/check.mjs"
 run_gate "prompt governance" node "$REPO_ROOT/scripts/pi67-prompt-governance-check.mjs"
 if [ "${PI67_SKIP_RULES_LOADER_TEST:-0}" = "1" ]; then
   warn "rules loader tests skipped for dependency-free artifact inspection"
