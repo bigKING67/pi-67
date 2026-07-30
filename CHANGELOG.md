@@ -45,6 +45,14 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ### Fixed
 
+- Made clean release-artifact validation rebuild its repository development
+  dependency closure from the committed lockfile, so schema checks no longer
+  depend on host-global Ajv availability.
+- Made real upstream Pi integration probes invoke the locked CLI module
+  directly, so npm 10 installations using `--omit=peer` remain testable even
+  when npm omits the package's `.bin/pi` link.
+- Normalized generated-workflow contract fixtures before matching multiline
+  behavior, keeping the same assertions valid in Windows CRLF checkouts.
 - Made Hy-Memory service ownership single-writer and observable across the
   manager and Python service, bounded active/dead-letter outbox count and
   bytes, retained deterministic retry ordering, pruned expired dead letters,

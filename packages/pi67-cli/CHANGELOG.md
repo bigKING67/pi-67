@@ -32,6 +32,12 @@
 - Adds release-contract, schema, Git/registry, dependency, transaction,
   extension-install, runtime-state, and workflow regressions to the manager
   self-check and CI matrix.
+- Runs real upstream Pi integration probes through the locked CLI module rather
+  than npm's optional `.bin/pi` link, preserving npm 10 `--omit=peer`
+  compatibility without changing the single local Pi development host.
+- Reconstructs repository development dependencies inside clean Git artifact
+  checks before validating schemas, and normalizes multiline workflow fixtures
+  across LF and CRLF checkouts.
 
 ## [0.15.7]
 

@@ -115,6 +115,7 @@ echo "Ref       : $REF"
 
 command_exists git || fail "git is required"
 command_exists node || fail "node is required"
+command_exists npm || fail "npm is required"
 if [ "$(git -C "$REPO_ROOT" rev-parse --is-inside-work-tree 2>/dev/null || true)" != "true" ]; then
   fail "repo root is not a Git checkout: $REPO_ROOT"
 fi
@@ -166,6 +167,16 @@ fi
 [ -f "$ARTIFACT_DIR/tests/pi-rules-loader/routing.test.mjs" ] || fail "artifact missing rules-loader routing test"
 [ -f "$ARTIFACT_DIR/tests/pi-vision-bridge/registration.test.mjs" ] || fail "artifact missing vision-bridge registration test"
 
+section "Prepare repository dependencies"
+mkdir -p "$ARTIFACT_DIR/npm"
+cp "$ARTIFACT_DIR/package.json" "$ARTIFACT_DIR/npm/package.json"
+cp "$ARTIFACT_DIR/package-lock.json" "$ARTIFACT_DIR/npm/package-lock.json"
+(
+  cd "$ARTIFACT_DIR"
+  npm --prefix npm ci --ignore-scripts --omit=peer --no-audit --no-fund
+)
+pass "prepared repository dependency closure from the artifact lockfile"
+
 FAKE_BIN="$TMP_ROOT/bin"
 mkdir -p "$FAKE_BIN"
 cat > "$FAKE_BIN/pi" <<'SH'
@@ -210,9 +221,7 @@ fi
 pass "install.sh delegated its dry-run to the immutable manager"
 
 section "Release metadata check"
-PI67_SKIP_RULES_LOADER_TEST=1 \
-  PI67_SKIP_VISION_BRIDGE_TEST=1 \
-  bash "$ARTIFACT_DIR/scripts/pi67-release-check.sh" > "$TMP_ROOT/release-check.log"
+bash "$ARTIFACT_DIR/scripts/pi67-release-check.sh" > "$TMP_ROOT/release-check.log"
 pass "release check completed"
 
 section "Skill migration schema check"

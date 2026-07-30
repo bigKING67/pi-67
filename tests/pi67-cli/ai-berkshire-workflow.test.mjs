@@ -7,8 +7,12 @@ import { fileURLToPath } from "node:url";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const workflowPath = path.join(repoRoot, ".github/workflows/ai-berkshire-refresh.yml");
 
+function readWorkflow() {
+  return fs.readFileSync(workflowPath, "utf8").replace(/\r\n?/g, "\n");
+}
+
 test("AI Berkshire refresh rebuilds its machine-owned branch from current main", () => {
-  const workflow = fs.readFileSync(workflowPath, "utf8");
+  const workflow = readWorkflow();
 
   assert.match(workflow, /git switch -C "\$REFRESH_BRANCH" origin\/main/);
   assert.match(workflow, /REMOTE_REFRESH_BRANCH_SHA=\$remote_branch_sha/);
@@ -21,7 +25,7 @@ test("AI Berkshire refresh rebuilds its machine-owned branch from current main",
 });
 
 test("AI Berkshire refresh degrades only the known repository PR permission failure", () => {
-  const workflow = fs.readFileSync(workflowPath, "utf8");
+  const workflow = readWorkflow();
 
   assert.match(
     workflow,

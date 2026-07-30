@@ -6,6 +6,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { upstreamPiInvocation } from "../upstream-pi-runtime.mjs";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(testDir, "..", "..");
@@ -211,11 +212,11 @@ export default function captureVisionRuntime(pi: any) {
     "utf8",
   );
 
-  const defaultPiBin = path.join(repoRoot, "npm", "node_modules", ".bin", process.platform === "win32" ? "pi.cmd" : "pi");
-  const piBin = process.env.PI67_VISION_BRIDGE_PI_BIN || defaultPiBin;
+  const pi = upstreamPiInvocation(repoRoot, process.env.PI67_VISION_BRIDGE_PI_BIN);
   const result = spawnSync(
-    piBin,
+    pi.command,
     [
+      ...pi.args,
       "--offline",
       "--no-extensions",
       "--extension",
@@ -251,7 +252,7 @@ export default function captureVisionRuntime(pi: any) {
         PI_OFFLINE: "1",
         PI67_VISION_RUNTIME_MARKER: markerPath,
       },
-      shell: process.platform === "win32",
+      shell: pi.shell,
       timeout: 15_000,
     },
   );

@@ -5,6 +5,7 @@ import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import http from "node:http";
 import test from "node:test";
+import { upstreamPiInvocation } from "../../upstream-pi-runtime.mjs";
 import {
   defaultMemoryConfig,
   HY_MEMORY_SDK_VERSION,
@@ -64,10 +65,10 @@ export default function captureHyMemoryRuntime(pi: any) {
   });
 }
 `);
-  const defaultPiBin = path.join(root, "npm", "node_modules", ".bin", process.platform === "win32" ? "pi.cmd" : "pi");
-  const piBin = process.env.PI67_HY_MEMORY_PI_BIN || defaultPiBin;
+  const pi = upstreamPiInvocation(root, process.env.PI67_HY_MEMORY_PI_BIN);
   const toolNames = ["hy_memory_search", "hy_memory_add", "hy_memory_list", "hy_memory_forget"];
-  const result = spawnSync(piBin, [
+  const result = spawnSync(pi.command, [
+    ...pi.args,
     "--offline",
     "--no-extensions",
     "--extension", extensionScript,
@@ -96,7 +97,7 @@ export default function captureHyMemoryRuntime(pi: any) {
       PI67_HY_MEMORY_RUNTIME_MARKER: markerPath,
       PI_OFFLINE: "1",
     },
-    shell: process.platform === "win32",
+    shell: pi.shell,
     timeout: 15_000,
   });
   assert.equal(result.error, undefined, result.error?.message);
