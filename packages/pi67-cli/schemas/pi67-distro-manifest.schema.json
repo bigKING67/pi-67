@@ -57,7 +57,7 @@
       "properties": {
         "registry": { "const": "managed-extension-baselines.json" },
         "policy": { "type": "string" },
-        "schema": { "const": "pi67.managed-extension-baselines.v1" },
+        "schema": { "const": "pi67.managed-extension-baselines.v2" },
         "policyModel": { "type": "object" },
         "extensions": { "type": "array", "minItems": 21 }
       },

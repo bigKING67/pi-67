@@ -1,5 +1,5 @@
 {
-  "schema": "pi67.managed-extension-baselines.v1",
+  "schema": "pi67.managed-extension-baselines.v2",
   "policy": {
     "versionModel": "minimum-supported-baseline",
     "missing": "install",
@@ -183,6 +183,7 @@
       "sourceKind": "bundled",
       "bundlePath": "extensions/xtalpi-pi-tools",
       "minimumVersion": "0.15.0",
+      "contentRevision": 1,
       "contentHash": "7ab746d1e29770c734c667f1ea268121eaa151c6c582e026c65defa6774036ed",
       "role": "first-party-provider"
     },
@@ -191,6 +192,7 @@
       "sourceKind": "bundled",
       "bundlePath": "extensions/pi-vision-bridge",
       "minimumVersion": "0.15.4",
+      "contentRevision": 1,
       "contentHash": "174cdfa2f4595fe21b60c3d1320746c9e3b3c01f4a0c371dd00117054d2e2c1b",
       "role": "first-party-vision-bridge"
     },
@@ -199,6 +201,7 @@
       "sourceKind": "bundled",
       "bundlePath": "extensions/pi-rules-loader",
       "minimumVersion": "0.15.0",
+      "contentRevision": 1,
       "contentHash": "0f30d44c8a799bf1a9229a27b34abab79786d1b6f9469bad1bed11936b38020a",
       "role": "first-party-rules-loader"
     },
@@ -207,6 +210,7 @@
       "sourceKind": "bundled",
       "bundlePath": "extensions/pi-hy-memory",
       "minimumVersion": "0.15.0",
+      "contentRevision": 1,
       "contentHash": "cc96a2e67b71ba6264ab4c444dd857159405bea22b34b817ec65fa1edf6c5233",
       "role": "cross-session-long-term-memory"
     }

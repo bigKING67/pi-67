@@ -8,7 +8,7 @@ import { packageRoot } from "./paths.mjs";
 import { captureCommand, runCommand } from "./shell-runner.mjs";
 import { canonicalHashBytes } from "./skill-pack-integrity.mjs";
 
-const BASELINES_SCHEMA = "pi67.managed-extension-baselines.v1";
+const BASELINES_SCHEMA = "pi67.managed-extension-baselines.v2";
 const LEDGER_SCHEMA = "pi67.extension-ledger.v1";
 const PI_CODING_AGENT_PACKAGES = new Set([
   "@earendil-works/pi-coding-agent",
@@ -158,12 +158,19 @@ export function writeExtensionLedger(ctx, status, options = {}) {
   for (const entry of status.extensions) {
     const prior = extensions[entry.id] || {};
     const managedNow = managedIds.has(entry.id) || entry.status === "at-baseline";
+    const entryRevision = positiveIntegerOrNull(entry.contentRevision);
+    const lastManagedRevision = managedNow && entryRevision !== null
+      ? entryRevision
+      : prior.lastManagedRevision;
     extensions[entry.id] = {
       id: entry.id,
       sourceKind: entry.sourceKind,
       settingsSpec: entry.settingsSpec,
       releaseBaselineVersion: entry.minimumVersion || "",
       releaseBaselineCommit: entry.minimumCommit || "",
+      ...(entryRevision !== null
+        ? { releaseBaselineRevision: entryRevision }
+        : {}),
       lastManagedVersion: managedNow && entry.installedVersion
         ? entry.installedVersion
         : prior.lastManagedVersion || "",
@@ -173,6 +180,7 @@ export function writeExtensionLedger(ctx, status, options = {}) {
       lastManagedHash: managedNow && entry.contentHash
         ? entry.contentHash
         : prior.lastManagedHash || "",
+      ...(Number.isInteger(lastManagedRevision) ? { lastManagedRevision } : {}),
       observedVersion: entry.installedVersion || "",
       observedCommit: entry.installedCommit || "",
       observedHash: entry.contentHash || "",
@@ -200,6 +208,10 @@ export function applyManagedExtensionBaselines(ctx, options = {}) {
   };
   const inspect = options.inspect || inspectManagedExtensions;
   const before = inspect(ctx, inspectOptions);
+  const previousLedger = readExtensionLedger(ctx);
+  const ledgerRefreshIds = before.extensions
+    .filter((entry) => needsBundledLedgerRefresh(entry, previousLedger.extensions?.[entry.id]))
+    .map((entry) => entry.id);
   const actionable = before.extensions.filter((entry) => ["install", "upgrade", "configure"].includes(entry.action));
   const applied = [];
   const skipped = [];
@@ -254,6 +266,9 @@ export function applyManagedExtensionBaselines(ctx, options = {}) {
   }
 
   if (applied.length === 0 && !settingsResult.changed) {
+    const ledger = ledgerRefreshIds.length > 0
+      ? writeExtensionLedger(ctx, before, { managedIds: ledgerRefreshIds })
+      : previousLedger;
     return {
       schema: "pi67.managed-extensions-apply.v1",
       dryRun: false,
@@ -262,7 +277,7 @@ export function applyManagedExtensionBaselines(ctx, options = {}) {
       applied,
       skipped,
       settings: settingsResult,
-      ledger: readExtensionLedger(ctx),
+      ledger,
     };
   }
 
@@ -449,6 +464,12 @@ function inspectBundledExtension(ctx, baseline, options) {
   const managedComparison = priorMatches && installedVersion
     ? compareSemver(installedVersion, baseline.minimumVersion)
     : null;
+  const installedContentRevision = atBaseline
+    ? baseline.contentRevision
+    : positiveIntegerOrNull(options.prior?.lastManagedRevision);
+  const revisionComparison = managedComparison === 0 && installedContentRevision !== null
+    ? installedContentRevision - baseline.contentRevision
+    : null;
   let status = "user-managed-diverged";
   let action = "keep-conflict";
   if (atBaseline) {
@@ -460,12 +481,19 @@ function inspectBundledExtension(ctx, baseline, options) {
   } else if (managedComparison < 0) {
     status = "below-baseline";
     action = "upgrade";
+  } else if (revisionComparison > 0) {
+    status = "user-managed-ahead";
+    action = "keep";
+  } else if (revisionComparison < 0) {
+    status = "below-baseline";
+    action = "upgrade";
   }
   return {
     ...baseline,
     configured: true,
     installPath,
     installedVersion,
+    installedContentRevision,
     installedCommit: "",
     contentHash,
     baselineHash,
@@ -951,9 +979,36 @@ function validateBaselineEntry(entry, ids) {
   if (entry.sourceKind === "git" && !/^[0-9a-f]{40}$/.test(entry.minimumCommit || "")) {
     throw new CliError(`git extension baseline ${entry.id} requires a 40-character minimumCommit`, 2);
   }
-  if (entry.sourceKind === "bundled" && (!entry.bundlePath || !entry.minimumVersion || !entry.contentHash)) {
-    throw new CliError(`bundled extension baseline ${entry.id} requires bundlePath, minimumVersion, and contentHash`, 2);
+  if (
+    entry.sourceKind === "bundled"
+      && (
+        !entry.bundlePath
+        || !entry.minimumVersion
+        || !entry.contentHash
+        || !Number.isInteger(entry.contentRevision)
+        || entry.contentRevision < 1
+      )
+  ) {
+    throw new CliError(
+      `bundled extension baseline ${entry.id} requires bundlePath, minimumVersion, contentRevision, and contentHash`,
+      2,
+    );
   }
+}
+
+function needsBundledLedgerRefresh(entry, prior) {
+  const revision = positiveIntegerOrNull(entry.contentRevision);
+  return entry.sourceKind === "bundled"
+    && entry.status === "at-baseline"
+    && revision !== null
+    && (
+      prior?.lastManagedRevision !== revision
+      || prior?.releaseBaselineRevision !== revision
+    );
+}
+
+function positiveIntegerOrNull(value) {
+  return Number.isInteger(value) && value > 0 ? value : null;
 }
 
 function validateRuntimeDependencies(entry) {

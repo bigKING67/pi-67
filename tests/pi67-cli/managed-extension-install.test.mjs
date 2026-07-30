@@ -116,6 +116,14 @@ test("npm batch planning rejects conflicting runtime dependencies and host Pi pa
       npmEntry("two", "fixture-two", "1.0.0", { "fixture-runtime": "2.0.0" }),
     ]))}\n`);
     assert.throws(() => readManagedExtensionBaselines(registryFile), /conflicting versions of fixture-runtime/);
+    fs.writeFileSync(registryFile, `${JSON.stringify(fixtureRegistry([{
+      id: "fixture-bundled",
+      sourceKind: "bundled",
+      bundlePath: "extensions/fixture-bundled",
+      minimumVersion: "1.0.0",
+      contentHash: "a".repeat(64),
+    }]))}\n`);
+    assert.throws(() => readManagedExtensionBaselines(registryFile), /contentRevision/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -274,6 +282,216 @@ test("managed Git extension dependencies omit dev and peers and remove introduce
   }
 });
 
+test("bundled content revisions upgrade only pristine older managed content", () => {
+  const fixture = createFixture();
+  try {
+    const entry = bundledEntry(fixture, {
+      id: "fixture-bundled",
+      version: "1.0.0",
+      contentRevision: 2,
+      content: "managed revision 2\n",
+    });
+    const registry = fixtureRegistry([entry]);
+    const installPath = path.join(fixture.ctx.agentDir, entry.bundlePath);
+    fs.mkdirSync(installPath, { recursive: true });
+    fs.writeFileSync(path.join(installPath, "index.js"), "managed revision 1\n");
+    const previousManagedHash = hashDirectory(installPath);
+
+    const inspect = (prior) => inspectManagedExtensions(fixture.ctx, {
+      registry,
+      sourceRoot: fixture.sourceRoot,
+      ledger: {
+        schema: "pi67.extension-ledger.v1",
+        extensions: { [entry.id]: prior },
+      },
+    }).extensions[0];
+
+    const upgrade = inspect({
+      lastManagedVersion: "1.0.0",
+      lastManagedRevision: 1,
+      lastManagedHash: previousManagedHash,
+    });
+    assert.equal(upgrade.managedPristine, true);
+    assert.equal(upgrade.installedContentRevision, 1);
+    assert.equal(upgrade.status, "below-baseline");
+    assert.equal(upgrade.action, "upgrade");
+
+    const equalRevisionDrift = inspect({
+      lastManagedVersion: "1.0.0",
+      lastManagedRevision: 2,
+      lastManagedHash: previousManagedHash,
+    });
+    assert.equal(equalRevisionDrift.status, "user-managed-diverged");
+    assert.equal(equalRevisionDrift.action, "keep-conflict");
+
+    const regressedBaseline = inspect({
+      lastManagedVersion: "1.0.0",
+      lastManagedRevision: 3,
+      lastManagedHash: previousManagedHash,
+    });
+    assert.equal(regressedBaseline.status, "user-managed-ahead");
+    assert.equal(regressedBaseline.action, "keep");
+
+    const ambiguousLegacy = inspect({
+      lastManagedVersion: "1.0.0",
+      lastManagedHash: previousManagedHash,
+    });
+    assert.equal(ambiguousLegacy.status, "user-managed-diverged");
+    assert.equal(ambiguousLegacy.action, "keep-conflict");
+
+    fs.writeFileSync(path.join(installPath, "index.js"), "user customized content\n");
+    const userDiverged = inspect({
+      lastManagedVersion: "1.0.0",
+      lastManagedRevision: 1,
+      lastManagedHash: previousManagedHash,
+    });
+    assert.equal(userDiverged.managedPristine, false);
+    assert.equal(userDiverged.status, "user-managed-diverged");
+    assert.equal(userDiverged.action, "keep-conflict");
+
+    fs.cpSync(path.join(fixture.sourceRoot, entry.bundlePath), installPath, {
+      recursive: true,
+      force: true,
+    });
+    const atBaseline = inspect({});
+    assert.equal(atBaseline.installedContentRevision, 2);
+    assert.equal(atBaseline.status, "at-baseline");
+    assert.equal(atBaseline.action, "keep");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("bundled apply records revisions and legacy at-baseline ledgers migrate without content writes", () => {
+  const fixture = createFixture();
+  try {
+    const entry = bundledEntry(fixture, {
+      id: "fixture-bundled",
+      version: "1.0.0",
+      contentRevision: 2,
+      content: "managed revision 2\n",
+    });
+    const registry = fixtureRegistry([entry]);
+    const installPath = path.join(fixture.ctx.agentDir, entry.bundlePath);
+    fs.mkdirSync(installPath, { recursive: true });
+    fs.writeFileSync(path.join(installPath, "index.js"), "managed revision 1\n");
+    const previousManagedHash = hashDirectory(installPath);
+    const ledgerPath = path.join(fixture.ctx.stateDir, "extension-ledger.json");
+    fs.mkdirSync(fixture.ctx.stateDir, { recursive: true });
+    fs.writeFileSync(ledgerPath, `${JSON.stringify({
+      schema: "pi67.extension-ledger.v1",
+      updatedAt: "fixed",
+      extensions: {
+        [entry.id]: {
+          lastManagedVersion: "1.0.0",
+          lastManagedRevision: 1,
+          lastManagedHash: previousManagedHash,
+        },
+      },
+    })}\n`);
+
+    const applied = applyManagedExtensionBaselines(fixture.ctx, {
+      registry,
+      sourceRoot: fixture.sourceRoot,
+    });
+    assert.deepEqual(applied.applied, [{ id: entry.id, action: "upgrade" }]);
+    assert.equal(fs.readFileSync(path.join(installPath, "index.js"), "utf8"), "managed revision 2\n");
+    assert.equal(applied.after.extensions[0].status, "at-baseline");
+    assert.equal(applied.ledger.extensions[entry.id].releaseBaselineRevision, 2);
+    assert.equal(applied.ledger.extensions[entry.id].lastManagedRevision, 2);
+    assert.equal(applied.ledger.extensions[entry.id].lastManagedHash, entry.contentHash);
+
+    const migratedFixture = createFixture();
+    try {
+      const migratedEntry = bundledEntry(migratedFixture, {
+        id: "fixture-migrated",
+        version: "1.0.0",
+        contentRevision: 1,
+        content: "current managed content\n",
+      });
+      const migratedRegistry = fixtureRegistry([migratedEntry]);
+      const migratedInstall = path.join(migratedFixture.ctx.agentDir, migratedEntry.bundlePath);
+      fs.mkdirSync(path.dirname(migratedInstall), { recursive: true });
+      fs.cpSync(path.join(migratedFixture.sourceRoot, migratedEntry.bundlePath), migratedInstall, { recursive: true });
+      const migratedLedgerPath = path.join(migratedFixture.ctx.stateDir, "extension-ledger.json");
+      fs.mkdirSync(migratedFixture.ctx.stateDir, { recursive: true });
+      fs.writeFileSync(migratedLedgerPath, `${JSON.stringify({
+        schema: "pi67.extension-ledger.v1",
+        updatedAt: "fixed",
+        extensions: {
+          [migratedEntry.id]: {
+            lastManagedVersion: "1.0.0",
+            lastManagedHash: migratedEntry.contentHash,
+          },
+        },
+      })}\n`);
+      const contentBefore = fs.readFileSync(path.join(migratedInstall, "index.js"), "utf8");
+
+      const migrated = applyManagedExtensionBaselines(migratedFixture.ctx, {
+        registry: migratedRegistry,
+        sourceRoot: migratedFixture.sourceRoot,
+      });
+      assert.deepEqual(migrated.applied, []);
+      assert.equal(fs.readFileSync(path.join(migratedInstall, "index.js"), "utf8"), contentBefore);
+      assert.equal(migrated.ledger.extensions[migratedEntry.id].releaseBaselineRevision, 1);
+      assert.equal(migrated.ledger.extensions[migratedEntry.id].lastManagedRevision, 1);
+      const ledgerAfterMigration = fs.readFileSync(migratedLedgerPath, "utf8");
+
+      const noOp = applyManagedExtensionBaselines(migratedFixture.ctx, {
+        registry: migratedRegistry,
+        sourceRoot: migratedFixture.sourceRoot,
+      });
+      assert.deepEqual(noOp.applied, []);
+      assert.equal(fs.readFileSync(migratedLedgerPath, "utf8"), ledgerAfterMigration);
+    } finally {
+      migratedFixture.cleanup();
+    }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("bundled revision dry-run preserves content and ledger", () => {
+  const fixture = createFixture();
+  try {
+    const entry = bundledEntry(fixture, {
+      id: "fixture-bundled",
+      version: "1.0.0",
+      contentRevision: 2,
+      content: "managed revision 2\n",
+    });
+    const registry = fixtureRegistry([entry]);
+    const installPath = path.join(fixture.ctx.agentDir, entry.bundlePath);
+    fs.mkdirSync(installPath, { recursive: true });
+    fs.writeFileSync(path.join(installPath, "index.js"), "managed revision 1\n");
+    const ledgerPath = path.join(fixture.ctx.stateDir, "extension-ledger.json");
+    fs.mkdirSync(fixture.ctx.stateDir, { recursive: true });
+    const originalLedger = `${JSON.stringify({
+      schema: "pi67.extension-ledger.v1",
+      updatedAt: "fixed",
+      extensions: {
+        [entry.id]: {
+          lastManagedVersion: "1.0.0",
+          lastManagedRevision: 1,
+          lastManagedHash: hashDirectory(installPath),
+        },
+      },
+    })}\n`;
+    fs.writeFileSync(ledgerPath, originalLedger);
+
+    const dryRun = applyManagedExtensionBaselines(fixture.ctx, {
+      dryRun: true,
+      registry,
+      sourceRoot: fixture.sourceRoot,
+    });
+    assert.deepEqual(dryRun.applied, [{ id: entry.id, action: "upgrade-dry-run" }]);
+    assert.equal(fs.readFileSync(path.join(installPath, "index.js"), "utf8"), "managed revision 1\n");
+    assert.equal(fs.readFileSync(ledgerPath, "utf8"), originalLedger);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("physical Pi runtime inspection finds top-level and nested new and legacy namespaces", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-managed-peer-scan-"));
   try {
@@ -350,9 +568,25 @@ function gitEntry(id, packageName) {
   };
 }
 
+function bundledEntry(fixture, { id, version, contentRevision, content }) {
+  const bundlePath = path.join("extensions", id);
+  const sourcePath = path.join(fixture.sourceRoot, bundlePath);
+  fs.mkdirSync(sourcePath, { recursive: true });
+  fs.writeFileSync(path.join(sourcePath, "index.js"), content);
+  return {
+    id,
+    sourceKind: "bundled",
+    bundlePath,
+    minimumVersion: version,
+    contentRevision,
+    contentHash: hashDirectory(sourcePath),
+    role: "fixture",
+  };
+}
+
 function fixtureRegistry(entries) {
   return {
-    schema: "pi67.managed-extension-baselines.v1",
+    schema: "pi67.managed-extension-baselines.v2",
     policy: {},
     extensions: entries,
   };

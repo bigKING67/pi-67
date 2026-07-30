@@ -122,7 +122,7 @@ const fs = require("fs");
 const path = require("path");
 const root = process.argv[2];
 const baseline = JSON.parse(fs.readFileSync(path.join(root, "packages/pi67-cli/src/data/managed-extension-baselines.json"), "utf8"));
-if (baseline.schema !== "pi67.managed-extension-baselines.v1") throw new Error("wrong baseline schema");
+if (baseline.schema !== "pi67.managed-extension-baselines.v2") throw new Error("wrong baseline schema");
 if (baseline.extensions.length !== 21) throw new Error(`expected 21 defaults, got ${baseline.extensions.length}`);
 const counts = baseline.extensions.reduce((out, item) => (out[item.sourceKind] = (out[item.sourceKind] || 0) + 1, out), {});
 if ((counts.npm || 0) + (counts.git || 0) !== 17 || counts.bundled !== 4) throw new Error(`wrong source counts: ${JSON.stringify(counts)}`);
@@ -134,7 +134,7 @@ if (JSON.stringify(baseline).includes("agent_memory")) throw new Error("personal
 for (const item of baseline.extensions) {
   if (item.sourceKind === "npm" && (!item.minimumVersion || !/^[0-9a-f]{64}$/.test(item.contentHash || ""))) throw new Error(`invalid npm baseline: ${item.id}`);
   if (item.sourceKind === "git" && (!/^[0-9a-f]{40}$/.test(item.minimumCommit || "") || !item.repoUrl)) throw new Error(`invalid Git baseline: ${item.id}`);
-  if (item.sourceKind === "bundled" && (!item.bundlePath || !/^[0-9a-f]{64}$/.test(item.contentHash || ""))) throw new Error(`invalid bundled baseline: ${item.id}`);
+  if (item.sourceKind === "bundled" && (!item.bundlePath || !Number.isInteger(item.contentRevision) || item.contentRevision < 1 || !/^[0-9a-f]{64}$/.test(item.contentHash || ""))) throw new Error(`invalid bundled baseline: ${item.id}`);
 }
 NODE
   then

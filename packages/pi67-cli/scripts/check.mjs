@@ -1732,7 +1732,7 @@ function runManagedExtensionBaselineSelfTests() {
   fs.writeFileSync(path.join(dependencyAgent, "settings.json"), '{"packages":["npm:fixture-extension"]}\n');
   fs.writeFileSync(path.join(dependencyPackage, "package.json"), '{"name":"fixture-extension","version":"1.0.0"}\n');
   const dependencyRegistry = {
-    schema: "pi67.managed-extension-baselines.v1",
+    schema: "pi67.managed-extension-baselines.v2",
     policy: {},
     extensions: [{
       id: "fixture-extension",
@@ -1786,13 +1786,14 @@ function runManagedExtensionBaselineSelfTests() {
   fs.writeFileSync(path.join(sourceBundle, "index.ts"), "baseline\r\n");
   fs.writeFileSync(path.join(installedBundle, "index.ts"), "future managed copy\n");
   const bundledRegistry = {
-    schema: "pi67.managed-extension-baselines.v1",
+    schema: "pi67.managed-extension-baselines.v2",
     policy: {},
     extensions: [{
       id: "fixture-bundled",
       sourceKind: "bundled",
       bundlePath,
       minimumVersion: "0.15.0",
+      contentRevision: 2,
       contentHash: hashDirectory(sourceBundle),
     }],
   };
@@ -1805,6 +1806,7 @@ function runManagedExtensionBaselineSelfTests() {
       extensions: {
         "fixture-bundled": {
           lastManagedVersion: "0.16.0",
+          lastManagedRevision: 3,
           lastManagedHash: futureHash,
         },
       },
@@ -1823,6 +1825,7 @@ function runManagedExtensionBaselineSelfTests() {
       extensions: {
         "fixture-bundled": {
           lastManagedVersion: "0.14.0",
+          lastManagedRevision: 1,
           lastManagedHash: futureHash,
         },
       },
@@ -1841,15 +1844,53 @@ function runManagedExtensionBaselineSelfTests() {
       extensions: {
         "fixture-bundled": {
           lastManagedVersion: "0.15.0",
+          lastManagedRevision: 1,
           lastManagedHash: futureHash,
         },
       },
     },
   });
   assert(
-    sameVersionDifferentContent.extensions[0].status === "user-managed-diverged" &&
-      sameVersionDifferentContent.extensions[0].action === "keep-conflict",
-    "same-version bundled content drift must be preserved and reported instead of overwritten",
+    sameVersionDifferentContent.extensions[0].status === "below-baseline" &&
+      sameVersionDifferentContent.extensions[0].action === "upgrade",
+    "a pristine bundled extension with a newer content revision must upgrade at the same version",
+  );
+  const sameRevisionDifferentContent = inspectManagedExtensions({ agentDir, stateDir: path.join(tmpRoot, "state") }, {
+    registry: bundledRegistry,
+    sourceRoot,
+    ledger: {
+      schema: "pi67.extension-ledger.v1",
+      extensions: {
+        "fixture-bundled": {
+          lastManagedVersion: "0.15.0",
+          lastManagedRevision: 2,
+          lastManagedHash: futureHash,
+        },
+      },
+    },
+  });
+  assert(
+    sameRevisionDifferentContent.extensions[0].status === "user-managed-diverged" &&
+      sameRevisionDifferentContent.extensions[0].action === "keep-conflict",
+    "equal-revision bundled hash drift must fail closed",
+  );
+  const legacySameVersionDifferentContent = inspectManagedExtensions({ agentDir, stateDir: path.join(tmpRoot, "state") }, {
+    registry: bundledRegistry,
+    sourceRoot,
+    ledger: {
+      schema: "pi67.extension-ledger.v1",
+      extensions: {
+        "fixture-bundled": {
+          lastManagedVersion: "0.15.0",
+          lastManagedHash: futureHash,
+        },
+      },
+    },
+  });
+  assert(
+    legacySameVersionDifferentContent.extensions[0].status === "user-managed-diverged" &&
+      legacySameVersionDifferentContent.extensions[0].action === "keep-conflict",
+    "ambiguous legacy same-version bundled drift must fail closed",
   );
   fs.rmSync(tmpRoot, { recursive: true, force: true });
 }
@@ -1880,7 +1921,7 @@ function runPiLoadProbeSelfTests() {
   fs.writeFileSync(path.join(agentDir, "npm", "node_modules", "probe-extension", "package.json"), '{"name":"probe-extension","version":"1.0.0"}\n');
   const probeHash = hashDirectory(path.join(agentDir, "npm", "node_modules", "probe-extension"));
   const registry = {
-    schema: "pi67.managed-extension-baselines.v1",
+    schema: "pi67.managed-extension-baselines.v2",
     policy: {},
     extensions: [{
       id: "probe-extension",
