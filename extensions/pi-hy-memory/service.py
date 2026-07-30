@@ -34,6 +34,7 @@ OUTBOX_SCHEMA = "pi67-hy-memory-outbox/v1"
 MAX_REQUEST_BYTES = 256 * 1024
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 MAX_CAPTURE_CHARS = 12_000
+MAX_HTTP_CONNECTIONS = 32
 MAX_HTTP_HANDLERS = 8
 MAX_OPERATION_QUEUE = 16
 MAX_ACTIVE_OUTBOX_JOBS = 1_000
@@ -88,6 +89,7 @@ class LoopbackHTTPServer(ThreadingHTTPServer):
     request_queue_size = 16
 
     def __init__(self, *args: Any, **kwargs: Any):
+        self._connection_slots = threading.BoundedSemaphore(MAX_HTTP_CONNECTIONS)
         self._handler_slots = threading.BoundedSemaphore(MAX_HTTP_HANDLERS)
         super().__init__(*args, **kwargs)
 
@@ -98,7 +100,7 @@ class LoopbackHTTPServer(ThreadingHTTPServer):
         self.server_name, self.server_port = self.server_address[:2]
 
     def process_request(self, request: Any, client_address: Tuple[str, int]) -> None:
-        if not self._handler_slots.acquire(blocking=False):
+        if not self._connection_slots.acquire(blocking=False):
             try:
                 request.settimeout(1.0)
                 CapacityRejectHandler(request, client_address, self)
@@ -110,14 +112,20 @@ class LoopbackHTTPServer(ThreadingHTTPServer):
         try:
             super().process_request(request, client_address)
         except BaseException:
-            self._handler_slots.release()
+            self._connection_slots.release()
             raise
 
     def process_request_thread(self, request: Any, client_address: Tuple[str, int]) -> None:
         try:
             super().process_request_thread(request, client_address)
         finally:
-            self._handler_slots.release()
+            self._connection_slots.release()
+
+    def acquire_handler_slot(self) -> bool:
+        return self._handler_slots.acquire(blocking=False)
+
+    def release_handler_slot(self) -> None:
+        self._handler_slots.release()
 
 
 def parse_args() -> argparse.Namespace:
@@ -918,8 +926,14 @@ def make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
             self._json(HTTPStatus.METHOD_NOT_ALLOWED, {"error": "CORS is not enabled"})
 
         def _dispatch(self, method: str) -> None:
+            handler_acquired = False
             try:
                 self._validate_transport()
+                if state.server is None or not state.server.acquire_handler_slot():
+                    self._discard_body()
+                    self._json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "service request capacity exceeded"})
+                    return
+                handler_acquired = True
                 parsed = urlparse(self.path)
                 if method == "GET" and parsed.path == "/v1/info":
                     self._json(HTTPStatus.OK, self._info())
@@ -995,6 +1009,9 @@ def make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
                     type(error).__name__,
                 )
                 self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "internal server error"})
+            finally:
+                if handler_acquired and state.server is not None:
+                    state.server.release_handler_slot()
 
         def _validate_transport(self) -> None:
             remote = self.client_address[0]
@@ -1028,6 +1045,15 @@ def make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
             if not isinstance(value, dict):
                 raise ValueError("request body must be a JSON object")
             return value
+
+        def _discard_body(self) -> None:
+            raw_length = self.headers.get("Content-Length", "0")
+            try:
+                length = int(raw_length)
+            except ValueError:
+                return
+            if 0 < length <= MAX_REQUEST_BYTES:
+                self.rfile.read(length)
 
         def _operation_timeout(self, default: float) -> float:
             raw = self.headers.get("X-PI67-Timeout-Ms", "").strip()
