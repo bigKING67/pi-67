@@ -1,198 +1,187 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="icon" href="favicon.ico" />
-  <title></title>
-  <style>
-      * {
-          box-sizing: border-box;
-          padding: 0;
-          margin: 0;
-      }
+# lark-slides xml_presentation.slide replace
 
-      .open-platform-wrapper {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          height: 100vh;
-          background-color: #ffffff;
-      }
+## 用途
 
-      .open-platform-icon {
-          width: 120px;
-          height: 120px;
-          display: block;
-      }
+对单页做**块级局部替换**：不覆盖整页，按 patch 列表做 `block_replace`（整块替换）或 `block_insert`（整块插入）。适合"只想加 / 换一个元素、不动其他元素"的场景。
 
-      .open-platform-desc {
-          margin-top: 16px;
-          line-height: 22px;
-          font-size: 14px;
-          color: #646a73;
-          text-align: center
-      }
+> **推荐**：优先使用 [`+replace-slide`](lark-slides-replace-slide.md) Shortcut——它会自动注入 `id` 和 `<content/>`，直接调本 API 需自己处理这两个约束（见注意事项 5、6）。
 
-      .open-platform-back {
-          border-radius: 6px;
-          font-size: 14px;
-          height: 32px;
-          line-height: 22px;
-          min-width: 80px;
-          padding: 4px 11px;
-          text-align: center;
-          text-decoration: none;
-          touch-action: manipulation;
-          transition: color .1s ease-in, background-color .1s ease-in, border-color .1s ease-in, width .2s ease-in;
-          user-select: none;
-          white-space: nowrap;
-          background: #1456f0;
-          border: 1px solid #1456f0;
-          color: #ffffff;
-          margin-top: 16px;
-      }
-  </style>
-</head>
-<body>
-<div class="open-platform-wrapper">
-  <img class="open-platform-icon"
-       src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIwIiBoZWlnaHQ9IjEyMCIgdmlld0JveD0iMCAwIDEyMCAxMjAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTEyLjkxMyA1NS4yNDRjLTUuNjMyIDIuOTUtOC4yNDYgNi4yODQtOC4yNDYgOS40NHY5LjcyYzAtMy4xNTYgMi42MTQtNi40OSA4LjI0Ni05LjQ0di05LjcyWm05NC4xNjMtMTIuMDg0di05LjcyNmM1LjkzNC0zLjE5IDguOTgxLTYuODkxIDguOTgxLTEwLjcyNXY5LjcyYzAgMy44NC0zLjA0NyA3LjU0My04Ljk4MSAxMC43MzJaIiBmaWxsPSIjMEMyOTZFIi8+PHBhdGggZD0iTTYwLjIyOSAxOS4wNTkgNDguNzMgNDkuOTIyIDYwLjM2NSA3Mi45MmwtOC40NzQgMjMuODczSDE2LjkyM2E0IDQgMCAwIDEtNC00VjIzLjA2YTQgNCAwIDAgMSA0LTRINjAuMjNaIiBmaWxsPSIjQkJCRkM0IiBmaWxsLW9wYWNpdHk9Ii40NSIvPjxwYXRoIGQ9Ik03MS40MDggMTkuMDU5IDYwLjAxMyA0OS45MjIgNzEuNDYgNzIuOTJsLTguMzI1IDIzLjg3M2gzOS45NDNhNCA0IDAgMCAwIDQtNFYyMy4wNmE0IDQgMCAwIDAtNC00aC0zMS42N1oiIGZpbGw9IiNCQkJGQzQiIGZpbGwtb3BhY2l0eT0iLjQ1Ii8+PHBhdGggZD0iTTIxLjkyMyAyNi4xYTIgMiAwIDEgMSAwIDQgMiAyIDAgMCAxIDAtNFptMyAyYTMgMyAwIDEgMC02IDAgMyAzIDAgMCAwIDYgMFptNi45MTUtMmEyIDIgMCAxIDEgMCA0IDIgMiAwIDAgMSAwLTRabTMgMmEzIDMgMCAxIDAtNiAwIDMgMyAwIDAgMCA2IDBabS0xNS43NjMgNy4zOTRhLjUuNSAwIDAgMSAuNS0uNWgzMS41ODFhLjUuNSAwIDAgMSAwIDFIMTkuNTc1YS41LjUgMCAwIDEtLjUtLjVabTQ4LjQ3NyAwYS41LjUgMCAwIDEgLjUtLjVoMzIuNDY1YS41LjUgMCAwIDEgMCAxSDY4LjA1MmEuNS41IDAgMCAxLS41LS41WiIgZmlsbD0iIzhGOTU5RSIvPjxwYXRoIGQ9Ik05OCAxMTFjOS45NDEgMCAxOC04LjA1OSAxOC0xOHMtOC4wNTktMTgtMTgtMThjLTkuOTQyIDAtMTggOC4wNTktMTggMThzOC4wNTggMTggMTggMThaIiBmaWxsPSIjRjgwIi8+PHBhdGggZD0iTTk3LjE4MSA4NC44MThhLjgxOC44MTggMCAwIDAtLjgxOC44MTl2OS44MThjMCAuNDUyLjM2Ni44MTguODE4LjgxOGgxLjYzN2EuODE4LjgxOCAwIDAgMCAuODE4LS44MTh2LTkuODE5YS44MTguODE4IDAgMCAwLS44MTgtLjgxOEg5Ny4xOFptMCAxMy4wOTJhLjgxOC44MTggMCAwIDAtLjgxOC44MTh2MS42MzZjMCAuNDUyLjM2Ni44MTguODE4LjgxOGgxLjYzN2EuODE4LjgxOCAwIDAgMCAuODE4LS44MTh2LTEuNjM2YS44MTguODE4IDAgMCAwLS44MTgtLjgxOUg5Ny4xOFoiIGZpbGw9IiNmZmYiLz48cGF0aCBkPSJNNC4wMjcgODUuMzFjMi40OSA1LjUxIDE0Ljc3IDkuOTQgNDEuNDUgOS45M3Y5LjcyMWMtMjYuNjguMDEtMzguOTYtNC40Mi00MS40NS05Ljkzdi05LjcyWm04NC44MS0yNy4yN2MxNy41Mi0yLjY5IDI1LjgwNy03LjAyNiAyNy4yLTExLjcxdjkuNzJjLS4zMyA0LjY3LTkuNjggOS4wMi0yNy4yIDExLjcxdi05LjcyWiIgZmlsbD0iIzMzNzBGRiIvPjxwYXRoIGQ9Ik04OS4yMzcgMTMuMDFjMTguMDU4IDAgMjYuOCAzLjI1IDI2LjggOS43MnY5LjcyYzAtNi40Ny04Ljc0Mi05LjcyLTI2LjgtOS43MnYtOS43MlptLTg0LjU3IDUxLjdjMCA2LjYgMTEuMzcgMTIuNDUgMzAuNDcgMTIuNDR2OS43MmMtMTkuMSAwLTMwLjQ3LTUuODQtMzAuNDctMTIuNDR2LTkuNzJaIiBmaWxsPSIjMDBENkI5Ii8+PC9zdmc+"
-       alt="">
-  <div class="open-platform-desc">The page does not exist.</div>
-  <a class="open-platform-back" href="/">Go to homepage</a>
-</div>
-<script>window.gfdatav1={"env":"prod","ver":"1.0.0.13","canary":0,"garrModules":null,"envName":"prod","region":"CN","idc":"hl","webServerCodeType":"DeployServerlessWebServer","runtime":"node","extra":{"canaryType":null}}</script><script>
+## 命令
 
-  function parseQueryString(queryString) {
-    // 移除开头的 "?"
-    if (queryString.charAt(0) === '?') {
-      queryString = queryString.substring(1);
+```bash
+lark-cli slides xml_presentation.slide replace --as user --params '<json_params>' --data '<json_data>'
+```
+
+## 参数说明
+
+| 参数 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `--params` | JSON string | 是 | 路径参数与查询参数 |
+| `--data` | JSON string | 是 | patch 列表 |
+
+### params JSON 结构
+
+```json
+{
+  "xml_presentation_id": "slides_example_presentation_id",
+  "slide_id": "slide_example_id",
+  "revision_id": -1,
+  "tid": "idMock"
+}
+```
+
+| 字段 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `xml_presentation_id` | string | 是 | 演示文稿唯一标识 |
+| `slide_id` | string | 是 | 页面唯一标识 |
+| `revision_id` | integer | 否 | 默认 `-1`（以最新版为基准）；传具体版本号做乐观锁 |
+| `tid` | string | 否 | 事务 ID，一般留空 |
+
+### data JSON 结构
+
+```json
+{
+  "parts": [
+    { "action": "block_replace", "block_id": "bab", "replacement": "<shape .../>" },
+    { "action": "block_insert", "insertion": "<img .../>", "insert_before_block_id": "baa" }
+  ]
+}
+```
+
+| 字段 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `parts` | array | 是 | patch 列表，长度 1~200，顺序执行 |
+
+### parts[] 字段（按 action 不同）
+
+本期 CLI 文档化两种 action：
+
+#### action = "block_replace" — 整块替换
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `action` | 是 | 固定 `block_replace` |
+| `block_id` | 是 | 目标块的 3 位 short element ID（从 `slide.get` 返回的 XML 里读到） |
+| `replacement` | 是 | 新 XML 片段，替换整个目标块 |
+
+#### action = "block_insert" — 整块插入
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `action` | 是 | 固定 `block_insert` |
+| `insertion` | 是 | 要插入的完整 XML 片段 |
+| `insert_before_block_id` | 否 | 插到这个块之前；省略则追加到页面末尾 |
+
+## 使用示例
+
+### block_replace：换一个 shape 的整体内容
+
+```bash
+lark-cli slides xml_presentation.slide replace --as user --params '{
+  "xml_presentation_id": "slides_example_presentation_id",
+  "slide_id": "slide_example_id"
+}' --data '{
+  "parts": [
+    {
+      "action": "block_replace",
+      "block_id": "bab",
+      "replacement": "<shape type=\"text\" topLeftX=\"80\" topLeftY=\"80\" width=\"800\" height=\"120\"><content textType=\"title\"><p>新标题</p></content></shape>"
     }
+  ]
+}'
+```
 
-    var params = {};
-    if (!queryString) return params;
+### block_insert：在已有页上加一张图
 
-    // 分割参数对
-    var paramPairs = queryString.split('&');
+```bash
+# 先拿 file_token
+TOKEN=$(lark-cli slides +media-upload --file ./pic.png --presentation "$PID" --as user | jq -r '.data.file_token')
 
-    for (var i = 0; i < paramPairs.length; i++) {
-      var paramPair = paramPairs[i].split('=');
-      var key = decodeURIComponent(paramPair[0]);
-      var value = paramPair.length > 1 ? decodeURIComponent(paramPair[1]) : '';
-
-      // 处理重复参数（转为数组）
-      if (params[key] === undefined) {
-        params[key] = value;
-      } else if (!Array.isArray(params[key])) {
-        params[key] = [params[key], value];
-      } else {
-        params[key].push(value);
-      }
+lark-cli slides xml_presentation.slide replace --as user --params "{
+  \"xml_presentation_id\": \"$PID\",
+  \"slide_id\": \"$SID\"
+}" --data "$(jq -n --arg token "$TOKEN" '{
+  parts: [
+    {
+      action: "block_insert",
+      insertion: ("<img src=\"" + $token + "\" topLeftX=\"500\" topLeftY=\"100\" width=\"200\" height=\"150\"/>")
     }
+  ]
+}')"
+```
 
-    return params;
+### 多条 parts 原子执行
+
+```bash
+lark-cli slides xml_presentation.slide replace --as user --params '{
+  "xml_presentation_id": "slides_example_presentation_id",
+  "slide_id": "slide_example_id"
+}' --data '{
+  "parts": [
+    {"action":"block_replace","block_id":"bab","replacement":"<shape type=\"text\" topLeftX=\"80\" topLeftY=\"80\" width=\"800\" height=\"120\"><content textType=\"title\"><p>新标题</p></content></shape>"},
+    {"action":"block_insert","insertion":"<img src=\"<file_token>\" topLeftX=\"700\" topLeftY=\"400\" width=\"180\" height=\"100\"/>"}
+  ]
+}'
+```
+
+## 返回值
+
+### 成功
+
+```json
+{
+  "code": 0,
+  "data": {
+    "revision_id": 105
+  },
+  "msg": "success"
+}
+```
+
+### 失败（任一 part 失败，整批不生效）
+
+失败时返回非零错误码（如 3350001）。若后端能定位失败的 part，`data` 中可能附带：
+
+```json
+{
+  "code": 3350001,
+  "data": {
+    "failed_part_index": 0,
+    "failed_reason": "block not found"
   }
+}
+```
 
-  function getLocale() {
-    var zhLang = 'zh-CN';
-    var enLang = 'en-US';
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `data.revision_id` | integer | 成功时返回更新后最新版本号 |
+| `data.failed_part_index` | integer | 失败的 part 在 `parts` 数组中的索引（从 0 起） |
+| `data.failed_reason` | string | 失败原因 |
 
-    var queryLang = parseQueryString(window.location.search).lang;
-    var cookieLang = getCookieLocale();
-    var lang = enLang;
+## 常见错误
 
-    <!--从cookie中取值-->
-    function getCookieLocale() {
-      var locale = '';
-      var cookies = document.cookie.split('; ');
-      var loclaeKey = 'open_locale';
+| 错误码 | 含义 | 解决方案 |
+|--------|------|----------|
+| 3350001 | `block_id` 在当前页不存在，或 XML 格式 / 结构错误 | 重新 `slide.get` 拿最新 XML，确认 `block_id` 存在；检查 `replacement` / `insertion` 是否合法 XML |
+| 400 | `parts` 长度超过 200 | 拆多次调用 |
+| 3350002 | `revision_id` 不存在（超过当前版本号） | 用 `-1` 或实际存在的 `revision_id` |
+| 400 | XML 格式错误 | `replacement` / `insertion` 必须为合法的 XML 片段，标签闭合 + 属性引号 |
+| 403 | 权限不足 | 需要 `slides:presentation:update` 或 `slides:presentation:write_only` |
 
-      for (var i = 0; i < cookies.length; i++) {
-        var cookie = cookies[i].trim();
-        var cookieArr = cookie.split('=');
-        if (cookieArr[0] === loclaeKey) {
-          locale = cookieArr[1];
-          break;
-        }
-      }
-      return locale;
-    }
+## 注意事项
 
-    function setLocaleCookie(lang) {
-      var date = new Date();
-      // 300天到期
-      date.setTime(date.getTime() + (300 * 24 * 60 * 60 * 1000));
-      var expires = 'expires=' + date.toUTCString();
-      document.cookie = 'open_locale=' + lang + '; ' + expires + '; path=/;';
-    }
+1. **parts 原子事务**：任一条失败整批回滚，不会出现"前几条成功、后几条失败"的中间态。
+2. **block_id 的获取**：`slide.get` 返回的 XML 里每个块（shape、img、table、chart、whiteboard 等）会带 3 位 short element ID，用这个值填 `block_id` / `insert_before_block_id`。
+3. **`<img>` 必须用 file_token**：不能用外链 URL——先 [`slides +media-upload`](lark-slides-media-upload.md) 拿 token。
+4. **不能字段级 patch**：要改一个块的某个属性（比如只改 `topLeftX`），得写整块新 XML 走 `block_replace`；API 不支持"只改一个字段"。
+5. **`block_replace` 要求 `replacement` 根元素带 `id="<block_id>"`**：底层 API 的硬约束，缺失会返回 3350001。推荐走 shortcut [`+replace-slide`](lark-slides-replace-slide.md)——它会自动把 `id` 注入到 `replacement` 根元素上，用户写 XML 时不用自己加。
+6. **`<shape>` 必须有 `<content/>` 子元素**：SML 2.0 schema 要求，缺失同样触发 3350001。shortcut [`+replace-slide`](lark-slides-replace-slide.md) 会自动注入 `<content/>`，直接调底层 API 需要自己加。
+7. **`<whiteboard>` 返回结构不含内部数据**：`slide.get` 返回的 whiteboard 块只有外层标签和位置属性，SVG / Mermaid 内容不会随 XML 一起返回。但 `block_replace` 仍然可以强行覆盖——直接写入完整新 whiteboard XML 即可。
+8. **执行前必做**：`lark-cli schema slides.xml_presentation.slide.replace` 查看最新参数结构。
 
-    // 获取浏览器默认语言
-    if (navigator.language.indexOf('en') !== -1) {
-      lang = enLang;
-    } else if (navigator.language.indexOf('zh') !== -1) {
-      lang = zhLang;
-    }
-    if (cookieLang === enLang) {
-      lang = enLang;
-    } else if (cookieLang === zhLang) {
-      lang = zhLang;
-    }
-    if (queryLang === enLang) {
-      lang = enLang;
-    } else if (queryLang === zhLang) {
-      lang = zhLang;
-    }
-    // 设置cookie
-    setLocaleCookie(lang);
-    return lang;
-  }
+## 相关命令
 
-  // 根据域名获取当前brand
-  function isLarkDomain() {
-    var defaultBrandMap = {
-      lark: ['larksuite'],
-      feishu: ['feishu', 'larkoffice', 'larkenterprise'],
-    };
-    const { hostname } = window.location;
-
-    if (defaultBrandMap.feishu.some((item) => hostname.includes(item))) {
-      return false;
-    }
-
-    if (defaultBrandMap.lark.some((item) => hostname.includes(item))) {
-      return true;
-    }
-
-    if (window.domainBrand) {
-      return window.domainBrand === 'lark';
-    }
-
-    return false;
-  }
-
-  var isLarkBrand = isLarkDomain();
-
-  var config = {
-    'zh-CN': {
-      'desc': '抱歉，您访问的页面不存在',
-      'back': '返回首页',
-      'title': (isLarkBrand ? 'Lark' : '飞书') + '开放平台',
-    },
-    'en-US': {
-      'desc': 'The page does not exist.',
-      'back': 'Go to homepage',
-      'title': (isLarkBrand ? 'Lark': 'Feishu') + ' Open Platform',
-    },
-  };
-  var locale = getLocale();
-  var descObj = document.querySelector('.open-platform-desc');
-  var backObj = document.querySelector('.open-platform-back');
-  descObj.innerHTML = config[locale].desc;
-  backObj.innerHTML = config[locale].back;
-  document.title = config[locale].title;
-
-</script>
-</body>
-</html>
+- [slides +replace-slide](lark-slides-replace-slide.md) — 块级替换 shortcut（推荐，自动注入 id）
+- [xml_presentation.slide get](lark-slides-xml-presentation-slide-get.md) — 读原页拿 block short ID
+- [slides +media-upload](lark-slides-media-upload.md) — 上传图片拿 file_token
+- [lark-slides-edit-workflows.md](lark-slides-edit-workflows.md) — 读-改-写闭环 + 决策树

@@ -13,6 +13,12 @@ import {
 export const SETTINGS_RUNTIME_FILTER_NAME = "pi67-settings-runtime-state";
 export const SETTINGS_RUNTIME_FILTER_SCRIPT = "packages/pi67-cli/src/tools/settings-runtime-state-filter.mjs";
 export const SETTINGS_TEMPLATE_FILE = "settings.example.json";
+export const LOCAL_CONFIG_TEMPLATES = [
+  ["models.example.json", "models.json"],
+  ["mcp.example.json", "mcp.json"],
+  ["auth.example.json", "auth.json"],
+  ["image-gen.example.json", "image-gen.json"],
+];
 
 export { SETTINGS_RUNTIME_MARKER_KEY, stripSettingsRuntimeMarker, stripSettingsRuntimeMarkerText };
 
@@ -76,9 +82,12 @@ export function migrateSettingsRuntimeState(ctx, options = {}) {
     gitIndexRefreshSkipped: "",
     gitFilterInstalled: false,
     gitFilterRemoved: false,
+    localConfigFiles: null,
     skipped: [],
     errors: [],
   };
+
+  result.localConfigFiles = ensureLocalConfigFiles(ctx, { dryRun });
 
   if (!fs.existsSync(settingsPath) && fs.existsSync(templatePath)) {
     if (!dryRun) {
@@ -161,6 +170,38 @@ export function migrateSettingsRuntimeState(ctx, options = {}) {
     if (refreshResult.error) result.errors.push(refreshResult.error);
   }
 
+  return result;
+}
+
+export function ensureLocalConfigFiles(ctx, options = {}) {
+  const dryRun = Boolean(options.dryRun);
+  const result = {
+    createdFromTemplate: [],
+    preserved: [],
+    missingTemplates: [],
+  };
+  for (const [templateName, targetName] of LOCAL_CONFIG_TEMPLATES) {
+    const templatePath = path.join(ctx.repoRoot, templateName);
+    const targetPath = path.join(ctx.agentDir, targetName);
+    if (fs.existsSync(targetPath)) {
+      result.preserved.push(targetName);
+      continue;
+    }
+    if (!fs.existsSync(templatePath)) {
+      result.missingTemplates.push(templateName);
+      continue;
+    }
+    if (!dryRun) {
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      fs.copyFileSync(templatePath, targetPath, fs.constants.COPYFILE_EXCL);
+      try {
+        fs.chmodSync(targetPath, 0o600);
+      } catch {
+        // Windows and restricted filesystems may not support POSIX modes.
+      }
+    }
+    result.createdFromTemplate.push(targetName);
+  }
   return result;
 }
 

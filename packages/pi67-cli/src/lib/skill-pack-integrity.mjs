@@ -6,6 +6,7 @@ export const SKILL_PACK_LOCK_SCHEMA = "pi67.shared-skill-packs-lock.v1";
 
 const SHA256 = /^[0-9a-f]{64}$/;
 const GIT_COMMIT = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+const IGNORED_CACHE_DIRECTORIES = new Set(["__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"]);
 
 export class SkillPackIntegrityError extends Error {
   constructor(message) {
@@ -132,6 +133,8 @@ function validateLockedPack(locked, pack, sourceHashes) {
 
 function walkFiles(root, output) {
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    if (entry.isDirectory() && IGNORED_CACHE_DIRECTORIES.has(entry.name)) continue;
+    if (entry.isFile() && (/\.py[cod]$/i.test(entry.name) || entry.name === ".DS_Store")) continue;
     const full = path.join(root, entry.name);
     if (entry.isDirectory()) walkFiles(full, output);
     else if (entry.isFile()) output.push(full);

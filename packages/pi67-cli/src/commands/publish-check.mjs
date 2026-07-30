@@ -1,8 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parseCommandOptions } from "../lib/args.mjs";
-import { gitStatus } from "../lib/git.mjs";
-import { npmLatestVersion, npmPackageScopeStatus, npmPublishTargetStatus } from "../lib/npm-registry.mjs";
+import { gitReleaseStatus } from "../lib/git.mjs";
+import {
+  npmExactVersionStatus,
+  npmLatestVersion,
+  npmPackageScopeStatus,
+  npmPublishTargetStatus,
+} from "../lib/npm-registry.mjs";
 import { captureCommand } from "../lib/shell-runner.mjs";
 import { readCliPackageJson, readTextIfExists, packageRoot } from "../lib/paths.mjs";
 import { buildDistroManifest } from "../lib/distro-manifest.mjs";
@@ -45,12 +50,20 @@ async function buildPublishCheck(ctx, options) {
   const versionFile = readTextIfExists(path.join(ctx.repoRoot, "VERSION")).trim();
   const workflowFile = path.join(ctx.repoRoot, ".github", "workflows", "npm-publish.yml");
   const workflow = workflowCheck(workflowFile);
-  const git = fs.existsSync(ctx.repoRoot) ? gitStatus(ctx.repoRoot) : { isRepo: false };
-  const registry = await npmLatestVersion(pkg.name, {
-    currentVersion: pkg.version,
-    noRemote: options.noRemote,
-    timeoutMs: 10000,
-  });
+  const git = fs.existsSync(ctx.repoRoot)
+    ? gitReleaseStatus(ctx.repoRoot, { expectedBranch: "main", remote: "origin", verifyRemote: !options.noRemote })
+    : gitReleaseStatus(ctx.repoRoot, { expectedBranch: "main", remote: "origin", verifyRemote: false });
+  const [registry, exactVersion] = await Promise.all([
+    npmLatestVersion(pkg.name, {
+      currentVersion: pkg.version,
+      noRemote: options.noRemote,
+      timeoutMs: 10000,
+    }),
+    npmExactVersionStatus(pkg.name, pkg.version, {
+      noRemote: options.noRemote,
+      timeoutMs: 10000,
+    }),
+  ]);
   const scope = npmPackageScopeStatus(pkg.name, {
     noRemote: options.noRemote,
     timeoutMs: 10000,
@@ -74,24 +87,25 @@ async function buildPublishCheck(ctx, options) {
     check("bin_pi_67", pkg.bin?.["pi-67"] === "bin/pi-67.mjs", "missing pi-67 bin"),
     check("bin_pi67_alias", pkg.bin?.pi67 === "bin/pi-67.mjs", "missing pi67 alias"),
     check("publish_public", pkg.publishConfig?.access === "public", "scoped package must publish as public"),
+    check("git_release_source", git.ready, git.problems?.join("; ") || "Git release provenance is not ready"),
     check("trusted_publish_workflow", workflow.ok, workflow.message),
     check("npm_scope", !scope.blocking || target.code === "first_publish_scope_probe_confirmed", scope.message),
     check("npm_publish_target", !target.blocking, target.message),
+    check(
+      "npm_exact_version_available",
+      exactVersion.skipped || (exactVersion.ok && !exactVersion.exists),
+      exactVersion.message || `could not verify ${pkg.name}@${pkg.version}`,
+    ),
     check("distro_manifest", manifestRelease.ok, manifestRelease.message),
     check("npm_pack_dry_run", pack.ok || pack.skipped, pack.message),
   ];
 
-  const exactVersionPublished = registry.ok && registry.latestVersion === pkg.version;
+  const exactVersionPublished = exactVersion.ok && exactVersion.exists;
   const registryNotPublished = !registry.ok && registry.message === "not published on npm registry yet";
   const scopeMissing = Boolean(scope.blocking && target.code !== "first_publish_scope_probe_confirmed");
   const blockers = checks.filter((item) => !item.ok).map((item) => `${item.name}: ${item.message}`);
-  if (exactVersionPublished) {
-    blockers.push(`npm_version_already_published: ${pkg.name}@${pkg.version}`);
-  }
-
   const warnings = [];
-  if (!git.isRepo) warnings.push("repo root is not a git checkout; release provenance will be weaker");
-  else if (git.dirty) warnings.push("repo has local changes; commit scoped release changes before publishing");
+  if (!git.isRepo) warnings.push("repo root is not a git checkout; release provenance cannot be established");
   if (registryNotPublished) warnings.push("npm package is not published yet; configure Trusted Publisher or do one manual first publish");
   if (scope.skipped) warnings.push("npm scope check skipped");
   else if (target.code === "first_publish_scope_probe_confirmed") {
@@ -104,13 +118,14 @@ async function buildPublishCheck(ctx, options) {
   }
   if (!options.noRemote && !auth.ok) warnings.push("local npm auth is missing; this is acceptable for GitHub Trusted Publishing");
   if (registry.skipped) warnings.push("npm registry check skipped");
+  if (exactVersion.skipped) warnings.push("npm exact-version check skipped");
   if (auth.skipped) warnings.push("npm auth check skipped");
   if (pack.skipped) warnings.push("npm pack dry-run skipped");
   warnings.push(...manifestRelease.warnings);
 
   let status = "ready";
   if (blockers.length > 0) status = "blocked";
-  else if (registryNotPublished || !auth.ok || git.dirty || registry.skipped || auth.skipped) status = "ready_with_notes";
+  else if (registryNotPublished || !auth.ok || registry.skipped || exactVersion.skipped || auth.skipped) status = "ready_with_notes";
 
   return {
     schema: "pi67.publish-check.v1",
@@ -139,6 +154,7 @@ async function buildPublishCheck(ctx, options) {
       release: manifestRelease,
     },
     registry,
+    exactVersion,
     auth,
     pack,
     checks,
@@ -229,6 +245,9 @@ function workflowCheck(file) {
   if (!text) return { ok: false, file, message: "npm publish workflow missing" };
   const required = [
     "workflow_dispatch",
+    "refs/heads/main",
+    "HEAD does not match origin/main",
+    "required ci workflow did not succeed",
     "id-token: write",
     "Use npm with trusted publishing support",
     "npm_version=\"$(npm --version)\"",
@@ -238,6 +257,7 @@ function workflowCheck(file) {
     "publish-check --strict --no-pack",
     "--allow-first-publish",
     "npm publish ./packages/pi67-cli --access public --tag",
+    "if: ${{ !inputs.dry_run && steps.npm_version.outputs.published != 'true' }}",
     "auth_mode",
     "token-bootstrap",
     "inputs.auth_mode == 'token-bootstrap' && secrets.NPM_TOKEN",
@@ -348,6 +368,7 @@ function printReport(report) {
   keyValue("Publish target", report.target.message);
   keyValue("Manifest", report.manifest.release.ok ? "ownership policy ready" : report.manifest.release.message);
   keyValue("Registry", registryLabel(report.registry));
+  keyValue("Exact version", report.exactVersion.skipped ? "skipped" : report.exactVersion.message);
   keyValue("npm auth", report.auth.skipped ? "skipped" : report.auth.ok ? report.auth.username : "not logged in");
   keyValue("Pack", report.pack.skipped ? "skipped" : report.pack.ok ? "passed" : report.pack.message);
   keyValue("Git", report.git?.isRepo ? `${report.git.commit || "unknown"}${report.git.dirty ? " dirty" : ""}` : "not a git repo");

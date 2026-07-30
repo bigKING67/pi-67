@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(testDir, "..", "..");
 const bridgePath = path.join(repoRoot, "extensions", "pi-vision-bridge", "index.ts");
+const PNG_DATA_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 
 function loadBridgeFactory() {
   const require = createRequire(import.meta.url);
@@ -17,6 +18,32 @@ function loadBridgeFactory() {
   const jiti = createJiti(import.meta.url, { fsCache: false, moduleCache: false });
   const loaded = jiti(bridgePath);
   return loaded.default ?? loaded;
+}
+
+function registeredVisionTool() {
+  const tools = [];
+  loadBridgeFactory()({ registerTool: (tool) => tools.push(tool) });
+  assert.equal(tools.length, 1);
+  return tools[0];
+}
+
+function withVisionEnv(t) {
+  const previous = {
+    PI67_VISION_BASE_URL: process.env.PI67_VISION_BASE_URL,
+    PI67_VISION_API_KEY: process.env.PI67_VISION_API_KEY,
+    PI67_VISION_MODEL: process.env.PI67_VISION_MODEL,
+    PI67_VISION_PROVIDER: process.env.PI67_VISION_PROVIDER,
+  };
+  process.env.PI67_VISION_BASE_URL = "https://vision-fixture.invalid/v1";
+  process.env.PI67_VISION_API_KEY = "fixture-not-a-secret";
+  process.env.PI67_VISION_MODEL = "vision-fixture";
+  process.env.PI67_VISION_PROVIDER = "fixture";
+  t.after(() => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
 }
 
 test("registers vision_read as an explicit text-only fallback without global prompt bias", () => {
@@ -39,6 +66,117 @@ test("registers vision_read as an explicit text-only fallback without global pro
   assert.doesNotMatch(tool.description, /图片任务优先调用它|优先调用 vision_read/);
   assert.deepEqual(tool.parameters.required, ["image"]);
   assert.equal(tool.parameters.additionalProperties, false);
+});
+
+test("local images are realpath-confined to the active workspace", async (t) => {
+  withVisionEnv(t);
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-vision-boundary-"));
+  t.after(() => fs.rmSync(tempRoot, { recursive: true, force: true }));
+  const workspace = path.join(tempRoot, "workspace");
+  const outside = path.join(tempRoot, "outside.png");
+  const link = path.join(workspace, "escape.png");
+  fs.mkdirSync(workspace);
+  fs.writeFileSync(outside, Buffer.from(PNG_DATA_URL.split(",")[1], "base64"));
+  fs.symlinkSync(outside, link);
+  const previousFetch = globalThis.fetch;
+  let fetched = false;
+  globalThis.fetch = async () => {
+    fetched = true;
+    throw new Error("unexpected fetch");
+  };
+  t.after(() => { globalThis.fetch = previousFetch; });
+
+  await assert.rejects(
+    registeredVisionTool().execute("fixture", { image: link }, undefined, undefined, { cwd: workspace }),
+    /must resolve inside the active workspace/,
+  );
+  assert.equal(fetched, false);
+});
+
+test("data URL input is magic-checked and never echoed in updates or results", async (t) => {
+  withVisionEnv(t);
+  const previousFetch = globalThis.fetch;
+  const updates = [];
+  globalThis.fetch = async (_url, options) => {
+    const body = JSON.parse(options.body);
+    assert.equal(body.input[0].content[1].image_url.startsWith("data:image/png;base64,"), true);
+    return new Response(JSON.stringify({ output_text: "fixture analysis" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  t.after(() => { globalThis.fetch = previousFetch; });
+
+  const result = await registeredVisionTool().execute(
+    "fixture",
+    { image: PNG_DATA_URL },
+    undefined,
+    (update) => updates.push(update),
+    { cwd: repoRoot },
+  );
+  const rendered = JSON.stringify({ result, updates });
+  assert.match(rendered, /data-url:image\/png/);
+  assert.equal(rendered.includes(PNG_DATA_URL), false);
+});
+
+test("declared data URL MIME must match image magic", async (t) => {
+  withVisionEnv(t);
+  const mismatched = PNG_DATA_URL.replace("data:image/png", "data:image/jpeg");
+  await assert.rejects(
+    registeredVisionTool().execute("fixture", { image: mismatched }, undefined, undefined, { cwd: repoRoot }),
+    /MIME does not match detected image\/png/,
+  );
+});
+
+test("local file size is checked before read and extension cannot substitute for image magic", async (t) => {
+  withVisionEnv(t);
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-vision-local-validation-"));
+  t.after(() => fs.rmSync(workspace, { recursive: true, force: true }));
+  const oversized = path.join(workspace, "oversized.png");
+  fs.writeFileSync(oversized, "");
+  fs.truncateSync(oversized, 20 * 1024 * 1024 + 1);
+  await assert.rejects(
+    registeredVisionTool().execute("fixture", { image: oversized }, undefined, undefined, { cwd: workspace }),
+    /image file is too large/,
+  );
+
+  const disguised = path.join(workspace, "not-really-an-image.png");
+  fs.writeFileSync(disguised, "plain text fixture");
+  await assert.rejects(
+    registeredVisionTool().execute("fixture", { image: disguised }, undefined, undefined, { cwd: workspace }),
+    /not a supported image format/,
+  );
+});
+
+test("provider responses are streamed with a hard byte cap", async (t) => {
+  withVisionEnv(t);
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(Buffer.alloc(4 * 1024 * 1024 + 1, 0x61), { status: 200 });
+  t.after(() => { globalThis.fetch = previousFetch; });
+
+  await assert.rejects(
+    registeredVisionTool().execute("fixture", { image: PNG_DATA_URL }, undefined, undefined, { cwd: repoRoot }),
+    /vision provider response exceeded 4194304 bytes/,
+  );
+});
+
+test("host cancellation aborts image/provider IO instead of starting a fallback request", async (t) => {
+  withVisionEnv(t);
+  const previousFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async (_url, options) => {
+    calls += 1;
+    if (options.signal.aborted) throw new DOMException("aborted", "AbortError");
+    return await new Promise((_resolve, reject) => {
+      options.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+    });
+  };
+  t.after(() => { globalThis.fetch = previousFetch; });
+  const controller = new AbortController();
+  const pending = registeredVisionTool().execute("fixture", { image: PNG_DATA_URL }, controller.signal, undefined, { cwd: repoRoot });
+  controller.abort();
+  await assert.rejects(pending, /aborted/i);
+  assert.equal(calls, 1);
 });
 
 test("real upstream Pi keeps vision_read active without injecting the legacy prompt bias", { timeout: 20_000 }, (t) => {

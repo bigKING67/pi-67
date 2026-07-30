@@ -11,29 +11,37 @@ import { buildDistroManifest } from "./distro-manifest.mjs";
 import { PRESERVED_RUNTIME_FILES } from "./update-safety.mjs";
 import { settingsRuntimeMarkerFromObject } from "./settings-runtime-state.mjs";
 import { inspectManagedExtensions } from "./managed-extensions.mjs";
+import { captureOperationSnapshot } from "./operation-snapshot.mjs";
+import { resolveDistroSourceRoot } from "./release-store.mjs";
 
 export async function buildUpdatePlan(ctx, options = {}) {
   const versionFile = path.join(ctx.repoRoot, "VERSION");
+  const sourceRoot = options.sourceRoot || resolveDistroSourceRoot(ctx);
+  const settings = readJsonFileIfExists(path.join(ctx.agentDir, "settings.json")) || {};
+  const operationSnapshot = captureOperationSnapshot(ctx, { sourceRoot, settings });
   const managerFreshness = await inspectManagerFreshness(ctx, {
     noRemote: ctx.noRemote || options.noRemote,
+    manager: operationSnapshot.manager,
+    currentDistroVersion: operationSnapshot.current.version,
   });
   const pkg = {
     name: managerFreshness.package,
     version: managerFreshness.managerVersion,
   };
   const managerRegistry = managerFreshness.registry;
-  const distroVersion = managerFreshness.distroVersion;
-  const settings = readJsonFileIfExists(path.join(ctx.agentDir, "settings.json")) || {};
+  const distroVersion = operationSnapshot.target.version;
   const theme = currentTheme(ctx);
   const themes = listThemes(ctx);
   const git = fs.existsSync(ctx.repoRoot) ? gitStatus(ctx.repoRoot) : { isRepo: false };
-  const remote = !options.noRemote && git?.isRepo ? remoteHead(ctx.repoRoot) : { skipped: true };
+  const remote = !options.noRemote && git?.isRepo
+    ? remoteHead(ctx.repoRoot, "origin", git.branch, { remoteUrl: git.remote })
+    : { skipped: true };
   const skills = inventorySkills(ctx);
   const skillPacks = inspectSkillPackStatus(ctx, { inventory: skills });
   const external = listExternal(ctx);
   const manifest = buildDistroManifest(ctx);
   const managedExtensions = inspectManagedExtensions(ctx, {
-    sourceRoot: options.sourceRoot || ctx.repoRoot,
+    sourceRoot,
     deepHash: Boolean(options.deepExtensions),
   });
   const requiredScripts = [
@@ -116,7 +124,8 @@ export async function buildUpdatePlan(ctx, options = {}) {
 
   return {
     schema: "pi67.update-plan.v1",
-    createdAt: new Date().toISOString(),
+    createdAt: operationSnapshot.capturedAt,
+    operationSnapshot,
     manager: {
       package: pkg.name,
       version: pkg.version,
@@ -136,6 +145,8 @@ export async function buildUpdatePlan(ctx, options = {}) {
     },
     distro: {
       version: distroVersion || readTextIfExists(versionFile).trim(),
+      currentVersion: operationSnapshot.current.version,
+      targetVersion: operationSnapshot.target.version,
     },
     git,
     remote,

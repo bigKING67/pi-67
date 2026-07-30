@@ -33,7 +33,10 @@ jobs:
           mkdir -p npm
           cp package.json npm/package.json
           cp package-lock.json npm/package-lock.json
-          npm --prefix npm ci --ignore-scripts --no-audit --no-fund
+          npm --prefix npm ci --ignore-scripts --omit=peer --no-audit --no-fund
+
+      - name: Verify dependency closure
+        run: npm run -s check:dependency-closure
 
       - name: Typecheck xtalpi extension
         run: npm run -s typecheck:xtalpi
@@ -43,6 +46,15 @@ jobs:
 
       - name: Test rules-loader routing
         run: npm run -s test:rules-loader
+
+      - name: Test vision bridge security boundary
+        run: npm run -s test:vision-bridge
+
+      - name: Test pi-67 release contracts
+        run: npm run -s test:pi67-release-contracts
+
+      - name: Test bundled content contracts
+        run: npm run -s test:content-contracts
 
       - name: Run Hy-Memory tests
         run: npm run -s test:hy-memory
@@ -80,7 +92,10 @@ jobs:
           mkdir -p npm
           cp package.json npm/package.json
           cp package-lock.json npm/package-lock.json
-          npm --prefix npm ci --ignore-scripts --no-audit --no-fund
+          npm --prefix npm ci --ignore-scripts --omit=peer --no-audit --no-fund
+
+      - name: Verify dependency closure
+        run: npm run -s check:dependency-closure
 
       - name: Typecheck xtalpi extension
         run: npm run -s typecheck:xtalpi
@@ -90,6 +105,15 @@ jobs:
 
       - name: Test rules-loader routing
         run: npm run -s test:rules-loader
+
+      - name: Test vision bridge security boundary
+        run: npm run -s test:vision-bridge
+
+      - name: Test pi-67 release contracts
+        run: npm run -s test:pi67-release-contracts
+
+      - name: Test bundled content contracts
+        run: npm run -s test:content-contracts
 
       - name: Run Hy-Memory tests
         run: npm run -s test:hy-memory
@@ -129,7 +153,11 @@ jobs:
           New-Item -ItemType Directory -Force -Path npm | Out-Null
           Copy-Item package.json npm\package.json -Force
           Copy-Item package-lock.json npm\package-lock.json -Force
-          npm --prefix npm ci --ignore-scripts --no-audit --no-fund
+          npm --prefix npm ci --ignore-scripts --omit=peer --no-audit --no-fund
+
+      - name: Verify dependency closure
+        shell: pwsh
+        run: npm run -s check:dependency-closure
 
       - name: Typecheck xtalpi extension
         shell: pwsh
@@ -142,6 +170,18 @@ jobs:
       - name: Test rules-loader routing
         shell: pwsh
         run: npm run -s test:rules-loader
+
+      - name: Test vision bridge security boundary
+        shell: pwsh
+        run: npm run -s test:vision-bridge
+
+      - name: Test pi-67 release contracts
+        shell: pwsh
+        run: npm run -s test:pi67-release-contracts
+
+      - name: Test bundled content contracts
+        shell: pwsh
+        run: npm run -s test:content-contracts
 
       - name: Run Hy-Memory tests
         shell: pwsh

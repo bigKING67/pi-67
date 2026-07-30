@@ -16,7 +16,9 @@ export async function statusCommand(ctx, argv) {
     return;
   }
   section("pi-67 status");
-  keyValue("Distro", plan.distro.version || "unknown");
+  keyValue("Manager", `${plan.operationSnapshot.manager.package}@${plan.operationSnapshot.manager.version}`);
+  keyValue("Current distro", plan.operationSnapshot.current.version || plan.operationSnapshot.current.kind);
+  keyValue("Target distro", plan.operationSnapshot.target.version || "unknown");
   keyValue("State dir", plan.paths.stateDir);
   keyValue("Git", plan.git?.isRepo ? `${plan.git.branchLine || plan.git.branch || ""} ${plan.git.commit || ""}` : "not a git repo");
   keyValue("Provider", plan.settings.defaultProvider || "unset");
@@ -66,6 +68,9 @@ Usage:
 Options:
   --json       Emit the full update-plan status JSON.
   --no-remote  Skip remote git/npm registry checks.
+
+The JSON response separates the installed manager, current activated distro,
+target distro source, and live workspace state under operationSnapshot.
 
 Examples:
   pi-67 status

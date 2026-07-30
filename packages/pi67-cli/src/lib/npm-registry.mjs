@@ -26,13 +26,105 @@ export async function npmLatestVersion(packageName, options = {}) {
   };
 }
 
+export async function npmExactVersionStatus(packageName, version, options = {}) {
+  const requestedVersion = String(version || "").trim();
+  if (options.noRemote) {
+    return {
+      skipped: true,
+      ok: false,
+      exists: false,
+      packageName,
+      requestedVersion,
+      publishedVersion: "",
+      message: "remote checks skipped",
+    };
+  }
+  if (!requestedVersion) {
+    return {
+      skipped: false,
+      ok: false,
+      exists: false,
+      packageName,
+      requestedVersion,
+      publishedVersion: "",
+      message: "npm exact-version lookup requires a version",
+    };
+  }
+
+  const result = await npmRegistryPayload(packageName, requestedVersion, options);
+  if (!result.ok && result.status === 404) {
+    return {
+      skipped: false,
+      ok: true,
+      exists: false,
+      packageName,
+      requestedVersion,
+      publishedVersion: "",
+      message: `${packageName}@${requestedVersion} is available`,
+    };
+  }
+  if (!result.ok) {
+    return {
+      skipped: false,
+      ok: false,
+      exists: false,
+      packageName,
+      requestedVersion,
+      publishedVersion: "",
+      message: result.message,
+    };
+  }
+
+  const publishedVersion = parseNpmLatestPayload(result.payload);
+  if (!publishedVersion) {
+    return {
+      skipped: false,
+      ok: false,
+      exists: false,
+      packageName,
+      requestedVersion,
+      publishedVersion: "",
+      message: "npm registry exact-version payload returned no version",
+    };
+  }
+  if (publishedVersion !== requestedVersion) {
+    return {
+      skipped: false,
+      ok: false,
+      exists: false,
+      packageName,
+      requestedVersion,
+      publishedVersion,
+      message: `npm registry exact-version mismatch: requested ${requestedVersion}, received ${publishedVersion}`,
+    };
+  }
+  return {
+    skipped: false,
+    ok: true,
+    exists: true,
+    packageName,
+    requestedVersion,
+    publishedVersion,
+    message: `${packageName}@${requestedVersion} is already published`,
+  };
+}
+
 export function npmRegistryPackageUrl(packageName, options = {}) {
+  return npmRegistryVersionUrl(packageName, "latest", options);
+}
+
+export function npmRegistryVersionUrl(packageName, version, options = {}) {
   const baseUrl = String(options.registryBaseUrl || DEFAULT_REGISTRY_BASE_URL).replace(/\/+$/, "");
   const encodedPackage = encodeURIComponent(String(packageName || "")).replace(/^%40/, "@");
-  return `${baseUrl}/${encodedPackage}/latest`;
+  const encodedVersion = encodeURIComponent(String(version || "latest"));
+  return `${baseUrl}/${encodedPackage}/${encodedVersion}`;
 }
 
 async function npmRegistryLatestPayload(packageName, options = {}) {
+  return npmRegistryPayload(packageName, "latest", options);
+}
+
+async function npmRegistryPayload(packageName, version, options = {}) {
   const timeoutMs = options.timeoutMs || 8000;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -45,7 +137,7 @@ async function npmRegistryLatestPayload(packageName, options = {}) {
     };
   }
   try {
-    const response = await fetchImpl(npmRegistryPackageUrl(packageName, options), {
+    const response = await fetchImpl(npmRegistryVersionUrl(packageName, version, options), {
       signal: controller.signal,
       headers: {
         accept: "application/json",
@@ -55,6 +147,7 @@ async function npmRegistryLatestPayload(packageName, options = {}) {
     if (!response.ok) {
       return {
         ok: false,
+        status: response.status,
         message: response.status === 404
           ? "not published on npm registry yet"
           : `npm registry lookup failed: HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`,

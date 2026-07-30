@@ -4,7 +4,8 @@
 pi-67 Pi workstation. The independent upstream `pi` executable remains the
 only chat runtime.
 
-Version: `0.15.0` (release candidate; not published by this source change).
+The package version is defined by package metadata and the npm `latest` dist-tag;
+this README does not pin a patch release.
 
 ## Boundary
 
@@ -22,10 +23,8 @@ loading, and task execution remain upstream Pi responsibilities.
 
 ## Install
 
-After `0.15.0` is published:
-
 ```bash
-npm install --global @bigking67/pi-67@0.15.0
+npm install --global @bigking67/pi-67
 pi-67 install
 pi-67 doctor --json
 pi

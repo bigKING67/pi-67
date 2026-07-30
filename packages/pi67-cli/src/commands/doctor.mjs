@@ -23,8 +23,8 @@ export async function doctorCommand(ctx, argv) {
     }
   }
   const args = isWindows()
-    ? ["-AgentDir", ctx.agentDir, "-RepoRoot", ctx.repoRoot, "-SkillsDir", ctx.skillsDir]
-    : ["--agent-dir", ctx.agentDir, "--repo-root", ctx.repoRoot, "--skills-dir", ctx.skillsDir];
+    ? ["-AgentDir", ctx.agentDir, "-RepoRoot", ctx.repoRoot, "-SkillsDir", ctx.skillsDir, "-StateDir", ctx.stateDir]
+    : ["--agent-dir", ctx.agentDir, "--repo-root", ctx.repoRoot, "--skills-dir", ctx.skillsDir, "--state-dir", ctx.stateDir];
   if (ctx.json || options.json) args.push(isWindows() ? "-Json" : "--json");
   if (options.quiet) args.push(isWindows() ? "-Quiet" : "--quiet");
   if (options.strictSharedSkills) args.push(isWindows() ? "-StrictSharedSkills" : "--strict-shared-skills");

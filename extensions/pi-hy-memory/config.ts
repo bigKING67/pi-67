@@ -38,6 +38,9 @@ export function resolveHyMemoryPaths(homeOverride?: string): HyMemoryPaths {
     runtimeFile: path.join(runtimeDir, "current.json"),
     serviceFile: path.join(runtimeDir, "service.json"),
     startLockFile: path.join(runtimeDir, "start.lock"),
+    lifetimeLockFile: path.join(runtimeDir, "service-lifetime.lock"),
+    lifetimeOwnerFile: path.join(runtimeDir, "service-owner.json"),
+    outboxAdmissionLockDir: path.join(outboxDir, ".admission.lock"),
     logsDir: path.join(root, "logs"),
   };
 }

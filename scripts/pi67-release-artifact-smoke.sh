@@ -196,16 +196,18 @@ SH
 chmod +x "$FAKE_BIN/pi"
 
 section "Install dry-run"
-PATH="$FAKE_BIN:$PATH" "$ARTIFACT_DIR/install.sh" \
+HOME="$TMP_ROOT/home" PATH="$FAKE_BIN:$PATH" "$ARTIFACT_DIR/install.sh" \
   --dry-run \
+  --json \
   --agent-dir "$TMP_ROOT/agent" \
   --skills-dir "$TMP_ROOT/shared-skills" \
-  --backup-dir "$TMP_ROOT/backup" \
   --no-npm \
-  --no-doctor \
-  --no-report \
   --yes > "$TMP_ROOT/install-dry-run.log"
-pass "install dry-run completed"
+if ! grep -q '"schema": "pi67.install.v1"' "$TMP_ROOT/install-dry-run.log"; then
+  cat "$TMP_ROOT/install-dry-run.log" >&2
+  fail "install.sh did not delegate to the immutable manager"
+fi
+pass "install.sh delegated its dry-run to the immutable manager"
 
 section "Release metadata check"
 PI67_SKIP_RULES_LOADER_TEST=1 \

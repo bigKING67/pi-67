@@ -10,6 +10,7 @@ import {
 import { syncSkills } from "../lib/skill-policy.mjs";
 import { migrateSettingsRuntimeState } from "../lib/settings-runtime-state.mjs";
 import { writeState } from "../lib/state-store.mjs";
+import { beginWorkspaceOperation } from "../lib/workspace-operation-lock.mjs";
 import { CliError, info, keyValue, printJson, section } from "../lib/output.mjs";
 
 export function installCommand(ctx, argv) {
@@ -20,38 +21,48 @@ export function installCommand(ctx, argv) {
   const dryRun = ctx.dryRun || options.dryRun;
   const json = ctx.json || options.json;
   const sourceRoot = resolveDistroSourceRoot(ctx);
-  const legacyCheckout = fs.existsSync(path.join(ctx.agentDir, ".git"));
-  const current = readCurrentRelease(ctx);
-  const nonEmptyUnmanaged = isNonEmptyDirectory(ctx.agentDir) && !current;
-  if ((legacyCheckout || nonEmptyUnmanaged) && !options.repair) {
-    throw new CliError([
-      `existing Pi agent runtime needs an explicit layout migration: ${ctx.agentDir}`,
-      "Preview: pi-67 migrate --check",
-      "Apply:   pi-67 migrate --yes",
-      "The migration preserves personal MCP, provider/model/theme/auth state, sessions, extensions, and Skills.",
-    ].join("\n"), 2);
+  const operationName = options.repair ? "install-repair" : "install";
+  const operation = beginWorkspaceOperation(ctx, { operation: operationName, dryRun });
+  let activation;
+  let extensions;
+  let skills;
+  let runtimeState;
+  try {
+    const legacyCheckout = fs.existsSync(path.join(ctx.agentDir, ".git"));
+    const current = readCurrentRelease(ctx);
+    const nonEmptyUnmanaged = isNonEmptyDirectory(ctx.agentDir) && !current;
+    if ((legacyCheckout || nonEmptyUnmanaged) && !options.repair) {
+      throw new CliError([
+        `existing Pi agent runtime needs an explicit layout migration: ${ctx.agentDir}`,
+        "Preview: pi-67 migrate --check",
+        "Apply:   pi-67 migrate --yes",
+        "The migration preserves personal MCP, provider/model/theme/auth state, sessions, extensions, and Skills.",
+      ].join("\n"), 2);
+    }
+    if ((legacyCheckout || nonEmptyUnmanaged) && options.repair) {
+      throw new CliError("`pi-67 install --repair` does not replace a legacy/unmanaged agent directory; run `pi-67 migrate --check` first", 2);
+    }
+    activation = activateDistroRelease(ctx, {
+      sourceRoot,
+      dryRun,
+      operation: operationName,
+    });
+    const activeSource = dryRun ? sourceRoot : (activation.releasePath || sourceRoot);
+    extensions = applyManagedExtensionBaselines(ctx, {
+      sourceRoot: activeSource,
+      dryRun,
+      skipNpm: options.noNpm,
+      commandStdio: json ? ["ignore", "ignore", "inherit"] : undefined,
+    });
+    skills = syncSkills({ ...ctx, repoRoot: activeSource }, { dryRun });
+    runtimeState = dryRun ? null : migrateSettingsRuntimeState(ctx, {
+      normalizeSettingsJson: true,
+      installGitFilter: false,
+    });
+    if (!dryRun) writeState(ctx, operationName);
+  } finally {
+    operation.release();
   }
-  if ((legacyCheckout || nonEmptyUnmanaged) && options.repair) {
-    throw new CliError("`pi-67 install --repair` does not replace a legacy/unmanaged agent directory; run `pi-67 migrate --check` first", 2);
-  }
-
-  const activation = activateDistroRelease(ctx, {
-    sourceRoot,
-    dryRun,
-    operation: options.repair ? "install-repair" : "install",
-  });
-  const activeSource = dryRun ? sourceRoot : (activation.releasePath || sourceRoot);
-  const extensions = applyManagedExtensionBaselines(ctx, {
-    sourceRoot: activeSource,
-    dryRun,
-    skipNpm: options.noNpm,
-  });
-  const skills = syncSkills({ ...ctx, repoRoot: activeSource }, { dryRun });
-  const runtimeState = dryRun ? null : migrateSettingsRuntimeState(ctx, {
-    normalizeSettingsJson: true,
-    installGitFilter: false,
-  });
-  if (!dryRun) writeState(ctx, options.repair ? "install-repair" : "install");
 
   const result = {
     schema: "pi67.install.v1",

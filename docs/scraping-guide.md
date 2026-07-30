@@ -6,11 +6,11 @@
 
 ## 核心原则
 
-1. **长任务用 background_task，不要塞进 execute_js 的 120s 窗口**
-2. **等待用 browser_wait，不要 setTimeout 硬编码**
-3. **翻页用 browser_paginate，不要手动处理双 pager + 省略号**
-4. **存储用 localStorage + get_local_storage，数据不丢可续传**
-5. **微前端先 detect，再决定注入策略**
+1. **长任务用 `browser_job_ops`，并拆成可在 120s 内完成的小批次**
+2. **工具调用之间用 `browser_wait` 验证页面状态，不把固定 sleep 当成完成证据**
+3. **分页由 `browser_execute_js` 执行动作、`browser_wait` 验证结果；当前没有独立 paginate 工具**
+4. **断点只写 scoped localStorage key；用 `js_reverse_get_storage` 或 `browser_execute_js` 定点读取**
+5. **iframe/微前端先建立 frame tree；跨域 frame 只使用 degraded metadata，不推断内部 DOM**
 
 ---
 
@@ -46,16 +46,16 @@ Array.from(inputs).slice(0, 12).forEach(function(el, i) {
 
 | 数据规模 | 页面机制 | 推荐模式 |
 |----------|----------|----------|
-| <50 页，每页 <20 条 | 简单翻页 | `browser_execute_js` 一次性 |
-| 50-200 页 | SPA 翻页（URL 不变） | `browser_background_task` + 分批 |
-| 200+ 页 | SPA + 虚拟滚动 | `browser_background_task` + 小批次（5-10 页/批） |
-| 无限滚动 | scroll load | `browser_background_task` + scroll 循环 |
+| <50 页，每页 <20 条 | 简单翻页 | `browser_execute_js`；仍需显式等待和超时 |
+| 50-200 页 | SPA 翻页（URL 不变） | `browser_job_ops` + 小批次（建议 5-10 页/批） |
+| 200+ 页 | SPA + 虚拟滚动 | `browser_job_ops` + 断点续传；按实测调整批次 |
+| 无限滚动 | scroll load | `browser_job_ops` + 有终止条件的 scroll 批次 |
 
 ### 模式 A：一次性 execute_js（小规模）
 
 ```
 browser_execute_js({
-  code: <采集脚本>,
+  script: <采集脚本>,
   timeout_ms: 120000
 })
 ```
@@ -63,34 +63,44 @@ browser_execute_js({
 **适用**：页数 < 50，每页数据获取 < 2s  
 **不适用**：总耗时 > 120s 的任务
 
-### 模式 B：background_task（中大规模，推荐）
+### 模式 B：browser_job_ops（中大规模，推荐）
 
 ```
-// 启动
-browser_background_task.start({
-  code: <采集脚本>,
-  storage_key: '_scrape_fv2'
+// 启动。script 必须返回 Promise/结果，不能只安排 setTimeout 后立即返回。
+browser_job_ops({
+  action: "start",
+  title: "scrape pages 1-10",
+  workspace_key: "<workspace_key>",
+  task_id: "<task_id>",
+  script: <单批采集脚本>,
+  timeout_ms: 120000,
+  prepare_run: true
 })
-→ { task_id: "abc123", status: "started" }
+→ { ok: true, job: { job_id: "abc123", durable: true, ... } }
 
-// 轮询（每 20s）
-browser_background_task.status({ task_id: "abc123" })
-→ { pages: "45/200", records: 225, cdn_coverage: "78%" }
+// 查询状态；只按需要轮询，不做高频空转。
+browser_job_ops({ action: "status", job_id: "abc123" })
 
-// 继续轮询直到 status: "done"
+// 终态后获取结果。
+browser_job_ops({ action: "result", job_id: "abc123" })
 ```
 
-### 模式 C：分批 execute_js（无 background_task 时的回退）
+有效 run-backed job 会返回 `durable:true` 并把 checkpoint 写到 browser67 的
+run 目录；这只保证 job 元数据/结果可恢复，业务数据仍应写入单一、明确的
+localStorage key。`cancel` 对已经进入 `Runtime.evaluate` 的脚本是 intent-only，
+必须检查 `abort_supported` 和 `cancel_outcome`，不能假定页面脚本已经停止。
+
+### 模式 C：分批 execute_js（小规模同步回退）
 
 ```
 // Batch 1: pages 1-20
-browser_execute_js({ code: <脚本>, timeout_ms: 60000 })
-// 超时？没关系，数据在 localStorage 里。
-// 检查进度
-browser_execute_js({ code: <progress.js>, timeout_ms: 5000 })
+browser_execute_js({ script: <脚本>, timeout_ms: 60000 })
+// 超时不代表本批完整；只读取 scoped checkpoint，按最后成功页续跑。
+// 检查进度：
+browser_execute_js({ script: <progress.js>, timeout_ms: 5000 })
 
 // Batch 2: pages 21-40（脚本自动从断点续传）
-browser_execute_js({ code: <脚本>, timeout_ms: 60000 })
+browser_execute_js({ script: <脚本>, timeout_ms: 60000 })
 // 重复直到 200/200
 ```
 
@@ -98,29 +108,39 @@ browser_execute_js({ code: <脚本>, timeout_ms: 60000 })
 
 ## 翻页最佳实践
 
-### 使用 browser_paginate（推荐，未来能力）
+### 当前工具合同
 
 ```
-browser_paginate({
-  target_page: 13,
-  pager_root_selector: '[class*="content-ecom-pager"]',
-  page_button_selector: '.content-ecom-pager-item',
-  content_selector: '.content-ecom-Table-Row',
-  pager_strategy: "visible_last",  // 处理双 pager
-  max_steps: 20
+// 1. 执行一次明确的翻页动作，并返回动作前的页码/首行签名。
+browser_execute_js({
+  script: <click-next-and-return-previous-state>,
+  timeout_ms: 5000
+})
+
+// 2. 验证页码或首行签名已改变且新行已渲染。
+browser_wait({
+  type: "function",
+  predicate: <page-changed-and-rows-ready-predicate>,
+  interval_ms: 100,
+  timeout_ms: 10000
 })
 ```
 
-### 手动翻页（当前可用）
+在单个 `browser_job_ops` 脚本内部无法回调 MCP 工具；此时脚本必须使用有
+deadline 的 DOM 轮询，并让顶层 Promise 在单批完成或失败时 resolve/reject。
+不要只注册 timer 后立即返回，否则 job 会过早进入终态。
+
+### 页面内批次翻页
 
 ```javascript
-// 翻到指定页（逐页点击）
-function gotoPage(target) {
-  var current = getCurrentPage();
-  while (current < target) {
-    clickNextPage();
-    await sleep(800);
-    current = getCurrentPage();
+async function gotoPage(target, deadline) {
+  while (getCurrentPage() < target && Date.now() < deadline) {
+    var previous = getCurrentPage();
+    if (!clickNextPage()) throw new Error('next_page_not_found');
+    var changed = await waitFor(function() {
+      return getCurrentPage() !== previous && getRows().length > 0;
+    }, Math.min(10000, deadline - Date.now()));
+    if (!changed) throw new Error('page_change_timeout');
   }
 }
 ```
@@ -129,9 +149,9 @@ function gotoPage(target) {
 
 | 陷阱 | 表现 | 解决 |
 |------|------|------|
-| 双 pager | 点击了底部 pager，顶部没变 | 用 `pager_strategy: "visible_last"` |
-| 省略号 | 目标页不在可见 pager 内 | 先点击省略号展开 |
-| 表格未渲染 | pager 变了但表格还是老数据 | 等 `browser_wait(selector_text)` 确认 |
+| 双 pager | 同一页出现两组分页器 | 限定可见 pager root，或明确选择最后一组可见分页器 |
+| 省略号 | 目标页不在可见 pager 内 | 优先点 next 控件逐页推进；不要把省略号当数据页 |
+| 表格未渲染 | pager 变了但表格还是老数据 | 用 `browser_wait(type:"function")` 同时验证页码/首行签名和 rows |
 | 后期变慢 | 前 50 页 500ms/页，后 50 页 2s/页 | 动态适应当前页渲染速度 |
 
 ---
@@ -147,10 +167,8 @@ function gotoPage(target) {
 ### API 拦截要点
 
 ```javascript
-// hook 要在页面加载前安装
-// 用 inject_preload_script 确保 document_start 执行
-inject_preload_script({
-  id: 'cdn_hook',
+// 首屏请求不能靠普通页面执行补抓。用 js-reverse 记录 preload 语义：
+js_reverse_inject_preload_script({
   code: `
     var origFetch = window.fetch;
     window.fetch = function(url, opts) {
@@ -162,19 +180,22 @@ inject_preload_script({
       }
       return p;
     };
-  `,
-  run_at: "document_start",
-  verify: true,
-  reload: true
+  `
 });
 ```
 
+`js_reverse_inject_preload_script` 会返回 `preload_semantics`。它可以在当前
+document 执行并记录下一次导航的注入意图，但不自动等于 true
+`document_start`；真正的首脚本注入需要 extension content script 或 remote
+CDP `Page.addScriptToEvaluateOnNewDocument` 路径。
+
 ### 微前端注意事项
 
-Garfish/qiankun 子应用可能缓存了 fetch/XHR 引用，晚注入 hook 无效。  
-**解法**：`detect_microfrontends` → `inject_preload_script` at `document_start`。
-
-如果 MAIN world preload 不可用，接受 degraded 结果（CDN 覆盖率 ~80%），用 DOM 提取补足。
+Garfish/qiankun 子应用可能缓存 fetch/XHR 引用，晚注入 hook 无效。先用
+`js_reverse_list_frames` 建 frame tree 并记录 `frame_id`、`frame_path`、
+`origin` 和 `same_origin/degraded_mode`。same-origin frame 可继续定点观察；
+cross-origin、closed shadow root 或 sandbox 场景只报告可见边界，不能把未观察到
+的数据写成“已覆盖”。DOM 提取可以作为显式降级，但必须单独报告覆盖率和缺口。
 
 ---
 
@@ -220,16 +241,19 @@ console.log('Brands found: ' + [...brands].join(', '));
 
 | 故障 | 恢复方式 |
 |------|----------|
-| browser_execute_js 超时 | 数据在 localStorage，执行 progress 检查 |
-| transport 断开 | `check_browser_health` 自动重连 |
+| browser_execute_js / job 超时 | 定点读取 checkpoint key；确认脚本是否仍在运行后再续跑，避免重复任务 |
+| transport 断开 | 先用 `browser_transport_health` 区分 ws/link，再决定是否重试 |
 | 页面筛选条件丢失 | 只能手动重设（没有程序化方式恢复） |
-| 翻到一半浏览器关闭 | 重开页面，脚本从断点续传 |
+| 翻到一半浏览器关闭 | 重新核对筛选条件和当前页，再从 checkpoint 开始下一批 |
 | CDN 某页缺失 | 执行 CDN 回填脚本（只扫缺失页） |
 | 数据有非目标品牌 | 筛选条件被污染，清理后重采 |
 
 ---
 
-## 性能参考
+## 单一历史场景的性能参考
+
+以下数字来自文首所述采集任务，不是 browser67 的通用 SLA。页面规模、接口
+延迟、渲染方式和批次大小变化后必须重新测量；单批应留在 120s 工具上限内。
 
 | 操作 | 耗时 | 说明 |
 |------|------|------|

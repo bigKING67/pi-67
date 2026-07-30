@@ -7,6 +7,7 @@ param(
   [string]$RepoRoot,
   [string]$AgentDir,
   [string]$SkillsDir,
+  [string]$StateDir,
   [switch]$Json,
   [switch]$Quiet,
   [switch]$PiList,
@@ -38,6 +39,7 @@ Options:
   -RepoRoot DIR        pi-67 checkout. Defaults to this script's repo.
   -AgentDir DIR        Pi agent dir. Defaults to `$HOME\.pi\agent.
   -SkillsDir DIR       Shared skills dir. Defaults to `$HOME\.agents\skills.
+  -StateDir DIR        pi-67 workspace state root. Auto-detected when omitted.
   -Json                Print machine-readable JSON only.
   -Quiet               Print only summary in text mode.
   -PiList              Run the non-interactive `pi list --no-approve` package probe.
@@ -345,6 +347,7 @@ function Get-NpmPackageJsonPath {
 }
 
 function Detect-InstallMode {
+  if (Find-MatchingStateDir) { return "immutable-release" }
   try {
     $repoReal = (Resolve-Path $RepoRoot).ProviderPath
     $agentReal = (Resolve-Path $AgentDir).ProviderPath
@@ -355,6 +358,36 @@ function Detect-InstallMode {
   } catch {
   }
   return "linked-source"
+}
+
+function Test-ReleasePointerMatchesAgent([string]$CandidateStateDir) {
+  if (-not $CandidateStateDir) { return $false }
+  $pointerFile = Join-Path $CandidateStateDir "current.json"
+  if (-not (Test-Path -LiteralPath $pointerFile -PathType Leaf)) { return $false }
+  try {
+    $pointer = Get-Content -LiteralPath $pointerFile -Raw | ConvertFrom-Json
+    if ($pointer.schema -ne "pi67.release-pointer.v1" -or -not $pointer.releasePath) { return $false }
+    $expected = (Resolve-Path -LiteralPath $AgentDir).ProviderPath
+    $observed = (Resolve-Path -LiteralPath ([string]$pointer.agentDir)).ProviderPath
+    return $expected -eq $observed -and (Test-Path -LiteralPath ([string]$pointer.releasePath) -PathType Container)
+  } catch {
+    return $false
+  }
+}
+
+function Find-MatchingStateDir {
+  if ($StateDir) {
+    if (Test-ReleasePointerMatchesAgent $StateDir) { return $StateDir }
+    return $null
+  }
+  $root = Join-Path (Join-Path (Get-HomePath) ".pi") "pi67"
+  if (Test-ReleasePointerMatchesAgent $root) { return $root }
+  $workspaces = Join-Path $root "workspaces"
+  if (-not (Test-Path -LiteralPath $workspaces -PathType Container)) { return $null }
+  foreach ($entry in Get-ChildItem -LiteralPath $workspaces -Directory -ErrorAction SilentlyContinue) {
+    if (Test-ReleasePointerMatchesAgent $entry.FullName) { return $entry.FullName }
+  }
+  return $null
 }
 
 $InstallMode = Detect-InstallMode

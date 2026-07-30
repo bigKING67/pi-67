@@ -3,6 +3,7 @@ import { parseCommandOptions } from "../lib/args.mjs";
 import { currentTheme, hasTheme, listThemes } from "../lib/theme-policy.mjs";
 import { readJsonFileIfExists, writeJsonAtomic } from "../lib/config-json.mjs";
 import { createRuntimeBackup } from "../lib/update-safety.mjs";
+import { beginWorkspaceOperation } from "../lib/workspace-operation-lock.mjs";
 import { CliError, keyValue, printJson, section, pass, fail, info } from "../lib/output.mjs";
 
 export async function themesCommand(ctx, argv) {
@@ -58,24 +59,33 @@ function setTheme(ctx, argv) {
   if (options.help) return printThemesHelp();
   const name = positionals[0];
   if (!name) throw new CliError("themes set requires a theme name", 2);
-  if (!options.force && !hasTheme(ctx, name)) {
-    throw new CliError(`theme not installed: ${name}`);
+  const dryRun = ctx.dryRun || options.dryRun;
+  const operation = beginWorkspaceOperation(ctx, { operation: "themes-set", dryRun });
+  let previous;
+  let backupDir;
+  try {
+    if (!options.force && !hasTheme(ctx, name)) {
+      throw new CliError(`theme not installed: ${name}`);
+    }
+    const settingsFile = path.join(ctx.agentDir, "settings.json");
+    const settings = readJsonFileIfExists(settingsFile) || {};
+    previous = settings.theme || "";
+    if (previous === name) {
+      pass(`theme already set: ${name}`);
+      return;
+    }
+    settings.theme = name;
+    if (dryRun) {
+      info(`DRY-RUN set theme ${previous || "unset"} -> ${name}`);
+      return;
+    }
+    const requestedBackupDir = path.join(ctx.stateDir, "backups", `${new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "Z")}-themes-set`);
+    const backup = createRuntimeBackup(ctx, requestedBackupDir, { operation: "themes-set", returnResult: true });
+    backupDir = backup.backupDir;
+    writeJsonAtomic(settingsFile, settings);
+  } finally {
+    operation.release();
   }
-  const settingsFile = path.join(ctx.agentDir, "settings.json");
-  const settings = readJsonFileIfExists(settingsFile) || {};
-  const previous = settings.theme || "";
-  if (previous === name) {
-    pass(`theme already set: ${name}`);
-    return;
-  }
-  settings.theme = name;
-  if (ctx.dryRun || options.dryRun) {
-    info(`DRY-RUN set theme ${previous || "unset"} -> ${name}`);
-    return;
-  }
-  const backupDir = path.join(ctx.stateDir, "backups", `${new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "Z")}-themes-set`);
-  createRuntimeBackup(ctx, backupDir, { operation: "themes-set" });
-  writeJsonAtomic(settingsFile, settings);
   pass(`theme set: ${previous || "unset"} -> ${name}`);
   info(`Preserved runtime backup: ${backupDir}`);
 }

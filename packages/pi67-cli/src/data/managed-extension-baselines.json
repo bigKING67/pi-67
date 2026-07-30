@@ -83,8 +83,8 @@
       "sourceKind": "npm",
       "settingsSpec": "npm:pi-simplify",
       "packageName": "pi-simplify",
-      "minimumVersion": "0.2.2",
-      "contentHash": "4e43f21e5b2f784e3a146d3166a67e4962f7b4894011d91ffccbf4da9c2990a8",
+      "minimumVersion": "0.2.3",
+      "contentHash": "984dc99b26e19a968fdda01fd1a35ff6b010e00b323c6e2ad371d5b6e207a7ae",
       "role": "code-simplification"
     },
     {
@@ -103,6 +103,10 @@
       "packageName": "@feniix/pi-sequential-thinking",
       "minimumVersion": "5.0.3",
       "contentHash": "c35390155fcb8af0d93f56c2dbd6b0ad176c5e0c8754e0b31d32c325631caef9",
+      "runtimeDependencies": {
+        "@modelcontextprotocol/sdk": "1.30.0",
+        "fast-uri": "3.1.4"
+      },
       "role": "structured-thinking"
     },
     {
@@ -141,6 +145,10 @@
       "packageName": "pi-mcp-adapter",
       "minimumVersion": "2.11.0",
       "contentHash": "23a0a09e64b5f197deaa28ff7373092f3487bee5e471a923a07f7ab7ecae87f8",
+      "runtimeDependencies": {
+        "@modelcontextprotocol/sdk": "1.30.0",
+        "fast-uri": "3.1.4"
+      },
       "role": "mcp-adapter"
     },
     {
@@ -183,7 +191,7 @@
       "sourceKind": "bundled",
       "bundlePath": "extensions/pi-vision-bridge",
       "minimumVersion": "0.15.4",
-      "contentHash": "c46faeee1c5d621a5719f1b89a76bb9bab3e2ca6819f4eb2c4c4e749c8a318df",
+      "contentHash": "174cdfa2f4595fe21b60c3d1320746c9e3b3c01f4a0c371dd00117054d2e2c1b",
       "role": "first-party-vision-bridge"
     },
     {
@@ -199,7 +207,7 @@
       "sourceKind": "bundled",
       "bundlePath": "extensions/pi-hy-memory",
       "minimumVersion": "0.15.0",
-      "contentHash": "34db24ce01d69b2c68c1cf14a00b625841de5437b731e66e3816d2d4406fd53c",
+      "contentHash": "26960f9d892882de2587f565d30dd316980e4083d49031bcb487764a28f4fb4d",
       "role": "cross-session-long-term-memory"
     }
   ]

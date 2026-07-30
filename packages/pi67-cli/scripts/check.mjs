@@ -220,6 +220,16 @@ function runSkillPackPolicySelfTests() {
     hashDirectory(crlfSkill) === hashDirectory(lfSkill),
     "Skill Pack hashes must be stable across CRLF and LF checkouts",
   );
+  const sourceHash = hashDirectory(lfSkill);
+  fs.mkdirSync(path.join(lfSkill, "__pycache__"));
+  fs.writeFileSync(path.join(lfSkill, "__pycache__", "helper.cpython-313.pyc"), "generated cache bytes");
+  fs.writeFileSync(path.join(lfSkill, ".DS_Store"), "generated metadata");
+  assert(
+    hashDirectory(lfSkill) === sourceHash,
+    "Skill Pack hashes must ignore generated Python and OS metadata caches",
+  );
+  fs.writeFileSync(path.join(lfSkill, "helper.py"), "print('tracked source')\n");
+  assert(hashDirectory(lfSkill) !== sourceHash, "Skill Pack hashes must still detect source changes");
   fs.writeFileSync(path.join(repoRoot, "shared-skill-packs.json"), `${JSON.stringify({
     schema: "pi67.shared-skill-packs.v1",
     packs: [{

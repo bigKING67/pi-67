@@ -3,32 +3,25 @@ import path from "node:path";
 import crypto from "node:crypto";
 import os from "node:os";
 import { CliError, info } from "./output.mjs";
+import { canonicalPathIdentity, runFileTransaction } from "./file-transaction.mjs";
+import { PRESERVED_RUNTIME_FILES } from "./runtime-layout-policy.mjs";
+import { beginWorkspaceOperation } from "./workspace-operation-lock.mjs";
 
-export const PRESERVED_RUNTIME_FILES = [
-  "settings.json",
-  "models.json",
-  "auth.json",
-  "mcp.json",
-  "image-gen.json",
-  "settings.json.theme",
-];
-
-const LOCK_STALE_AFTER_MS = 4 * 60 * 60 * 1000;
+export { PRESERVED_RUNTIME_FILES } from "./runtime-layout-policy.mjs";
 
 export function beginUpdateLifecycle(ctx, options = {}) {
   const operation = options.operation || "update";
   const dryRun = Boolean(options.dryRun);
   const backupRuntime = options.backupRuntime !== false;
-  const lockPath = path.join(ctx.stateDir, "locks", "update.lock");
-  const backupDir = path.join(ctx.stateDir, "backups", `${timestamp()}-${operation}`);
+  const backupDir = uniqueBackupDir(path.join(ctx.stateDir, "backups", `${timestamp()}-${operation}`));
 
   if (dryRun) {
-    info(`DRY-RUN would acquire update lock: ${lockPath}`);
+    const operationLock = beginWorkspaceOperation(ctx, { operation, dryRun: true });
     if (backupRuntime) {
       info(`DRY-RUN would snapshot preserved runtime files into: ${backupDir}`);
     }
     return {
-      lockPath,
+      lockPath: operationLock.lockPath,
       backupDir,
       backedUp: [],
       backupSkipped: !backupRuntime,
@@ -37,12 +30,12 @@ export function beginUpdateLifecycle(ctx, options = {}) {
     };
   }
 
-  acquireLock(lockPath, { operation });
+  const operationLock = beginWorkspaceOperation(ctx, { operation });
   let released = false;
   try {
     if (!backupRuntime) {
       return {
-        lockPath,
+        lockPath: operationLock.lockPath,
         backupDir: "",
         backedUp: [],
         backupSkipped: true,
@@ -51,7 +44,7 @@ export function beginUpdateLifecycle(ctx, options = {}) {
         release() {
           if (released) return;
           released = true;
-          releaseLock(lockPath);
+          operationLock.release();
         },
       };
     }
@@ -62,7 +55,7 @@ export function beginUpdateLifecycle(ctx, options = {}) {
       returnResult: true,
     });
     return {
-      lockPath,
+      lockPath: operationLock.lockPath,
       backupDir: backup.backupDir,
       backedUp: backup.backedUp,
       backupSkipped: backup.skipped,
@@ -71,11 +64,11 @@ export function beginUpdateLifecycle(ctx, options = {}) {
       release() {
         if (released) return;
         released = true;
-        releaseLock(lockPath);
+        operationLock.release();
       },
     };
   } catch (error) {
-    releaseLock(lockPath);
+    operationLock.release();
     throw error;
   }
 }
@@ -97,42 +90,50 @@ export function createRuntimeBackup(ctx, backupDir, options = {}) {
     }
   }
 
-  fs.mkdirSync(backupDir, { recursive: true, mode: 0o700 });
-  const filesDir = path.join(backupDir, "files");
-  fs.mkdirSync(filesDir, { recursive: true, mode: 0o700 });
+  const actualBackupDir = allocateBackupDir(backupDir);
+  try {
+    const filesDir = path.join(actualBackupDir, "files");
+    fs.mkdirSync(filesDir, { recursive: true, mode: 0o700 });
 
-  for (const rel of PRESERVED_RUNTIME_FILES) {
-    const item = preserved.find((entry) => entry.path === rel);
-    if (!item?.exists) continue;
-    const source = path.join(ctx.agentDir, rel);
-    const target = path.join(filesDir, rel.replace(/[\\/]/g, "__"));
-    fs.copyFileSync(source, target);
-    chmodPrivate(target);
-  }
+    const snapshot = preserved.map((item) => ({ ...item }));
+    for (const rel of PRESERVED_RUNTIME_FILES) {
+      const item = preserved.find((entry) => entry.path === rel);
+      if (!item?.exists) continue;
+      const source = path.join(ctx.agentDir, rel);
+      const target = path.join(filesDir, rel.replace(/[\\/]/g, "__"));
+      fs.copyFileSync(source, target);
+      chmodPrivate(target);
+      const copied = snapshot.find((entry) => entry.path === rel);
+      copied.bytes = fs.statSync(target).size;
+      copied.sha256 = sha256File(target);
+    }
 
-  const backedUp = preserved.filter((item) => item.exists !== false);
-
-  if (options.plan) {
+    const backedUp = snapshot.filter((item) => item.exists !== false);
+    if (options.plan) {
+      fs.writeFileSync(
+        path.join(actualBackupDir, "update-plan.json"),
+        `${JSON.stringify(options.plan, null, 2)}\n`,
+        { mode: 0o600 },
+      );
+    }
     fs.writeFileSync(
-      path.join(backupDir, "update-plan.json"),
-      `${JSON.stringify(options.plan, null, 2)}\n`,
+      path.join(actualBackupDir, "backup-manifest.json"),
+      `${JSON.stringify({
+        schema: "pi67.update-backup.v1",
+        createdAt: new Date().toISOString(),
+        operation,
+        agentDir: ctx.agentDir,
+        repoRoot: ctx.repoRoot,
+        files: snapshot,
+      }, null, 2)}\n`,
       { mode: 0o600 },
     );
+    const result = { backupDir: actualBackupDir, backedUp, skipped: false, reusedBackupDir: "", reason: "" };
+    return options.returnResult ? result : backedUp;
+  } catch (error) {
+    fs.rmSync(actualBackupDir, { recursive: true, force: true });
+    throw error;
   }
-  fs.writeFileSync(
-    path.join(backupDir, "backup-manifest.json"),
-    `${JSON.stringify({
-      schema: "pi67.update-backup.v1",
-      createdAt: new Date().toISOString(),
-      operation,
-      agentDir: ctx.agentDir,
-      repoRoot: ctx.repoRoot,
-      files: preserved,
-    }, null, 2)}\n`,
-    { mode: 0o600 },
-  );
-  const result = { backupDir, backedUp, skipped: false, reusedBackupDir: "", reason: "" };
-  return options.returnResult ? result : backedUp;
 }
 
 export function listRuntimeBackups(ctx) {
@@ -176,14 +177,21 @@ export function inspectLegacyConflictBackup(ctx, input) {
 export function restoreRuntimeBackup(ctx, input, options = {}) {
   const backup = inspectRuntimeBackup(ctx, input);
   const dryRun = Boolean(options.dryRun);
-  const preRestoreBackupDir = path.join(ctx.stateDir, "backups", `${timestamp()}-pre-restore`);
-  const preRestoreBackedUp = dryRun
-    ? []
-    : createRuntimeBackup(ctx, preRestoreBackupDir, { operation: "pre-restore" });
+  const verification = verifyRuntimeBackup(ctx, backup, options);
+  const requestedPreRestoreBackupDir = uniqueBackupDir(
+    path.join(ctx.stateDir, "backups", `${timestamp()}-pre-restore`),
+  );
+  const preRestoreBackup = dryRun
+    ? null
+    : createRuntimeBackup(ctx, requestedPreRestoreBackupDir, {
+      operation: "pre-restore",
+      returnResult: true,
+    });
   const restored = [];
   const removed = [];
   const missing = [];
   const skipped = [];
+  const mutations = [];
 
   for (const item of backup.files) {
     const rel = String(item.path || "").replace(/\\/g, "/");
@@ -194,31 +202,32 @@ export function restoreRuntimeBackup(ctx, input, options = {}) {
     const source = path.join(backup.path, "files", safeBackupName(rel));
     const target = path.join(ctx.agentDir, rel);
     if (item.exists === false) {
-      if (!dryRun && fs.existsSync(target)) {
-        fs.rmSync(target, { force: true });
-      }
+      mutations.push({ target, remove: true });
       removed.push({ path: rel, target, reason: "missing-at-backup-time" });
       continue;
     }
-    if (!fs.existsSync(source)) {
-      missing.push({ path: rel, source });
-      continue;
-    }
-    if (!dryRun) {
-      fs.mkdirSync(path.dirname(target), { recursive: true });
-      fs.copyFileSync(source, target);
-      chmodPrivate(target);
-    }
+    mutations.push({ source, target, mode: 0o600 });
     restored.push({ path: rel, source, target });
   }
+
+  const transaction = dryRun
+    ? null
+    : runFileTransaction(ctx, {
+      operation: "runtime-backup-restore",
+      mutations,
+      faultAfter: options.faultAfter,
+      afterMutation: options.afterMutation,
+    });
 
   return {
     schema: "pi67.backup-restore.v1",
     createdAt: new Date().toISOString(),
     dryRun,
     backup,
-    preRestoreBackupDir: dryRun ? "" : preRestoreBackupDir,
-    preRestoreBackedUp,
+    verification,
+    transaction,
+    preRestoreBackupDir: preRestoreBackup?.backupDir || "",
+    preRestoreBackedUp: preRestoreBackup?.backedUp || [],
     restored,
     removed,
     missing,
@@ -226,53 +235,79 @@ export function restoreRuntimeBackup(ctx, input, options = {}) {
   };
 }
 
-function acquireLock(lockPath, data) {
-  fs.mkdirSync(path.dirname(lockPath), { recursive: true, mode: 0o700 });
-  const payload = {
-    schema: "pi67.update-lock.v1",
-    pid: process.pid,
-    createdAt: new Date().toISOString(),
-    ...data,
-  };
-  try {
-    const fd = fs.openSync(lockPath, "wx", 0o600);
-    fs.writeFileSync(fd, `${JSON.stringify(payload, null, 2)}\n`);
-    fs.closeSync(fd);
-  } catch (error) {
-    if (error.code !== "EEXIST") throw error;
-    if (isStaleLock(lockPath)) {
-      fs.unlinkSync(lockPath);
-      return acquireLock(lockPath, data);
+function verifyRuntimeBackup(ctx, backup, options) {
+  const allowUnverifiedLegacy = Boolean(options.allowUnverifiedLegacy);
+  const allowCrossWorkspace = Boolean(options.allowCrossWorkspace);
+  if (backup.schema !== "pi67.update-backup.v1" && !allowUnverifiedLegacy) {
+    throw new CliError(
+      `backup schema cannot be verified for restore: ${backup.schema || "missing"}; rerun with --allow-unverified-legacy-backup only after manual inspection`,
+      2,
+    );
+  }
+  if (!backup.agentDir && !allowUnverifiedLegacy) {
+    throw new CliError("backup is missing its workspace binding; refusing an unverified legacy restore", 2);
+  }
+  if (
+    backup.agentDir
+    && pathIdentity(backup.agentDir) !== pathIdentity(ctx.agentDir)
+    && !allowCrossWorkspace
+  ) {
+    throw new CliError(
+      `backup belongs to a different workspace: ${backup.agentDir}; use --allow-cross-workspace only for an intentional restore`,
+      2,
+    );
+  }
+  if (backup.schema === "pi67.update-backup.v1") {
+    const manifestPaths = backup.files.map((item) => String(item.path || "").replace(/\\/g, "/"));
+    const expectedPaths = new Set(PRESERVED_RUNTIME_FILES);
+    if (
+      manifestPaths.length !== expectedPaths.size
+      || manifestPaths.some((rel) => !expectedPaths.has(rel))
+    ) {
+      throw new CliError("backup manifest does not describe every preserved runtime file exactly once", 2);
     }
-    throw new CliError(`another pi-67 update appears to be running; lock exists: ${lockPath}`);
   }
-}
 
-function releaseLock(lockPath) {
-  try {
-    fs.unlinkSync(lockPath);
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
-  }
-}
-
-function isStaleLock(lockPath) {
-  try {
-    const stat = fs.statSync(lockPath);
-    if (Date.now() - stat.mtimeMs > LOCK_STALE_AFTER_MS) return true;
-    const data = JSON.parse(fs.readFileSync(lockPath, "utf8"));
-    if (Number.isInteger(data.pid) && data.pid > 0) {
-      try {
-        process.kill(data.pid, 0);
-        return false;
-      } catch {
-        return true;
+  const seen = new Set();
+  let verifiedFiles = 0;
+  let legacyFiles = 0;
+  for (const item of backup.files) {
+    const rel = String(item.path || "").replace(/\\/g, "/");
+    if (!PRESERVED_RUNTIME_FILES.includes(rel)) continue;
+    if (seen.has(rel)) throw new CliError(`backup manifest contains a duplicate runtime file: ${rel}`, 2);
+    seen.add(rel);
+    if (item.exists === false) continue;
+    const source = path.join(backup.path, "files", safeBackupName(rel));
+    let stat;
+    try {
+      stat = fs.lstatSync(source);
+    } catch {
+      throw new CliError(`backup file is missing: ${source}`, 2);
+    }
+    if (!stat.isFile()) throw new CliError(`backup entry is not a regular file: ${source}`, 2);
+    const hasIntegrity = Number.isInteger(item.bytes) && /^[a-f0-9]{64}$/i.test(String(item.sha256 || ""));
+    if (!hasIntegrity) {
+      if (!allowUnverifiedLegacy) {
+        throw new CliError(
+          `backup entry lacks size/SHA-256 integrity metadata: ${rel}; use --allow-unverified-legacy-backup only after manual inspection`,
+          2,
+        );
       }
+      legacyFiles += 1;
+      continue;
     }
-  } catch {
-    return true;
+    if (stat.size !== item.bytes || sha256File(source) !== String(item.sha256).toLowerCase()) {
+      throw new CliError(`backup integrity mismatch: ${rel}`, 2);
+    }
+    verifiedFiles += 1;
   }
-  return false;
+  return {
+    schema: "pi67.backup-verification.v1",
+    verified: legacyFiles === 0,
+    verifiedFiles,
+    legacyFiles,
+    crossWorkspace: Boolean(backup.agentDir && pathIdentity(backup.agentDir) !== pathIdentity(ctx.agentDir)),
+  };
 }
 
 function collectPreservedRuntimeFiles(ctx) {
@@ -425,6 +460,33 @@ function expandHome(input) {
 
 function safeBackupName(rel) {
   return rel.replace(/[\\/]/g, "__");
+}
+
+function pathIdentity(input) {
+  return canonicalPathIdentity(input);
+}
+
+function uniqueBackupDir(candidate) {
+  if (!fs.existsSync(candidate)) return candidate;
+  for (let index = 1; index < 1000; index += 1) {
+    const next = `${candidate}.${index}`;
+    if (!fs.existsSync(next)) return next;
+  }
+  throw new CliError(`could not allocate runtime backup directory: ${candidate}`, 1);
+}
+
+function allocateBackupDir(candidate) {
+  fs.mkdirSync(path.dirname(candidate), { recursive: true, mode: 0o700 });
+  for (let index = 0; index < 1000; index += 1) {
+    const next = index === 0 ? candidate : `${candidate}.${index}`;
+    try {
+      fs.mkdirSync(next, { mode: 0o700 });
+      return next;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+    }
+  }
+  throw new CliError(`could not allocate runtime backup directory: ${candidate}`, 1);
 }
 
 function chmodPrivate(file) {

@@ -2,9 +2,15 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { readJsonFileIfExists, writeJsonAtomic } from "./config-json.mjs";
+import {
+  canonicalPathIdentity,
+  isPathStrictlyWithin,
+  recoverPendingFileTransactions,
+  runFileTransaction,
+} from "./file-transaction.mjs";
 import { CliError } from "./output.mjs";
 import { defaultAgentDir, packageRoot, readTextIfExists } from "./paths.mjs";
-import { PRESERVED_RUNTIME_FILES } from "./update-safety.mjs";
+import { PRESERVED_RUNTIME_FILES } from "./runtime-layout-policy.mjs";
 
 const BUNDLE_SCHEMA = "pi67.distro-bundle.v1";
 const POINTER_SCHEMA = "pi67.release-pointer.v1";
@@ -101,8 +107,9 @@ export function stageDistroRelease(ctx, options = {}) {
 }
 
 export function activateDistroRelease(ctx, options = {}) {
+  const recoveredTransactions = options.dryRun ? [] : recoverPendingFileTransactions(ctx);
   const staged = stageDistroRelease(ctx, options);
-  const recoveredPending = recoverCompletedPendingActivation(ctx);
+  const recoveredPending = options.dryRun ? null : recoverLegacyPendingActivation(ctx);
   const previous = readCurrentRelease(ctx);
   const sameAsCurrent = Boolean(
     previous?.releasePath && path.resolve(previous.releasePath) === path.resolve(staged.releasePath),
@@ -123,6 +130,7 @@ export function activateDistroRelease(ctx, options = {}) {
     removed: [],
     noOp: false,
     recoveredPending: recoveredPending || null,
+    recoveredTransactions,
   };
   if (options.dryRun) return result;
   const forceActivation = Boolean(options.force || /repair/.test(result.operation));
@@ -136,39 +144,50 @@ export function activateDistroRelease(ctx, options = {}) {
     ? releaseOwnedFiles(previous.releasePath)
     : [];
   const currentSet = new Set(currentFiles);
-  const pendingPath = pendingActivationPath(ctx);
-  writeJsonAtomic(pendingPath, { ...result, status: "in-progress" });
+  const removed = previousFiles.filter((rel) => {
+    if (currentSet.has(rel) || !isReleaseOwnedActivePath(rel)) return false;
+    return fs.existsSync(path.join(ctx.agentDir, rel));
+  });
+  const journalPath = releaseJournalPath(ctx, result.operation);
+  const completed = {
+    ...result,
+    copied: [...currentFiles],
+    removed,
+    status: "completed",
+    journalPath,
+  };
+  const pointer = {
+    schema: POINTER_SCHEMA,
+    version: staged.version,
+    releasePath: staged.releasePath,
+    agentDir: ctx.agentDir,
+    previousVersion: rollbackVersion,
+    previousReleasePath: rollbackReleasePath,
+    activatedAt: new Date().toISOString(),
+    journalPath,
+  };
   try {
-    for (const rel of currentFiles) {
-      copyFileAtomic(path.join(staged.releasePath, rel), path.join(ctx.agentDir, rel));
-      result.copied.push(rel);
-    }
-    for (const rel of previousFiles) {
-      if (currentSet.has(rel) || !isReleaseOwnedActivePath(rel)) continue;
-      const target = path.join(ctx.agentDir, rel);
-      if (!fs.existsSync(target)) continue;
-      fs.rmSync(target, { force: true });
-      result.removed.push(rel);
-    }
-
-    const completed = { ...result, status: "completed" };
-    const journalPath = writeReleaseJournal(ctx, completed);
-    writeJsonAtomic(currentPointerPath(ctx), {
-      schema: POINTER_SCHEMA,
-      version: staged.version,
-      releasePath: staged.releasePath,
-      agentDir: ctx.agentDir,
-      previousVersion: rollbackVersion,
-      previousReleasePath: rollbackReleasePath,
-      activatedAt: new Date().toISOString(),
-      journalPath,
+    const mutations = [
+      ...currentFiles.map((rel) => ({
+        source: path.join(staged.releasePath, rel),
+        target: path.join(ctx.agentDir, rel),
+      })),
+      ...removed.map((rel) => ({ target: path.join(ctx.agentDir, rel), remove: true })),
+      { contents: `${JSON.stringify(completed, null, 2)}\n`, target: journalPath, mode: 0o600 },
+      { contents: `${JSON.stringify(pointer, null, 2)}\n`, target: currentPointerPath(ctx), mode: 0o600 },
+    ];
+    const transaction = runFileTransaction(ctx, {
+      operation: `release-${result.operation}`,
+      mutations,
+      faultAfter: options.faultAfter,
+      afterMutation: options.afterMutation,
     });
-    fs.rmSync(pendingPath, { force: true });
-    return { ...completed, journalPath };
+    fs.rmSync(pendingActivationPath(ctx), { force: true });
+    return { ...completed, transaction };
   } catch (error) {
-    writeJsonAtomic(pendingPath, {
+    writeReleaseJournal(ctx, {
       ...result,
-      status: "interrupted",
+      status: "compensated",
       interruptedAt: new Date().toISOString(),
       error: String(error?.message || error).slice(0, 500),
     });
@@ -207,6 +226,7 @@ export function inspectRuntimeMigration(ctx, options = {}) {
 }
 
 export function migrateRuntimeLayout(ctx, options = {}) {
+  const recoveredMigration = options.dryRun ? null : recoverPendingRuntimeMigration(ctx);
   const check = inspectRuntimeMigration(ctx, options);
   if (options.dryRun) return { ...check, dryRun: true };
   if (!check.agentExists) {
@@ -222,6 +242,7 @@ export function migrateRuntimeLayout(ctx, options = {}) {
       previousRelease: check.activeRelease,
       activation,
       status: "completed",
+      recoveredMigration,
     });
   }
   if (!check.required) {
@@ -229,35 +250,54 @@ export function migrateRuntimeLayout(ctx, options = {}) {
   }
 
   const staged = stageDistroRelease(ctx, { sourceRoot: check.sourceRoot });
-  const migrationId = `${timestamp()}-runtime-layout`;
+  const migrationId = `${timestamp()}-runtime-layout-${crypto.randomUUID()}`;
   const backupRoot = path.join(ctx.stateDir, "backups", migrationId);
   const backupAgentDir = path.join(backupRoot, "legacy-agent");
   fs.mkdirSync(backupRoot, { recursive: true, mode: 0o700 });
-  fs.renameSync(ctx.agentDir, backupAgentDir);
+  const baseJournal = {
+    operation: "migrate-layout",
+    sourceAgentDir: ctx.agentDir,
+    backupAgentDir,
+    targetVersion: staged.version,
+    previousRelease: check.activeRelease,
+    recoveredMigration,
+  };
+  writeMigrationJournal(ctx, { ...baseJournal, status: "prepared" }, migrationId);
+  let legacyRenamed = false;
   try {
+    fs.renameSync(ctx.agentDir, backupAgentDir);
+    legacyRenamed = true;
+    writeMigrationJournal(ctx, { ...baseJournal, status: "legacy-renamed" }, migrationId);
+    if (typeof options.afterLegacyRename === "function") options.afterLegacyRename({ migrationId, backupAgentDir });
     fs.mkdirSync(ctx.agentDir, { recursive: true });
     activateDistroRelease(ctx, {
       sourceRoot: staged.releasePath,
       operation: "migrate-layout",
     });
+    writeMigrationJournal(ctx, { ...baseJournal, status: "release-activated" }, migrationId);
     copyMigrationRuntime(backupAgentDir, ctx.agentDir);
     return writeMigrationJournal(ctx, {
-      operation: "migrate-layout",
-      sourceAgentDir: ctx.agentDir,
-      backupAgentDir,
-      targetVersion: staged.version,
-      previousRelease: check.activeRelease,
+      ...baseJournal,
       status: "completed",
     }, migrationId);
   } catch (error) {
-    fs.rmSync(ctx.agentDir, { recursive: true, force: true });
-    fs.renameSync(backupAgentDir, ctx.agentDir);
-    restoreReleasePointer(ctx, check.activeRelease);
+    if (legacyRenamed) {
+      fs.rmSync(ctx.agentDir, { recursive: true, force: true });
+      if (fs.existsSync(backupAgentDir)) fs.renameSync(backupAgentDir, ctx.agentDir);
+      restoreReleasePointer(ctx, check.activeRelease);
+    }
+    writeMigrationJournal(ctx, {
+      ...baseJournal,
+      status: "compensated",
+      failedAt: new Date().toISOString(),
+      error: String(error?.message || error).slice(0, 500),
+    }, migrationId);
     throw error;
   }
 }
 
 export function rollbackRuntimeMigration(ctx, options = {}) {
+  if (!options.dryRun) recoverPendingRuntimeMigration(ctx);
   const journal = latestMigrationJournal(ctx);
   if (!journal || journal.status !== "completed" || !journal.backupAgentDir) {
     throw new CliError("no completed runtime-layout migration is available for rollback", 2);
@@ -265,23 +305,115 @@ export function rollbackRuntimeMigration(ctx, options = {}) {
   if (!fs.existsSync(journal.backupAgentDir)) {
     throw new CliError(`migration backup is missing: ${journal.backupAgentDir}`, 2);
   }
-  const rollbackAgentDir = path.join(ctx.stateDir, "backups", `${timestamp()}-pre-migration-rollback`, "agent");
+  const rollbackAgentDir = path.join(
+    ctx.stateDir,
+    "backups",
+    `${timestamp()}-pre-migration-rollback-${crypto.randomUUID()}`,
+    "agent",
+  );
   if (options.dryRun) {
     return { schema: "pi67.runtime-migration-rollback.v1", dryRun: true, journal, rollbackAgentDir };
   }
   fs.mkdirSync(path.dirname(rollbackAgentDir), { recursive: true, mode: 0o700 });
-  fs.renameSync(ctx.agentDir, rollbackAgentDir);
+  writeJsonAtomic(journal.path, withoutPath({
+    ...journal,
+    rollback: { status: "prepared", rollbackAgentDir, startedAt: new Date().toISOString() },
+  }));
   try {
+    fs.renameSync(ctx.agentDir, rollbackAgentDir);
+    writeJsonAtomic(journal.path, withoutPath({
+      ...journal,
+      rollback: { status: "active-renamed", rollbackAgentDir, startedAt: new Date().toISOString() },
+    }));
     fs.renameSync(journal.backupAgentDir, ctx.agentDir);
+    writeJsonAtomic(journal.path, withoutPath({
+      ...journal,
+      rollback: { status: "filesystem-swapped", rollbackAgentDir, startedAt: new Date().toISOString() },
+    }));
   } catch (error) {
-    fs.renameSync(rollbackAgentDir, ctx.agentDir);
+    if (!fs.existsSync(ctx.agentDir) && fs.existsSync(rollbackAgentDir)) fs.renameSync(rollbackAgentDir, ctx.agentDir);
+    writeJsonAtomic(journal.path, withoutPath({
+      ...journal,
+      rollback: {
+        status: "compensated",
+        rollbackAgentDir,
+        failedAt: new Date().toISOString(),
+        error: String(error?.message || error).slice(0, 500),
+      },
+    }));
     throw error;
   }
-  const updated = { ...journal, status: "rolled-back", rolledBackAt: new Date().toISOString(), rollbackAgentDir };
-  writeJsonAtomic(journal.path, withoutPath(updated));
   if (journal.previousRelease) writeJsonAtomic(currentPointerPath(ctx), journal.previousRelease);
   else fs.rmSync(currentPointerPath(ctx), { force: true });
+  const updated = {
+    ...journal,
+    status: "rolled-back",
+    rolledBackAt: new Date().toISOString(),
+    rollbackAgentDir,
+    rollback: { status: "completed", rollbackAgentDir },
+  };
+  writeJsonAtomic(journal.path, withoutPath(updated));
   return { schema: "pi67.runtime-migration-rollback.v1", dryRun: false, journal: updated };
+}
+
+export function recoverPendingRuntimeMigration(ctx) {
+  const journal = latestMigrationJournal(ctx);
+  if (!journal) return null;
+  const rollbackStatus = journal.rollback?.status || "";
+  if (["prepared", "active-renamed"].includes(rollbackStatus)) {
+    compensateInterruptedMigrationRollback(ctx, journal);
+    return { operation: journal.operation, recovery: "rollback-compensated", journalPath: journal.path };
+  }
+  if (rollbackStatus === "filesystem-swapped") {
+    if (journal.previousRelease) writeJsonAtomic(currentPointerPath(ctx), journal.previousRelease);
+    else fs.rmSync(currentPointerPath(ctx), { force: true });
+    writeJsonAtomic(journal.path, withoutPath({
+      ...journal,
+      status: "rolled-back",
+      rolledBackAt: new Date().toISOString(),
+      rollback: { ...journal.rollback, status: "completed" },
+    }));
+    return { operation: journal.operation, recovery: "rollback-completed", journalPath: journal.path };
+  }
+  if (!["prepared", "legacy-renamed", "release-activated"].includes(journal.status)) return null;
+
+  if (fs.existsSync(journal.backupAgentDir)) {
+    fs.rmSync(ctx.agentDir, { recursive: true, force: true });
+    fs.renameSync(journal.backupAgentDir, ctx.agentDir);
+    restoreReleasePointer(ctx, journal.previousRelease || null);
+  } else if (journal.status !== "prepared") {
+    throw new CliError(`cannot recover interrupted runtime migration; legacy backup is missing: ${journal.backupAgentDir}`, 2);
+  }
+  writeJsonAtomic(journal.path, withoutPath({
+    ...journal,
+    status: "compensated",
+    recoveredAt: new Date().toISOString(),
+  }));
+  return { operation: journal.operation, recovery: "migration-compensated", journalPath: journal.path };
+}
+
+function compensateInterruptedMigrationRollback(ctx, journal) {
+  const rollbackAgentDir = journal.rollback?.rollbackAgentDir;
+  if (!rollbackAgentDir || !fs.existsSync(rollbackAgentDir)) {
+    if (journal.rollback?.status === "prepared" && fs.existsSync(ctx.agentDir)) {
+      writeJsonAtomic(journal.path, withoutPath({
+        ...journal,
+        rollback: { ...journal.rollback, status: "compensated" },
+      }));
+      return;
+    }
+    throw new CliError("cannot recover interrupted migration rollback; active runtime backup is missing", 2);
+  }
+  if (fs.existsSync(ctx.agentDir) && !fs.existsSync(journal.backupAgentDir)) {
+    fs.renameSync(ctx.agentDir, journal.backupAgentDir);
+  } else {
+    fs.rmSync(ctx.agentDir, { recursive: true, force: true });
+  }
+  fs.renameSync(rollbackAgentDir, ctx.agentDir);
+  writeJsonAtomic(journal.path, withoutPath({
+    ...journal,
+    rollback: { ...journal.rollback, status: "compensated", recoveredAt: new Date().toISOString() },
+  }));
 }
 
 function copyMigrationRuntime(sourceRoot, targetRoot) {
@@ -379,14 +511,6 @@ function walkFiles(root, dir, files) {
   }
 }
 
-function copyFileAtomic(source, target) {
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  const tmp = path.join(path.dirname(target), `.${path.basename(target)}.${process.pid}.tmp`);
-  fs.copyFileSync(source, tmp);
-  fs.chmodSync(tmp, fs.statSync(source).mode & 0o777);
-  fs.renameSync(tmp, target);
-}
-
 function realPathMaybe(target) {
   try {
     return fs.realpathSync(target);
@@ -432,10 +556,13 @@ function pendingActivationPath(ctx) {
   return path.join(ctx.stateDir, PENDING_ACTIVATION);
 }
 
-function recoverCompletedPendingActivation(ctx) {
+function recoverLegacyPendingActivation(ctx) {
   const file = pendingActivationPath(ctx);
   const pending = readJsonFileIfExists(file);
   if (!pending) return null;
+  if (pending.agentDir && realPathMaybe(pending.agentDir) !== realPathMaybe(ctx.agentDir)) {
+    throw new CliError(`pending release activation belongs to another workspace: ${pending.agentDir}`, 2);
+  }
   const current = readCurrentRelease(ctx);
   if (
     current?.releasePath && pending.releasePath &&
@@ -444,18 +571,50 @@ function recoverCompletedPendingActivation(ctx) {
     fs.rmSync(file, { force: true });
     return { ...pending, recovery: "cleared-after-pointer-commit" };
   }
+  if (pending.previousReleasePath && fs.existsSync(pending.previousReleasePath)) {
+    const previousFiles = releaseOwnedFiles(pending.previousReleasePath);
+    const targetFiles = pending.releasePath && fs.existsSync(pending.releasePath)
+      ? releaseOwnedFiles(pending.releasePath)
+      : [];
+    const previousSet = new Set(previousFiles);
+    runFileTransaction(ctx, {
+      operation: "recover-legacy-release-activation",
+      mutations: [
+        ...previousFiles.map((rel) => ({
+          source: path.join(pending.previousReleasePath, rel),
+          target: path.join(ctx.agentDir, rel),
+        })),
+        ...targetFiles
+          .filter((rel) => !previousSet.has(rel))
+          .map((rel) => ({ target: path.join(ctx.agentDir, rel), remove: true })),
+      ],
+    });
+    fs.rmSync(file, { force: true });
+    return { ...pending, recovery: "compensated-to-previous-release" };
+  }
   return { ...pending, recovery: "resume-idempotently" };
 }
 
 function writeReleaseJournal(ctx, payload) {
-  const file = path.join(ctx.stateDir, "journals", `${timestamp()}-${payload.operation}.json`);
+  const file = releaseJournalPath(ctx, payload.operation);
   writeJsonAtomic(file, payload);
   return file;
 }
 
+function releaseJournalPath(ctx, operation) {
+  return path.join(ctx.stateDir, "journals", `${timestamp()}-${operation}-${crypto.randomUUID()}.json`);
+}
+
 function writeMigrationJournal(ctx, payload, id = `${timestamp()}-runtime-layout`) {
   const file = path.join(ctx.stateDir, "migrations", `${id}.json`);
-  const journal = { schema: MIGRATION_SCHEMA, createdAt: new Date().toISOString(), ...payload };
+  const existing = readJsonFileIfExists(file);
+  const now = new Date().toISOString();
+  const journal = {
+    schema: MIGRATION_SCHEMA,
+    createdAt: existing?.createdAt || now,
+    ...payload,
+    updatedAt: now,
+  };
   writeJsonAtomic(file, journal);
   return { ...journal, path: file };
 }
@@ -463,13 +622,76 @@ function writeMigrationJournal(ctx, payload, id = `${timestamp()}-runtime-layout
 function latestMigrationJournal(ctx) {
   const root = path.join(ctx.stateDir, "migrations");
   if (!fs.existsSync(root)) return null;
-  const files = fs.readdirSync(root).filter((name) => name.endsWith(".json")).sort().reverse();
-  for (const name of files) {
+  const journals = [];
+  for (const name of fs.readdirSync(root).filter((entry) => entry.endsWith(".json"))) {
     const file = path.join(root, name);
-    const payload = readJsonFileIfExists(file);
-    if (payload?.schema === MIGRATION_SCHEMA) return { ...payload, path: file };
+    let payload;
+    try {
+      payload = readJsonFileIfExists(file);
+    } catch {
+      throw new CliError(`could not read runtime migration journal: ${file}`, 2);
+    }
+    validateMigrationJournal(ctx, payload, file);
+    journals.push({
+      ...payload,
+      path: file,
+      sortTime: Date.parse(payload.updatedAt || payload.createdAt || "") || fs.statSync(file).mtimeMs,
+    });
   }
-  return null;
+  journals.sort((left, right) => right.sortTime - left.sortTime || right.path.localeCompare(left.path));
+  if (journals.length === 0) return null;
+  const { sortTime: _sortTime, ...latest } = journals[0];
+  return latest;
+}
+
+function validateMigrationJournal(ctx, journal, file) {
+  const invalid = (reason) => {
+    throw new CliError(`invalid runtime migration journal (${reason}): ${file}`, 2);
+  };
+  if (!journal || journal.schema !== MIGRATION_SCHEMA) invalid("schema");
+  if (!["migrate-layout", "migrate-fresh"].includes(journal.operation)) invalid("operation");
+  if (![
+    "prepared",
+    "legacy-renamed",
+    "release-activated",
+    "completed",
+    "compensated",
+    "rolled-back",
+  ].includes(journal.status)) invalid("status");
+  if (!journal.createdAt || !journal.updatedAt) invalid("timestamps");
+
+  if (journal.operation === "migrate-fresh") {
+    if (journal.sourceAgentDir || journal.backupAgentDir) invalid("fresh migration paths");
+  } else {
+    if (canonicalPathIdentity(journal.sourceAgentDir) !== canonicalPathIdentity(ctx.agentDir)) {
+      invalid("workspace binding");
+    }
+    validateMigrationBackupPath(ctx, journal.backupAgentDir, "legacy backup", invalid);
+  }
+
+  const rollbackAgentDir = journal.rollback?.rollbackAgentDir || journal.rollbackAgentDir || "";
+  if (rollbackAgentDir) validateMigrationBackupPath(ctx, rollbackAgentDir, "rollback backup", invalid);
+  if (journal.rollback && !["prepared", "active-renamed", "filesystem-swapped", "completed", "compensated"].includes(journal.rollback.status)) {
+    invalid("rollback status");
+  }
+  validateMigrationReleasePointer(ctx, journal.previousRelease, invalid);
+}
+
+function validateMigrationBackupPath(ctx, candidate, label, invalid) {
+  const backupRoot = path.join(ctx.stateDir, "backups");
+  if (!candidate || !isPathStrictlyWithin(backupRoot, candidate)) invalid(`${label} path`);
+}
+
+function validateMigrationReleasePointer(ctx, pointer, invalid) {
+  if (!pointer) return;
+  if (pointer.schema !== POINTER_SCHEMA || !pointer.version || !pointer.releasePath) invalid("previous release pointer");
+  if (canonicalPathIdentity(pointer.agentDir || defaultAgentDir()) !== canonicalPathIdentity(ctx.agentDir)) {
+    invalid("previous release workspace binding");
+  }
+  const releasesRoot = path.join(ctx.stateDir, "releases");
+  for (const candidate of [pointer.releasePath, pointer.previousReleasePath].filter(Boolean)) {
+    if (!isPathStrictlyWithin(releasesRoot, candidate)) invalid("previous release path");
+  }
 }
 
 function withoutPath(value) {

@@ -59,6 +59,7 @@ export async function updateCommand(ctx, argv) {
       sourceRoot: activeSource,
       dryRun,
       skipNpm: options.noNpm,
+      commandStdio: json ? ["ignore", "ignore", "inherit"] : undefined,
     });
     const skills = syncSkills({ ...ctx, repoRoot: activeSource }, { dryRun });
     const runtimeState = dryRun ? null : migrateSettingsRuntimeState(ctx, {
@@ -115,7 +116,8 @@ function printResult(result) {
 function printPlan(plan) {
   section("pi-67 update check");
   keyValue("Manager", `${plan.manager.package}@${plan.manager.version}`);
-  keyValue("Distro", plan.distro.version || "unknown");
+  keyValue("Current distro", plan.operationSnapshot.current.version || plan.operationSnapshot.current.kind);
+  keyValue("Target distro", plan.operationSnapshot.target.version || "unknown");
   const extensions = plan.extensions.summary;
   keyValue(
     "Default extensions",

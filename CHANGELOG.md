@@ -6,6 +6,66 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+### Added
+
+- Added workspace-scoped operation locks, pre-mutation snapshots, atomic file
+  transactions, and structured operation reports for install, update,
+  migration, rollback, extension restore, and theme changes. Interrupted or
+  failed mutations now preserve a deterministic recovery point instead of
+  leaving partially updated workspace state.
+- Added executable Draft 2020-12 JSON Schema contracts for distro manifests,
+  update plans, and publish reports, together with release-contract, content,
+  workflow, transaction, and dependency-closure tests in every CI platform
+  lane.
+- Added backup provenance and workspace identity checks, explicit opt-ins for
+  cross-workspace or unverifiable legacy restores, and deterministic archive
+  and prune result schemas.
+
+### Changed
+
+- Reduced `install.sh` to the immutable manager bootstrap and compatibility
+  boundary. Existing matching release pointers resume through the manager,
+  while workspace mutation policy is now implemented once in the CLI rather
+  than duplicated across the shell installer and manager commands.
+- Declared a single repository-local Pi `0.80.6` package as a development-only
+  TypeScript host, pinned Ajv and TypeScript as direct development tools, and
+  added a dependency-closure gate that rejects duplicate or nested Pi runtimes
+  without inspecting or changing the global Pi installation.
+- Upgraded `pi-simplify` to `0.2.3`, refreshed the lockfile, and made runtime
+  dependency installation use the supported peer-omission policy on macOS,
+  Linux, and Windows.
+- Reworked the bundled scraping templates to expose checkpoint corruption,
+  page-change timeouts, empty-page retries, persistence failures, and bounded
+  batch completion instead of silently continuing with ambiguous state.
+- Corrected bundled Lark reference and slide-template contracts and removed
+  the obsolete MCP optimization proposal whose implementation guidance no
+  longer matched the distributed runtime.
+
+### Fixed
+
+- Made Hy-Memory service ownership single-writer and observable across the
+  manager and Python service, bounded active/dead-letter outbox count and
+  bytes, retained deterministic retry ordering, pruned expired dead letters,
+  propagated request deadlines, capped streamed HTTP responses, and returned
+  non-zero CLI status when flush or digest reports `success=false`.
+- Hardened `vision_read` so local files are realpath-confined to the active
+  workspace, symlink escapes are rejected, declared MIME is checked against
+  image magic, file/data/provider response sizes are bounded, and host
+  cancellation aborts I/O without starting a hidden fallback request.
+- Made release publication require the exact clean `main` commit, a successful
+  push CI run for that SHA, valid schemas and artifacts, and an unpublished npm
+  version. Git branch, tracking-ref, live-remote, and registry failures now
+  remain distinct and machine-readable.
+- Fixed managed-extension install/restore, immutable release activation, and
+  settings migration so concurrent writers, command failures, or partial
+  filesystem changes cannot be reported as successful.
+
+### Security
+
+- Narrowed npm publish workflow permissions, bounded release jobs, prevented
+  republishing immutable versions, and added input/content boundary tests for
+  filesystem paths, provider responses, generated JSON, and vendored assets.
+
 ## [0.15.7] - 2026-07-29
 
 ### Fixed

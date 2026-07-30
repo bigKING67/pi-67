@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+- Serializes workspace mutations with stale-aware operation locks and captures
+  pre-mutation snapshots so install, update, migration, rollback, extension
+  restore, and theme changes either complete coherently or expose a recoverable
+  failure state.
+- Uses atomic file transactions for configuration and release-pointer changes,
+  records workspace/provenance metadata in backups, and requires explicit
+  overrides before restoring cross-workspace or unverifiable legacy archives.
+- Centralizes runtime layout policy in the manager and turns the shell
+  installer into a thin immutable bootstrap/resume path instead of maintaining
+  a second workspace mutation implementation.
+- Validates distro manifests, update plans, and publish reports against
+  executable Draft 2020-12 schemas; release checks now require exact clean
+  `main`, remote SHA parity, an unpublished npm version, a successful CI run,
+  and the packed-artifact gates.
+- Pins a single repository-local Pi `0.80.6` development type host plus Ajv and
+  TypeScript, rejects duplicate physical Pi runtimes in the repository
+  dependency closure, and keeps the global Pi runtime outside manager control.
+- Bounds Hy-Memory response reads and outbox storage, reports service lifetime
+  ownership conflicts, propagates request deadlines, preserves deterministic
+  retry recovery, and fails `memory flush`/`digest` when the service reports an
+  unsuccessful operation.
+- Serializes managed-extension installation and repair, preserves a restore
+  backup, post-verifies the resulting dependency closure, keeps JSON mode free
+  of child-command stdout pollution, and exposes deterministic backup
+  archive/prune and operation snapshot reports.
+- Adds release-contract, schema, Git/registry, dependency, transaction,
+  extension-install, runtime-state, and workflow regressions to the manager
+  self-check and CI matrix.
+
 ## [0.15.7]
 
 - Installs and locks `iconv-lite@0.7.3` beside `pi-smart-fetch@0.3.12` before

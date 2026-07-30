@@ -57,6 +57,22 @@ test("loopback wrapper requires bearer auth and reports the real vector dimensio
     assert.equal(info.instanceId, service.instanceId);
     assert.equal(info.vectorDimensions, 1024);
 
+    const second = spawnSync(python.command, [...python.prefix, serviceScript, "--root", stateRoot, "--port", "0"], {
+      cwd: root,
+      encoding: "utf8",
+      timeout: 10_000,
+      env: {
+        ...process.env,
+        PYTHONPATH: fakeRoot,
+        PI67_HY_MEMORY_SERVICE_TOKEN: token,
+        PI67_HY_MEMORY_LLM_API_KEY: "test-only-llm-credential",
+        PI67_HY_MEMORY_EMBEDDING_API_KEY: "test-only-embedding-credential",
+        MEMORY_DATA_DIR: path.join(stateRoot, "data"),
+      },
+    });
+    assert.notEqual(second.status, 0, "a second service unexpectedly acquired the same state root");
+    assert.equal(JSON.parse(fs.readFileSync(path.join(stateRoot, "runtime", "service.json"), "utf8")).instanceId, service.instanceId);
+
     const probe = await fetchJson(`${base}/v1/probe`, {
       method: "POST",
       headers: { ...headers, "content-type": "application/json" },
@@ -75,6 +91,35 @@ test("loopback wrapper requires bearer auth and reports the real vector dimensio
     });
     assert.equal(capture.success, true);
 
+    const serial = await Promise.all(["slow-one", "slow-two"].map((query) => fetchJson(`${base}/v1/search`, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json", "x-pi67-timeout-ms": "1500" },
+      body: JSON.stringify({ query }),
+    })));
+    assert.deepEqual(serial.map((value) => value.maxActive), [1, 1]);
+
+    const deadlineStarted = Date.now();
+    const timedOut = await fetch(`${base}/v1/search`, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json", "x-pi67-timeout-ms": "100" },
+      body: JSON.stringify({ query: "slow-deadline" }),
+    });
+    assert.equal(timedOut.status, 504);
+    const afterTimeout = await fetchJson(`${base}/v1/search`, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json", "x-pi67-timeout-ms": "1500" },
+      body: JSON.stringify({ query: "after-timeout" }),
+    });
+    assert.equal(afterTimeout.maxActive, 1);
+    assert.ok(Date.now() - deadlineStarted >= 180, "the started SDK call should finish on the sole worker before queued work");
+
+    const saturated = await Promise.all(Array.from({ length: 24 }, (_, index) => fetch(`${base}/v1/search`, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json", "x-pi67-timeout-ms": "2500" },
+      body: JSON.stringify({ query: `slow-capacity-${index}` }),
+    })));
+    assert.ok(saturated.some((response) => response.status === 503), "bounded HTTP handler capacity did not reject overflow");
+
     const privateQuery = "private-http-error-fixture";
     const failedSearch = await fetch(`${base}/v1/search`, {
       method: "POST",
@@ -91,6 +136,7 @@ test("loopback wrapper requires bearer auth and reports the real vector dimensio
     });
     assert.equal(await waitForExit(child, 30_000), 0);
     assert.equal(fs.existsSync(path.join(stateRoot, "runtime", "service.json")), false);
+    assert.equal(fs.existsSync(path.join(stateRoot, "runtime", "service-owner.json")), false);
     assert.equal(fs.readFileSync(path.join(stateRoot, "logs", "service.log"), "utf8").includes(privateQuery), false);
   } finally {
     if (child && child.exitCode === null) child.kill("SIGTERM");
@@ -116,6 +162,26 @@ test("outbox retries use exponential backoff without persisting message text in 
     assert.equal(value.eligibleAfterDue, 1);
     assert.equal(value.loopbackBindAvoidedFqdn, true);
     assert.ok(value.dueInSeconds >= 4 && value.dueInSeconds <= 6.5, value.dueInSeconds);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("outbox recovery preserves retry metadata and batches each session by createdAt then requestId", (t) => {
+  const python = findPython();
+  if (!python) return t.skip("Python is unavailable on this host");
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-hy-memory-ordering-"));
+  try {
+    const result = spawnSync(
+      python.command,
+      [...python.prefix, "-c", outboxOrderingRecoveryProbe(), serviceScript, tmp],
+      { encoding: "utf8", windowsHide: true },
+    );
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const value = JSON.parse(result.stdout);
+    assert.equal(value.recoveredAttempts, 2);
+    assert.equal(value.processingRemoved, true);
+    assert.deepEqual(value.capturedOrder, ["earliest", "tie-a", "tie-c"]);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -179,6 +245,7 @@ async function streamText(stream) {
 
 function fakeSdk() {
   return `import asyncio
+import time
 
 __version__ = "1.2.20"
 
@@ -202,6 +269,9 @@ class _Embed:
         return [0.0] * 1024
 
 class HyMemoryClient:
+    active = 0
+    max_active = 0
+
     def __init__(self, config=None, mode="pro"):
         self.config = config
         self.mode = mode
@@ -214,7 +284,14 @@ class HyMemoryClient:
     def search(self, query, **kwargs):
         if query == "private-http-error-fixture":
             raise RuntimeError(f"provider echoed {query}")
-        return {"memories": {"normal": [{"content": "fixture memory", "score": 0.9}]}}
+        type(self).active += 1
+        type(self).max_active = max(type(self).max_active, type(self).active)
+        try:
+            if query.startswith("slow-"):
+                time.sleep(0.2)
+            return {"memories": {"normal": [{"content": "fixture memory", "score": 0.9}]}, "maxActive": type(self).max_active}
+        finally:
+            type(self).active -= 1
 
     def list_memories(self, **kwargs):
         return {"vdb": {"memories": [], "total": 0, "limit": kwargs.get("limit"), "offset": kwargs.get("offset")}}
@@ -230,6 +307,81 @@ class HyMemoryClient:
 
     def close(self):
         return None
+`;
+}
+
+function outboxOrderingRecoveryProbe() {
+  return String.raw`import importlib.util
+import json
+import sys
+from pathlib import Path
+
+service_file = Path(sys.argv[1])
+root = Path(sys.argv[2])
+spec = importlib.util.spec_from_file_location("pi67_hy_memory_service_ordering_test", service_file)
+service = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = service
+spec.loader.exec_module(service)
+
+paths = service.StatePaths(root)
+paths.ensure()
+config = {
+    "userId": "user-fixture",
+    "agentId": "pi-67",
+    "capture": {"maxAttempts": 5, "batchTurns": 5, "maxDelayMs": 60000},
+}
+request_id = "d" * 64
+processing = {
+    "schema": service.OUTBOX_SCHEMA,
+    "requestId": request_id,
+    "userId": "user-fixture",
+    "agentId": "pi-67",
+    "sessionId": "session-recovery",
+    "messages": [{"role": "user", "content": "stale"}],
+    "attempts": 0,
+    "createdAt": "2026-07-30T00:00:00+00:00",
+    "updatedAt": "2026-07-30T00:00:00+00:00",
+}
+pending = {**processing, "attempts": 2, "updatedAt": "2026-07-30T00:02:00+00:00", "nextAttemptAt": "2026-07-30T00:03:00+00:00"}
+service.write_json_atomic(paths.processing_dir / f"{request_id}.json", processing)
+service.write_json_atomic(paths.pending_dir / f"{request_id}.json", pending)
+
+class Holder:
+    def __init__(self):
+        self.captured = []
+    def capture(self, messages, _session_id, _request_id):
+        self.captured.extend(message["content"] for message in messages)
+        return {"success": True}
+
+holder = Holder()
+processor = service.OutboxProcessor(paths, config, holder)
+recovered = service.read_json_object(paths.pending_dir / f"{request_id}.json")
+(paths.pending_dir / f"{request_id}.json").unlink()
+
+jobs = [
+    ("a" * 64, "2026-07-30T00:00:02+00:00", "tie-a"),
+    ("b" * 64, "2026-07-30T00:00:01+00:00", "earliest"),
+    ("c" * 64, "2026-07-30T00:00:02+00:00", "tie-c"),
+]
+for item_id, created_at, content in jobs:
+    service.write_json_atomic(paths.pending_dir / f"{item_id}.json", {
+        "schema": service.OUTBOX_SCHEMA,
+        "requestId": item_id,
+        "userId": "user-fixture",
+        "agentId": "pi-67",
+        "sessionId": "session-ordering",
+        "messages": [{"role": "user", "content": content}],
+        "attempts": 0,
+        "createdAt": created_at,
+        "updatedAt": created_at,
+    })
+processor._drain(force=True)
+
+print(json.dumps({
+    "recoveredAttempts": recovered["attempts"],
+    "processingRemoved": not (paths.processing_dir / f"{request_id}.json").exists(),
+    "capturedOrder": holder.captured,
+}))
 `;
 }
 

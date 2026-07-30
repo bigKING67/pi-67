@@ -29,6 +29,7 @@ on:
         default: ""
 
 permissions:
+  actions: read
   contents: read
   id-token: write
 
@@ -39,11 +40,57 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
+      - name: Validate publish source ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "publishing is allowed only from refs/heads/main; got $GITHUB_REF" >&2
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ref: main
+
+      - name: Validate exact main source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          head_sha="$(git rev-parse HEAD)"
+          main_sha="$(git rev-parse origin/main)"
+          if [ "$head_sha" != "$GITHUB_SHA" ]; then
+            echo "checked-out HEAD does not match workflow SHA: HEAD=$head_sha workflow=$GITHUB_SHA" >&2
+            exit 1
+          fi
+          if [ "$head_sha" != "$main_sha" ]; then
+            echo "HEAD does not match origin/main: HEAD=$head_sha origin/main=$main_sha" >&2
+            exit 1
+          fi
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "publish checkout is unexpectedly dirty" >&2
+            git status --short >&2
+            exit 1
+          fi
+
+      - name: Require successful CI for publish SHA
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          conclusion="$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&head_sha=$GITHUB_SHA&status=completed&per_page=10" \
+            --jq ".workflow_runs | map(select(.head_sha == \"$GITHUB_SHA\" and .event == \"push\")) | .[0].conclusion // empty")"
+          if [ "$conclusion" != "success" ]; then
+            echo "required ci workflow did not succeed for $GITHUB_SHA: ${conclusion:-no completed push run}" >&2
+            exit 1
+          fi
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -75,7 +122,7 @@ jobs:
           mkdir -p npm
           cp package.json npm/package.json
           cp package-lock.json npm/package-lock.json
-          npm --prefix npm ci --ignore-scripts --no-audit --no-fund
+          npm --prefix npm ci --omit=peer --ignore-scripts --no-audit --no-fund
 
       - name: Validate requested version
         shell: bash
@@ -116,23 +163,8 @@ jobs:
               ;;
           esac
 
-      - name: Run npm manager checks
-        run: |
-          node packages/pi67-cli/scripts/check.mjs
-          node packages/pi67-cli/bin/pi-67.mjs --help >/dev/null
-          node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" update --check --json --no-remote >/dev/null
-          node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" extensions doctor --json --no-remote >/dev/null
-          node packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" backups list --json >/dev/null
-          node packages/pi67-cli/bin/pi-67.mjs --dry-run self-update >/dev/null
-
-      - name: Run release metadata check
-        run: bash scripts/pi67-release-check.sh
-
       - name: Run full pi-67 smoke gate
         run: bash scripts/pi67-smoke.sh --ci
-
-      - name: Pack npm manager
-        run: npm pack --dry-run ./packages/pi67-cli
 
       - name: Check npm version publication state
         id: npm_version
@@ -161,8 +193,14 @@ jobs:
         shell: bash
         env:
           FIRST_PUBLISH_CONFIRM: ${{ inputs.first_publish_confirm }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+          VERSION_ALREADY_PUBLISHED: ${{ steps.npm_version.outputs.published }}
         run: |
           set -euo pipefail
+          if [ "$VERSION_ALREADY_PUBLISHED" = "true" ]; then
+            echo "@bigking67/pi-67@$REQUESTED_VERSION is already published; npm versions are immutable" >&2
+            exit 1
+          fi
           args=(packages/pi67-cli/bin/pi-67.mjs --agent-dir "$PWD" --repo-root "$PWD" publish-check --strict --no-pack)
           if [ "$FIRST_PUBLISH_CONFIRM" = "@bigking67/pi-67" ]; then
             args+=(--allow-first-publish)
@@ -187,7 +225,7 @@ jobs:
           echo "Pack, release metadata, workflow, and manager checks above cover this post-publish dry-run."
 
       - name: Publish to npm
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !inputs.dry_run && steps.npm_version.outputs.published != 'true' }}
         env:
           NPM_TAG: ${{ inputs.tag }}
           AUTH_MODE: ${{ inputs.auth_mode }}

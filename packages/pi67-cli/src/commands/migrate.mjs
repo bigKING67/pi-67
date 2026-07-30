@@ -8,6 +8,7 @@ import {
 } from "../lib/release-store.mjs";
 import { syncSkills } from "../lib/skill-policy.mjs";
 import { migrateSettingsRuntimeState } from "../lib/settings-runtime-state.mjs";
+import { beginWorkspaceOperation } from "../lib/workspace-operation-lock.mjs";
 import { CliError, info, keyValue, printJson, section } from "../lib/output.mjs";
 
 export function migrateCommand(ctx, argv) {
@@ -27,17 +28,27 @@ export function migrateCommand(ctx, argv) {
   if (!(ctx.yes || options.yes)) {
     throw new CliError("pi-67 migrate changes the runtime layout; preview with `pi-67 migrate --check`, then confirm with `pi-67 migrate --yes`", 2);
   }
-  const migration = migrateRuntimeLayout(ctx, { sourceRoot });
-  const activeSource = currentReleasePath(ctx) || sourceRoot;
-  const extensionResult = applyManagedExtensionBaselines(ctx, {
-    sourceRoot: activeSource,
-    skipNpm: options.noNpm,
-  });
-  const skills = syncSkills({ ...ctx, repoRoot: activeSource });
-  const runtimeState = migrateSettingsRuntimeState(ctx, {
-    normalizeSettingsJson: true,
-    installGitFilter: false,
-  });
+  const operation = beginWorkspaceOperation(ctx, { operation: "migrate" });
+  let migration;
+  let extensionResult;
+  let skills;
+  let runtimeState;
+  try {
+    migration = migrateRuntimeLayout(ctx, { sourceRoot });
+    const activeSource = currentReleasePath(ctx) || sourceRoot;
+    extensionResult = applyManagedExtensionBaselines(ctx, {
+      sourceRoot: activeSource,
+      skipNpm: options.noNpm,
+      commandStdio: json ? ["ignore", "ignore", "inherit"] : undefined,
+    });
+    skills = syncSkills({ ...ctx, repoRoot: activeSource });
+    runtimeState = migrateSettingsRuntimeState(ctx, {
+      normalizeSettingsJson: true,
+      installGitFilter: false,
+    });
+  } finally {
+    operation.release();
+  }
   const result = {
     schema: "pi67.migrate.v1",
     createdAt: new Date().toISOString(),

@@ -11,6 +11,58 @@
     "createdAt": {
       "type": "string"
     },
+    "operationSnapshot": {
+      "type": "object",
+      "required": ["schema", "capturedAt", "manager", "current", "target", "live"],
+      "properties": {
+        "schema": { "const": "pi67.operation-snapshot.v1" },
+        "capturedAt": { "type": "string" },
+        "manager": {
+          "type": "object",
+          "required": ["package", "version", "root"],
+          "properties": {
+            "package": { "type": "string" },
+            "version": { "type": "string" },
+            "root": { "type": "string" }
+          },
+          "additionalProperties": true
+        },
+        "current": {
+          "type": "object",
+          "required": ["kind", "activated", "version", "releasePath"],
+          "properties": {
+            "kind": { "type": "string" },
+            "activated": { "type": "boolean" },
+            "version": { "type": "string" },
+            "releasePath": { "type": "string" }
+          },
+          "additionalProperties": true
+        },
+        "target": {
+          "type": "object",
+          "required": ["version", "sourceRoot"],
+          "properties": {
+            "version": { "type": "string" },
+            "sourceRoot": { "type": "string" }
+          },
+          "additionalProperties": true
+        },
+        "live": {
+          "type": "object",
+          "required": ["agentDir", "stateDir", "exists", "defaultProvider", "defaultModel", "theme"],
+          "properties": {
+            "agentDir": { "type": "string" },
+            "stateDir": { "type": "string" },
+            "exists": { "type": "boolean" },
+            "defaultProvider": { "type": "string" },
+            "defaultModel": { "type": "string" },
+            "theme": { "type": "string" }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
     "manager": {
       "type": "object",
       "required": ["package", "version"],
@@ -76,6 +128,17 @@
             "unknown",
             "automaticActions"
           ],
+          "properties": {
+            "total": { "type": "integer", "minimum": 0 },
+            "missing": { "type": "integer", "minimum": 0 },
+            "belowBaseline": { "type": "integer", "minimum": 0 },
+            "atBaseline": { "type": "integer", "minimum": 0 },
+            "userManagedAhead": { "type": "integer", "minimum": 0 },
+            "userManagedDiverged": { "type": "integer", "minimum": 0 },
+            "loadFailed": { "type": "integer", "minimum": 0 },
+            "unknown": { "type": "integer", "minimum": 0 },
+            "automaticActions": { "type": "integer", "minimum": 0 }
+          },
           "additionalProperties": true
         },
         "extensions": { "type": "array", "minItems": 21 },

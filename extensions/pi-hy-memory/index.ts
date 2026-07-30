@@ -4,7 +4,7 @@ import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { ensureHyMemoryService, HyMemoryServiceClient } from "./client.ts";
 import { ensureOutboxDirectories, readConfig, resolveHyMemoryPaths } from "./config.ts";
-import { countOutbox, queueCapture } from "./outbox.ts";
+import { inspectOutbox, queueCapture } from "./outbox.ts";
 import { extractCaptureMessages, formatRecallContext, redactSensitiveText } from "./security.ts";
 import type { HyMemoryConfig } from "./types.ts";
 
@@ -51,11 +51,15 @@ type SettledContext = {
     getSessionId(): string;
     getLeafId(): string | null;
   };
+  ui: {
+    notify(message: string, level: "warning"): void;
+  };
 };
 
 export default function piHyMemory(pi: ExtensionAPI) {
   let latestAgentMessages: unknown[] | undefined;
   let recallFailureNotified = false;
+  let captureFailureNotified = false;
 
   pi.registerTool({
     name: "hy_memory_search",
@@ -132,7 +136,7 @@ export default function piHyMemory(pi: ExtensionAPI) {
       try {
         if (sub === "status") {
           const config = readConfig();
-          const outbox = countOutbox();
+          const outbox = inspectOutbox();
           let service: unknown = { running: false };
           if (config) {
             try {
@@ -181,6 +185,7 @@ export default function piHyMemory(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     latestAgentMessages = undefined;
     recallFailureNotified = false;
+    captureFailureNotified = false;
     const config = readConfig();
     if (!config?.enabled) return;
     void ensureHyMemoryService(config).catch(() => {
@@ -226,13 +231,21 @@ export default function piHyMemory(pi: ExtensionAPI) {
     if (messages.length < 2) return;
     const sessionId = ctx.sessionManager.getSessionId();
     const leafId = ctx.sessionManager.getLeafId() || "no-leaf";
-    queueCapture({
-      userId: config.userId,
-      agentId: config.agentId,
-      sessionId,
-      leafId,
-      messages,
-    });
+    try {
+      queueCapture({
+        userId: config.userId,
+        agentId: config.agentId,
+        sessionId,
+        leafId,
+        messages,
+      });
+    } catch (error) {
+      if (!captureFailureNotified) {
+        captureFailureNotified = true;
+        const message = error instanceof Error ? error.message : String(error);
+        ctx.ui.notify(`Hy-Memory could not queue this settled turn: ${message}`, "warning");
+      }
+    }
   });
 
   pi.on("session_shutdown", async () => {

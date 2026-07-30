@@ -36,17 +36,13 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Prepare stable automation branch
+      - name: Prepare reproducible automation branch
         shell: bash
         run: |
           set -euo pipefail
-          if git ls-remote --exit-code --heads origin "$REFRESH_BRANCH" >/dev/null 2>&1; then
-            git fetch origin "$REFRESH_BRANCH"
-            git switch --track -c "$REFRESH_BRANCH" "origin/$REFRESH_BRANCH"
-            git merge --no-edit origin/main
-          else
-            git switch -c "$REFRESH_BRANCH" origin/main
-          fi
+          remote_branch_sha="$(git ls-remote --heads origin "$REFRESH_BRANCH" | awk '{print $1}')"
+          echo "REMOTE_REFRESH_BRANCH_SHA=$remote_branch_sha" >>"$GITHUB_ENV"
+          git switch -C "$REFRESH_BRANCH" origin/main
 
       - name: Clone upstream without executing it
         shell: bash
@@ -180,7 +176,13 @@ jobs:
         run: |
           set -euo pipefail
           gh auth setup-git
-          git push origin "HEAD:refs/heads/$REFRESH_BRANCH"
+          if [ -n "$REMOTE_REFRESH_BRANCH_SHA" ]; then
+            git push \
+              --force-with-lease="refs/heads/$REFRESH_BRANCH:$REMOTE_REFRESH_BRANCH_SHA" \
+              origin "HEAD:refs/heads/$REFRESH_BRANCH"
+          else
+            git push origin "HEAD:refs/heads/$REFRESH_BRANCH"
+          fi
 
           draft=false
           if [ "$MANUAL_REVIEW" = "true" ] || [ "$VALIDATION_OUTCOME" != "success" ]; then
@@ -205,7 +207,26 @@ jobs:
           if [ -z "$pr_number" ]; then
             args=(pr create --repo "$GITHUB_REPOSITORY" --base main --head "$REFRESH_BRANCH" --title "$title" --body-file "$body")
             [ "$draft" = "true" ] && args+=(--draft)
-            gh "${args[@]}"
+            if ! pr_create_output="$(gh "${args[@]}" 2>&1)"; then
+              if [[ "$pr_create_output" == *"GitHub Actions is not permitted to create or approve pull requests"* ]]; then
+                echo "::warning::The generated branch was pushed, but repository settings prevent GitHub Actions from creating a pull request."
+                {
+                  echo
+                  echo "## Manual pull request required"
+                  echo
+                  echo "The generated branch \`$REFRESH_BRANCH\` was updated successfully."
+                  echo "Repository settings currently prevent GitHub Actions from creating pull requests."
+                  echo "Create the pull request manually or enable **Allow GitHub Actions to create and approve pull requests**."
+                  echo
+                  echo "Compare: https://github.com/$GITHUB_REPOSITORY/compare/main...$REFRESH_BRANCH?expand=1"
+                } >>"$GITHUB_STEP_SUMMARY"
+              else
+                echo "$pr_create_output" >&2
+                exit 1
+              fi
+            else
+              echo "$pr_create_output"
+            fi
           else
             gh pr edit "$pr_number" --repo "$GITHUB_REPOSITORY" --title "$title" --body-file "$body"
             is_draft="$(gh pr view "$pr_number" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
@@ -220,5 +241,5 @@ jobs:
         if: steps.compare.outputs.changed == 'true' && steps.validation.outcome != 'success'
         shell: bash
         run: |
-          echo "Refresh PR was created as draft because validation failed." >&2
+          echo "The generated branch and any available draft PR were kept because validation failed." >&2
           exit 1

@@ -282,6 +282,7 @@ else
 fi
 
 if [ -f "$REPO_ROOT/npm/node_modules/typescript/bin/tsc" ]; then
+  run_gate "dependency closure check" npm --prefix "$REPO_ROOT" run -s check:dependency-closure
   run_gate "xtalpi TypeScript check" npm --prefix "$REPO_ROOT" run -s typecheck:xtalpi
   run_gate "Hy-Memory TypeScript check" npm --prefix "$REPO_ROOT" run -s typecheck:hy-memory
   run_gate "Hy-Memory tests" npm --prefix "$REPO_ROOT" run -s test:hy-memory
@@ -289,6 +290,7 @@ else
   warn "runtime TypeScript dependencies are missing; skipped TypeScript/Hy-Memory test gates"
 fi
 
+run_gate "bundled content contract tests" npm --prefix "$REPO_ROOT" run -s test:content-contracts
 run_gate "shared Skill governance tests" bash "$REPO_ROOT/scripts/pi67-test-skill-governance.sh"
 
 if command_exists bash; then
@@ -313,42 +315,51 @@ fi
 if command_exists node; then
   MANIFEST_JSON="$TMP_ROOT/manifest.json"
   UPDATE_JSON="$TMP_ROOT/update-plan.json"
+  PUBLISH_JSON="$TMP_ROOT/publish-check.json"
+  STATE_DIR="$TMP_ROOT/state-contract"
+  STATE_JSON="$STATE_DIR/state.json"
   if node "$REPO_ROOT/packages/pi67-cli/bin/pi-67.mjs" \
       --agent-dir "$REPO_ROOT" --repo-root "$REPO_ROOT" --skills-dir "$REPO_ROOT/shared-skills" \
       --no-remote manifest --json >"$MANIFEST_JSON" \
     && node "$REPO_ROOT/packages/pi67-cli/bin/pi-67.mjs" \
       --agent-dir "$REPO_ROOT" --repo-root "$REPO_ROOT" --skills-dir "$REPO_ROOT/shared-skills" \
-      --no-remote update --check --json >"$UPDATE_JSON"; then
-    pass "real manifest and update-plan JSON generated"
+      --no-remote update --check --json >"$UPDATE_JSON" \
+    && node "$REPO_ROOT/packages/pi67-cli/bin/pi-67.mjs" \
+      --agent-dir "$REPO_ROOT" --repo-root "$REPO_ROOT" --skills-dir "$REPO_ROOT/shared-skills" \
+      --no-remote publish-check --json --no-pack >"$PUBLISH_JSON" \
+    && node --input-type=module - "$REPO_ROOT" "$STATE_DIR" <<'NODE'
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+
+const repoRoot = process.argv[2];
+const stateDir = process.argv[3];
+const { writeState } = await import(pathToFileURL(path.join(
+  repoRoot,
+  "packages/pi67-cli/src/lib/state-store.mjs",
+)));
+writeState({
+  agentDir: path.join(stateDir, "agent"),
+  stateDir,
+  repoRoot,
+  skillsDir: path.join(repoRoot, "shared-skills"),
+  packagesDir: path.join(stateDir, "packages"),
+}, "schema-contract");
+NODE
+  then
+    pass "real manifest, update-plan, publish-check, and state JSON generated"
   else
-    fail "real manifest/update-plan JSON generation failed"
+    fail "real schema payload generation failed"
   fi
 
-  if command_exists python3 && python3 -c 'import jsonschema' >/dev/null 2>&1; then
-    if python3 - "$REPO_ROOT" "$MANIFEST_JSON" "$UPDATE_JSON" <<'PY'
-import json
-import pathlib
-import sys
-from jsonschema import Draft202012Validator
-
-root = pathlib.Path(sys.argv[1])
-pairs = [
-    (root / "packages/pi67-cli/schemas/pi67-distro-manifest.schema.json", pathlib.Path(sys.argv[2])),
-    (root / "packages/pi67-cli/schemas/pi67-update-plan.schema.json", pathlib.Path(sys.argv[3])),
-]
-for schema_path, payload_path in pairs:
-    schema = json.loads(schema_path.read_text())
-    payload = json.loads(payload_path.read_text())
-    Draft202012Validator.check_schema(schema)
-    Draft202012Validator(schema).validate(payload)
-PY
-    then
-      pass "Draft 2020-12 schemas validate real CLI payloads"
-    else
-      fail "schema validation of real CLI payloads failed"
-    fi
+  if node "$REPO_ROOT/packages/pi67-cli/scripts/checks/schema-contracts.mjs" \
+    "$REPO_ROOT/packages/pi67-cli/schemas/pi67-distro-manifest.schema.json" "$MANIFEST_JSON" \
+    "$REPO_ROOT/packages/pi67-cli/schemas/pi67-extension-registry.schema.json" "$REPO_ROOT/packages/pi67-cli/src/data/extension-registry.json" \
+    "$REPO_ROOT/packages/pi67-cli/schemas/pi67-state.schema.json" "$STATE_JSON" \
+    "$REPO_ROOT/packages/pi67-cli/schemas/pi67-update-plan.schema.json" "$UPDATE_JSON" \
+    "$REPO_ROOT/packages/pi67-cli/schemas/pi67-publish-check.schema.json" "$PUBLISH_JSON"; then
+    pass "all five Draft 2020-12 schemas validate real payloads"
   else
-    warn "python jsonschema is unavailable; schema files were parsed by package self-tests only"
+    fail "schema validation of real CLI payloads failed"
   fi
 fi
 

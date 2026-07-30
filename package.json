@@ -4,16 +4,21 @@
   "private": true,
   "scripts": {
     "check:prompt-governance": "node scripts/pi67-prompt-governance-check.mjs",
+    "check:dependency-closure": "node scripts/pi67-dependency-closure-check.mjs",
     "typecheck:xtalpi": "node npm/node_modules/typescript/bin/tsc --project tsconfig.xtalpi.json --pretty false",
     "typecheck:hy-memory": "node npm/node_modules/typescript/bin/tsc --project tsconfig.hy-memory.json --pretty false",
     "test:rules-loader": "node --no-warnings --test tests/pi-rules-loader/routing.test.mjs",
     "test:vision-bridge": "node --no-warnings --test tests/pi-vision-bridge/registration.test.mjs",
+    "test:content-contracts": "node --no-warnings --test tests/content-contracts/*.test.mjs",
+    "test:pi67-release-contracts": "node --no-warnings --test tests/pi67-cli/*.test.mjs",
     "test:xtalpi": "bash scripts/pi67-test-xtalpi-pi-tools.sh",
     "test:xtalpi:node": "node --no-warnings --test \"tests/xtalpi-pi-tools/**/*.test.mjs\"",
     "test:xtalpi:coverage": "node --no-warnings --test --experimental-test-coverage --test-coverage-lines=93 --test-coverage-branches=85 --test-coverage-functions=95 \"tests/xtalpi-pi-tools/**/*.test.mjs\"",
     "test:hy-memory": "node --no-warnings --test \"tests/pi-hy-memory/**/*.test.mjs\""
   },
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.80.6",
+    "ajv": "8.20.0",
     "typescript": "5.9.3"
   },
   "dependencies": {
@@ -29,10 +34,14 @@
     "pi-mcp-adapter": "^2.10.0",
     "pi-observational-memory": "^3.0.2",
     "pi-rewind": "^0.5.0",
-    "pi-simplify": "^0.2.2",
+    "pi-simplify": "^0.2.3",
     "pi-smart-fetch": "^0.3.12",
     "pi-subagents": "^0.34.0",
     "pi-until-done": "^0.2.2",
     "pi-web-access": "^0.13.0"
+  },
+  "overrides": {
+    "brace-expansion": "5.0.8",
+    "protobufjs": "7.6.5"
   }
 }

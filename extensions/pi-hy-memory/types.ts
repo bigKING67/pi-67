@@ -104,6 +104,9 @@ export type HyMemoryPaths = {
   runtimeFile: string;
   serviceFile: string;
   startLockFile: string;
+  lifetimeLockFile: string;
+  lifetimeOwnerFile: string;
+  outboxAdmissionLockDir: string;
   logsDir: string;
 };
 
@@ -120,5 +123,15 @@ export type ServiceInfo = {
     pending: number;
     processing: number;
     deadLetter: number;
+    activeBytes?: number;
+    deadLetterBytes?: number;
+    saturated?: boolean;
+    limits?: {
+      maxActiveJobs: number;
+      maxActiveBytes: number;
+      maxDeadLetterJobs: number;
+      maxDeadLetterBytes: number;
+      deadLetterRetentionMs: number;
+    };
   };
 };

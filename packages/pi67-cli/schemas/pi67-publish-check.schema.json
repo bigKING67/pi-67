@@ -35,26 +35,58 @@
     },
     "package": {
       "type": "object",
-      "required": ["name", "version", "root"]
+      "required": ["name", "version", "root"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "root": { "type": "string" }
+      },
+      "additionalProperties": true
     },
     "distro": {
       "type": "object",
-      "required": ["version", "rootPackageVersion"]
+      "required": ["version", "rootPackageVersion"],
+      "properties": {
+        "version": { "type": "string" },
+        "rootPackageVersion": { "type": "string" }
+      },
+      "additionalProperties": true
     },
     "paths": {
       "type": "object",
-      "required": ["repoRoot", "agentDir", "workflow"]
+      "required": ["repoRoot", "agentDir", "workflow"],
+      "properties": {
+        "repoRoot": { "type": "string" },
+        "agentDir": { "type": "string" },
+        "workflow": { "type": "string" }
+      },
+      "additionalProperties": true
     },
     "git": {
       "type": "object"
     },
     "workflow": {
       "type": "object",
-      "required": ["ok", "file", "message"]
+      "required": ["ok", "file", "message"],
+      "properties": {
+        "ok": { "type": "boolean" },
+        "file": { "type": "string" },
+        "message": { "type": "string" }
+      },
+      "additionalProperties": true
     },
     "scope": {
       "type": "object",
-      "required": ["skipped", "ok", "blocking", "scoped", "scope", "message"]
+      "required": ["skipped", "ok", "blocking", "scoped", "scope", "message"],
+      "properties": {
+        "skipped": { "type": "boolean" },
+        "ok": { "type": "boolean" },
+        "blocking": { "type": "boolean" },
+        "scoped": { "type": "boolean" },
+        "scope": { "type": "string" },
+        "message": { "type": "string" }
+      },
+      "additionalProperties": true
     },
     "target": {
       "type": "object",
@@ -67,7 +99,18 @@
         "allowFirstPublish",
         "code",
         "message"
-      ]
+      ],
+      "properties": {
+        "skipped": { "type": "boolean" },
+        "ok": { "type": "boolean" },
+        "blocking": { "type": "boolean" },
+        "packageName": { "type": "string" },
+        "firstPublish": { "type": "boolean" },
+        "allowFirstPublish": { "type": "boolean" },
+        "code": { "type": "string" },
+        "message": { "type": "string" }
+      },
+      "additionalProperties": true
     },
     "manifest": {
       "type": "object",
@@ -78,13 +121,42 @@
         },
         "release": {
           "type": "object",
-          "required": ["ok", "message", "problems", "warnings"]
+          "required": ["ok", "message", "problems", "warnings"],
+          "properties": {
+            "ok": { "type": "boolean" },
+            "message": { "type": "string" },
+            "problems": { "type": "array", "items": { "type": "string" } },
+            "warnings": { "type": "array", "items": { "type": "string" } }
+          },
+          "additionalProperties": true
         }
       },
       "additionalProperties": true
     },
     "registry": {
       "type": "object"
+    },
+    "exactVersion": {
+      "type": "object",
+      "required": [
+        "skipped",
+        "ok",
+        "exists",
+        "packageName",
+        "requestedVersion",
+        "publishedVersion",
+        "message"
+      ],
+      "properties": {
+        "skipped": { "type": "boolean" },
+        "ok": { "type": "boolean" },
+        "exists": { "type": "boolean" },
+        "packageName": { "type": "string" },
+        "requestedVersion": { "type": "string" },
+        "publishedVersion": { "type": "string" },
+        "message": { "type": "string" }
+      },
+      "additionalProperties": true
     },
     "auth": {
       "type": "object"
@@ -96,7 +168,13 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "ok", "message"]
+        "required": ["name", "ok", "message"],
+        "properties": {
+          "name": { "type": "string" },
+          "ok": { "type": "boolean" },
+          "message": { "type": "string" }
+        },
+        "additionalProperties": true
       }
     },
     "blockers": {

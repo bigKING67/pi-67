@@ -129,7 +129,8 @@ async function flush(ctx, argv) {
   if (options.help) return printMemoryHelp();
   rejectPositionals(positionals, "memory flush");
   const result = await flushMemory(ctx);
-  return emitResult(ctx, options, "Hy-Memory outbox", result, result.success ? "flushed" : "flush incomplete");
+  requireSuccessfulOperation(result, "Hy-Memory outbox flush");
+  return emitResult(ctx, options, "Hy-Memory outbox", result, "flushed");
 }
 
 async function forget(ctx, argv) {
@@ -146,7 +147,8 @@ async function digest(ctx, argv) {
   rejectPositionals(positionals, "memory digest");
   const timeoutMs = positiveInteger(options.timeoutMs, "--timeout-ms", 15 * 60_000);
   const result = await digestMemory(ctx, { yes: Boolean(ctx.yes || options.yes), timeoutMs });
-  return emitResult(ctx, options, "Hy-Memory System 2", result, result.success === false ? "digest incomplete" : "digest completed");
+  requireSuccessfulOperation(result, "Hy-Memory System 2 digest");
+  return emitResult(ctx, options, "Hy-Memory System 2", result, "digest completed");
 }
 
 async function reset(ctx, argv) {
@@ -163,6 +165,12 @@ function emitResult(ctx, options, label, value, message) {
   pass(message);
 }
 
+function requireSuccessfulOperation(result, label) {
+  if (!result || typeof result !== "object" || result.success !== false) return;
+  const detail = typeof result.error === "string" && result.error.trim() ? `: ${result.error.trim()}` : "";
+  throw new CliError(`${label} reported success=false${detail}`);
+}
+
 function printStatus(result) {
   section("Hy-Memory status");
   keyValue("Initialized", result.initialized ? "yes" : "no");
@@ -170,6 +178,11 @@ function printStatus(result) {
   keyValue("Service", result.running ? "running" : "stopped");
   keyValue("Root", result.root);
   keyValue("Outbox", `${result.outbox.pending} pending, ${result.outbox.processing} processing, ${result.outbox.deadLetter} dead-letter`);
+  keyValue("Outbox bytes", `${result.outbox.activeBytes ?? 0} active, ${result.outbox.deadLetterBytes ?? 0} dead-letter`);
+  if (result.outbox.limits) {
+    keyValue("Outbox limits", `${result.outbox.limits.maxActiveJobs} active jobs / ${result.outbox.limits.maxActiveBytes} bytes`);
+  }
+  if (result.outbox.saturated) warn("outbox capacity is saturated; new settled-turn captures are rejected until jobs drain");
   for (const check of result.checks) (check.ok ? pass : warn)(`${check.id}: ${check.message}`);
   for (const next of result.nextSteps) info(`Next: ${next}`);
 }

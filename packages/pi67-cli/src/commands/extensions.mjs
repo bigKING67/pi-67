@@ -9,6 +9,7 @@ import {
 } from "../lib/managed-extensions.mjs";
 import { resolveDistroSourceRoot } from "../lib/release-store.mjs";
 import { buildUpdatePlan } from "../lib/update-plan.mjs";
+import { beginWorkspaceOperation } from "../lib/workspace-operation-lock.mjs";
 import { CliError, fail, info, keyValue, pass, printJson, section, warn } from "../lib/output.mjs";
 
 export async function extensionsCommand(ctx, argv) {
@@ -213,10 +214,17 @@ function restore(ctx, argv) {
   if (!dryRun && !(ctx.yes || options.yes)) {
     throw new CliError("extensions restore replaces the selected extension after backup; preview with --check, then confirm with --yes", 2);
   }
-  const data = restoreManagedExtension(ctx, id, {
-    dryRun,
-    sourceRoot: resolveDistroSourceRoot(ctx),
-  });
+  const operation = beginWorkspaceOperation(ctx, { operation: `extension-restore-${id}`, dryRun });
+  let data;
+  try {
+    data = restoreManagedExtension(ctx, id, {
+      dryRun,
+      sourceRoot: resolveDistroSourceRoot(ctx),
+      commandStdio: (ctx.json || options.json) ? ["ignore", "ignore", "inherit"] : undefined,
+    });
+  } finally {
+    operation.release();
+  }
   if (ctx.json || options.json) return printJson(data);
   section(`pi-67 extension restore: ${id}`);
   keyValue("Dry run", dryRun ? "yes" : "no");

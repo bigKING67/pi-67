@@ -483,28 +483,41 @@ esac
 SH
 chmod +x "$FAKE_BIN/pi"
 
-PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/install.sh" \
+SMOKE_HOME="$TMP_ROOT/home"
+export HOME="$SMOKE_HOME"
+HOME="$SMOKE_HOME" PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/install.sh" \
   --agent-dir "$AGENT_DIR" \
   --skills-dir "$TMP_ROOT/shared-skills" \
-  --backup-dir "$TMP_ROOT/backup" \
-  --no-npm \
-  --no-doctor \
-  --yes >"${SMOKE_LOG_DIR}/install.log"
-pass "temp full install completed"
+  --json \
+  --yes >"${SMOKE_LOG_DIR}/install.json"
+node -e '
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+if (data.schema !== "pi67.install.v1" || data.dryRun) throw new Error("unexpected immutable install result");
+if (!data.activation?.releasePath || !data.skills?.summary) throw new Error("immutable install result is incomplete");
+' "${SMOKE_LOG_DIR}/install.json"
+pass "temp immutable manager install completed through install.sh"
+
+HOME="$SMOKE_HOME" PATH="$FAKE_BIN:$PATH" node "$REPO_ROOT/packages/pi67-cli/bin/pi-67.mjs" \
+  --agent-dir "$AGENT_DIR" \
+  --repo-root "$REPO_ROOT" \
+  --skills-dir "$TMP_ROOT/shared-skills" \
+  report --operation install --no-doctor >"${SMOKE_LOG_DIR}/report.log"
 
 if [ ! -f "$AGENT_DIR/pi67-report.json" ]; then
-  cat "${SMOKE_LOG_DIR}/install.log" >&2
-  fail "install did not write pi67-report.json"
+  cat "${SMOKE_LOG_DIR}/report.log" >&2
+  fail "explicit manager report did not write pi67-report.json"
 fi
 node -e '
 const fs = require("fs");
+const path = require("path");
 const report = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-const expectedSkillsRoot = process.argv[2];
+const expectedSkillsRoot = path.resolve(process.argv[2]);
 if (report.schemaVersion !== 2) throw new Error(`unexpected report schemaVersion: ${report.schemaVersion}`);
 if (report.schemaId !== "pi67-report/v2") throw new Error(`unexpected report schemaId: ${report.schemaId}`);
 if (report.operation !== "install") throw new Error(`unexpected report operation: ${report.operation}`);
 if (report.pi67?.version !== report.pi67Version) throw new Error("pi67.version does not match legacy pi67Version");
-if (!report.pi67?.stateDir || !report.pi67.stateDir.includes(`${require("path").sep}workspaces${require("path").sep}`)) throw new Error(`custom agent report stateDir is not isolated: ${report.pi67?.stateDir}`);
+if (!report.pi67?.stateDir || !report.pi67.stateDir.includes(`${path.sep}workspaces${path.sep}`)) throw new Error(`custom agent report stateDir is not isolated: ${report.pi67?.stateDir}`);
 if (!report.reportPolicy?.currentFileOverwritten) throw new Error("report overwrite policy missing");
 if (!report.sharedSkills || report.sharedSkills.sourceCount < 1) throw new Error("report sharedSkills missing");
 if (report.sharedSkillsRoot !== expectedSkillsRoot) throw new Error(`report sharedSkillsRoot mismatch: ${report.sharedSkillsRoot}`);
@@ -522,41 +535,35 @@ INSTALL_CONFLICT_AGENT="$TMP_ROOT/install-conflict-agent"
 INSTALL_CONFLICT_SKILLS="$TMP_ROOT/install-conflict-shared-skills"
 mkdir -p "$INSTALL_CONFLICT_SKILLS/$FIRST_SHARED_SKILL_NAME"
 printf '# Existing newer global skill\n' > "$INSTALL_CONFLICT_SKILLS/$FIRST_SHARED_SKILL_NAME/SKILL.md"
-PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/install.sh" \
+HOME="$SMOKE_HOME" PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/install.sh" \
   --agent-dir "$INSTALL_CONFLICT_AGENT" \
   --skills-dir "$INSTALL_CONFLICT_SKILLS" \
-  --backup-dir "$TMP_ROOT/install-conflict-backup" \
+  --json \
   --no-npm \
-  --no-doctor \
-  --no-report \
-  --yes >"${SMOKE_LOG_DIR}/install-conflict.log" 2>&1
-if ! grep -q "preserved 1 user-modified global Skills: $FIRST_SHARED_SKILL_NAME" "${SMOKE_LOG_DIR}/install-conflict.log"; then
-  cat "${SMOKE_LOG_DIR}/install-conflict.log" >&2
-  fail "install did not keep existing different shared skill"
-fi
-if grep -q 'dirHash=' "${SMOKE_LOG_DIR}/install-conflict.log"; then
-  cat "${SMOKE_LOG_DIR}/install-conflict.log" >&2
-  fail "default install drift output exposed verbose per-Skill hashes"
-fi
+  --yes >"${SMOKE_LOG_DIR}/install-conflict.json" 2>"${SMOKE_LOG_DIR}/install-conflict.stderr"
+node -e '
+const fs = require("fs");
+const data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+const action = data.skills?.actions?.find((item) => item.name === process.argv[2]);
+if (action?.action !== "warn") throw new Error(`expected preserved Skill warning, got ${JSON.stringify(action)}`);
+' "${SMOKE_LOG_DIR}/install-conflict.json" "$FIRST_SHARED_SKILL_NAME"
 if ! grep -q "Existing newer global skill" "$INSTALL_CONFLICT_SKILLS/$FIRST_SHARED_SKILL_NAME/SKILL.md"; then
   cat "$INSTALL_CONFLICT_SKILLS/$FIRST_SHARED_SKILL_NAME/SKILL.md" >&2
   fail "install overwrote existing different shared skill"
 fi
-pass "install keeps existing different shared skills by default"
+pass "immutable install keeps existing different shared skills by default"
 
-if PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/install.sh" \
-  --agent-dir "$TMP_ROOT/install-strict-agent" \
-  --skills-dir "$INSTALL_CONFLICT_SKILLS" \
-  --backup-dir "$TMP_ROOT/install-strict-backup" \
-  --no-npm \
-  --no-doctor \
-  --no-report \
+if "$REPO_ROOT/install.sh" \
   --strict-shared-skills \
-  --yes >"${SMOKE_LOG_DIR}/install-strict-conflict.log" 2>&1; then
+  >"${SMOKE_LOG_DIR}/install-strict-conflict.log" 2>&1; then
   cat "${SMOKE_LOG_DIR}/install-strict-conflict.log" >&2
-  fail "install strict shared skill mode accepted a conflict"
+  fail "install.sh accepted a removed legacy mutation option"
 fi
-pass "install strict shared skill mode blocks conflicts"
+if ! grep -q 'removed from install.sh' "${SMOKE_LOG_DIR}/install-strict-conflict.log"; then
+  cat "${SMOKE_LOG_DIR}/install-strict-conflict.log" >&2
+  fail "install.sh did not explain the removed legacy option"
+fi
+pass "install.sh fails closed on removed legacy mutation options"
 
 PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/scripts/pi67-doctor.sh" \
   --repo-root "$REPO_ROOT" \
@@ -1096,7 +1103,7 @@ if [ -f "$REPO_ROOT/scripts/pi67-patch-pi-smart-fetch-charset.mjs" ]; then
 fi
 pass "xtalpi-pi-tools protocol tests completed"
 
-section "Temp source checkout install"
+section "Legacy source checkout migration guard"
 INPLACE_AGENT="$TMP_ROOT/in-place-agent"
 mkdir -p "$INPLACE_AGENT"
 
@@ -1114,13 +1121,24 @@ git -C "$INPLACE_AGENT" config user.name "pi67 smoke"
 git -C "$INPLACE_AGENT" add .
 git -C "$INPLACE_AGENT" commit -q -m "pi67 smoke in-place baseline"
 
-PATH="$FAKE_BIN:$PATH" "$INPLACE_AGENT/install.sh" \
+if HOME="$SMOKE_HOME" PATH="$FAKE_BIN:$PATH" "$INPLACE_AGENT/install.sh" \
   --agent-dir "$INPLACE_AGENT" \
   --skills-dir "$TMP_ROOT/inplace-shared-skills" \
+  --dry-run \
   --no-npm \
-  --no-doctor \
-  --yes >"${SMOKE_LOG_DIR}/inplace-install.log"
-pass "temp in-place install completed"
+  --yes >"${SMOKE_LOG_DIR}/inplace-install.log" 2>&1; then
+  cat "${SMOKE_LOG_DIR}/inplace-install.log" >&2
+  fail "immutable install accepted a legacy/source checkout"
+fi
+if ! grep -q 'migrate --check' "${SMOKE_LOG_DIR}/inplace-install.log"; then
+  cat "${SMOKE_LOG_DIR}/inplace-install.log" >&2
+  fail "legacy/source checkout refusal did not provide the migration preview"
+fi
+if ! git -C "$INPLACE_AGENT" diff --quiet; then
+  git -C "$INPLACE_AGENT" diff --stat >&2
+  fail "refused legacy/source checkout install changed tracked files"
+fi
+pass "immutable install refuses a legacy/source checkout without writes"
 
 if [ -L "$INPLACE_AGENT/AGENTS.md" ]; then
   cat "${SMOKE_LOG_DIR}/inplace-install.log" >&2
@@ -1134,13 +1152,24 @@ done
 if [ -e "$INPLACE_AGENT/skills" ] || [ -L "$INPLACE_AGENT/skills" ]; then
   fail "in-place install left legacy active skills directory"
 fi
-if [ ! -d "$TMP_ROOT/inplace-shared-skills" ]; then
-  fail "in-place install did not install shared skills"
-fi
 if find "$INPLACE_AGENT" -maxdepth 1 -name 'backup-*' -print -quit | grep -q .; then
-  fail "in-place install created an asset backup directory"
+  fail "refused legacy/source checkout install created an asset backup directory"
 fi
-pass "in-place tracked assets preserved"
+pass "refused legacy/source checkout kept tracked assets unchanged"
+
+mkdir -p "$TMP_ROOT/inplace-shared-skills"
+cp -R "$INPLACE_AGENT/shared-skills/." "$TMP_ROOT/inplace-shared-skills/"
+cp "$INPLACE_AGENT/settings.example.json" "$INPLACE_AGENT/settings.json"
+cp "$INPLACE_AGENT/models.example.json" "$INPLACE_AGENT/models.json"
+cp "$INPLACE_AGENT/mcp.example.json" "$INPLACE_AGENT/mcp.json"
+cp "$INPLACE_AGENT/auth.example.json" "$INPLACE_AGENT/auth.json"
+cp "$INPLACE_AGENT/image-gen.example.json" "$INPLACE_AGENT/image-gen.json"
+PATH="$FAKE_BIN:$PATH" "$INPLACE_AGENT/scripts/pi67-report.sh" \
+  --repo-root "$INPLACE_AGENT" \
+  --agent-dir "$INPLACE_AGENT" \
+  --skills-dir "$TMP_ROOT/inplace-shared-skills" \
+  --no-doctor \
+  --output "$INPLACE_AGENT/pi67-report.json" >/dev/null
 
 for path in settings.json models.json mcp.json auth.json image-gen.json pi67-report.json; do
   if [ ! -e "$INPLACE_AGENT/$path" ]; then
@@ -1148,7 +1177,7 @@ for path in settings.json models.json mcp.json auth.json image-gen.json pi67-rep
   fi
   git -C "$INPLACE_AGENT" check-ignore -q "$path" || fail "in-place local file is not ignored: $path"
 done
-pass "in-place local files created and ignored"
+pass "source-checkout fixture local files are ignored"
 
 if ! PATH="$FAKE_BIN:$PATH" "$INPLACE_AGENT/scripts/pi67-doctor.sh" \
   --repo-root "$INPLACE_AGENT" \
@@ -1876,67 +1905,17 @@ if (report.doctor?.skipped !== true) throw new Error("update --no-doctor report 
 ' "$AGENT_DIR/pi67-report.json"
 pass "update report JSON written"
 
-section "Restore/uninstall operations"
-OPS_AGENT="$TMP_ROOT/ops-agent"
-OPS_BACKUP="$TMP_ROOT/ops-backup"
-mkdir -p "$OPS_AGENT/skills"
-printf 'old agents\n' > "$OPS_AGENT/AGENTS.md"
-printf 'old skill\n' > "$OPS_AGENT/skills/old.txt"
-
-PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/install.sh" \
-  --agent-dir "$OPS_AGENT" \
-  --skills-dir "$TMP_ROOT/ops-shared-skills" \
-  --backup-dir "$OPS_BACKUP" \
-  --no-npm \
-  --no-doctor \
-  --yes >"${SMOKE_LOG_DIR}/ops-install.log"
-
-if [ -e "$OPS_AGENT/skills" ] || [ -L "$OPS_AGENT/skills" ]; then
-  cat "${SMOKE_LOG_DIR}/ops-install.log" >&2
-  fail "install did not retire legacy agent skills"
+section "Legacy installer retirement"
+if "$REPO_ROOT/install.sh" --backup-dir "$TMP_ROOT/legacy-backup" \
+  >"${SMOKE_LOG_DIR}/legacy-install-option.log" 2>&1; then
+  fail "install.sh accepted the removed mutable backup path"
 fi
-if [ ! -f "$OPS_BACKUP/skills/old.txt" ]; then
-  cat "${SMOKE_LOG_DIR}/ops-install.log" >&2
-  fail "install did not back up legacy agent skills"
+if ! grep -q 'pi-67 now owns integrity-checked workspace backups' \
+  "${SMOKE_LOG_DIR}/legacy-install-option.log"; then
+  cat "${SMOKE_LOG_DIR}/legacy-install-option.log" >&2
+  fail "install.sh did not explain manager-owned backups"
 fi
-
-"$REPO_ROOT/scripts/pi67-restore.sh" \
-  --agent-dir "$OPS_AGENT" \
-  --backup-dir "$OPS_BACKUP" \
-  --dry-run >"${SMOKE_LOG_DIR}/restore-dry.log"
-
-"$REPO_ROOT/scripts/pi67-restore.sh" \
-  --agent-dir "$OPS_AGENT" \
-  --backup-dir "$OPS_BACKUP" \
-  --yes >"${SMOKE_LOG_DIR}/restore.log"
-
-if [ "$(cat "$OPS_AGENT/AGENTS.md")" != "old agents" ] || [ ! -f "$OPS_AGENT/skills/old.txt" ]; then
-  fail "restore did not recover preinstall files"
-fi
-pass "restore recovered preinstall files"
-
-PATH="$FAKE_BIN:$PATH" "$REPO_ROOT/install.sh" \
-  --agent-dir "$OPS_AGENT" \
-  --skills-dir "$TMP_ROOT/ops-shared-skills-2" \
-  --backup-dir "$TMP_ROOT/ops-backup-2" \
-  --no-npm \
-  --no-doctor \
-  --yes >"${SMOKE_LOG_DIR}/ops-install-2.log"
-
-"$REPO_ROOT/scripts/pi67-uninstall.sh" \
-  --repo-root "$REPO_ROOT" \
-  --agent-dir "$OPS_AGENT" \
-  --dry-run >"${SMOKE_LOG_DIR}/uninstall-dry.log"
-
-"$REPO_ROOT/scripts/pi67-uninstall.sh" \
-  --repo-root "$REPO_ROOT" \
-  --agent-dir "$OPS_AGENT" \
-  --yes >"${SMOKE_LOG_DIR}/uninstall.log"
-
-if [ -e "$OPS_AGENT/AGENTS.md" ] || [ ! -f "$OPS_AGENT/models.json" ]; then
-  fail "uninstall did not remove owned symlinks while preserving local config"
-fi
-pass "uninstall removed owned symlinks and preserved local config"
+pass "legacy mutable installer options fail closed with migration guidance"
 
 section "Summary"
 pass "pi-67 smoke passed"

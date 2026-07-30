@@ -344,7 +344,8 @@ prepare_release_runtime() {
     && cmp -s "$REPO_ROOT/package.json" "$runtime_package" \
     && cmp -s "$REPO_ROOT/package-lock.json" "$runtime_lock" \
     && [ -d "$runtime_dir/node_modules/pi-mcp-adapter" ] \
-    && [ -f "$runtime_dir/node_modules/typescript/bin/tsc" ]; then
+    && [ -f "$runtime_dir/node_modules/typescript/bin/tsc" ] \
+    && node "$REPO_ROOT/scripts/pi67-dependency-closure-check.mjs" --repo-root "$REPO_ROOT" >/dev/null 2>&1; then
     pass "release runtime dependencies already match the committed lockfile"
     apply_release_runtime_patches
     return
@@ -359,12 +360,14 @@ prepare_release_runtime() {
   mkdir -p "$runtime_dir"
   cp "$REPO_ROOT/package.json" "$runtime_package"
   cp "$REPO_ROOT/package-lock.json" "$runtime_lock"
-  npm --prefix "$runtime_dir" ci --ignore-scripts --no-audit --no-fund --prefer-offline
+  npm --prefix "$runtime_dir" ci --ignore-scripts --omit=peer --no-audit --no-fund --prefer-offline
 
   [ -d "$runtime_dir/node_modules/pi-mcp-adapter" ] \
     || fail "release runtime preparation did not install pi-mcp-adapter"
   [ -f "$runtime_dir/node_modules/typescript/bin/tsc" ] \
     || fail "release runtime preparation did not install TypeScript"
+  node "$REPO_ROOT/scripts/pi67-dependency-closure-check.mjs" --repo-root "$REPO_ROOT" \
+    || fail "release runtime preparation produced an invalid Pi dependency closure"
   pass "release runtime dependencies prepared from the committed lockfile"
   apply_release_runtime_patches
 }

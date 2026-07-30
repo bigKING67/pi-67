@@ -15,6 +15,13 @@ const SECRETS_SCHEMA = "pi67-hy-memory-secrets/v1";
 const RUNTIME_SCHEMA = "pi67-hy-memory-runtime/v1";
 const SERVICE_SCHEMA = "pi67-hy-memory-service/v1";
 const MAX_HTTP_BYTES = 4 * 1024 * 1024;
+const OUTBOX_LIMITS = Object.freeze({
+  maxActiveJobs: 1_000,
+  maxActiveBytes: 64 * 1024 * 1024,
+  maxDeadLetterJobs: 500,
+  maxDeadLetterBytes: 32 * 1024 * 1024,
+  deadLetterRetentionMs: 30 * 24 * 60 * 60 * 1_000,
+});
 
 export function memoryPaths(homeOverride = process.env.PI67_HY_MEMORY_HOME) {
   const root = path.resolve(homeOverride || path.join(os.homedir(), ".hy-memory", "pi67"));
@@ -31,6 +38,8 @@ export function memoryPaths(homeOverride = process.env.PI67_HY_MEMORY_HOME) {
     runtimeFile: path.join(root, "runtime", "current.json"),
     serviceFile: path.join(root, "runtime", "service.json"),
     startLockFile: path.join(root, "runtime", "start.lock"),
+    lifetimeLockFile: path.join(root, "runtime", "service-lifetime.lock"),
+    lifetimeOwnerFile: path.join(root, "runtime", "service-owner.json"),
     logsDir: path.join(root, "logs"),
   };
 }
@@ -229,6 +238,8 @@ export async function memoryStatus(ctx, options = {}) {
   } else {
     checks.push(check("service", false, "service cannot run before initialization"));
   }
+  const topology = inspectServiceTopology(paths);
+  checks.push(check("service-ownership", topology.ok, topology.message, topology));
 
   const outbox = outboxCounts(paths);
   const initialized = Boolean(config && runtime && secrets);
@@ -291,6 +302,17 @@ export async function startMemoryService(ctx, options = {}) {
   const existing = await tryServiceInfo(paths);
   if (existing) return { running: true, started: false, info: existing };
 
+  let topology = inspectServiceTopology(paths);
+  if (topology.serviceAlive && topology.state !== "owned") {
+    throw new CliError(`Hy-Memory service ownership conflict: ${topology.message}`);
+  }
+  if (topology.ownerAlive) {
+    const info = await waitForService(paths, options.timeoutMs || 45000);
+    if (info) return { running: true, started: false, info };
+    topology = inspectServiceTopology(paths);
+    throw new CliError(`Hy-Memory service ownership conflict: ${topology.message}`);
+  }
+
   fs.mkdirSync(paths.runtimeDir, { recursive: true, mode: 0o700 });
   const lock = acquireStartLock(paths);
   if (!lock.acquired) {
@@ -300,6 +322,12 @@ export async function startMemoryService(ctx, options = {}) {
   }
 
   try {
+    const rechecked = await tryServiceInfo(paths);
+    if (rechecked) return { running: true, started: false, info: rechecked };
+    topology = inspectServiceTopology(paths);
+    if (topology.ownerAlive || topology.serviceAlive) {
+      throw new CliError(`Hy-Memory service ownership conflict: ${topology.message}`);
+    }
     const runtime = readRuntime(paths);
     const secrets = readSecrets(paths);
     const llmKey = secrets.llmApiKey || readPiAuthCredential(ctx.agentDir, config.llm.keySource.provider);
@@ -326,7 +354,13 @@ export async function startMemoryService(ctx, options = {}) {
 export async function stopMemoryService(options = {}) {
   const paths = options.paths || memoryPaths(options.home);
   const info = await tryServiceInfo(paths);
-  if (!info) return { running: false, stopped: false };
+  if (!info) {
+    const topology = inspectServiceTopology(paths);
+    if (topology.serviceAlive || topology.ownerAlive) {
+      throw new CliError(`Hy-Memory service ownership conflict: ${topology.message}`);
+    }
+    return { running: false, stopped: false };
+  }
   await memoryServiceRequest(paths, "POST", "/v1/shutdown", {}, 10000);
   const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
@@ -606,14 +640,14 @@ async function memoryServiceRequest(paths, method, pathname, body, timeoutMs) {
       method,
       headers: {
         authorization: `Bearer ${secrets.serviceBearerToken}`,
+        "x-pi67-timeout-ms": String(timeoutMs),
         ...(body === undefined ? {} : { "content-type": "application/json" }),
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       signal: controller.signal,
     });
     if (Number(response.headers.get("content-length") || 0) > MAX_HTTP_BYTES) throw new CliError("Hy-Memory response is too large");
-    const text = await response.text();
-    if (Buffer.byteLength(text) > MAX_HTTP_BYTES) throw new CliError("Hy-Memory response is too large");
+    const text = await readResponseTextBounded(response, MAX_HTTP_BYTES);
     let value;
     try {
       value = text ? JSON.parse(text) : {};
@@ -645,6 +679,78 @@ function validateServiceIdentity(info, service, paths) {
     canonicalFilesystemPath(String(info.root || "")) !== canonicalFilesystemPath(paths.root) ||
     canonicalFilesystemPath(String(info.dataDir || "")) !== canonicalFilesystemPath(paths.dataDir)
   ) throw new CliError("Hy-Memory service identity does not match this installation");
+  const owner = readLifetimeOwner(paths);
+  if (
+    !owner || !processExists(owner.pid) || owner.pid !== service.pid || owner.instanceId !== service.instanceId ||
+    canonicalFilesystemPath(String(owner.root || "")) !== canonicalFilesystemPath(paths.root)
+  ) throw new CliError("Hy-Memory service has no matching live lifetime owner");
+}
+
+function inspectServiceTopology(paths) {
+  const service = readOptionalJsonObject(paths.serviceFile);
+  const owner = readLifetimeOwner(paths);
+  const serviceAlive = Number.isInteger(service?.pid) && processExists(service.pid);
+  const ownerAlive = Boolean(owner && processExists(owner.pid));
+  const sameOwner = Boolean(
+    serviceAlive && ownerAlive && service.pid === owner.pid && service.instanceId === owner.instanceId &&
+    canonicalFilesystemPath(String(service.root || "")) === canonicalFilesystemPath(paths.root) &&
+    canonicalFilesystemPath(String(owner.root || "")) === canonicalFilesystemPath(paths.root),
+  );
+  if (sameOwner) {
+    return { ok: true, state: "owned", message: `service PID ${service.pid} holds lifetime ownership`, ownerAlive, serviceAlive };
+  }
+  if (serviceAlive && ownerAlive) {
+    return {
+      ok: false,
+      state: "duplicate",
+      message: `service PID ${service.pid} conflicts with lifetime owner PID ${owner.pid}`,
+      ownerAlive,
+      serviceAlive,
+      pids: [...new Set([service.pid, owner.pid])],
+    };
+  }
+  if (serviceAlive) {
+    return {
+      ok: false,
+      state: "orphan-service",
+      message: `service PID ${service.pid} is alive without lifetime ownership`,
+      ownerAlive,
+      serviceAlive,
+      pids: [service.pid],
+    };
+  }
+  if (ownerAlive) {
+    return {
+      ok: false,
+      state: "orphan-owner",
+      message: `lifetime owner PID ${owner.pid} is alive without matching service metadata`,
+      ownerAlive,
+      serviceAlive,
+      pids: [owner.pid],
+    };
+  }
+  if (service || owner) {
+    return { ok: false, state: "stale", message: "stale service ownership metadata is present", ownerAlive, serviceAlive };
+  }
+  return { ok: true, state: "stopped", message: "no live service owner is present", ownerAlive, serviceAlive };
+}
+
+function readLifetimeOwner(paths) {
+  const value = readOptionalJsonObject(paths.lifetimeOwnerFile);
+  if (
+    !value || value.schema !== SERVICE_SCHEMA || !Number.isInteger(value.pid) ||
+    typeof value.instanceId !== "string" || typeof value.root !== "string"
+  ) return null;
+  return value;
+}
+
+function readOptionalJsonObject(file) {
+  try {
+    const value = JSON.parse(fs.readFileSync(file, "utf8"));
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 function canonicalFilesystemPath(value) {
@@ -717,6 +823,29 @@ function processExists(pid) {
   }
 }
 
+async function readResponseTextBounded(response, maxBytes) {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel("response size limit exceeded");
+        throw new CliError("Hy-Memory response is too large");
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, total).toString("utf8");
+}
+
 function serviceEnvironment(input) {
   const allowed = ["PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "TMPDIR", "LOCALAPPDATA", "APPDATA"];
   const env = {};
@@ -734,18 +863,33 @@ function serviceEnvironment(input) {
 }
 
 function outboxCounts(paths) {
+  const pending = directoryJsonUsage(paths.pendingDir);
+  const processing = directoryJsonUsage(paths.processingDir);
+  const deadLetter = directoryJsonUsage(paths.deadLetterDir);
+  const activeBytes = pending.bytes + processing.bytes;
   return {
-    pending: countJson(paths.pendingDir),
-    processing: countJson(paths.processingDir),
-    deadLetter: countJson(paths.deadLetterDir),
+    pending: pending.jobs,
+    processing: processing.jobs,
+    deadLetter: deadLetter.jobs,
+    activeBytes,
+    deadLetterBytes: deadLetter.bytes,
+    saturated: pending.jobs + processing.jobs >= OUTBOX_LIMITS.maxActiveJobs || activeBytes >= OUTBOX_LIMITS.maxActiveBytes,
+    limits: { ...OUTBOX_LIMITS },
   };
 }
 
-function countJson(dir) {
+function directoryJsonUsage(dir) {
   try {
-    return fs.readdirSync(dir).filter((name) => name.endsWith(".json")).length;
+    let jobs = 0;
+    let bytes = 0;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+      jobs += 1;
+      bytes += fs.statSync(path.join(dir, entry.name)).size;
+    }
+    return { jobs, bytes };
   } catch {
-    return 0;
+    return { jobs: 0, bytes: 0 };
   }
 }
 
@@ -791,6 +935,7 @@ function memoryNextSteps(state) {
     if (!state.config?.enabled) steps.push("pi-67 memory enable");
     if (!state.runtime) steps.push("pi-67 memory upgrade");
     if (!state.service) steps.push("pi-67 memory start");
+    if (state.outbox.saturated) steps.push("pi-67 memory flush");
     if (state.outbox.deadLetter > 0) steps.push("inspect ~/.hy-memory/pi67/outbox/dead-letter and run pi-67 memory doctor --deep");
   }
   return steps;

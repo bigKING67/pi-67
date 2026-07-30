@@ -15,6 +15,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PI_AGENT_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
 SHARED_SKILLS_DIR="${SHARED_SKILLS_DIR:-$HOME/.agents/skills}"
+STATE_DIR="${PI67_STATE_DIR:-}"
 RUN_PI_LIST=true
 OUTPUT_FORMAT="text"
 QUIET=false
@@ -46,6 +47,7 @@ Options:
       --repo-root DIR      Repository root. Defaults to parent of this script.
       --agent-dir DIR      Pi agent dir. Defaults to ~/.pi/agent.
       --skills-dir DIR     Shared skill root. Defaults to ~/.agents/skills.
+      --state-dir DIR      pi-67 workspace state root. Auto-detected when omitted.
       --no-pi-list         Skip the non-interactive `pi list --no-approve` package probe.
       --no-skill-list      Deprecated alias for --no-pi-list.
       --strict-shared-skills
@@ -75,6 +77,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --skills-dir)
       SHARED_SKILLS_DIR="${2:?--skills-dir requires a path}"
+      shift 2
+      ;;
+    --state-dir)
+      STATE_DIR="${2:?--state-dir requires a path}"
       shift 2
       ;;
     --no-pi-list|--no-skill-list)
@@ -241,6 +247,10 @@ real_dir() {
 
 detect_install_mode() {
   local repo_real agent_real
+  if matching_release_pointer >/dev/null 2>&1; then
+    printf 'immutable-release\n'
+    return
+  fi
   repo_real="$(real_dir "$REPO_ROOT")"
   agent_real="$(real_dir "$PI_AGENT_DIR")"
   if [ "$repo_real" = "$agent_real" ]; then
@@ -252,6 +262,60 @@ detect_install_mode() {
   else
     printf 'linked-source\n'
   fi
+}
+
+matching_release_pointer() {
+  command_exists node || return 1
+  node - "$PI_AGENT_DIR" "$STATE_DIR" "$HOME/.pi/pi67" <<'NODE'
+const fs = require("fs");
+const path = require("path");
+
+const [agentDir, explicitStateDir, stateRoot] = process.argv.slice(2);
+const candidates = [];
+if (explicitStateDir) {
+  candidates.push(path.join(explicitStateDir, "current.json"));
+} else {
+  candidates.push(path.join(stateRoot, "current.json"));
+  const workspaces = path.join(stateRoot, "workspaces");
+  if (fs.existsSync(workspaces)) {
+    for (const entry of fs.readdirSync(workspaces, { withFileTypes: true })) {
+      if (entry.isDirectory()) candidates.push(path.join(workspaces, entry.name, "current.json"));
+    }
+  }
+}
+
+function canonical(input) {
+  let resolved = path.resolve(input || ".");
+  const missing = [];
+  while (!fs.existsSync(resolved)) {
+    const parent = path.dirname(resolved);
+    if (parent === resolved) break;
+    missing.unshift(path.basename(resolved));
+    resolved = parent;
+  }
+  try {
+    return path.join(fs.realpathSync.native(resolved), ...missing);
+  } catch {
+    return path.resolve(input || ".");
+  }
+}
+
+const expectedAgent = canonical(agentDir);
+for (const file of candidates) {
+  try {
+    const pointer = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (
+      pointer?.schema === "pi67.release-pointer.v1" &&
+      canonical(pointer.agentDir) === expectedAgent &&
+      pointer.releasePath &&
+      fs.existsSync(pointer.releasePath)
+    ) process.exit(0);
+  } catch {
+    // Invalid or unrelated candidates are ignored; normal doctor checks report active problems.
+  }
+}
+process.exit(1);
+NODE
 }
 
 git_tracks_path() {

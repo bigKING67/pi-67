@@ -31,15 +31,15 @@ browser67 直调:    通过 mcp({ tool, server }) 调用 (工具 key 当前为 t
 | 创建新标签页 | `js_reverse_new_page` | 打开新 tab |
 | 浏览器关闭/断开后重连 | `js_reverse_check_browser_health` | 自动尝试重连 |
 | 诊断 transport 健康度 | `mcp:browser_transport_health` | browser67 preflight，ws/link 分别诊断 |
-| 导航到 URL | `mcp:browser_tab_ops` | navigate 操作 |
+| 导航到 URL | `mcp:browser_tab_lifecycle` | `select_or_create` / managed tab lifecycle |
 
 ### 页面脚本执行（browser67）
 
 | 我想做什么 | 工具 | 说明 |
 |------------|------|------|
-| 在页面执行 JS | `mcp:browser_execute_js` | 传 code 参数 |
-| 执行长任务（翻页采集） | `mcp:browser_job_ops` | start/status/result/list/cancel；in-process、durable:false |
-| 查看长任务进度 | `mcp:browser_job_ops` | status/result 轮询；cancel 是 best-effort |
+| 在页面执行 JS | `mcp:browser_execute_js` | 传 `script` 参数 |
+| 执行长任务（翻页采集） | `mcp:browser_job_ops` | start/status/result/list/cancel；有效 run-backed job 为 `durable:true` |
+| 查看长任务进度 | `mcp:browser_job_ops` | status/result 按需轮询；in-flight cancel 是 intent-only |
 | 等待元素出现 | `mcp:browser_wait` | 替代 setTimeout / 固定 sleep |
 | 翻页导航 | `mcp:browser_execute_js` + `mcp:browser_wait` | 不声明独立 paginate 工具 |
 | 点击/悬停/输入 | `mcp:browser_execute_js` / `mcp:browser_native_input` | 普通 DOM 动作走 JS；需真实输入才用 native |

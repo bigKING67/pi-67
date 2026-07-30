@@ -13,6 +13,7 @@ import json
 import logging
 import logging.handlers
 import os
+import queue
 import re
 import signal
 import sys
@@ -33,15 +34,55 @@ OUTBOX_SCHEMA = "pi67-hy-memory-outbox/v1"
 MAX_REQUEST_BYTES = 256 * 1024
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 MAX_CAPTURE_CHARS = 12_000
+MAX_HTTP_HANDLERS = 8
+MAX_OPERATION_QUEUE = 16
+MAX_ACTIVE_OUTBOX_JOBS = 1_000
+MAX_ACTIVE_OUTBOX_BYTES = 64 * 1024 * 1024
+MAX_DEAD_LETTER_JOBS = 500
+MAX_DEAD_LETTER_BYTES = 32 * 1024 * 1024
+DEAD_LETTER_RETENTION_SECONDS = 30 * 24 * 60 * 60
 MEMORY_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,256}$")
 
 
 class LoopbackHTTPServer(ThreadingHTTPServer):
+    request_queue_size = 16
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        self._handler_slots = threading.BoundedSemaphore(MAX_HTTP_HANDLERS)
+        super().__init__(*args, **kwargs)
+
     def server_bind(self) -> None:
         # HTTPServer resolves a reverse-DNS FQDN after bind; loopback identity
         # is already fixed and must not depend on host DNS availability.
         TCPServer.server_bind(self)
         self.server_name, self.server_port = self.server_address[:2]
+
+    def process_request(self, request: Any, client_address: Tuple[str, int]) -> None:
+        if not self._handler_slots.acquire(blocking=False):
+            try:
+                body = b'{"error":"service request capacity exceeded"}'
+                request.sendall(
+                    b"HTTP/1.1 503 Service Unavailable\r\n"
+                    b"Content-Type: application/json\r\n"
+                    b"Cache-Control: no-store\r\n"
+                    b"Connection: close\r\n"
+                    + f"Content-Length: {len(body)}\r\n\r\n".encode("ascii")
+                    + body
+                )
+            finally:
+                self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._handler_slots.release()
+            raise
+
+    def process_request_thread(self, request: Any, client_address: Tuple[str, int]) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._handler_slots.release()
 
 
 def parse_args() -> argparse.Namespace:
@@ -162,6 +203,8 @@ class StatePaths:
         self.data_dir = self.root / "data"
         self.runtime_dir = self.root / "runtime"
         self.service_file = self.runtime_dir / "service.json"
+        self.lifetime_lock_file = self.runtime_dir / "service-lifetime.lock"
+        self.lifetime_owner_file = self.runtime_dir / "service-owner.json"
         self.outbox_dir = self.root / "outbox"
         self.pending_dir = self.outbox_dir / "pending"
         self.processing_dir = self.outbox_dir / "processing"
@@ -178,6 +221,97 @@ class StatePaths:
             self.root / "logs",
         ):
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+
+class ServiceLifetimeLock:
+    def __init__(self, paths: StatePaths, instance_id: str):
+        self.paths = paths
+        self.instance_id = instance_id
+        self.handle: Optional[Any] = None
+
+    def acquire(self) -> None:
+        self.handle = self.paths.lifetime_lock_file.open("a+b")
+        try:
+            self._lock_nonblocking()
+        except BaseException:
+            self.handle.close()
+            self.handle = None
+            owner = self._owner_summary()
+            raise RuntimeError(f"another Hy-Memory service owns this state root{owner}")
+        self.update(stage="starting")
+
+    def update(self, **fields: Any) -> None:
+        value = {
+            "schema": SERVICE_SCHEMA,
+            "instanceId": self.instance_id,
+            "pid": os.getpid(),
+            "root": str(self.paths.root),
+            "dataDir": str(self.paths.data_dir),
+            "startedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
+            **fields,
+        }
+        previous = self._read_owner()
+        if previous and previous.get("instanceId") == self.instance_id:
+            value["startedAt"] = previous.get("startedAt", value["startedAt"])
+        write_json_atomic(self.paths.lifetime_owner_file, value)
+
+    def release(self) -> None:
+        if self.handle is None:
+            return
+        try:
+            owner = self._read_owner()
+            if owner and owner.get("instanceId") == self.instance_id and owner.get("pid") == os.getpid():
+                self.paths.lifetime_owner_file.unlink(missing_ok=True)
+        finally:
+            try:
+                self._unlock()
+            finally:
+                self.handle.close()
+                self.handle = None
+
+    def _read_owner(self) -> Optional[Dict[str, Any]]:
+        try:
+            return read_json_object(self.paths.lifetime_owner_file)
+        except Exception:
+            return None
+
+    def _owner_summary(self) -> str:
+        owner = self._read_owner()
+        if not owner:
+            return ""
+        pid = owner.get("pid", "unknown")
+        instance_id = owner.get("instanceId", "unknown")
+        return f" (pid={pid}, instanceId={instance_id})"
+
+    def _lock_nonblocking(self) -> None:
+        if self.handle is None:
+            raise RuntimeError("lifetime lock file is not open")
+        if os.name == "nt":
+            import msvcrt
+
+            self.handle.seek(0)
+            if self.handle.read(1) == b"":
+                self.handle.write(b"\0")
+                self.handle.flush()
+            self.handle.seek(0)
+            msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)
+            return
+        import fcntl
+
+        fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def _unlock(self) -> None:
+        if self.handle is None:
+            return
+        if os.name == "nt":
+            import msvcrt
+
+            self.handle.seek(0)
+            msvcrt.locking(self.handle.fileno(), msvcrt.LK_UNLCK, 1)
+            return
+        import fcntl
+
+        fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
 
 
 def validate_config(config: Dict[str, Any]) -> None:
@@ -255,89 +389,122 @@ def create_memory_config(config: Dict[str, Any], paths: StatePaths, llm_key: str
     )
 
 
+class OperationQueueFullError(RuntimeError):
+    pass
+
+
+@dataclasses.dataclass
+class QueuedOperation:
+    label: str
+    action: Callable[[], Any]
+    done: threading.Event = dataclasses.field(default_factory=threading.Event)
+    started: bool = False
+    cancelled: bool = False
+    result: Any = None
+    error: Optional[BaseException] = None
+
+
 class ClientHolder:
     def __init__(self, memory_config: Any, config: Dict[str, Any]):
         self._memory_config = memory_config
         self._config = config
-        self._lock = threading.RLock()
         self._client = self._new_client("pro")
+        self._operations: queue.Queue[Optional[QueuedOperation]] = queue.Queue(maxsize=MAX_OPERATION_QUEUE)
+        self._closing = threading.Event()
+        self._worker = threading.Thread(target=self._run_operations, name="pi67-hy-memory-sdk", daemon=True)
+        self._worker.start()
 
     def _new_client(self, mode: str) -> Any:
         from hy_memory import HyMemoryClient
 
         return HyMemoryClient(config=self._memory_config, mode=mode)
 
-    def close(self) -> None:
-        with self._lock:
-            if self._client is not None:
-                self._client.close()
-                self._client = None
+    def close(self) -> bool:
+        self._closing.set()
+        try:
+            self._operations.put_nowait(None)
+        except queue.Full:
+            # The worker observes _closing and skips queued work until the sentinel fits.
+            while self._worker.is_alive():
+                try:
+                    self._operations.put(None, timeout=0.1)
+                    break
+                except queue.Full:
+                    continue
+        self._worker.join(timeout=5)
+        if self._worker.is_alive():
+            logging.getLogger(__name__).warning("Hy-Memory SDK operation did not stop before service shutdown")
+            return False
+        return True
 
     def info(self) -> Dict[str, Any]:
         return {"mode": "pro", "vectorDimensions": int(self._memory_config.vector_store.embedding_dims)}
 
-    def probe(self) -> Dict[str, Any]:
-        with self._lock:
+    def probe(self, timeout: float = 30.0) -> Dict[str, Any]:
+        def action() -> Dict[str, Any]:
             embedding = self._client._loop_thread.run(self._client._embed_service.embed("pi-67 dimension probe"))
-        vector = embedding.tolist() if hasattr(embedding, "tolist") else list(embedding)
-        return {
-            "success": True,
-            "sdkVersion": SDK_VERSION,
-            "vectorDimensions": len(vector),
-            "finite": all(isinstance(value, (int, float)) and value == value for value in vector),
-        }
+            vector = embedding.tolist() if hasattr(embedding, "tolist") else list(embedding)
+            return {
+                "success": True,
+                "sdkVersion": SDK_VERSION,
+                "vectorDimensions": len(vector),
+                "finite": all(isinstance(value, (int, float)) and value == value for value in vector),
+            }
 
-    def search(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        return self._execute("probe", timeout, action)
+
+    def search(self, body: Dict[str, Any], timeout: float = 30.0) -> Dict[str, Any]:
         query = required_text(body.get("query"), "query", MAX_CAPTURE_CHARS)
         recall = self._config["recall"]
-        with self._lock:
-            return self._client.search(
-                query,
-                scene="normal",
-                user_ids=[self._config["userId"]],
-                agent_ids=[self._config["agentId"]],
-                limit=clamp_int(body.get("limit"), 1, 20, recall["topK"]),
-                min_score=clamp_float(body.get("minScore"), 0.0, 1.0, recall["minScore"]),
-                profile_limit=clamp_int(body.get("profileLimit"), 0, 20, recall["profileLimit"]),
-                profile_min_score=clamp_float(
-                    body.get("profileMinScore"), 0.0, 1.0, recall["profileMinScore"]
-                ),
-                intention_limit=clamp_int(body.get("intentionLimit"), 0, 20, recall["intentionLimit"]),
-            )
+        return self._execute("search", timeout, lambda: self._client.search(
+            query,
+            scene="normal",
+            user_ids=[self._config["userId"]],
+            agent_ids=[self._config["agentId"]],
+            limit=clamp_int(body.get("limit"), 1, 20, recall["topK"]),
+            min_score=clamp_float(body.get("minScore"), 0.0, 1.0, recall["minScore"]),
+            profile_limit=clamp_int(body.get("profileLimit"), 0, 20, recall["profileLimit"]),
+            profile_min_score=clamp_float(
+                body.get("profileMinScore"), 0.0, 1.0, recall["profileMinScore"]
+            ),
+            intention_limit=clamp_int(body.get("intentionLimit"), 0, 20, recall["intentionLimit"]),
+        ))
 
-    def capture(self, messages: List[Dict[str, str]], session_id: str, request_id: str) -> Dict[str, Any]:
-        with self._lock:
-            return self._client.add(
-                messages,
-                user_id=self._config["userId"],
-                agent_id=self._config["agentId"],
-                session_id=session_id,
-                metadata={"source": "pi-67", "capture": "settled-turn"},
-                request_id=request_id,
-                extract_scene="chat",
-            )
+    def capture(
+        self,
+        messages: List[Dict[str, str]],
+        session_id: str,
+        request_id: str,
+        timeout: float = 180.0,
+    ) -> Dict[str, Any]:
+        return self._execute("capture", timeout, lambda: self._client.add(
+            messages,
+            user_id=self._config["userId"],
+            agent_id=self._config["agentId"],
+            session_id=session_id,
+            metadata={"source": "pi-67", "capture": "settled-turn"},
+            request_id=request_id,
+            extract_scene="chat",
+        ))
 
-    def list_memories(self, limit: int, offset: int) -> Dict[str, Any]:
-        with self._lock:
-            return self._client.list_memories(
-                user_id=self._config["userId"],
-                agent_id=self._config["agentId"],
-                limit=limit,
-                offset=offset,
-                order="desc",
-            )
+    def list_memories(self, limit: int, offset: int, timeout: float = 10.0) -> Dict[str, Any]:
+        return self._execute("list", timeout, lambda: self._client.list_memories(
+            user_id=self._config["userId"],
+            agent_id=self._config["agentId"],
+            limit=limit,
+            offset=offset,
+            order="desc",
+        ))
 
-    def get(self, memory_id: str) -> Dict[str, Any]:
-        with self._lock:
-            value = self._client.get(memory_id)
+    def get(self, memory_id: str, timeout: float = 10.0) -> Dict[str, Any]:
+        value = self._execute("get", timeout, lambda: self._client.get(memory_id))
         return {"memory": value}
 
-    def forget(self, memory_id: str) -> Dict[str, Any]:
-        with self._lock:
-            return self._client.delete(memory_id)
+    def forget(self, memory_id: str, timeout: float = 30.0) -> Dict[str, Any]:
+        return self._execute("forget", timeout, lambda: self._client.delete(memory_id))
 
-    def digest(self) -> Dict[str, Any]:
-        with self._lock:
+    def digest(self, timeout: float = 900.0) -> Dict[str, Any]:
+        def action() -> Dict[str, Any]:
             self._client.close()
             self._client = None
             ultra = None
@@ -348,6 +515,47 @@ class ClientHolder:
                 if ultra is not None:
                     ultra.close()
                 self._client = self._new_client("pro")
+
+        return self._execute("digest", timeout, action)
+
+    def _execute(self, label: str, timeout: float, action: Callable[[], Any]) -> Any:
+        timeout = max(0.1, float(timeout))
+        operation = QueuedOperation(label=label, action=action)
+        try:
+            self._operations.put_nowait(operation)
+        except queue.Full as error:
+            raise OperationQueueFullError("Hy-Memory operation queue is full") from error
+        if not operation.done.wait(timeout):
+            operation.cancelled = True
+            raise TimeoutError(f"Hy-Memory {label} deadline exceeded after {timeout:.3f}s")
+        if operation.error is not None:
+            raise operation.error
+        return operation.result
+
+    def _run_operations(self) -> None:
+        try:
+            while True:
+                operation = self._operations.get()
+                try:
+                    if operation is None:
+                        return
+                    if self._closing.is_set() or operation.cancelled:
+                        operation.error = RuntimeError("Hy-Memory service is shutting down")
+                        operation.done.set()
+                        continue
+                    operation.started = True
+                    try:
+                        operation.result = operation.action()
+                    except BaseException as error:
+                        operation.error = error
+                    finally:
+                        operation.done.set()
+                finally:
+                    self._operations.task_done()
+        finally:
+            if self._client is not None:
+                self._client.close()
+                self._client = None
 
 
 def required_text(value: Any, label: str, max_chars: int) -> str:
@@ -397,20 +605,37 @@ class OutboxProcessor:
         self.force_event = threading.Event()
         self.thread = threading.Thread(target=self._run, name="pi67-hy-memory-outbox", daemon=True)
         self._restore_processing()
+        self._prune_dead_letters()
 
     def start(self) -> None:
         self.thread.start()
 
-    def stop(self) -> None:
+    def stop(self) -> bool:
         self.stop_event.set()
         self.wake_event.set()
         self.thread.join(timeout=5)
+        return not self.thread.is_alive()
 
-    def counts(self) -> Dict[str, int]:
+    def counts(self) -> Dict[str, Any]:
+        pending_jobs, pending_bytes = self._usage(self.paths.pending_dir)
+        processing_jobs, processing_bytes = self._usage(self.paths.processing_dir)
+        dead_letter_jobs, dead_letter_bytes = self._usage(self.paths.dead_letter_dir)
+        active_bytes = pending_bytes + processing_bytes
         return {
-            "pending": self._count(self.paths.pending_dir),
-            "processing": self._count(self.paths.processing_dir),
-            "deadLetter": self._count(self.paths.dead_letter_dir),
+            "pending": pending_jobs,
+            "processing": processing_jobs,
+            "deadLetter": dead_letter_jobs,
+            "activeBytes": active_bytes,
+            "deadLetterBytes": dead_letter_bytes,
+            "saturated": pending_jobs + processing_jobs >= MAX_ACTIVE_OUTBOX_JOBS
+            or active_bytes >= MAX_ACTIVE_OUTBOX_BYTES,
+            "limits": {
+                "maxActiveJobs": MAX_ACTIVE_OUTBOX_JOBS,
+                "maxActiveBytes": MAX_ACTIVE_OUTBOX_BYTES,
+                "maxDeadLetterJobs": MAX_DEAD_LETTER_JOBS,
+                "maxDeadLetterBytes": MAX_DEAD_LETTER_BYTES,
+                "deadLetterRetentionMs": DEAD_LETTER_RETENTION_SECONDS * 1000,
+            },
         }
 
     def flush(self, timeout: float = 175.0) -> Dict[str, Any]:
@@ -425,17 +650,23 @@ class OutboxProcessor:
         return {"success": False, "error": "outbox flush timed out", "outbox": self.counts()}
 
     @staticmethod
-    def _count(directory: Path) -> int:
+    def _usage(directory: Path) -> Tuple[int, int]:
         try:
-            return sum(1 for file in directory.iterdir() if file.is_file() and file.suffix == ".json")
+            files = [file for file in directory.iterdir() if file.is_file() and file.suffix == ".json"]
+            return len(files), sum(file.stat().st_size for file in files)
         except FileNotFoundError:
-            return 0
+            return 0, 0
 
     def _restore_processing(self) -> None:
         for file in self.paths.processing_dir.glob("*.json"):
             target = self.paths.pending_dir / file.name
             try:
-                os.replace(file, target)
+                if target.exists():
+                    # Retry writes pending metadata before deleting processing. A crash
+                    # between those steps must not restore the older processing copy.
+                    file.unlink(missing_ok=True)
+                else:
+                    os.replace(file, target)
             except OSError:
                 logging.getLogger(__name__).warning("could not recover one interrupted outbox job")
 
@@ -460,6 +691,8 @@ class OutboxProcessor:
             for file, job in jobs:
                 key = (str(job.get("userId", "")), str(job.get("agentId", "")), str(job.get("sessionId", "")))
                 grouped.setdefault(key, []).append((file, job))
+            for group in grouped.values():
+                group.sort(key=lambda item: (parse_time(item[1].get("createdAt")), str(item[1].get("requestId", ""))))
 
             processed = False
             now = time.time()
@@ -552,6 +785,8 @@ class OutboxProcessor:
         target = destination / file.name
         write_json_atomic(target, job)
         file.unlink(missing_ok=True)
+        if destination == self.paths.dead_letter_dir:
+            self._prune_dead_letters()
 
     def _dead_letter_invalid(self, file: Path, error: BaseException) -> None:
         target = self.paths.dead_letter_dir / file.name
@@ -563,6 +798,38 @@ class OutboxProcessor:
         value["updatedAt"] = dt.datetime.now(dt.timezone.utc).isoformat()
         write_json_atomic(target, value)
         file.unlink(missing_ok=True)
+        self._prune_dead_letters()
+
+    def _prune_dead_letters(self) -> None:
+        now = time.time()
+        entries: List[Tuple[Path, float, int]] = []
+        for file in self.paths.dead_letter_dir.glob("*.json"):
+            try:
+                value = read_json_object(file)
+                updated_at = parse_time(value.get("updatedAt") or value.get("createdAt")) or file.stat().st_mtime
+                entries.append((file, updated_at, file.stat().st_size))
+            except OSError:
+                continue
+            except Exception:
+                stat = file.stat()
+                entries.append((file, stat.st_mtime, stat.st_size))
+        retained = sorted(
+            (entry for entry in entries if now - entry[1] <= DEAD_LETTER_RETENTION_SECONDS),
+            key=lambda entry: (-entry[1], entry[0].name),
+        )
+        keep: set[Path] = set()
+        kept_bytes = 0
+        for file, _updated_at, size in retained:
+            if len(keep) >= MAX_DEAD_LETTER_JOBS or kept_bytes + size > MAX_DEAD_LETTER_BYTES:
+                continue
+            keep.add(file)
+            kept_bytes += size
+        for file, _updated_at, _size in entries:
+            if file not in keep:
+                try:
+                    file.unlink(missing_ok=True)
+                except OSError:
+                    logging.getLogger(__name__).warning("could not prune one expired dead-letter job")
 
 
 def parse_time(value: Any) -> float:
@@ -583,6 +850,7 @@ class ServiceState:
         holder: ClientHolder,
         processor: OutboxProcessor,
         known_secrets: List[str],
+        instance_id: str,
     ):
         self.paths = paths
         self.config = config
@@ -590,7 +858,7 @@ class ServiceState:
         self.holder = holder
         self.processor = processor
         self.known_secrets = known_secrets
-        self.instance_id = uuid.uuid4().hex
+        self.instance_id = instance_id
         self.server: Optional[LoopbackHTTPServer] = None
 
 
@@ -622,10 +890,10 @@ def make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
                     self._json(HTTPStatus.OK, self._info())
                     return
                 if method == "POST" and parsed.path == "/v1/probe":
-                    self._json(HTTPStatus.OK, state.holder.probe())
+                    self._json(HTTPStatus.OK, state.holder.probe(self._operation_timeout(30.0)))
                     return
                 if method == "POST" and parsed.path == "/v1/search":
-                    self._json(HTTPStatus.OK, state.holder.search(self._body()))
+                    self._json(HTTPStatus.OK, state.holder.search(self._body(), self._operation_timeout(30.0)))
                     return
                 if method == "POST" and parsed.path == "/v1/capture":
                     body = self._body()
@@ -636,7 +904,10 @@ def make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
                         request_id = hashlib.sha256(
                             json.dumps([session_id, messages], ensure_ascii=False, sort_keys=True).encode("utf-8")
                         ).hexdigest()
-                    self._json(HTTPStatus.OK, state.holder.capture(messages, session_id, request_id))
+                    self._json(
+                        HTTPStatus.OK,
+                        state.holder.capture(messages, session_id, request_id, self._operation_timeout(180.0)),
+                    )
                     return
                 if method == "POST" and parsed.path == "/v1/flush":
                     self._body()
@@ -646,23 +917,26 @@ def make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
                     query = parse_qs(parsed.query)
                     limit = clamp_int(first(query.get("limit")), 1, 100, 20)
                     offset = clamp_int(first(query.get("offset")), 0, 1_000_000, 0)
-                    self._json(HTTPStatus.OK, state.holder.list_memories(limit, offset))
+                    self._json(
+                        HTTPStatus.OK,
+                        state.holder.list_memories(limit, offset, self._operation_timeout(10.0)),
+                    )
                     return
                 if method == "GET" and parsed.path.startswith("/v1/memories/"):
                     memory_id = unquote(parsed.path[len("/v1/memories/") :])
                     if not MEMORY_ID_PATTERN.fullmatch(memory_id):
                         raise ValueError("memory ID is invalid")
-                    self._json(HTTPStatus.OK, state.holder.get(memory_id))
+                    self._json(HTTPStatus.OK, state.holder.get(memory_id, self._operation_timeout(10.0)))
                     return
                 if method == "DELETE" and parsed.path.startswith("/v1/memories/"):
                     memory_id = unquote(parsed.path[len("/v1/memories/") :])
                     if not MEMORY_ID_PATTERN.fullmatch(memory_id):
                         raise ValueError("memory ID is invalid")
-                    self._json(HTTPStatus.OK, state.holder.forget(memory_id))
+                    self._json(HTTPStatus.OK, state.holder.forget(memory_id, self._operation_timeout(30.0)))
                     return
                 if method == "POST" and parsed.path == "/v1/digest":
                     self._body()
-                    self._json(HTTPStatus.OK, state.holder.digest())
+                    self._json(HTTPStatus.OK, state.holder.digest(self._operation_timeout(900.0)))
                     return
                 if method == "POST" and parsed.path == "/v1/shutdown":
                     self._body()
@@ -674,6 +948,10 @@ def make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
                 self._json(HTTPStatus.UNAUTHORIZED, {"error": str(error)})
             except ValueError as error:
                 self._json(HTTPStatus.BAD_REQUEST, {"error": safe_error(error, state.known_secrets)})
+            except OperationQueueFullError:
+                self._json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "service operation capacity exceeded"})
+            except TimeoutError:
+                self._json(HTTPStatus.GATEWAY_TIMEOUT, {"error": "service operation deadline exceeded"})
             except Exception as error:
                 logging.getLogger(__name__).warning(
                     "request failed: method=%s path=%s error=%s",
@@ -715,6 +993,16 @@ def make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
             if not isinstance(value, dict):
                 raise ValueError("request body must be a JSON object")
             return value
+
+        def _operation_timeout(self, default: float) -> float:
+            raw = self.headers.get("X-PI67-Timeout-Ms", "").strip()
+            if not raw:
+                return default
+            try:
+                requested = int(raw) / 1000.0
+            except ValueError as error:
+                raise ValueError("X-PI67-Timeout-Ms must be an integer") from error
+            return max(0.1, min(default, requested))
 
         def _info(self) -> Dict[str, Any]:
             holder_info = state.holder.info()
@@ -794,38 +1082,65 @@ def main() -> int:
     validate_config(config)
     startup_trace("config-ready")
 
-    import hy_memory
-
-    actual_sdk_version = getattr(hy_memory, "__version__", "")
-    if actual_sdk_version != SDK_VERSION:
-        raise RuntimeError(f"Hy-Memory SDK version mismatch: expected {SDK_VERSION}, got {actual_sdk_version}")
-    startup_trace("sdk-ready")
-
-    memory_config = create_memory_config(config, paths, llm_key, embed_key)
-    holder = ClientHolder(memory_config, config)
-    processor = OutboxProcessor(paths, config, holder)
-    state = ServiceState(paths, config, bearer_token, holder, processor, [bearer_token, llm_key, embed_key])
-    startup_trace("client-ready")
-    server = LoopbackHTTPServer(("127.0.0.1", args.port), make_handler(state))
-    server.daemon_threads = True
-    state.server = server
-    startup_trace("server-ready")
-
-    def request_shutdown(_signum: int, _frame: Any) -> None:
-        threading.Thread(target=server.shutdown, daemon=True).start()
-
-    signal.signal(signal.SIGTERM, request_shutdown)
-    signal.signal(signal.SIGINT, request_shutdown)
-    write_json_atomic(paths.service_file, service_record(state, server))
-    startup_trace("metadata-ready")
-    processor.start()
+    instance_id = uuid.uuid4().hex
+    lifetime = ServiceLifetimeLock(paths, instance_id)
+    lifetime.acquire()
+    startup_trace("lifetime-owned")
+    holder: Optional[ClientHolder] = None
+    processor: Optional[OutboxProcessor] = None
+    state: Optional[ServiceState] = None
+    server: Optional[LoopbackHTTPServer] = None
+    processor_started = False
     try:
+        import hy_memory
+
+        actual_sdk_version = getattr(hy_memory, "__version__", "")
+        if actual_sdk_version != SDK_VERSION:
+            raise RuntimeError(f"Hy-Memory SDK version mismatch: expected {SDK_VERSION}, got {actual_sdk_version}")
+        startup_trace("sdk-ready")
+
+        memory_config = create_memory_config(config, paths, llm_key, embed_key)
+        holder = ClientHolder(memory_config, config)
+        processor = OutboxProcessor(paths, config, holder)
+        state = ServiceState(
+            paths,
+            config,
+            bearer_token,
+            holder,
+            processor,
+            [bearer_token, llm_key, embed_key],
+            instance_id,
+        )
+        startup_trace("client-ready")
+        server = LoopbackHTTPServer(("127.0.0.1", args.port), make_handler(state))
+        server.daemon_threads = True
+        state.server = server
+        startup_trace("server-ready")
+
+        def request_shutdown(_signum: int, _frame: Any) -> None:
+            if server is not None:
+                threading.Thread(target=server.shutdown, daemon=True).start()
+
+        signal.signal(signal.SIGTERM, request_shutdown)
+        signal.signal(signal.SIGINT, request_shutdown)
+        lifetime.update(stage="ready", port=server.server_port)
+        write_json_atomic(paths.service_file, service_record(state, server))
+        startup_trace("metadata-ready")
+        processor.start()
+        processor_started = True
         server.serve_forever(poll_interval=0.2)
     finally:
-        processor.stop()
-        server.server_close()
-        holder.close()
-        remove_own_service_record(state)
+        release_lifetime = True
+        if processor is not None and processor_started:
+            release_lifetime = processor.stop()
+        if server is not None:
+            server.server_close()
+        if holder is not None:
+            release_lifetime = holder.close() and release_lifetime
+        if state is not None:
+            remove_own_service_record(state)
+        if release_lifetime:
+            lifetime.release()
     return 0
 
 

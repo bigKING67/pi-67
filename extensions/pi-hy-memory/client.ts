@@ -86,6 +86,7 @@ export class HyMemoryServiceClient {
         method,
         headers: {
           authorization: `Bearer ${secrets.serviceBearerToken}`,
+          "x-pi67-timeout-ms": String(timeoutMs),
           ...(body === undefined ? {} : { "content-type": "application/json" }),
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -93,8 +94,7 @@ export class HyMemoryServiceClient {
       });
       const contentLength = Number(response.headers.get("content-length") || 0);
       if (contentLength > MAX_RESPONSE_BYTES) throw new Error("Hy-Memory response exceeded the size limit");
-      const text = await response.text();
-      if (Buffer.byteLength(text) > MAX_RESPONSE_BYTES) throw new Error("Hy-Memory response exceeded the size limit");
+      const text = await readResponseTextBounded(response, MAX_RESPONSE_BYTES);
       let value: unknown = {};
       try {
         value = text ? JSON.parse(text) : {};
@@ -126,6 +126,17 @@ export async function ensureHyMemoryService(
   if (!config) throw new Error("Hy-Memory is not initialized; run `pi-67 memory init`");
   const client = new HyMemoryServiceClient(config, paths);
   if (await serviceReady(client)) return client;
+
+  const owner = readLifetimeOwner(paths);
+  if (owner && processExists(owner.pid)) {
+    const ready = await waitForService(client, timeoutMs);
+    if (ready) return client;
+    throw new Error(`Hy-Memory lifetime owner PID ${owner.pid} is alive but no matching service became ready`);
+  }
+  const unownedService = readServiceRecordIfPresent(paths);
+  if (unownedService && processExists(unownedService.pid)) {
+    throw new Error(`Hy-Memory service PID ${unownedService.pid} is alive without matching lifetime ownership`);
+  }
 
   fs.mkdirSync(paths.runtimeDir, { recursive: true, mode: 0o700 });
   const lock = tryAcquireStartLock(paths);
@@ -163,7 +174,14 @@ export async function stopHyMemoryService(paths = resolveHyMemoryPaths()): Promi
   const config = readConfig(paths);
   if (!config) return false;
   const client = new HyMemoryServiceClient(config, paths);
-  if (!await serviceReady(client)) return false;
+  if (!await serviceReady(client)) {
+    const owner = readLifetimeOwner(paths);
+    const service = readServiceRecordIfPresent(paths);
+    if ((owner && processExists(owner.pid)) || (service && processExists(service.pid))) {
+      throw new Error("Hy-Memory service ownership is inconsistent; run `pi-67 memory doctor`");
+    }
+    return false;
+  }
   await client.shutdown();
   for (let attempt = 0; attempt < 40; attempt += 1) {
     if (!fs.existsSync(paths.serviceFile)) return true;
@@ -200,6 +218,31 @@ function validateServiceIdentity(value: unknown, service: HyMemoryServiceRecord,
     canonicalFilesystemPath(String(info.dataDir || "")) !== canonicalFilesystemPath(paths.dataDir)
   ) {
     throw new Error("Hy-Memory service identity does not match this installation");
+  }
+  const owner = readLifetimeOwner(paths);
+  if (
+    !owner || !processExists(owner.pid) || owner.pid !== service.pid || owner.instanceId !== service.instanceId ||
+    canonicalFilesystemPath(owner.root) !== canonicalFilesystemPath(paths.root)
+  ) {
+    throw new Error("Hy-Memory service has no matching live lifetime owner");
+  }
+}
+
+function readLifetimeOwner(paths: HyMemoryPaths): { pid: number; instanceId: string; root: string } | undefined {
+  try {
+    const value = JSON.parse(fs.readFileSync(paths.lifetimeOwnerFile, "utf8")) as Record<string, unknown>;
+    if (!Number.isInteger(value.pid) || typeof value.instanceId !== "string" || typeof value.root !== "string") return undefined;
+    return { pid: Number(value.pid), instanceId: value.instanceId, root: value.root };
+  } catch {
+    return undefined;
+  }
+}
+
+function readServiceRecordIfPresent(paths: HyMemoryPaths): HyMemoryServiceRecord | undefined {
+  try {
+    return readServiceRecord(paths);
+  } catch {
+    return undefined;
   }
 }
 
@@ -297,4 +340,27 @@ function serviceEnvironment(input: {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function readResponseTextBounded(response: Response, maxBytes: number): Promise<string> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel("response size limit exceeded");
+        throw new Error("Hy-Memory response exceeded the size limit");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)), total).toString("utf8");
 }

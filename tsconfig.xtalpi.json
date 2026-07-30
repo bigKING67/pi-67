@@ -17,7 +17,8 @@
     "typeRoots": ["./npm/node_modules/@types"],
     "baseUrl": ".",
     "paths": {
-      "@earendil-works/*": ["npm/node_modules/@earendil-works/*"]
+      "@earendil-works/pi-coding-agent": ["npm/node_modules/@earendil-works/pi-coding-agent"],
+      "@earendil-works/*": ["npm/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/*"]
     }
   },
   "include": [

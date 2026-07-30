@@ -4,9 +4,15 @@ import { readCliPackageJson, readTextIfExists } from "./paths.mjs";
 import { readCurrentRelease } from "./release-store.mjs";
 
 export async function inspectManagerFreshness(ctx, options = {}) {
-  const pkg = readCliPackageJson();
-  const distroVersion = readCurrentRelease(ctx)?.version || readTextIfExists(path.join(ctx.repoRoot, "VERSION")).trim();
-  const registry = await npmLatestVersion(pkg.name, {
+  const pkg = options.manager || readCliPackageJson();
+  const packageName = pkg.name || pkg.package;
+  if (!packageName || !pkg.version) {
+    throw new Error("pi-67 manager identity requires a package name and version");
+  }
+  const distroVersion = Object.hasOwn(options, "currentDistroVersion")
+    ? options.currentDistroVersion
+    : (readCurrentRelease(ctx)?.version || readTextIfExists(path.join(ctx.repoRoot, "VERSION")).trim());
+  const registry = await npmLatestVersion(packageName, {
     currentVersion: pkg.version,
     noRemote: ctx.noRemote || options.noRemote,
   });
@@ -15,16 +21,16 @@ export async function inspectManagerFreshness(ctx, options = {}) {
   const registryOutdated = Boolean(registry.outdated);
   const blocking = managerBehindLocalDistro || registryOutdated;
   return {
-    package: pkg.name,
+    package: packageName,
     managerVersion: pkg.version,
     distroVersion,
     registry,
     managerBehindLocalDistro,
     registryOutdated,
     blocking,
-    updateCommand: `npm install -g ${pkg.name}@latest`,
+    updateCommand: `npm install -g ${packageName}@latest`,
     selfUpdateCommand: "pi-67 self-update",
-    oneShotCommand: `npx -y ${pkg.name}@latest update`,
+    oneShotCommand: `npx -y ${packageName}@latest update`,
   };
 }
 

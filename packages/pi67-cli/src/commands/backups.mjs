@@ -9,6 +9,7 @@ import {
   listRuntimeBackups,
   restoreRuntimeBackup,
 } from "../lib/update-safety.mjs";
+import { beginWorkspaceOperation } from "../lib/workspace-operation-lock.mjs";
 import { CliError, info, keyValue, pass, printJson, section, warn } from "../lib/output.mjs";
 
 export async function backupsCommand(ctx, argv) {
@@ -100,7 +101,7 @@ function inspectCommand(ctx, argv) {
 function restoreCommand(ctx, argv) {
   const { options } = parseCommandOptions(argv, {
     strings: ["from"],
-    bools: ["json", "dry-run", "yes"],
+    bools: ["json", "dry-run", "yes", "allow-cross-workspace", "allow-unverified-legacy-backup"],
   });
   if (options.help) return printBackupsHelp();
   const dryRun = ctx.dryRun || options.dryRun;
@@ -110,7 +111,17 @@ function restoreCommand(ctx, argv) {
   if (!dryRun && !(ctx.yes || options.yes)) {
     throw new CliError("backups restore overwrites runtime config; rerun with --yes or use --dry-run", 2);
   }
-  const result = restoreRuntimeBackup(ctx, options.from, { dryRun });
+  const operation = beginWorkspaceOperation(ctx, { operation: "backup-restore", dryRun });
+  let result;
+  try {
+    result = restoreRuntimeBackup(ctx, options.from, {
+      dryRun,
+      allowCrossWorkspace: options.allowCrossWorkspace,
+      allowUnverifiedLegacy: options.allowUnverifiedLegacyBackup,
+    });
+  } finally {
+    operation.release();
+  }
   if (ctx.json || options.json) {
     printJson(result);
     return;
@@ -142,24 +153,30 @@ function pruneCommand(ctx, argv) {
   });
   if (options.help) return printBackupsHelp();
   const dryRun = ctx.dryRun || options.dryRun;
-  const plan = buildRetentionPlan(ctx, options);
-  if (!dryRun && !(ctx.yes || options.yes)) {
-    throw new CliError("backups prune deletes backup directories; rerun with --dry-run or --yes", 2);
-  }
-  if (!dryRun) {
-    for (const item of plan.selected) {
-      fs.rmSync(item.path, { recursive: true, force: true });
+  const operation = beginWorkspaceOperation(ctx, { operation: "backups-prune", dryRun });
+  let result;
+  try {
+    const plan = buildRetentionPlan(ctx, options);
+    if (!dryRun && !(ctx.yes || options.yes)) {
+      throw new CliError("backups prune deletes backup directories; rerun with --dry-run or --yes", 2);
     }
+    if (!dryRun) {
+      for (const item of plan.selected) {
+        fs.rmSync(item.path, { recursive: true, force: true });
+      }
+    }
+    result = {
+      schema: "pi67.backups-prune.v1",
+      createdAt: new Date().toISOString(),
+      dryRun,
+      selector: plan.selector,
+      selected: plan.selected,
+      kept: plan.kept,
+      deleted: dryRun ? [] : plan.selected,
+    };
+  } finally {
+    operation.release();
   }
-  const result = {
-    schema: "pi67.backups-prune.v1",
-    createdAt: new Date().toISOString(),
-    dryRun,
-    selector: plan.selector,
-    selected: plan.selected,
-    kept: plan.kept,
-    deleted: dryRun ? [] : plan.selected,
-  };
   if (ctx.json || options.json) return printJson(result);
   section("pi-67 backups prune");
   keyValue("Dry run", dryRun ? "yes" : "no");
@@ -178,32 +195,38 @@ function archiveCommand(ctx, argv) {
   });
   if (options.help) return printBackupsHelp();
   const dryRun = ctx.dryRun || options.dryRun;
-  const plan = buildRetentionPlan(ctx, options);
   const archiveRoot = path.resolve(expandTilde(options.to || path.join(ctx.stateDir, "backups-archive")));
-  if (!dryRun && !(ctx.yes || options.yes)) {
-    throw new CliError("backups archive moves backup directories; rerun with --dry-run or --yes", 2);
-  }
-  const archived = [];
-  if (!dryRun) {
-    fs.mkdirSync(archiveRoot, { recursive: true, mode: 0o700 });
-    for (const item of plan.selected) {
-      const targetRoot = path.join(archiveRoot, item.kind);
-      fs.mkdirSync(targetRoot, { recursive: true, mode: 0o700 });
-      const target = uniqueArchivePath(path.join(targetRoot, item.id));
-      moveDirectorySync(item.path, target);
-      archived.push({ ...item, archivedPath: target });
+  const operation = beginWorkspaceOperation(ctx, { operation: "backups-archive", dryRun });
+  let result;
+  try {
+    const plan = buildRetentionPlan(ctx, options);
+    if (!dryRun && !(ctx.yes || options.yes)) {
+      throw new CliError("backups archive moves backup directories; rerun with --dry-run or --yes", 2);
     }
+    const archived = [];
+    if (!dryRun) {
+      fs.mkdirSync(archiveRoot, { recursive: true, mode: 0o700 });
+      for (const item of plan.selected) {
+        const targetRoot = path.join(archiveRoot, item.kind);
+        fs.mkdirSync(targetRoot, { recursive: true, mode: 0o700 });
+        const target = uniqueArchivePath(path.join(targetRoot, item.id));
+        moveDirectorySync(item.path, target);
+        archived.push({ ...item, archivedPath: target });
+      }
+    }
+    result = {
+      schema: "pi67.backups-archive.v1",
+      createdAt: new Date().toISOString(),
+      dryRun,
+      archiveRoot,
+      selector: plan.selector,
+      selected: plan.selected,
+      kept: plan.kept,
+      archived: dryRun ? [] : archived,
+    };
+  } finally {
+    operation.release();
   }
-  const result = {
-    schema: "pi67.backups-archive.v1",
-    createdAt: new Date().toISOString(),
-    dryRun,
-    archiveRoot,
-    selector: plan.selector,
-    selected: plan.selected,
-    kept: plan.kept,
-    archived: dryRun ? [] : archived,
-  };
   if (ctx.json || options.json) return printJson(result);
   section("pi-67 backups archive");
   keyValue("Dry run", dryRun ? "yes" : "no");
@@ -313,6 +336,7 @@ Usage:
   pi-67 backups list [--include-legacy] [--json]
   pi-67 backups inspect <backup-id-or-path> [--legacy] [--json]
   pi-67 backups restore --from <backup-id-or-path> [--dry-run] [--yes] [--json]
+    [--allow-cross-workspace] [--allow-unverified-legacy-backup]
   pi-67 backups prune --keep-last N [--older-than 30d] [--include-legacy] [--dry-run|--yes] [--json]
   pi-67 backups archive --keep-last N [--older-than 30d] [--to DIR] [--include-legacy] [--dry-run|--yes] [--json]
 
@@ -330,5 +354,9 @@ Retention:
   --keep-last applies to repo-external runtime backups. Legacy backups are
   ignored unless --include-legacy is provided. prune/archive require --dry-run
   or --yes. Managed Skills are Git-backed deployments and are not stored here.
+
+Restore safety:
+  Restore verifies every recorded byte count and SHA-256 before changing live
+  files. Cross-workspace and legacy hashless backups require explicit opt-in.
 `);
 }

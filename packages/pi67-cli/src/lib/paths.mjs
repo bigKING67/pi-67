@@ -78,7 +78,19 @@ export function resolveContext(globalOptions = {}) {
 }
 
 function pathIdentity(input) {
-  const resolved = path.resolve(input);
+  let resolved = path.resolve(input);
+  const missingSegments = [];
+  while (!fs.existsSync(resolved)) {
+    const parent = path.dirname(resolved);
+    if (parent === resolved) break;
+    missingSegments.unshift(path.basename(resolved));
+    resolved = parent;
+  }
+  try {
+    resolved = path.join(fs.realpathSync.native(resolved), ...missingSegments);
+  } catch {
+    resolved = path.resolve(input);
+  }
   return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 }
 

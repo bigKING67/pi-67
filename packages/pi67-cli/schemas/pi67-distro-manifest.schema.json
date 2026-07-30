@@ -32,7 +32,14 @@
     },
     "commands": {
       "type": "object",
-      "required": ["update", "repair", "alwaysFreshUpdate", "alwaysFreshRepair"]
+      "required": ["update", "repair", "alwaysFreshUpdate", "alwaysFreshRepair"],
+      "properties": {
+        "update": { "type": "string" },
+        "repair": { "type": "string" },
+        "alwaysFreshUpdate": { "type": "string" },
+        "alwaysFreshRepair": { "type": "string" }
+      },
+      "additionalProperties": true
     },
     "releaseStore": {
       "type": "object",
@@ -58,7 +65,12 @@
     },
     "runtimeFiles": {
       "type": "object",
-      "required": ["preserve", "templateOnly"]
+      "required": ["preserve", "templateOnly"],
+      "properties": {
+        "preserve": { "type": "array", "items": { "type": "string" } },
+        "templateOnly": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
     },
     "theme": {
       "type": "object",
@@ -142,7 +154,15 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "path", "required", "policy", "exists"]
+        "required": ["name", "path", "required", "policy", "exists"],
+        "properties": {
+          "name": { "type": "string" },
+          "path": { "type": "string" },
+          "required": { "type": "boolean" },
+          "policy": { "type": "string" },
+          "exists": { "type": "boolean" }
+        },
+        "additionalProperties": true
       }
     },
     "dependencyPackages": {
@@ -167,7 +187,20 @@
         "runtimeFilesPreserved",
         "registeredExtensions",
         "managedExtensions"
-      ]
+      ],
+      "properties": {
+        "dependencies": { "type": "integer", "minimum": 0 },
+        "runtimePackages": { "type": "integer", "minimum": 0 },
+        "pi67ManagedRuntimePackages": { "type": "integer", "minimum": 0 },
+        "userManagedRuntimePackages": { "type": "integer", "minimum": 0 },
+        "localExtensions": { "type": "integer", "minimum": 0 },
+        "missingLocalExtensions": { "type": "integer", "minimum": 0 },
+        "externalRepos": { "type": "integer", "minimum": 0 },
+        "runtimeFilesPreserved": { "type": "integer", "minimum": 0 },
+        "registeredExtensions": { "type": "integer", "minimum": 0 },
+        "managedExtensions": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true
     }
   }
 }

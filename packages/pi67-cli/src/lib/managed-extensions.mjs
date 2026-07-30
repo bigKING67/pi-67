@@ -10,6 +10,10 @@ import { canonicalHashBytes } from "./skill-pack-integrity.mjs";
 
 const BASELINES_SCHEMA = "pi67.managed-extension-baselines.v1";
 const LEDGER_SCHEMA = "pi67.extension-ledger.v1";
+const PI_CODING_AGENT_PACKAGES = new Set([
+  "@earendil-works/pi-coding-agent",
+  "@mariozechner/pi-coding-agent",
+]);
 
 export function readManagedExtensionBaselines(file = defaultBaselinesPath()) {
   const payload = readJsonFileIfExists(file);
@@ -21,6 +25,7 @@ export function readManagedExtensionBaselines(file = defaultBaselinesPath()) {
     validateBaselineEntry(entry, ids);
     ids.add(entry.id);
   }
+  collectExactNpmSpecs(payload.extensions.filter((entry) => entry.sourceKind === "npm"));
   return payload;
 }
 
@@ -193,10 +198,13 @@ export function applyManagedExtensionBaselines(ctx, options = {}) {
     registry: options.registry,
     sourceRoot: options.sourceRoot,
   };
-  const before = inspectManagedExtensions(ctx, inspectOptions);
+  const inspect = options.inspect || inspectManagedExtensions;
+  const before = inspect(ctx, inspectOptions);
   const actionable = before.extensions.filter((entry) => ["install", "upgrade", "configure"].includes(entry.action));
   const applied = [];
   const skipped = [];
+  const npmEntries = [];
+  const otherEntries = [];
   for (const entry of actionable) {
     if (entry.sourceKind === "npm" && skipNpm && entry.action !== "configure") {
       skipped.push({ id: entry.id, reason: "npm changes skipped by --no-npm" });
@@ -210,10 +218,27 @@ export function applyManagedExtensionBaselines(ctx, options = {}) {
       applied.push({ id: entry.id, action: `${entry.action}-dry-run` });
       continue;
     }
-    if (entry.sourceKind === "npm") installNpmBaseline(ctx, entry, { sourceRoot: options.sourceRoot });
-    else if (entry.sourceKind === "git") installGitBaseline(ctx, entry);
-    else installBundledBaseline(ctx, entry, { sourceRoot: options.sourceRoot });
+    if (entry.sourceKind === "npm") npmEntries.push(entry);
+    else otherEntries.push(entry);
     applied.push({ id: entry.id, action: entry.action });
+  }
+
+  if (!dryRun && npmEntries.length > 0) {
+    installNpmBaselines(ctx, npmEntries, {
+      commandRunner: options.commandRunner,
+      commandStdio: options.commandStdio,
+      sourceRoot: options.sourceRoot,
+    });
+  }
+  if (!dryRun) {
+    for (const entry of otherEntries) {
+      if (entry.sourceKind === "git") {
+        installGitBaseline(ctx, entry, {
+          commandRunner: options.commandRunner,
+          commandStdio: options.commandStdio,
+        });
+      } else installBundledBaseline(ctx, entry, { sourceRoot: options.sourceRoot });
+    }
   }
 
   const settingsResult = ensureDefaultSettingsPackages(ctx, before.extensions, { dryRun });
@@ -228,7 +253,20 @@ export function applyManagedExtensionBaselines(ctx, options = {}) {
     };
   }
 
-  const after = inspectManagedExtensions(ctx, inspectOptions);
+  if (applied.length === 0 && !settingsResult.changed) {
+    return {
+      schema: "pi67.managed-extensions-apply.v1",
+      dryRun: false,
+      before,
+      after: before,
+      applied,
+      skipped,
+      settings: settingsResult,
+      ledger: readExtensionLedger(ctx),
+    };
+  }
+
+  const after = inspect(ctx, inspectOptions);
   const managedIds = applied.map((entry) => entry.id);
   const ledger = writeExtensionLedger(ctx, after, { managedIds });
   return {
@@ -263,9 +301,17 @@ export function restoreManagedExtension(ctx, id, options = {}) {
   }
   const backupDir = backupExtension(ctx, entry);
   if (entry.sourceKind === "npm") {
-    installNpmBaseline(ctx, entry, { force: true, sourceRoot: options.sourceRoot });
+    installNpmBaselines(ctx, [entry], {
+      commandRunner: options.commandRunner,
+      commandStdio: options.commandStdio,
+      sourceRoot: options.sourceRoot,
+    });
   } else if (entry.sourceKind === "git") {
-    installGitBaseline(ctx, entry, { force: true });
+    installGitBaseline(ctx, entry, {
+      force: true,
+      commandRunner: options.commandRunner,
+      commandStdio: options.commandStdio,
+    });
   } else {
     installBundledBaseline(ctx, entry, { force: true, sourceRoot: options.sourceRoot });
   }
@@ -484,40 +530,196 @@ function inspectGitExtension(ctx, baseline, options) {
   };
 }
 
-function installNpmBaseline(ctx, entry, options = {}) {
+function installNpmBaselines(ctx, entries, options = {}) {
+  const plan = planNpmBaselineInstall(ctx, entries);
   const npmDir = path.join(ctx.agentDir, "npm");
+  assertNoPhysicalPiCodingAgentPackages(npmDir, "before managed extension installation");
   fs.mkdirSync(npmDir, { recursive: true });
   const packageFile = path.join(npmDir, "package.json");
   if (!fs.existsSync(packageFile)) {
     writeJsonAtomic(packageFile, { name: "pi-67-runtime-extensions", private: true, dependencies: {} });
   }
-  runCommand("npm", [
-    "install",
-    "--save-exact",
-    "--ignore-scripts",
-    "--no-audit",
-    "--no-fund",
-    `${entry.packageName}@${entry.minimumVersion}`,
-    ...Object.entries(entry.runtimeDependencies || {}).map(([packageName, version]) => `${packageName}@${version}`),
-  ], { cwd: npmDir });
-  applyCompatibilityPatch(ctx, entry, options.sourceRoot || ctx.repoRoot);
+  const commandRunner = options.commandRunner || runCommand;
+  try {
+    commandRunner(plan.command, plan.args, commandRunOptions(options, plan.cwd));
+  } catch (error) {
+    cleanupIntroducedPiCodingAgentPackages(npmDir, error);
+    throw error;
+  }
+  const parallelRuntimes = findPhysicalPiCodingAgentPackages(npmDir);
+  if (parallelRuntimes.length > 0) {
+    cleanupIntroducedPiCodingAgentPackages(npmDir);
+    throw new CliError(
+      `managed extension install introduced and removed a parallel Pi runtime: ${parallelRuntimes.join(", ")}`,
+      1,
+    );
+  }
+  for (const entry of entries) {
+    applyCompatibilityPatch(
+      ctx,
+      entry,
+      options.sourceRoot || ctx.repoRoot,
+      commandRunner,
+      options.commandStdio,
+    );
+  }
+}
+
+export function planNpmBaselineInstall(ctx, entries) {
+  const specs = collectExactNpmSpecs(entries);
+  return {
+    schema: "pi67.managed-extension-npm-install-plan.v1",
+    command: "npm",
+    args: [
+      "install",
+      "--save-exact",
+      "--omit=peer",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund",
+      ...specs.map((entry) => `${entry.packageName}@${entry.version}`),
+    ],
+    cwd: path.join(ctx.agentDir, "npm"),
+    extensionIds: entries.map((entry) => entry.id),
+    specs,
+  };
+}
+
+export function findPhysicalPiCodingAgentPackages(npmDir) {
+  const found = [];
+  const root = path.join(npmDir, "node_modules");
+  visitNodeModules(root, found);
+  return found.sort();
+}
+
+function collectExactNpmSpecs(entries) {
+  const versions = new Map();
+  for (const entry of entries) {
+    if (entry.sourceKind !== "npm") {
+      throw new CliError(`non-npm extension cannot enter an npm install batch: ${entry.id || "unknown"}`, 2);
+    }
+    addExactNpmSpec(versions, entry.packageName, entry.minimumVersion, entry.id);
+  }
+  for (const entry of entries) {
+    for (const [packageName, version] of Object.entries(entry.runtimeDependencies || {})) {
+      addExactNpmSpec(versions, packageName, version, entry.id);
+    }
+  }
+  return [...versions.entries()].map(([packageName, value]) => ({
+    packageName,
+    version: value.version,
+    owner: value.owner,
+  }));
+}
+
+function addExactNpmSpec(versions, packageName, version, owner) {
+  if (PI_CODING_AGENT_PACKAGES.has(packageName)) {
+    throw new CliError(
+      `managed extensions must use the host Pi runtime instead of installing ${packageName} (${owner})`,
+      2,
+    );
+  }
+  const prior = versions.get(packageName);
+  if (prior && prior.version !== version) {
+    throw new CliError(
+      `managed extensions require conflicting versions of ${packageName}: ${prior.version} (${prior.owner}) and ${version} (${owner})`,
+      2,
+    );
+  }
+  if (!prior) versions.set(packageName, { version, owner });
+}
+
+function visitNodeModules(nodeModulesDir, found) {
+  if (!fs.existsSync(nodeModulesDir)) return;
+  for (const packageName of PI_CODING_AGENT_PACKAGES) {
+    const candidate = path.join(nodeModulesDir, ...packageName.split("/"));
+    if (fs.existsSync(candidate) && !fs.lstatSync(candidate).isSymbolicLink()) found.push(candidate);
+  }
+  for (const packageRoot of installedPackageRoots(nodeModulesDir)) {
+    visitNodeModules(path.join(packageRoot, "node_modules"), found);
+  }
+}
+
+function installedPackageRoots(nodeModulesDir) {
+  const roots = [];
+  for (const entry of fs.readdirSync(nodeModulesDir, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.isSymbolicLink() || entry.name.startsWith(".")) continue;
+    const candidate = path.join(nodeModulesDir, entry.name);
+    if (!entry.name.startsWith("@")) {
+      roots.push(candidate);
+      continue;
+    }
+    for (const scoped of fs.readdirSync(candidate, { withFileTypes: true })) {
+      if (scoped.isDirectory() && !scoped.isSymbolicLink()) roots.push(path.join(candidate, scoped.name));
+    }
+  }
+  return roots;
 }
 
 function installGitBaseline(ctx, entry, options = {}) {
   const installPath = entry.installPath || path.join(ctx.agentDir, entry.checkoutPath);
+  const commandRunner = options.commandRunner || runCommand;
+  assertNoPhysicalPiCodingAgentPackages(installPath, `before mutating managed Git extension ${entry.id}`);
   const created = !fs.existsSync(path.join(installPath, ".git"));
   if (created) {
     fs.mkdirSync(path.dirname(installPath), { recursive: true });
-    runCommand("git", ["clone", entry.repoUrl, installPath]);
+    commandRunner("git", ["clone", entry.repoUrl, installPath], commandRunOptions(options));
   }
-  runCommand("git", ["fetch", "origin", entry.minimumCommit], { cwd: installPath });
+  commandRunner("git", ["fetch", "origin", entry.minimumCommit], commandRunOptions(options, installPath));
   if (options.force || created) {
-    runCommand("git", ["checkout", "--detach", entry.minimumCommit], { cwd: installPath });
+    commandRunner("git", ["checkout", "--detach", entry.minimumCommit], commandRunOptions(options, installPath));
   } else {
-    runCommand("git", ["merge", "--ff-only", entry.minimumCommit], { cwd: installPath });
+    commandRunner("git", ["merge", "--ff-only", entry.minimumCommit], commandRunOptions(options, installPath));
   }
   if (fs.existsSync(path.join(installPath, "package.json"))) {
-    runCommand("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: installPath });
+    assertNoPhysicalPiCodingAgentPackages(installPath, `before installing managed Git extension ${entry.id}`);
+    try {
+      commandRunner(
+        "npm",
+        ["install", "--omit=dev", "--omit=peer", "--ignore-scripts", "--no-audit", "--no-fund"],
+        commandRunOptions(options, installPath),
+      );
+    } catch (error) {
+      cleanupIntroducedPiCodingAgentPackages(installPath, error);
+      throw error;
+    }
+    const parallelRuntimes = findPhysicalPiCodingAgentPackages(installPath);
+    if (parallelRuntimes.length > 0) {
+      cleanupIntroducedPiCodingAgentPackages(installPath);
+      throw new CliError(
+        `managed Git extension install introduced and removed a parallel Pi runtime: ${parallelRuntimes.join(", ")}`,
+        1,
+      );
+    }
+  }
+}
+
+function assertNoPhysicalPiCodingAgentPackages(root, phase) {
+  const found = findPhysicalPiCodingAgentPackages(root);
+  if (found.length === 0) return;
+  throw new CliError(`managed extension tree contains a parallel Pi runtime ${phase}: ${found.join(", ")}`, 1);
+}
+
+function cleanupIntroducedPiCodingAgentPackages(root, originalError = null) {
+  const found = findPhysicalPiCodingAgentPackages(root);
+  for (const candidate of found) {
+    try {
+      fs.rmSync(candidate, { recursive: true, force: true });
+    } catch (cleanupError) {
+      const original = originalError ? ` after ${originalError.message || originalError}` : "";
+      throw new CliError(
+        `could not remove an introduced parallel Pi runtime${original}: ${candidate}: ${cleanupError.message || cleanupError}`,
+        1,
+      );
+    }
+  }
+  const remaining = findPhysicalPiCodingAgentPackages(root);
+  if (remaining.length > 0) {
+    const original = originalError ? ` after ${originalError.message || originalError}` : "";
+    throw new CliError(
+      `parallel Pi runtime cleanup was incomplete${original}: ${remaining.join(", ")}`,
+      1,
+    );
   }
 }
 
@@ -546,7 +748,7 @@ function installBundledBaseline(ctx, entry, options = {}) {
   }
 }
 
-function applyCompatibilityPatch(ctx, entry, sourceRoot) {
+function applyCompatibilityPatch(ctx, entry, sourceRoot, commandRunner = runCommand, commandStdio) {
   const patchers = {
     "pi-until-done": "pi67-patch-pi-until-done-runtime-queue.mjs",
     "pi-smart-fetch": "pi67-patch-pi-smart-fetch-charset.mjs",
@@ -555,7 +757,18 @@ function applyCompatibilityPatch(ctx, entry, sourceRoot) {
   if (!patcher) return;
   const file = path.join(sourceRoot, "scripts", patcher);
   if (!fs.existsSync(file)) throw new CliError(`managed extension compatibility patcher is missing: ${file}`, 2);
-  runCommand(process.execPath, [file, "--apply", "--agent-dir", ctx.agentDir]);
+  commandRunner(
+    process.execPath,
+    [file, "--apply", "--agent-dir", ctx.agentDir],
+    commandRunOptions({ commandStdio }),
+  );
+}
+
+function commandRunOptions(options, cwd) {
+  return {
+    ...(cwd ? { cwd } : {}),
+    ...(options.commandStdio ? { stdio: options.commandStdio } : {}),
+  };
 }
 
 function ensureDefaultSettingsPackages(ctx, entries, options = {}) {

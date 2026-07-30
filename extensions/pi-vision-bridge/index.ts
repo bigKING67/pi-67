@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { extname, isAbsolute, join, resolve } from "node:path";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 type VisionReadParams = {
@@ -21,6 +21,9 @@ const DEFAULT_PROMPT =
   "请用中文读取并分析这张图片。优先提取可见文字/OCR、关键对象、界面状态、报错信息、表格字段和与用户任务相关的证据。不要编造看不清的细节。";
 const DEFAULT_MAX_OUTPUT_CHARS = 6000;
 const MAX_LOCAL_IMAGE_BYTES = 20 * 1024 * 1024;
+const MAX_PROVIDER_RESPONSE_BYTES = 4 * 1024 * 1024;
+const MAX_PROMPT_CHARS = 12_000;
+const VISION_DEADLINE_MS = 120_000;
 
 const VISION_READ_PARAMS = {
   type: "object",
@@ -108,31 +111,6 @@ function resolveProviderConfig(): ProviderConfig {
   };
 }
 
-function mimeTypeForPath(file: string): string {
-  switch (extname(file).toLowerCase()) {
-    case ".jpg":
-    case ".jpeg":
-      return "image/jpeg";
-    case ".webp":
-      return "image/webp";
-    case ".gif":
-      return "image/gif";
-    case ".bmp":
-      return "image/bmp";
-    case ".svg":
-      return "image/svg+xml";
-    case ".tif":
-    case ".tiff":
-      return "image/tiff";
-    case ".heic":
-      return "image/heic";
-    case ".heif":
-      return "image/heif";
-    default:
-      return "image/png";
-  }
-}
-
 function looksLikeUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
 }
@@ -145,22 +123,112 @@ function looksLikeBase64(value: string): boolean {
   return /^[A-Za-z0-9+/=\s]+$/.test(value) && value.replace(/\s+/g, "").length > 200;
 }
 
-function resolveImageInput(image: string, cwd: string): { imageUrl: string; sourceLabel: string } {
+async function resolveImageInput(
+  image: string,
+  cwd: string,
+  signal: AbortSignal,
+): Promise<{ imageUrl: string; sourceLabel: string }> {
   const trimmed = image.trim();
   if (!trimmed) throw new Error("vision_read image is required");
-  if (looksLikeUrl(trimmed) || looksLikeDataUrl(trimmed)) return { imageUrl: trimmed, sourceLabel: trimmed };
-  if (looksLikeBase64(trimmed)) return { imageUrl: `data:image/png;base64,${trimmed.replace(/\s+/g, "")}`, sourceLabel: "base64" };
-
-  const file = isAbsolute(trimmed) ? trimmed : resolve(cwd, trimmed);
-  if (!existsSync(file)) throw new Error(`vision_read image file not found: ${trimmed}`);
-  const buffer = readFileSync(file);
-  if (buffer.byteLength > MAX_LOCAL_IMAGE_BYTES) {
-    throw new Error(`vision_read image file is too large: ${buffer.byteLength} bytes > ${MAX_LOCAL_IMAGE_BYTES}`);
+  if (looksLikeUrl(trimmed)) {
+    const response = await fetch(trimmed, {
+      method: "GET",
+      headers: { accept: "image/*" },
+      redirect: "follow",
+      signal,
+    });
+    if (!response.ok) throw new Error(`vision_read image download failed with HTTP ${response.status}`);
+    const bytes = await readResponseBytesBounded(response, MAX_LOCAL_IMAGE_BYTES, "vision_read image download");
+    const mime = sniffImageMime(bytes);
+    return { imageUrl: dataUrl(mime, bytes), sourceLabel: safeUrlLabel(trimmed) };
   }
-  return {
-    imageUrl: `data:${mimeTypeForPath(file)};base64,${buffer.toString("base64")}`,
-    sourceLabel: file,
-  };
+  if (looksLikeDataUrl(trimmed)) {
+    const match = /^data:(image\/[a-z0-9.+-]+);base64,([\s\S]+)$/i.exec(trimmed);
+    if (!match?.[1] || !match[2]) throw new Error("vision_read image data URL is invalid");
+    const bytes = decodeBase64Bounded(match[2]);
+    const mime = sniffImageMime(bytes);
+    if (normalizeMime(match[1]) !== normalizeMime(mime)) {
+      throw new Error(`vision_read image data URL MIME does not match detected ${mime}`);
+    }
+    return { imageUrl: dataUrl(mime, bytes), sourceLabel: `data-url:${mime}` };
+  }
+  if (looksLikeBase64(trimmed)) {
+    const bytes = decodeBase64Bounded(trimmed);
+    const mime = sniffImageMime(bytes);
+    return { imageUrl: dataUrl(mime, bytes), sourceLabel: `base64:${mime}` };
+  }
+
+  const workspace = realpathSync.native(resolve(cwd));
+  const candidate = isAbsolute(trimmed) ? trimmed : resolve(workspace, trimmed);
+  if (!existsSync(candidate)) throw new Error(`vision_read image file not found: ${trimmed}`);
+  const file = realpathSync.native(candidate);
+  const workspaceRelative = relative(workspace, file);
+  if (workspaceRelative === ".." || workspaceRelative.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute(workspaceRelative)) {
+    throw new Error("vision_read local image must resolve inside the active workspace");
+  }
+  const stat = statSync(file);
+  if (!stat.isFile()) throw new Error("vision_read local image must be a regular file");
+  if (stat.size > MAX_LOCAL_IMAGE_BYTES) {
+    throw new Error(`vision_read image file is too large: ${stat.size} bytes > ${MAX_LOCAL_IMAGE_BYTES}`);
+  }
+  const bytes = readFileSync(file);
+  const mime = sniffImageMime(bytes);
+  return { imageUrl: dataUrl(mime, bytes), sourceLabel: file };
+}
+
+function decodeBase64Bounded(value: string): Buffer {
+  const normalized = value.replace(/\s+/g, "");
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(normalized) || normalized.length % 4 === 1) {
+    throw new Error("vision_read image base64 is invalid");
+  }
+  const padding = normalized.endsWith("==") ? 2 : normalized.endsWith("=") ? 1 : 0;
+  const estimatedBytes = Math.floor((normalized.length * 3) / 4) - padding;
+  if (estimatedBytes > MAX_LOCAL_IMAGE_BYTES) {
+    throw new Error(`vision_read image is too large: ${estimatedBytes} bytes > ${MAX_LOCAL_IMAGE_BYTES}`);
+  }
+  const bytes = Buffer.from(normalized, "base64");
+  if (bytes.byteLength > MAX_LOCAL_IMAGE_BYTES) {
+    throw new Error(`vision_read image is too large: ${bytes.byteLength} bytes > ${MAX_LOCAL_IMAGE_BYTES}`);
+  }
+  return bytes;
+}
+
+function sniffImageMime(bytes: Uint8Array): string {
+  const ascii = Buffer.from(bytes.subarray(0, 512)).toString("ascii");
+  if (bytes.length >= 8 && Buffer.from(bytes.subarray(0, 8)).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+    return "image/png";
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+  if (ascii.startsWith("GIF87a") || ascii.startsWith("GIF89a")) return "image/gif";
+  if (ascii.startsWith("RIFF") && ascii.slice(8, 12) === "WEBP") return "image/webp";
+  if (ascii.startsWith("BM")) return "image/bmp";
+  if (bytes.length >= 4 && (
+    (bytes[0] === 0x49 && bytes[1] === 0x49 && bytes[2] === 0x2a && bytes[3] === 0x00) ||
+    (bytes[0] === 0x4d && bytes[1] === 0x4d && bytes[2] === 0x00 && bytes[3] === 0x2a)
+  )) return "image/tiff";
+  if (ascii.slice(4, 8) === "ftyp") {
+    const brand = ascii.slice(8, 12).toLowerCase();
+    if (["heic", "heix", "hevc", "hevx"].includes(brand)) return "image/heic";
+    if (["mif1", "msf1", "heif"].includes(brand)) return "image/heif";
+  }
+  const text = Buffer.from(bytes.subarray(0, 4096)).toString("utf8").replace(/^\uFEFF?\s*/, "");
+  if (/^(?:<\?xml[^>]*>\s*)?<svg(?:\s|>)/i.test(text)) return "image/svg+xml";
+  throw new Error("vision_read image content is not a supported image format");
+}
+
+function normalizeMime(value: string): string {
+  const normalized = value.toLowerCase();
+  return normalized === "image/jpg" ? "image/jpeg" : normalized;
+}
+
+function dataUrl(mime: string, bytes: Uint8Array): string {
+  return `data:${mime};base64,${Buffer.from(bytes).toString("base64")}`;
+}
+
+function safeUrlLabel(value: string): string {
+  const parsed = new URL(value);
+  const pathname = parsed.pathname.length > 300 ? `${parsed.pathname.slice(0, 297)}...` : parsed.pathname;
+  return `${parsed.protocol}//${parsed.host}${pathname}`;
 }
 
 function responsesUrl(baseUrl: string): string {
@@ -215,7 +283,9 @@ async function postJson(url: string, apiKey: string, body: Record<string, unknow
     body: JSON.stringify(body),
     ...(signal ? { signal } : {}),
   });
-  const text = await response.text();
+  const text = Buffer.from(
+    await readResponseBytesBounded(response, MAX_PROVIDER_RESPONSE_BYTES, "vision provider response"),
+  ).toString("utf8");
   let json: unknown = {};
   try {
     json = text ? JSON.parse(text) : {};
@@ -229,6 +299,51 @@ async function postJson(url: string, apiKey: string, body: Record<string, unknow
     throw new Error(`HTTP ${response.status}: ${message}`);
   }
   return json;
+}
+
+async function readResponseBytesBounded(response: Response, maxBytes: number, label: string): Promise<Uint8Array> {
+  const contentLength = Number(response.headers.get("content-length") || 0);
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    throw new Error(`${label} exceeded ${maxBytes} bytes`);
+  }
+  if (!response.body) return new Uint8Array();
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel("response size limit exceeded");
+        throw new Error(`${label} exceeded ${maxBytes} bytes`);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)), total);
+}
+
+function deadlineSignal(parent: AbortSignal | undefined, timeoutMs: number): {
+  signal: AbortSignal;
+  dispose(): void;
+} {
+  const controller = new AbortController();
+  const onAbort = () => controller.abort(parent?.reason);
+  if (parent?.aborted) controller.abort(parent.reason);
+  else parent?.addEventListener("abort", onAbort, { once: true });
+  const timer = setTimeout(() => controller.abort(new Error(`vision_read timed out after ${timeoutMs}ms`)), timeoutMs);
+  return {
+    signal: controller.signal,
+    dispose() {
+      clearTimeout(timer);
+      parent?.removeEventListener("abort", onAbort);
+    },
+  };
 }
 
 async function callVisionModel(input: {
@@ -294,44 +409,50 @@ export default function piVisionBridge(pi: ExtensionAPI) {
       const params = rawParams as VisionReadParams;
       const cwd = typeof ctx?.cwd === "string" ? ctx.cwd : process.cwd();
       const config = resolveProviderConfig();
-      const { imageUrl, sourceLabel } = resolveImageInput(params.image || "", cwd);
-      const prompt = params.prompt?.trim() || DEFAULT_PROMPT;
-      const detail = params.detail?.trim() || "auto";
+      const deadline = deadlineSignal(signal, VISION_DEADLINE_MS);
+      const prompt = (params.prompt?.trim() || DEFAULT_PROMPT).slice(0, MAX_PROMPT_CHARS);
+      const detail = ["low", "high", "auto"].includes(params.detail || "") ? String(params.detail) : "auto";
       const maxOutputChars = clampMaxOutputChars(params.max_output_chars);
 
-      onUpdate?.({
-        content: [{ type: "text", text: `vision_read: analyzing image with ${config.provider}/${config.model}...` }],
-        details: { provider: config.provider, model: config.model, image: sourceLabel },
-      });
+      try {
+        const { imageUrl, sourceLabel } = await resolveImageInput(params.image || "", cwd, deadline.signal);
 
-      const text = await callVisionModel({
-        config,
-        imageUrl,
-        prompt,
-        detail,
-        ...(signal ? { signal } : {}),
-      });
-      const trimmed = text.length > maxOutputChars ? `${text.slice(0, maxOutputChars)}\n\n[vision_read truncated]` : text;
+        onUpdate?.({
+          content: [{ type: "text", text: `vision_read: analyzing image with ${config.provider}/${config.model}...` }],
+          details: { provider: config.provider, model: config.model, image: sourceLabel },
+        });
 
-      return {
-        content: [{
-          type: "text",
-          text: [
-            "VISION_READ_OK",
-            `provider_model: ${config.provider}/${config.model}`,
-            `image: ${sourceLabel}`,
-            "",
-            "analysis:",
-            trimmed,
-          ].join("\n"),
-        }],
-        details: {
-          provider: config.provider,
-          model: config.model,
-          image: sourceLabel,
+        const text = await callVisionModel({
+          config,
+          imageUrl,
+          prompt,
           detail,
-        },
-      };
+          signal: deadline.signal,
+        });
+        const trimmed = text.length > maxOutputChars ? `${text.slice(0, maxOutputChars)}\n\n[vision_read truncated]` : text;
+
+        return {
+          content: [{
+            type: "text",
+            text: [
+              "VISION_READ_OK",
+              `provider_model: ${config.provider}/${config.model}`,
+              `image: ${sourceLabel}`,
+              "",
+              "analysis:",
+              trimmed,
+            ].join("\n"),
+          }],
+          details: {
+            provider: config.provider,
+            model: config.model,
+            image: sourceLabel,
+            detail,
+          },
+        };
+      } finally {
+        deadline.dispose();
+      }
     },
   });
 }
