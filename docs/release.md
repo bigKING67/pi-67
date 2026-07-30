@@ -1,6 +1,6 @@
 # pi-67 发行流程
 
-适用版本：`0.15.7`。本文面向维护者。普通 install/update 不执行本文的 publish、
+适用版本：`0.15.8`。本文面向维护者。普通 install/update 不执行本文的 publish、
 tag、push 或 GitHub Release 操作。
 
 ## 1. 发行合同
@@ -326,7 +326,7 @@ Trusted Publishing workflow 和 Git cleanliness/HEAD contract。源码测试不�
 发布后真实验证：
 
 ```bash
-npm view @bigking67/pi-67@0.15.7 version
+npm view @bigking67/pi-67@0.15.8 version
 npm view @bigking67/pi-67@latest version
 ```
 

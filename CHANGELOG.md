@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ## [Unreleased]
 
+## [0.15.8] - 2026-07-30
+
 ### Added
 
 - Added workspace-scoped operation locks, pre-mutation snapshots, atomic file

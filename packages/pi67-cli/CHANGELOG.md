@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.15.8]
+
 - Serializes workspace mutations with stale-aware operation locks and captures
   pre-mutation snapshots so install, update, migration, rollback, extension
   restore, and theme changes either complete coherently or expose a recoverable
