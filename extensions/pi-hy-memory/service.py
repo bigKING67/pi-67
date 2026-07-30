@@ -44,6 +44,46 @@ DEAD_LETTER_RETENTION_SECONDS = 30 * 24 * 60 * 60
 MEMORY_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,256}$")
 
 
+class CapacityRejectHandler(BaseHTTPRequestHandler):
+    """Return a complete 503 response without resetting clients on Windows."""
+
+    protocol_version = "HTTP/1.1"
+
+    def do_GET(self) -> None:  # noqa: N802
+        self._reject()
+
+    def do_POST(self) -> None:  # noqa: N802
+        self._reject()
+
+    def do_DELETE(self) -> None:  # noqa: N802
+        self._reject()
+
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        self._reject()
+
+    def _reject(self) -> None:
+        raw_length = self.headers.get("Content-Length", "0")
+        try:
+            length = int(raw_length)
+        except ValueError:
+            length = 0
+        if 0 < length <= MAX_REQUEST_BYTES:
+            self.rfile.read(length)
+
+        body = b'{"error":"service request capacity exceeded"}'
+        self.send_response(HTTPStatus.SERVICE_UNAVAILABLE.value)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(body)
+        self.close_connection = True
+
+    def log_message(self, _format: str, *_args: Any) -> None:
+        return
+
+
 class LoopbackHTTPServer(ThreadingHTTPServer):
     request_queue_size = 16
 
@@ -60,15 +100,10 @@ class LoopbackHTTPServer(ThreadingHTTPServer):
     def process_request(self, request: Any, client_address: Tuple[str, int]) -> None:
         if not self._handler_slots.acquire(blocking=False):
             try:
-                body = b'{"error":"service request capacity exceeded"}'
-                request.sendall(
-                    b"HTTP/1.1 503 Service Unavailable\r\n"
-                    b"Content-Type: application/json\r\n"
-                    b"Cache-Control: no-store\r\n"
-                    b"Connection: close\r\n"
-                    + f"Content-Length: {len(body)}\r\n\r\n".encode("ascii")
-                    + body
-                )
+                request.settimeout(1.0)
+                CapacityRejectHandler(request, client_address, self)
+            except (OSError, TimeoutError):
+                pass
             finally:
                 self.shutdown_request(request)
             return

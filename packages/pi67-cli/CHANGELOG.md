@@ -25,6 +25,12 @@
   ownership conflicts, propagates request deadlines, preserves deterministic
   retry recovery, and fails `memory flush`/`digest` when the service reports an
   unsuccessful operation.
+- Lets CLI error paths drain pending HTTP, stream, and libuv handles before
+  exiting, preventing Windows native aborts after Hy-Memory requests while
+  preserving the documented non-zero exit codes.
+- Returns a complete bounded 503 response for Hy-Memory HTTP saturation after
+  consuming the request body, avoiding Windows connection resets when handler
+  capacity is exhausted.
 - Serializes managed-extension installation and repair, preserves a restore
   backup, post-verifies the resulting dependency closure, keeps JSON mode free
   of child-command stdout pollution, and exposes deterministic backup

@@ -45,6 +45,12 @@ The format is based on Keep a Changelog, and this project uses semantic versioni
 
 ### Fixed
 
+- Allowed CLI error paths to drain pending HTTP, stream, and libuv handles
+  before exiting, preventing Windows native aborts after Hy-Memory requests
+  while preserving the documented non-zero exit codes.
+- Made Hy-Memory HTTP saturation return a complete bounded 503 response after
+  consuming the request body, instead of resetting Windows clients when a
+  handler slot is unavailable.
 - Made clean release-artifact validation rebuild its repository development
   dependency closure from the committed lockfile, so schema checks no longer
   depend on host-global Ajv availability.

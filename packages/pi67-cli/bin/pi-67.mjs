@@ -6,8 +6,9 @@ import { CliError } from "../src/lib/output.mjs";
 main(process.argv.slice(2)).catch((error) => {
   if (error instanceof CliError) {
     console.error(`ERROR ${error.message}`);
-    process.exit(error.exitCode);
+    process.exitCode = error.exitCode;
+    return;
   }
   console.error(error?.stack || String(error));
-  process.exit(1);
+  process.exitCode = 1;
 });

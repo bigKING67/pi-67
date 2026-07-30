@@ -163,6 +163,14 @@ test("publish workflow keeps one full smoke gate and fails closed before npm pub
   assert.match(smoke, /pi67-release-artifact-smoke\.sh/);
 });
 
+test("CLI entrypoint reports failures without forcing libuv shutdown", () => {
+  const entrypoint = fs.readFileSync(cli, "utf8");
+
+  assert.match(entrypoint, /process\.exitCode = error\.exitCode/);
+  assert.match(entrypoint, /process\.exitCode = 1/);
+  assert.doesNotMatch(entrypoint, /process\.exit\s*\(/);
+});
+
 function createGitFixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-publish-git-"));
   const remote = path.join(root, "remote.git");
