@@ -865,6 +865,7 @@ if (String(tmwd.args?.[0] || "").includes(browser67Root) || String(jsReverse.arg
     try {
       New-Item -ItemType Directory -Force -Path $tmpRoot, $tmpHome, $tmpSkills | Out-Null
       Invoke-External "git" @("clone", $RepoRoot, $tmpRepo) | Out-Null
+      Invoke-External "git" @("-C", $tmpRepo, "checkout", "-q", "-B", "main") | Out-Null
       Invoke-External "git" @("-C", $tmpRepo, "config", "user.email", "pi67-smoke@example.invalid") | Out-Null
       Invoke-External "git" @("-C", $tmpRepo, "config", "user.name", "pi67-smoke") | Out-Null
 
@@ -914,6 +915,10 @@ $report = [ordered]@{
         (RepoPath "scripts/pi67-update.ps1"),
         "-RepoRoot",
         $tmpRepo,
+        "-Remote",
+        ".",
+        "-Branch",
+        "main",
         "-AgentDir",
         $tmpRepo,
         "-SkillsDir",
