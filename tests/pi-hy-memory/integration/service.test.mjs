@@ -15,12 +15,14 @@ test("loopback wrapper requires bearer auth and reports the real vector dimensio
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi67-hy-memory-service-"));
   const fakeRoot = path.join(tmp, "fake-sdk");
   const stateRoot = path.join(tmp, "state");
+  const gateRoot = path.join(tmp, "operation-gates");
   const token = "test-only-loopback-bearer-token-value";
   let child;
   let childStderr = "";
   try {
     fs.mkdirSync(path.join(fakeRoot, "hy_memory"), { recursive: true });
     fs.mkdirSync(stateRoot, { recursive: true });
+    fs.mkdirSync(gateRoot, { recursive: true });
     fs.writeFileSync(path.join(fakeRoot, "hy_memory", "__init__.py"), fakeSdk(), "utf8");
     fs.writeFileSync(path.join(stateRoot, "config.json"), `${JSON.stringify(defaultMemoryConfig("user-fixture"))}\n`, "utf8");
     child = spawn(python.command, [...python.prefix, serviceScript, "--root", stateRoot, "--port", "0"], {
@@ -33,6 +35,7 @@ test("loopback wrapper requires bearer auth and reports the real vector dimensio
         PI67_HY_MEMORY_LLM_API_KEY: "test-only-llm-credential",
         PI67_HY_MEMORY_EMBEDDING_API_KEY: "test-only-embedding-credential",
         PI67_HY_MEMORY_TEST_STARTUP_TRACE: "1",
+        PI67_HY_MEMORY_TEST_GATE_DIR: gateRoot,
         MEMORY_DATA_DIR: path.join(stateRoot, "data"),
       },
     });
@@ -200,6 +203,7 @@ test("loopback wrapper requires bearer auth and reports the real vector dimensio
     assert.equal(slowCapture.status, 202);
     const slowCaptureReceipt = await slowCapture.json();
     assert.equal(slowCaptureReceipt.state, "RUNNING");
+    fs.writeFileSync(path.join(gateRoot, "capture"), "release\n");
     assert.equal((await waitForOperation(base, slowCaptureReceipt.statusPath, headers)).state, "SUCCEEDED");
     assert.equal((await fetchJson(`${base}/v1/capture`, {
       method: "POST",
@@ -234,6 +238,7 @@ test("loopback wrapper requires bearer auth and reports the real vector dimensio
     });
     assert.equal(slowForget.status, 202);
     const slowForgetReceipt = await slowForget.json();
+    fs.writeFileSync(path.join(gateRoot, "forget"), "release\n");
     assert.equal((await waitForOperation(base, slowForgetReceipt.statusPath, headers)).state, "SUCCEEDED");
     assert.equal((await fetchJson(`${base}/v1/memories/slow-forget`, { method: "DELETE", headers })).success, true);
 
@@ -254,6 +259,7 @@ test("loopback wrapper requires bearer auth and reports the real vector dimensio
     const competingDigestReceipt = await competingDigest.json();
     assert.equal(competingDigestReceipt.operationId, slowDigestReceipt.operationId);
     assert.equal(competingDigestReceipt.state, "RUNNING");
+    fs.writeFileSync(path.join(gateRoot, "digest"), "release\n");
     assert.equal((await waitForOperation(base, slowDigestReceipt.statusPath, headers)).state, "SUCCEEDED");
     assert.equal((await fetchJson(`${base}/v1/digest`, {
       method: "POST",
@@ -486,6 +492,7 @@ function fakeSdk() {
   return `import asyncio
 import os
 import time
+from pathlib import Path
 
 __version__ = "1.2.20"
 
@@ -513,6 +520,14 @@ class _Embed:
     async def embed(self, _value):
         return [0.0] * 1024
 
+def wait_for_test_gate(name):
+    gate = Path(os.environ["PI67_HY_MEMORY_TEST_GATE_DIR"]) / name
+    deadline = time.monotonic() + 30
+    while not gate.exists():
+        if time.monotonic() >= deadline:
+            raise RuntimeError("test operation gate timed out")
+        time.sleep(0.01)
+
 class HyMemoryClient:
     active = 0
     max_active = 0
@@ -536,7 +551,7 @@ class HyMemoryClient:
         type(self).capture_calls += 1
         content = " ".join(message.get("content", "") for message in messages)
         if "slow-capture" in content:
-            time.sleep(0.75)
+            wait_for_test_gate("capture")
         if "unknown-capture" in content:
             raise RuntimeError(f"provider echoed {content}")
         return {"success": True, "memory_id": "fixture-memory", "request_id": kwargs.get("request_id")}
@@ -571,12 +586,12 @@ class HyMemoryClient:
     def delete(self, memory_id):
         type(self).delete_calls += 1
         if memory_id == "slow-forget":
-            time.sleep(0.75)
+            wait_for_test_gate("forget")
         return {"success": True, "deleted_count": 0 if memory_id == "missing-memory" else 1, "memory_id": memory_id}
 
     def digest(self, **kwargs):
         type(self).digest_calls += 1
-        time.sleep(0.75)
+        wait_for_test_gate("digest")
         return {"success": True, "tasks_processed": 1}
 
     def close(self):
