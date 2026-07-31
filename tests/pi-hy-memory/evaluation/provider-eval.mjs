@@ -116,12 +116,14 @@ export class IsolatedProviderMemoryAdapter {
     this.externalProviderRequests = null;
     this.serviceRequests = 0;
     this.estimatedCostUsd = null;
+    this.fixtureIdByProviderMemoryId = new Map();
   }
 
   async prepare(fixture) {
     await this.#request("service-unavailable", () => this.client.info(), false);
-    const listed = await this.#request("service-list-failed", () => this.client.list(1, 0), false);
+    let listed = await this.#request("service-list-failed", () => this.client.list(1, 0), false);
     if (listedMemoryCount(listed) !== 0) throw new ProviderEvaluationError("evaluation-home-not-empty");
+    let knownProviderIds = new Set();
 
     const fixtureHash = sha256Text(JSON.stringify(fixture));
     const sessionId = `pi67-provider-eval-${fixtureHash.slice(0, 16)}`;
@@ -137,6 +139,19 @@ export class IsolatedProviderMemoryAdapter {
       ];
       const requestId = sha256Text(`${fixtureHash}\0${item.id}`);
       await this.#request("provider-capture-failed", () => this.client.capture(messages, sessionId, requestId), true);
+      listed = await this.#request("service-list-failed", () => this.client.list(100, 0), false);
+      const currentProviderIds = new Set(providerMemoryIds(listed));
+      const addedProviderIds = [...currentProviderIds].filter((id) => !knownProviderIds.has(id));
+      if (addedProviderIds.length === 0) {
+        throw new ProviderEvaluationError("provider-capture-memory-delta-missing");
+      }
+      for (const providerId of addedProviderIds) {
+        if (this.fixtureIdByProviderMemoryId.has(providerId)) {
+          throw new ProviderEvaluationError("provider-capture-memory-delta-ambiguous");
+        }
+        this.fixtureIdByProviderMemoryId.set(providerId, item.id);
+      }
+      knownProviderIds = currentProviderIds;
     }
   }
 
@@ -144,7 +159,7 @@ export class IsolatedProviderMemoryAdapter {
     const topK = Number.isInteger(options.topK) && options.topK > 0 ? options.topK : 5;
     const client = this.searchClient(topK);
     const response = await this.#request("provider-search-failed", () => client.search(query), true);
-    return evaluationIds(response).slice(0, topK);
+    return evaluationIds(response, this.fixtureIdByProviderMemoryId).slice(0, topK);
   }
 
   async #request(errorCode, action, providerRequest) {
@@ -174,9 +189,39 @@ function listedMemoryCount(value) {
   throw new ProviderEvaluationError("service-list-response-invalid");
 }
 
-function evaluationIds(value) {
+function providerMemoryIds(value) {
   const ids = [];
   const seen = new Set();
+  const pending = [value];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (Array.isArray(current)) {
+      for (let index = current.length - 1; index >= 0; index -= 1) pending.push(current[index]);
+    } else if (current && typeof current === "object") {
+      for (const key of ["memory_id", "memoryId"]) {
+        const candidate = current[key];
+        if (typeof candidate === "string" && candidate && !seen.has(candidate)) {
+          seen.add(candidate);
+          ids.push(candidate);
+        }
+      }
+      const values = Object.values(current);
+      for (let index = values.length - 1; index >= 0; index -= 1) pending.push(values[index]);
+    }
+  }
+  return ids;
+}
+
+function evaluationIds(value, fixtureIdByProviderMemoryId) {
+  const ids = [];
+  const seen = new Set();
+  for (const providerId of providerMemoryIds(value)) {
+    const fixtureId = fixtureIdByProviderMemoryId.get(providerId);
+    if (fixtureId && !seen.has(fixtureId)) {
+      seen.add(fixtureId);
+      ids.push(fixtureId);
+    }
+  }
   const pending = [value];
   while (pending.length > 0) {
     const current = pending.pop();

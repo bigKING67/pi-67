@@ -115,6 +115,7 @@ test("provider evaluation uses only an empty isolated home and emits sanitized s
   const token = "fixture-bearer-token-not-a-secret";
   const instanceId = "provider-evaluation-fixture";
   const capturedBodies = [];
+  const seededProviderIds = [];
   const prepared = prepareProviderEvaluationHome({
     PI67_HY_MEMORY_EVAL_SYNTHETIC_ONLY: "1",
     PI67_HY_MEMORY_EVAL_HOME: home,
@@ -149,15 +150,32 @@ test("provider evaluation uses only an empty isolated home and emits sanitized s
         vectorDimensions: 1024,
       });
     }
-    if (request.url === "/v1/memories?limit=1&offset=0") return sendJson(response, 200, { vdb: { memories: [], total: 0 } });
+    if (request.url?.startsWith("/v1/memories?")) {
+      return sendJson(response, 200, {
+        vdb: {
+          memories: seededProviderIds.map((memoryId) => ({ memory_id: memoryId, content: "provider-normalized" })),
+          total: seededProviderIds.length,
+        },
+      });
+    }
     if (request.url === "/v1/capture") {
       capturedBodies.push(body);
-      return sendJson(response, 200, { success: true });
+      const marker = /\[PI67-EVAL-ID:([a-z0-9._-]+)\]/u.exec(JSON.stringify(body));
+      assert.ok(marker, "capture fixture must carry its synthetic evaluation marker");
+      const memoryId = providerMemoryId(marker[1]);
+      seededProviderIds.push(memoryId);
+      return sendJson(response, 200, { success: true, memory_id: `raw-${memoryId}` });
     }
     if (request.url === "/v1/search") {
       const ids = expectedIdsForQuery(body.query);
       return sendJson(response, 200, {
-        memories: { normal: ids.map((id) => ({ content: `[PI67-EVAL-ID:${id}]`, score: 0.99 })) },
+        memories: {
+          normal: ids.map((id) => ({
+            memory_id: providerMemoryId(id),
+            content: "provider-normalized-without-evaluation-markers",
+            score: 0.99,
+          })),
+        },
       });
     }
     return sendJson(response, 404, { error: "not found" });
@@ -204,7 +222,7 @@ test("provider evaluation uses only an empty isolated home and emits sanitized s
   assert.equal(result.semanticQualityClaim, true);
   assert.equal(result.corpusScope, "isolated-synthetic");
   assert.equal(result.resources.adapterRequests, 4);
-  assert.equal(result.resources.serviceRequests, 9);
+  assert.equal(result.resources.serviceRequests, 12);
   assert.equal(result.resources.providerOperationRequests, 7);
   assert.equal(result.resources.externalProviderRequests, null);
   assert.equal(result.resources.estimatedCostUsd, null);
@@ -221,6 +239,10 @@ function expectedIdsForQuery(query) {
   if (/monorepo/i.test(query)) return ["repository-boundary"];
   if (/editor/i.test(query)) return ["editor-current"];
   return [];
+}
+
+function providerMemoryId(fixtureId) {
+  return `provider-memory-${fixtureId}`;
 }
 
 function sendJson(response, status, value) {
