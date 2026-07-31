@@ -536,7 +536,7 @@ class HyMemoryClient:
         type(self).capture_calls += 1
         content = " ".join(message.get("content", "") for message in messages)
         if "slow-capture" in content:
-            time.sleep(0.2)
+            time.sleep(0.75)
         if "unknown-capture" in content:
             raise RuntimeError(f"provider echoed {content}")
         return {"success": True, "memory_id": "fixture-memory", "request_id": kwargs.get("request_id")}
@@ -571,12 +571,12 @@ class HyMemoryClient:
     def delete(self, memory_id):
         type(self).delete_calls += 1
         if memory_id == "slow-forget":
-            time.sleep(0.2)
+            time.sleep(0.75)
         return {"success": True, "deleted_count": 0 if memory_id == "missing-memory" else 1, "memory_id": memory_id}
 
     def digest(self, **kwargs):
         type(self).digest_calls += 1
-        time.sleep(0.2)
+        time.sleep(0.75)
         return {"success": True, "tasks_processed": 1}
 
     def close(self):
