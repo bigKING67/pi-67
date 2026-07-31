@@ -425,6 +425,7 @@ export async function callXtalpiChat(input: {
       );
     }
     const attemptTimeoutMs = Math.max(1, Math.floor(requestBudget.attemptTimeoutMs()));
+    const attemptUsesRemainingDeadline = remainingBeforeAttemptMs <= policy.perAttemptTimeoutMs;
     debugLog("request", {
       provider: PROVIDER_ID,
       model: model.id,
@@ -499,7 +500,13 @@ export async function callXtalpiChat(input: {
               callerAborted: options?.signal?.aborted === true,
               timedOut: false,
             });
-      if (!options?.signal?.aborted && requestBudget.remainingMs() <= 0) {
+      if (
+        !options?.signal?.aborted
+        && (
+          requestBudget.remainingMs() <= 0
+          || (attemptUsesRemainingDeadline && providerError.code === "request_timeout")
+        )
+      ) {
         const deadlineError = buildProviderError(
           "request_deadline_exhausted",
           `xtalpi-pi-tools request deadline exhausted after ${Math.round(requestBudget.elapsedMs())}ms`,
