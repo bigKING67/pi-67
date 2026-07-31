@@ -41,7 +41,7 @@
       "file": "locks/cp311-manylinux_2_28-x64.txt",
       "sha256": "f0d9d071c6defba195fd9cbd1ff75753ace32fc06d9caa7cff2c41791979ff65",
       "distributionCount": 93,
-      "qualified": false
+      "qualified": true
     },
     {
       "id": "cp311-windows-x64",
@@ -52,7 +52,7 @@
       "file": "locks/cp311-windows-x64.txt",
       "sha256": "3460ff6776c92bce3f987eeba0b388c7c28e93535e55f54cab2283965b0c8b19",
       "distributionCount": 93,
-      "qualified": false
+      "qualified": true
     }
   ]
 }

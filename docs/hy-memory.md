@@ -336,9 +336,8 @@ pure-Python wheel；source/wheel SHA-256 和 builder provenance 在
 
 截至 2026-07-31：
 
-- `cp311-macos-arm64` 已在 Mac ARM64 原生 clean install 通过，`qualified=true`；
-- `cp311-manylinux_2_28-x64` 与 `cp311-windows-x64` 已完成 cross-resolution 和 hash
-  校验，但在对应 native CI 成功前保持 `qualified=false`；
+- `cp311-macos-arm64`、`cp311-manylinux_2_28-x64` 与 `cp311-windows-x64` 均已在
+  对应原生 CI runner 完成 hashed、wheel-only clean install，`qualified=true`；
 - macOS x64、Linux ARM64/musl、Windows ARM64 和其他 target fail closed，不会套用
   另一平台的 lock。pi-67 主产品的平台支持不自动等于可选 Hy-Memory Python closure
   已认证。
