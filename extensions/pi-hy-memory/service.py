@@ -31,6 +31,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 SDK_VERSION = "1.2.20"
 SERVICE_SCHEMA = "pi67-hy-memory-service/v1"
 OUTBOX_SCHEMA = "pi67-hy-memory-outbox/v1"
+OPERATION_SCHEMA = "pi67-hy-memory-operation/v1"
 MAX_REQUEST_BYTES = 256 * 1024
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 MAX_CAPTURE_CHARS = 12_000
@@ -42,7 +43,22 @@ MAX_ACTIVE_OUTBOX_BYTES = 64 * 1024 * 1024
 MAX_DEAD_LETTER_JOBS = 500
 MAX_DEAD_LETTER_BYTES = 32 * 1024 * 1024
 DEAD_LETTER_RETENTION_SECONDS = 30 * 24 * 60 * 60
+OPERATION_RETENTION_SECONDS = 30 * 24 * 60 * 60
+MAX_OPERATION_RECORDS = 1_000
 MEMORY_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,256}$")
+POTENTIALLY_RETAINED_MEMORY_COPIES = [
+    "history",
+    "pipeline-trace",
+    "pipeline-log",
+    "reset-backups",
+]
+SDK_ENVIRONMENT_POLICY = {
+    "MEMORY_CODING_ENABLED": "false",
+    "MEMORY_HISTORY_ENABLE": "false",
+    "MEMORY_MEMORY_OPERATIONS_ENABLED": "false",
+    "MEMORY_PIPELINE_TRACE_ENABLED": "false",
+    "MEMORY_TRACE_ENABLED": "false",
+}
 
 
 class CapacityRejectHandler(BaseHTTPRequestHandler):
@@ -86,7 +102,7 @@ class CapacityRejectHandler(BaseHTTPRequestHandler):
 
 
 class LoopbackHTTPServer(ThreadingHTTPServer):
-    request_queue_size = 16
+    request_queue_size = MAX_HTTP_CONNECTIONS
 
     def __init__(self, *args: Any, **kwargs: Any):
         self._connection_slots = threading.BoundedSemaphore(MAX_HTTP_CONNECTIONS)
@@ -191,6 +207,12 @@ def configure_logging(root: Path) -> None:
     logging.disable(logging.INFO)
 
 
+def configure_sdk_environment(paths: StatePaths) -> None:
+    """Keep unsupported SDK persistence surfaces outside the Pi integration."""
+    os.environ["MEMORY_DATA_DIR"] = str(paths.data_dir)
+    os.environ.update(SDK_ENVIRONMENT_POLICY)
+
+
 def secret(name: str) -> str:
     value = os.environ.get(name, "").strip()
     if not value:
@@ -252,6 +274,7 @@ class StatePaths:
         self.pending_dir = self.outbox_dir / "pending"
         self.processing_dir = self.outbox_dir / "processing"
         self.dead_letter_dir = self.outbox_dir / "dead-letter"
+        self.operations_dir = self.root / "operations"
 
     def ensure(self) -> None:
         for directory in (
@@ -261,6 +284,7 @@ class StatePaths:
             self.pending_dir,
             self.processing_dir,
             self.dead_letter_dir,
+            self.operations_dir,
             self.root / "logs",
         ):
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -399,7 +423,7 @@ def create_memory_config(config: Dict[str, Any], paths: StatePaths, llm_key: str
             },
             "cache": {"backend": "sqlite", "db_path": str(paths.data_dir / "cache.db")},
             "history": {
-                "enable": True,
+                "enable": False,
                 "db_path": str(paths.data_dir / "history.db"),
                 "record_searches": False,
             },
@@ -436,23 +460,199 @@ class OperationQueueFullError(RuntimeError):
     pass
 
 
+class OperationStateError(RuntimeError):
+    def __init__(self, receipt: Dict[str, Any], status: HTTPStatus):
+        super().__init__(str(receipt.get("state", "UNKNOWN")))
+        self.receipt = receipt
+        self.status = status
+
+
+class OperationLedger:
+    def __init__(self, paths: StatePaths, instance_id: str):
+        self.paths = paths
+        self.instance_id = instance_id
+        self._lock = threading.RLock()
+        self._records: Dict[str, Dict[str, Any]] = {}
+        self._corrupt: set[str] = set()
+        self._load_and_recover()
+
+    def get(self, operation_id: str) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            if operation_id in self._corrupt:
+                raise RuntimeError("operation ledger record is corrupt")
+            value = self._records.get(operation_id)
+            return dict(value) if value else None
+
+    def prepare(self, operation_id: str, kind: str) -> Tuple[Dict[str, Any], bool]:
+        with self._lock:
+            existing = self.get(operation_id)
+            if existing:
+                if existing.get("kind") != kind or existing.get("mutating") is not True:
+                    raise RuntimeError("operation identity conflicts with an existing operation")
+                if existing.get("state") == "FAILED" and existing.get("retryable") is True:
+                    now = utc_now()
+                    existing.update({
+                        "state": "QUEUED",
+                        "retryable": False,
+                        "ownerInstanceId": self.instance_id,
+                        "updatedAt": now,
+                    })
+                    existing.pop("error", None)
+                    existing.pop("finishedAt", None)
+                    self._store(existing)
+                    return dict(existing), True
+                return existing, False
+
+            if kind == "digest":
+                active = self._active_digest_locked()
+                if active:
+                    return active, False
+
+            self._prune_terminal()
+            if len(self._records) >= MAX_OPERATION_RECORDS:
+                raise OperationQueueFullError("Hy-Memory operation ledger capacity exceeded")
+            now = utc_now()
+            record = {
+                "schema": OPERATION_SCHEMA,
+                "operationId": operation_id,
+                "kind": kind,
+                "state": "QUEUED",
+                "mutating": True,
+                "retryable": False,
+                "statusPath": f"/v1/operations/{operation_id}",
+                "createdAt": now,
+                "updatedAt": now,
+                "ownerInstanceId": self.instance_id,
+            }
+            self._store(record)
+            return dict(record), True
+
+    def transition(self, operation_id: str, state: str, **fields: Any) -> Dict[str, Any]:
+        with self._lock:
+            record = self.get(operation_id)
+            if not record:
+                raise RuntimeError("operation ledger record is missing")
+            record.update(fields)
+            record["state"] = state
+            record["updatedAt"] = utc_now()
+            if state in ("SUCCEEDED", "FAILED", "UNKNOWN"):
+                record["finishedAt"] = record["updatedAt"]
+            self._store(record)
+            return dict(record)
+
+    def counts(self) -> Dict[str, int]:
+        with self._lock:
+            result = {name.lower(): 0 for name in ("QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "UNKNOWN")}
+            for record in self._records.values():
+                state = str(record.get("state", "")).lower()
+                if state in result:
+                    result[state] += 1
+            result["corrupt"] = len(self._corrupt)
+            return result
+
+    def active_digest(self) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            return self._active_digest_locked()
+
+    def _active_digest_locked(self) -> Optional[Dict[str, Any]]:
+        active = [
+            value for value in self._records.values()
+            if value.get("kind") == "digest" and value.get("state") in ("QUEUED", "RUNNING", "UNKNOWN")
+        ]
+        active.sort(key=lambda value: str(value.get("createdAt", "")))
+        return dict(active[0]) if active else None
+
+    def _load_and_recover(self) -> None:
+        for file in self.paths.operations_dir.glob("*.json"):
+            try:
+                value = read_json_object(file)
+                operation_id = str(value.get("operationId", ""))
+                if (
+                    value.get("schema") != OPERATION_SCHEMA
+                    or not re.fullmatch(r"[a-f0-9]{64}", operation_id)
+                    or file.stem != operation_id
+                    or value.get("state") not in ("QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "UNKNOWN")
+                    or value.get("mutating") is not True
+                ):
+                    raise ValueError("invalid operation ledger record")
+                self._records[operation_id] = value
+            except Exception:
+                if re.fullmatch(r"[a-f0-9]{64}", file.stem):
+                    self._corrupt.add(file.stem)
+
+        for operation_id, record in list(self._records.items()):
+            if record.get("state") == "QUEUED":
+                self.transition(
+                    operation_id,
+                    "FAILED",
+                    retryable=True,
+                    error={"code": "service-restarted-before-start"},
+                )
+            elif record.get("state") == "RUNNING":
+                self.transition(
+                    operation_id,
+                    "UNKNOWN",
+                    retryable=False,
+                    error={"code": "service-restarted-after-start"},
+                )
+        self._prune_terminal()
+
+    def _prune_terminal(self) -> None:
+        cutoff = time.time() - OPERATION_RETENTION_SECONDS
+        referenced: set[str] = set()
+        for directory in (self.paths.pending_dir, self.paths.processing_dir):
+            for file in directory.glob("*.json"):
+                try:
+                    operation_id = read_json_object(file).get("operationId")
+                    if isinstance(operation_id, str):
+                        referenced.add(operation_id)
+                except Exception:
+                    continue
+        removable: List[Tuple[Path, str, float]] = []
+        for operation_id, record in self._records.items():
+            if record.get("state") not in ("SUCCEEDED", "FAILED"):
+                continue
+            if operation_id in referenced:
+                continue
+            updated = parse_time(record.get("updatedAt"))
+            if updated and updated < cutoff:
+                removable.append((self.paths.operations_dir / f"{operation_id}.json", operation_id, updated))
+        for file, operation_id, _ in sorted(removable, key=lambda item: item[2]):
+            file.unlink(missing_ok=True)
+            self._records.pop(operation_id, None)
+
+    def _store(self, record: Dict[str, Any]) -> None:
+        operation_id = str(record["operationId"])
+        write_json_atomic(self.paths.operations_dir / f"{operation_id}.json", record)
+        self._records[operation_id] = dict(record)
+
+
 @dataclasses.dataclass
 class QueuedOperation:
     label: str
     action: Callable[[], Any]
+    operation_id: str
+    mutating: bool
     done: threading.Event = dataclasses.field(default_factory=threading.Event)
-    started: bool = False
-    cancelled: bool = False
+    lock: threading.Lock = dataclasses.field(default_factory=threading.Lock)
+    state: str = "QUEUED"
+    retryable: bool = False
+    created_at: str = dataclasses.field(default_factory=lambda: utc_now())
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
     result: Any = None
     error: Optional[BaseException] = None
 
 
 class ClientHolder:
-    def __init__(self, memory_config: Any, config: Dict[str, Any]):
+    def __init__(self, memory_config: Any, config: Dict[str, Any], ledger: OperationLedger):
         self._memory_config = memory_config
         self._config = config
+        self._ledger = ledger
         self._client = self._new_client("pro")
         self._operations: queue.Queue[Optional[QueuedOperation]] = queue.Queue(maxsize=MAX_OPERATION_QUEUE)
+        self._registry: Dict[str, QueuedOperation] = {}
+        self._registry_lock = threading.Lock()
         self._closing = threading.Event()
         self._worker = threading.Thread(target=self._run_operations, name="pi67-hy-memory-sdk", daemon=True)
         self._worker.start()
@@ -481,7 +681,21 @@ class ClientHolder:
         return True
 
     def info(self) -> Dict[str, Any]:
-        return {"mode": "pro", "vectorDimensions": int(self._memory_config.vector_store.embedding_dims)}
+        return {
+            "mode": "pro",
+            "vectorDimensions": int(self._memory_config.vector_store.embedding_dims),
+            "storagePolicy": {
+                "codingMemoryEnabled": bool(self._memory_config.coding.enable),
+                "historyAuditEnabled": bool(self._memory_config.history.enable),
+                "memoryOperationsEnabled": os.environ.get("MEMORY_MEMORY_OPERATIONS_ENABLED") != "false",
+                "pipelineDbTraceEnabled": os.environ.get("MEMORY_PIPELINE_TRACE_ENABLED") != "false",
+                "legacyRequestTraceEnabled": os.environ.get("MEMORY_TRACE_ENABLED") != "false",
+                "pipelineJsonlEnabled": True,
+                "pipelineJsonlControl": "sdk-1.2.20-always-on",
+                "fullPurgeSupported": False,
+            },
+            "operations": self._ledger.counts(),
+        }
 
     def probe(self, timeout: float = 30.0) -> Dict[str, Any]:
         def action() -> Dict[str, Any]:
@@ -497,7 +711,7 @@ class ClientHolder:
         return self._execute("probe", timeout, action)
 
     def search(self, body: Dict[str, Any], timeout: float = 30.0) -> Dict[str, Any]:
-        query = required_text(body.get("query"), "query", MAX_CAPTURE_CHARS)
+        query = redact_text(required_text(body.get("query"), "query", MAX_CAPTURE_CHARS))
         recall = self._config["recall"]
         return self._execute("search", timeout, lambda: self._client.search(
             query,
@@ -528,7 +742,7 @@ class ClientHolder:
             metadata={"source": "pi-67", "capture": "settled-turn"},
             request_id=request_id,
             extract_scene="chat",
-        ))
+        ), operation_id=stable_operation_id("capture", request_id), mutating=True)
 
     def list_memories(self, limit: int, offset: int, timeout: float = 10.0) -> Dict[str, Any]:
         return self._execute("list", timeout, lambda: self._client.list_memories(
@@ -544,9 +758,32 @@ class ClientHolder:
         return {"memory": value}
 
     def forget(self, memory_id: str, timeout: float = 30.0) -> Dict[str, Any]:
-        return self._execute("forget", timeout, lambda: self._client.delete(memory_id))
+        def action() -> Dict[str, Any]:
+            raw = self._client.delete(memory_id)
+            result = dict(raw) if isinstance(raw, dict) else {"result": raw}
+            deleted_count = result.get("deleted_count")
+            result.update(
+                {
+                    "activeDeleted": (
+                        isinstance(deleted_count, int)
+                        and not isinstance(deleted_count, bool)
+                        and deleted_count > 0
+                    ),
+                    "purgeComplete": False,
+                    "retainedCopies": list(POTENTIALLY_RETAINED_MEMORY_COPIES),
+                }
+            )
+            return result
 
-    def digest(self, timeout: float = 900.0) -> Dict[str, Any]:
+        return self._execute(
+            "forget",
+            timeout,
+            action,
+            operation_id=stable_operation_id("forget", memory_id),
+            mutating=True,
+        )
+
+    def digest(self, operation_id: str, timeout: float = 900.0) -> Dict[str, Any]:
         def action() -> Dict[str, Any]:
             self._client.close()
             self._client = None
@@ -559,21 +796,115 @@ class ClientHolder:
                     ultra.close()
                 self._client = self._new_client("pro")
 
-        return self._execute("digest", timeout, action)
+        active = self._ledger.active_digest()
+        expected = operation_id
+        if active and active.get("operationId") != expected:
+            raise OperationStateError(
+                active,
+                HTTPStatus.CONFLICT if active.get("state") == "UNKNOWN" else HTTPStatus.ACCEPTED,
+            )
+        return self._execute("digest", timeout, action, operation_id=expected, mutating=True)
 
-    def _execute(self, label: str, timeout: float, action: Callable[[], Any]) -> Any:
+    def operation_receipt(self, operation_id: str) -> Optional[Dict[str, Any]]:
+        with self._registry_lock:
+            operation = self._registry.get(operation_id)
+        if operation is not None:
+            with operation.lock:
+                return queued_operation_receipt(operation)
+        return self._ledger.get(operation_id)
+
+    def _execute(
+        self,
+        label: str,
+        timeout: float,
+        action: Callable[[], Any],
+        operation_id: Optional[str] = None,
+        mutating: bool = False,
+    ) -> Any:
         timeout = max(0.1, float(timeout))
-        operation = QueuedOperation(label=label, action=action)
-        try:
-            self._operations.put_nowait(operation)
-        except queue.Full as error:
-            raise OperationQueueFullError("Hy-Memory operation queue is full") from error
+        operation_id = operation_id or hashlib.sha256(uuid.uuid4().bytes).hexdigest()
+        with self._registry_lock:
+            operation = self._registry.get(operation_id)
+            if operation is not None and operation.done.is_set() and operation.state == "FAILED" and operation.retryable:
+                self._registry.pop(operation_id, None)
+                operation = None
+        if operation is None and mutating:
+            record, should_start = self._ledger.prepare(operation_id, label)
+            if not should_start:
+                state = record.get("state")
+                if state == "SUCCEEDED":
+                    return record.get("result") if record.get("resultAvailable") else record
+                status = HTTPStatus.ACCEPTED if state in ("QUEUED", "RUNNING") else HTTPStatus.CONFLICT
+                raise OperationStateError(record, status)
+        if operation is None:
+            operation = QueuedOperation(
+                label=label,
+                action=action,
+                operation_id=operation_id,
+                mutating=mutating,
+            )
+            with self._registry_lock:
+                self._prune_registry_locked()
+                self._registry[operation_id] = operation
+            try:
+                self._operations.put_nowait(operation)
+            except queue.Full as error:
+                with operation.lock:
+                    operation.state = "FAILED"
+                    operation.retryable = True
+                    operation.finished_at = utc_now()
+                    if operation.mutating:
+                        self._ledger.transition(
+                            operation.operation_id,
+                            "FAILED",
+                            retryable=True,
+                            error={"code": "operation-queue-full-before-start"},
+                        )
+                    operation.done.set()
+                raise OperationQueueFullError("Hy-Memory operation queue is full") from error
+
         if not operation.done.wait(timeout):
-            operation.cancelled = True
-            raise TimeoutError(f"Hy-Memory {label} deadline exceeded after {timeout:.3f}s")
+            with operation.lock:
+                if not operation.done.is_set() and operation.state == "QUEUED":
+                    operation.state = "FAILED"
+                    operation.retryable = True
+                    operation.finished_at = utc_now()
+                    if operation.mutating:
+                        self._ledger.transition(
+                            operation.operation_id,
+                            "FAILED",
+                            retryable=True,
+                            error={"code": "deadline-before-start"},
+                        )
+                    receipt = queued_operation_receipt(operation, error_code="deadline-before-start")
+                    operation.error = OperationStateError(receipt, HTTPStatus.GATEWAY_TIMEOUT)
+                    operation.done.set()
+                elif not operation.done.is_set() and operation.state == "RUNNING":
+                    raise OperationStateError(queued_operation_receipt(operation), HTTPStatus.ACCEPTED)
         if operation.error is not None:
             raise operation.error
         return operation.result
+
+    def _prune_registry_locked(self) -> None:
+        if len(self._registry) < 100:
+            return
+        terminal = [key for key, value in self._registry.items() if value.done.is_set()]
+        for key in terminal[: max(1, len(self._registry) - 99)]:
+            self._registry.pop(key, None)
+
+    def _fail_before_start(self, operation: QueuedOperation, code: str) -> None:
+        operation.state = "FAILED"
+        operation.retryable = True
+        operation.finished_at = utc_now()
+        if operation.mutating:
+            self._ledger.transition(
+                operation.operation_id,
+                "FAILED",
+                retryable=True,
+                error={"code": code},
+            )
+        operation.error = RuntimeError("Hy-Memory service is shutting down")
+        operation.done.set()
 
     def _run_operations(self) -> None:
         try:
@@ -582,15 +913,83 @@ class ClientHolder:
                 try:
                     if operation is None:
                         return
-                    if self._closing.is_set() or operation.cancelled:
-                        operation.error = RuntimeError("Hy-Memory service is shutting down")
-                        operation.done.set()
-                        continue
-                    operation.started = True
+                    with operation.lock:
+                        if operation.state != "QUEUED":
+                            operation.done.set()
+                            continue
+                        if self._closing.is_set():
+                            self._fail_before_start(operation, "service-shutdown-before-start")
+                            continue
+                        if operation.mutating:
+                            try:
+                                self._ledger.transition(
+                                    operation.operation_id,
+                                    "RUNNING",
+                                    retryable=False,
+                                    startedAt=utc_now(),
+                                )
+                            except BaseException as error:
+                                operation.state = "FAILED"
+                                operation.retryable = True
+                                try:
+                                    self._ledger.transition(
+                                        operation.operation_id,
+                                        "FAILED",
+                                        retryable=True,
+                                        error={"code": "running-ledger-write-failed"},
+                                    )
+                                except BaseException:
+                                    pass
+                                operation.error = error
+                                operation.done.set()
+                                continue
+                        operation.state = "RUNNING"
+                        operation.started_at = utc_now()
                     try:
-                        operation.result = operation.action()
+                        result = operation.action()
+                        with operation.lock:
+                            if operation.mutating:
+                                summary, available = summarize_operation_result(operation.label, result)
+                                try:
+                                    self._ledger.transition(
+                                        operation.operation_id,
+                                        "SUCCEEDED",
+                                        retryable=False,
+                                        result=summary,
+                                        resultAvailable=available,
+                                    )
+                                except BaseException:
+                                    operation.state = "UNKNOWN"
+                                    receipt = queued_operation_receipt(
+                                        operation,
+                                        error_code="terminal-ledger-write-failed",
+                                    )
+                                    operation.error = OperationStateError(receipt, HTTPStatus.CONFLICT)
+                                    operation.done.set()
+                                    continue
+                            operation.state = "SUCCEEDED"
+                            operation.finished_at = utc_now()
+                            operation.result = result
                     except BaseException as error:
-                        operation.error = error
+                        with operation.lock:
+                            if operation.mutating:
+                                try:
+                                    receipt = self._ledger.transition(
+                                        operation.operation_id,
+                                        "UNKNOWN",
+                                        retryable=False,
+                                        error={"code": "sdk-result-unknown"},
+                                    )
+                                except BaseException:
+                                    receipt = queued_operation_receipt(operation, error_code="sdk-result-unknown")
+                                    receipt["state"] = "UNKNOWN"
+                                operation.state = "UNKNOWN"
+                                operation.finished_at = utc_now()
+                                operation.error = OperationStateError(receipt, HTTPStatus.CONFLICT)
+                            else:
+                                operation.state = "FAILED"
+                                operation.finished_at = utc_now()
+                                operation.error = error
                     finally:
                         operation.done.set()
                 finally:
@@ -599,6 +998,59 @@ class ClientHolder:
             if self._client is not None:
                 self._client.close()
                 self._client = None
+
+
+def utc_now() -> str:
+    return dt.datetime.now(dt.timezone.utc).isoformat()
+
+
+def stable_operation_id(kind: str, logical_key: str) -> str:
+    return hashlib.sha256(f"{kind}\0{logical_key}".encode("utf-8")).hexdigest()
+
+
+def queued_operation_receipt(
+    operation: QueuedOperation,
+    error_code: Optional[str] = None,
+) -> Dict[str, Any]:
+    receipt: Dict[str, Any] = {
+        "schema": OPERATION_SCHEMA,
+        "operationId": operation.operation_id,
+        "kind": operation.label,
+        "state": operation.state,
+        "mutating": operation.mutating,
+        "retryable": operation.retryable,
+        "statusPath": f"/v1/operations/{operation.operation_id}",
+        "createdAt": operation.created_at,
+        "updatedAt": utc_now(),
+    }
+    if operation.started_at:
+        receipt["startedAt"] = operation.started_at
+    if operation.finished_at:
+        receipt["finishedAt"] = operation.finished_at
+    if error_code:
+        receipt["error"] = {"code": error_code}
+    return receipt
+
+
+def summarize_operation_result(kind: str, value: Any) -> Tuple[Dict[str, Any], bool]:
+    if not isinstance(value, dict):
+        digest = hashlib.sha256(json.dumps(value, default=json_default, sort_keys=True).encode("utf-8")).hexdigest()
+        return {"resultDigest": f"sha256:{digest}"}, False
+    allowed = {
+        "capture": {"success", "memory_id", "request_id", "created_count", "updated_count"},
+        "forget": {
+            "success", "memory_id", "deleted_count", "activeDeleted", "purgeComplete", "retainedCopies",
+        },
+        "digest": {"success", "tasks_processed", "tasks_succeeded", "tasks_failed"},
+    }.get(kind, {"success"})
+    summary: Dict[str, Any] = {}
+    for key in allowed:
+        item = value.get(key)
+        if isinstance(item, (str, int, float, bool)) or item is None:
+            summary[key] = item
+        elif key == "retainedCopies" and isinstance(item, list):
+            summary[key] = [str(entry)[:64] for entry in item[:8]]
+    return summary, True
 
 
 def required_text(value: Any, label: str, max_chars: int) -> str:
@@ -664,10 +1116,12 @@ class OutboxProcessor:
         processing_jobs, processing_bytes = self._usage(self.paths.processing_dir)
         dead_letter_jobs, dead_letter_bytes = self._usage(self.paths.dead_letter_dir)
         active_bytes = pending_bytes + processing_bytes
+        unresolved = self._unresolved_count()
         return {
             "pending": pending_jobs,
             "processing": processing_jobs,
             "deadLetter": dead_letter_jobs,
+            "unresolved": unresolved,
             "activeBytes": active_bytes,
             "deadLetterBytes": dead_letter_bytes,
             "saturated": pending_jobs + processing_jobs >= MAX_ACTIVE_OUTBOX_JOBS
@@ -687,6 +1141,8 @@ class OutboxProcessor:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             counts = self.counts()
+            if counts["unresolved"] > 0:
+                return {"success": False, "error": "outbox contains unresolved operations", "outbox": counts}
             if counts["pending"] == 0 and counts["processing"] == 0:
                 return {"success": True, "outbox": counts}
             time.sleep(0.1)
@@ -708,10 +1164,60 @@ class OutboxProcessor:
                     # Retry writes pending metadata before deleting processing. A crash
                     # between those steps must not restore the older processing copy.
                     file.unlink(missing_ok=True)
-                else:
-                    os.replace(file, target)
             except OSError:
                 logging.getLogger(__name__).warning("could not recover one interrupted outbox job")
+
+    def _unresolved_count(self) -> int:
+        count = 0
+        for file in self.paths.processing_dir.glob("*.json"):
+            try:
+                job = read_json_object(file)
+                if job.get("resolutionRequired") is True or job.get("operationState") == "UNKNOWN":
+                    count += 1
+            except Exception:
+                count += 1
+        return count
+
+    def _park_processing(
+        self,
+        file: Path,
+        job: Dict[str, Any],
+        receipt: Optional[Dict[str, Any]],
+    ) -> None:
+        state = str(receipt.get("state", "UNKNOWN")) if receipt else "UNKNOWN"
+        job["operationState"] = state
+        job["resolutionRequired"] = state == "UNKNOWN"
+        job["updatedAt"] = utc_now()
+        if receipt and isinstance(receipt.get("operationId"), str):
+            job["operationId"] = receipt["operationId"]
+            job["operationStatusPath"] = receipt.get("statusPath")
+        write_json_atomic(file, job)
+
+    def _reconcile_processing(self) -> None:
+        for file in self.paths.processing_dir.glob("*.json"):
+            try:
+                job = read_json_object(file)
+                operation_id = job.get("operationId")
+                if not isinstance(operation_id, str) or not re.fullmatch(r"[a-f0-9]{64}", operation_id):
+                    self._park_processing(file, job, None)
+                    continue
+                receipt = self.holder.operation_receipt(operation_id)
+                if not receipt:
+                    self._park_processing(file, job, None)
+                    continue
+                state = receipt.get("state")
+                if state == "SUCCEEDED":
+                    file.unlink(missing_ok=True)
+                elif state == "FAILED" and receipt.get("retryable") is True:
+                    self._retry_or_dead_letter(file, job, RuntimeError("capture failed before SDK execution"))
+                else:
+                    self._park_processing(file, job, receipt)
+            except Exception:
+                try:
+                    job = read_json_object(file)
+                    self._park_processing(file, job, None)
+                except Exception:
+                    logging.getLogger(__name__).warning("could not reconcile one outbox operation")
 
     def _run(self) -> None:
         while not self.stop_event.is_set():
@@ -726,6 +1232,7 @@ class OutboxProcessor:
             self.wake_event.clear()
 
     def _drain(self, force: bool) -> None:
+        self._reconcile_processing()
         while not self.stop_event.is_set():
             jobs = self._pending_jobs()
             if not jobs:
@@ -795,6 +1302,13 @@ class OutboxProcessor:
             messages.extend(normalize_messages(job["messages"]))
             request_ids.append(job["requestId"])
         batch_request_id = hashlib.sha256("\0".join(sorted(request_ids)).encode("utf-8")).hexdigest()
+        operation_id = stable_operation_id("capture", batch_request_id)
+        for file, job in processing:
+            job["operationId"] = operation_id
+            job["operationState"] = "QUEUED"
+            job["resolutionRequired"] = False
+            job["updatedAt"] = utc_now()
+            write_json_atomic(file, job)
 
         try:
             result = self.holder.capture(messages, session_id, batch_request_id)
@@ -802,6 +1316,13 @@ class OutboxProcessor:
                 raise RuntimeError("Hy-Memory capture did not report success")
             for file, _ in processing:
                 file.unlink(missing_ok=True)
+        except OperationStateError as error:
+            if error.receipt.get("state") == "FAILED" and error.receipt.get("retryable") is True:
+                for file, job in processing:
+                    self._retry_or_dead_letter(file, job, error)
+            else:
+                for file, job in processing:
+                    self._park_processing(file, job, error.receipt)
         except Exception as error:
             for file, job in processing:
                 self._retry_or_dead_letter(file, job, error)
@@ -938,6 +1459,16 @@ def make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
                 if method == "GET" and parsed.path == "/v1/info":
                     self._json(HTTPStatus.OK, self._info())
                     return
+                if method == "GET" and parsed.path.startswith("/v1/operations/"):
+                    operation_id = unquote(parsed.path[len("/v1/operations/") :])
+                    if not re.fullmatch(r"[a-f0-9]{64}", operation_id):
+                        raise ValueError("operation ID is invalid")
+                    receipt = state.holder.operation_receipt(operation_id)
+                    if receipt is None:
+                        self._json(HTTPStatus.NOT_FOUND, {"error": "operation not found"})
+                    else:
+                        self._json(HTTPStatus.OK, receipt)
+                    return
                 if method == "POST" and parsed.path == "/v1/probe":
                     self._json(HTTPStatus.OK, state.holder.probe(self._operation_timeout(30.0)))
                     return
@@ -984,8 +1515,14 @@ def make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
                     self._json(HTTPStatus.OK, state.holder.forget(memory_id, self._operation_timeout(30.0)))
                     return
                 if method == "POST" and parsed.path == "/v1/digest":
-                    self._body()
-                    self._json(HTTPStatus.OK, state.holder.digest(self._operation_timeout(900.0)))
+                    body = self._body()
+                    operation_id = body.get("operationId")
+                    if not isinstance(operation_id, str) or not re.fullmatch(r"[a-f0-9]{64}", operation_id):
+                        operation_id = stable_operation_id("digest", uuid.uuid4().hex)
+                    self._json(
+                        HTTPStatus.OK,
+                        state.holder.digest(operation_id, self._operation_timeout(900.0)),
+                    )
                     return
                 if method == "POST" and parsed.path == "/v1/shutdown":
                     self._body()
@@ -999,8 +1536,8 @@ def make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
                 self._json(HTTPStatus.BAD_REQUEST, {"error": safe_error(error, state.known_secrets)})
             except OperationQueueFullError:
                 self._json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "service operation capacity exceeded"})
-            except TimeoutError:
-                self._json(HTTPStatus.GATEWAY_TIMEOUT, {"error": "service operation deadline exceeded"})
+            except OperationStateError as error:
+                self._json(error.status, error.receipt)
             except Exception as error:
                 logging.getLogger(__name__).warning(
                     "request failed: method=%s path=%s error=%s",
@@ -1076,6 +1613,8 @@ def make_handler(state: ServiceState) -> type[BaseHTTPRequestHandler]:
                 "sdkVersion": SDK_VERSION,
                 "mode": holder_info["mode"],
                 "vectorDimensions": holder_info["vectorDimensions"],
+                "storagePolicy": holder_info["storagePolicy"],
+                "operations": holder_info["operations"],
                 "outbox": state.processor.counts(),
             }
 
@@ -1134,6 +1673,7 @@ def main() -> int:
     paths.ensure()
     startup_trace("paths-ready")
     configure_logging(paths.root)
+    configure_sdk_environment(paths)
     startup_trace("logging-ready")
 
     bearer_token = secret("PI67_HY_MEMORY_SERVICE_TOKEN")
@@ -1161,7 +1701,8 @@ def main() -> int:
         startup_trace("sdk-ready")
 
         memory_config = create_memory_config(config, paths, llm_key, embed_key)
-        holder = ClientHolder(memory_config, config)
+        ledger = OperationLedger(paths, instance_id)
+        holder = ClientHolder(memory_config, config, ledger)
         processor = OutboxProcessor(paths, config, holder)
         state = ServiceState(
             paths,

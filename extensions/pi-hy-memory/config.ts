@@ -1,8 +1,10 @@
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
   HY_MEMORY_CONFIG_SCHEMA,
+  HY_MEMORY_LEGACY_RUNTIME_SCHEMA,
   HY_MEMORY_RUNTIME_SCHEMA,
   HY_MEMORY_SECRETS_SCHEMA,
   HY_MEMORY_SERVICE_SCHEMA,
@@ -18,6 +20,10 @@ const EXPECTED_LLM_MODEL = "deepseek-v4-flash";
 const EXPECTED_EMBED_BASE_URL = "https://api.siliconflow.cn/v1";
 const EXPECTED_EMBED_MODEL = "BAAI/bge-m3";
 const EXPECTED_VECTOR_DIMENSIONS = 1024;
+const EXPECTED_RUNTIME_SDK_VERSION = "1.2.20";
+const EXPECTED_RUNTIME_WHEEL_SHA256 = "9055a2b793e553aead5558c821f1a69667aac20838929f314c95bfd6c3bf3cc2";
+const MANAGED_RUNTIME_PATTERN = /^hy-memory-(\d+\.\d+\.\d+)-pi67-([0-9a-f]{12})(?:-pydeps-([0-9a-f]{12}))?(?:-([0-9a-f]{12}))?$/;
+const PYTHON_RUNTIME_SCHEMA = "pi67.hy-memory-python-runtime.v1";
 
 export function resolveHyMemoryPaths(homeOverride?: string): HyMemoryPaths {
   const root = path.resolve(
@@ -65,13 +71,127 @@ export function readSecrets(paths = resolveHyMemoryPaths()): HyMemorySecrets {
 
 export function readRuntime(paths = resolveHyMemoryPaths()): HyMemoryRuntime {
   const value = readJsonObject(paths.runtimeFile);
-  if (value.schema !== HY_MEMORY_RUNTIME_SCHEMA) {
+  if (value.schema !== HY_MEMORY_LEGACY_RUNTIME_SCHEMA && value.schema !== HY_MEMORY_RUNTIME_SCHEMA) {
     throw new Error(`unsupported Hy-Memory runtime schema in ${paths.runtimeFile}`);
   }
   for (const key of ["sdkVersion", "python", "serviceScript", "wheelSha256", "installedAt"] as const) {
     if (!nonEmptyString(value[key])) throw new Error(`Hy-Memory runtime is missing ${key}`);
   }
-  return value as HyMemoryRuntime;
+  if (value.wrapperSha256 !== undefined && !/^[0-9a-f]{64}$/.test(String(value.wrapperSha256))) {
+    throw new Error(`Hy-Memory runtime has invalid wrapperSha256 in ${paths.runtimeFile}`);
+  }
+  if (
+    value.schema === HY_MEMORY_RUNTIME_SCHEMA &&
+    (
+      value.dependencyLockId !== `sha256:${value.dependencyLockSha256}` ||
+      !nonEmptyString(value.dependencyLockTarget) ||
+      !/^[0-9a-f]{64}$/.test(String(value.dependencyLockSha256 || "")) ||
+      !nonEmptyString(value.pythonRuntimeManifest) ||
+      !/^[0-9a-f]{64}$/.test(String(value.pythonRuntimeManifestSha256 || ""))
+    )
+  ) throw new Error(`Hy-Memory locked runtime metadata is invalid in ${paths.runtimeFile}`);
+  return validateManagedRuntime(value as HyMemoryRuntime, paths);
+}
+
+function validateManagedRuntime(runtime: HyMemoryRuntime, paths: HyMemoryPaths): HyMemoryRuntime {
+  if (
+    runtime.sdkVersion !== EXPECTED_RUNTIME_SDK_VERSION ||
+    runtime.wheelSha256 !== EXPECTED_RUNTIME_WHEEL_SHA256
+  ) {
+    throw new Error("Hy-Memory runtime SDK or wheel identity is not canonical");
+  }
+
+  const runtimeRoot = path.dirname(path.resolve(runtime.serviceScript));
+  const generation = MANAGED_RUNTIME_PATTERN.exec(path.basename(runtimeRoot));
+  const generationSdkVersion = generation?.[1];
+  const wrapperHashPrefix = generation?.[2];
+  if (
+    !generation ||
+    !wrapperHashPrefix ||
+    generationSdkVersion !== runtime.sdkVersion ||
+    canonicalFilesystemPath(path.dirname(runtimeRoot)) !== canonicalFilesystemPath(paths.runtimeDir)
+  ) {
+    throw new Error("Hy-Memory runtime service path is outside its managed generation");
+  }
+
+  const expectedServiceScript = path.join(runtimeRoot, "service.py");
+  if (path.resolve(runtime.serviceScript) !== path.resolve(expectedServiceScript)) {
+    throw new Error("Hy-Memory runtime service path does not match its managed generation");
+  }
+  let serviceStat: fs.Stats;
+  try {
+    serviceStat = fs.lstatSync(expectedServiceScript);
+  } catch {
+    throw new Error(`Hy-Memory service script is missing: ${expectedServiceScript}`);
+  }
+  if (!serviceStat.isFile() || serviceStat.isSymbolicLink()) {
+    throw new Error(`Hy-Memory service script must be a regular non-symlink file: ${expectedServiceScript}`);
+  }
+  const wrapperSha256 = crypto.createHash("sha256").update(fs.readFileSync(expectedServiceScript)).digest("hex");
+  if (!wrapperSha256.startsWith(wrapperHashPrefix)) {
+    throw new Error("Hy-Memory runtime wrapper SHA-256 does not match its managed generation");
+  }
+  if (runtime.wrapperSha256 !== undefined && runtime.wrapperSha256 !== wrapperSha256) {
+    throw new Error("Hy-Memory runtime wrapper SHA-256 does not match runtime metadata");
+  }
+
+  if (runtime.schema === HY_MEMORY_RUNTIME_SCHEMA) {
+    if (generation?.[3] !== runtime.dependencyLockSha256.slice(0, 12)) {
+      throw new Error("Hy-Memory dependency lock SHA-256 does not match its managed generation");
+    }
+    const expectedManifest = path.join(runtimeRoot, "python-runtime.json");
+    if (path.resolve(runtime.pythonRuntimeManifest) !== path.resolve(expectedManifest)) {
+      throw new Error("Hy-Memory Python runtime manifest path does not match its managed generation");
+    }
+    let manifestStat: fs.Stats;
+    try {
+      manifestStat = fs.lstatSync(expectedManifest);
+    } catch {
+      throw new Error(`Hy-Memory Python runtime manifest is missing: ${expectedManifest}`);
+    }
+    if (!manifestStat.isFile() || manifestStat.isSymbolicLink()) {
+      throw new Error(`Hy-Memory Python runtime manifest must be a regular non-symlink file: ${expectedManifest}`);
+    }
+    const manifestBytes = fs.readFileSync(expectedManifest);
+    const manifestSha256 = crypto.createHash("sha256").update(manifestBytes).digest("hex");
+    if (manifestSha256 !== runtime.pythonRuntimeManifestSha256) {
+      throw new Error("Hy-Memory Python runtime manifest SHA-256 does not match runtime metadata");
+    }
+    const manifest = JSON.parse(manifestBytes.toString("utf8")) as Record<string, unknown>;
+    const lock = objectValue(manifest.lock, "lock", expectedManifest);
+    const policy = objectValue(manifest.policy, "policy", expectedManifest);
+    const hyMemory = objectValue(manifest.hyMemory, "hyMemory", expectedManifest);
+    if (
+      manifest.schema !== PYTHON_RUNTIME_SCHEMA ||
+      lock.id !== runtime.dependencyLockId ||
+      lock.target !== runtime.dependencyLockTarget ||
+      lock.sha256 !== runtime.dependencyLockSha256 ||
+      policy.requireHashes !== true ||
+      policy.onlyBinary !== true ||
+      hyMemory.version !== runtime.sdkVersion ||
+      hyMemory.wheelSha256 !== runtime.wheelSha256
+    ) throw new Error("Hy-Memory Python runtime manifest binding is invalid");
+  } else if (generation?.[3]) {
+    throw new Error("legacy Hy-Memory runtime metadata cannot select a dependency-locked generation");
+  }
+
+  const expectedPython = process.platform === "win32"
+    ? path.join(runtimeRoot, "venv", "Scripts", "python.exe")
+    : path.join(runtimeRoot, "venv", "bin", "python");
+  if (path.resolve(runtime.python) !== path.resolve(expectedPython)) {
+    throw new Error("Hy-Memory Python path does not match its managed generation");
+  }
+  if (!fs.existsSync(expectedPython)) throw new Error(`Hy-Memory Python runtime is missing: ${expectedPython}`);
+  return { ...runtime, wrapperSha256 };
+}
+
+function canonicalFilesystemPath(value: string): string {
+  const resolved = path.resolve(value);
+  try {
+    return fs.realpathSync.native(resolved);
+  } catch {
+    return resolved;
+  }
 }
 
 export function readServiceRecord(paths = resolveHyMemoryPaths()): HyMemoryServiceRecord | undefined {

@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -85,11 +86,35 @@ function runInstalledArtifactChecks(installedRoot, tmpRoot, npmChildEnv, options
     fs.existsSync(distroVersionPath) && fs.existsSync(bundleManifestPath),
     "packed artifact must include the matching immutable distro bundle",
   );
+  const bundleManifest = JSON.parse(fs.readFileSync(bundleManifestPath, "utf8"));
   assert(
     fs.readFileSync(distroVersionPath, "utf8").trim() === packageVersion &&
-      JSON.parse(fs.readFileSync(bundleManifestPath, "utf8")).version === packageVersion,
+      bundleManifest.version === packageVersion,
     "packed artifact manager, distro, and bundle manifest versions must match",
   );
+  const hyMemoryRuntimeFiles = [
+    "extensions/pi-hy-memory/python/requirements.in",
+    "extensions/pi-hy-memory/python/lock-manifest.json",
+    "extensions/pi-hy-memory/python/inspect_runtime.py",
+    "extensions/pi-hy-memory/python/locks/cp311-macos-arm64.txt",
+    "extensions/pi-hy-memory/python/locks/cp311-manylinux_2_28-x64.txt",
+    "extensions/pi-hy-memory/python/locks/cp311-windows-x64.txt",
+    "extensions/pi-hy-memory/python/vendor/langdetect-1.0.9-py3-none-any.whl",
+    "extensions/pi-hy-memory/python/vendor/provenance.json",
+    "packages/pi67-cli/src/lib/hy-memory-python-runtime.mjs",
+    "scripts/pi67-hy-memory-python-lock.mjs",
+  ];
+  const bundleFiles = new Map(bundleManifest.files.map((item) => [item.path, item]));
+  for (const relative of hyMemoryRuntimeFiles) {
+    const file = path.join(installedRoot, "distro", ...relative.split("/"));
+    const expected = bundleFiles.get(relative);
+    assert(fs.existsSync(file) && expected, `packed artifact is missing Hy-Memory Python runtime contract: ${relative}`);
+    const bytes = fs.readFileSync(file);
+    assert(
+      expected.size === bytes.length && expected.sha256 === crypto.createHash("sha256").update(bytes).digest("hex"),
+      `packed artifact Hy-Memory Python runtime contract hash drifted: ${relative}`,
+    );
+  }
   assert(
     fs.existsSync(path.join(installedRoot, "distro", "packages", "pi67-cli", "package.json")) &&
       fs.existsSync(path.join(installedRoot, "distro", "packages", "pi67-cli", "src", "data", "distro-manifest.json")) &&

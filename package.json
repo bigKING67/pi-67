@@ -5,6 +5,7 @@
   "scripts": {
     "check:prompt-governance": "node scripts/pi67-prompt-governance-check.mjs",
     "check:dependency-closure": "node scripts/pi67-dependency-closure-check.mjs",
+    "check:hy-memory:python-lock": "node scripts/pi67-hy-memory-python-lock.mjs",
     "typecheck:xtalpi": "node npm/node_modules/typescript/bin/tsc --project tsconfig.xtalpi.json --pretty false",
     "typecheck:hy-memory": "node npm/node_modules/typescript/bin/tsc --project tsconfig.hy-memory.json --pretty false",
     "test:rules-loader": "node --no-warnings --test tests/pi-rules-loader/routing.test.mjs",
@@ -14,7 +15,10 @@
     "test:xtalpi": "bash scripts/pi67-test-xtalpi-pi-tools.sh",
     "test:xtalpi:node": "node --no-warnings --test \"tests/xtalpi-pi-tools/**/*.test.mjs\"",
     "test:xtalpi:coverage": "node --no-warnings --test --experimental-test-coverage --test-coverage-lines=93 --test-coverage-branches=85 --test-coverage-functions=95 \"tests/xtalpi-pi-tools/**/*.test.mjs\"",
-    "test:hy-memory": "node --no-warnings --test \"tests/pi-hy-memory/**/*.test.mjs\""
+    "test:hy-memory": "node --no-warnings --test \"tests/pi-hy-memory/**/*.test.mjs\"",
+    "test:hy-memory:eval": "node --no-warnings --test \"tests/pi-hy-memory/evaluation/*.test.mjs\"",
+    "eval:hy-memory:provider": "node --no-warnings tests/pi-hy-memory/evaluation/provider-eval.mjs",
+    "benchmark:hy-memory": "node --no-warnings tests/pi-hy-memory/benchmark/benchmark.mjs"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "0.80.6",

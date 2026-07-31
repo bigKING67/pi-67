@@ -230,6 +230,7 @@ function createPublishRepoFixture() {
   if (staged.status === 1) git(work, ["commit", "-q", "-m", "publish workflow fixture"]);
 
   git(root, ["init", "--bare", "-q", remote]);
+  git(work, ["checkout", "-q", "-B", "main"]);
   git(work, ["remote", "set-url", "origin", remote]);
   git(work, ["push", "-q", "-u", "origin", "main"]);
   git(root, ["--git-dir", remote, "symbolic-ref", "HEAD", "refs/heads/main"]);

@@ -41,23 +41,42 @@ const FORGET_PARAMS = {
   required: ["memory_id"],
   additionalProperties: false,
   properties: {
-    memory_id: { type: "string", description: "需要预览删除的记忆 ID。此工具不会永久删除。" },
+    memory_id: { type: "string", description: "需要预览删除的 active memory ID。此工具不会执行删除。" },
   },
 };
 
 type ToolResult = { content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> };
-type SettledContext = {
-  sessionManager: {
-    getSessionId(): string;
-    getLeafId(): string | null;
-  };
-  ui: {
-    notify(message: string, level: "warning"): void;
-  };
+type RecallErrorKind = "timeout" | "service" | "capacity" | "provider" | "invalid-response" | "unknown";
+type RecallHealth = {
+  consecutiveFailures: number;
+  lastFailureAt: number | null;
+  cooldownUntil: number | null;
+  errorKind: RecallErrorKind | null;
+};
+type PiHyMemoryDependencies = {
+  readConfig: typeof readConfig;
+  ensureHyMemoryService: typeof ensureHyMemoryService;
+  queueCapture: typeof queueCapture;
+  now: () => number;
 };
 
-export default function piHyMemory(pi: ExtensionAPI) {
+const RECALL_FAILURE_THRESHOLD = 2;
+const RECALL_COOLDOWN_MS = 30_000;
+const DEFAULT_DEPENDENCIES: PiHyMemoryDependencies = {
+  readConfig,
+  ensureHyMemoryService,
+  queueCapture,
+  now: Date.now,
+};
+
+export function createPiHyMemory(overrides: Partial<PiHyMemoryDependencies> = {}) {
+  const dependencies: PiHyMemoryDependencies = { ...DEFAULT_DEPENDENCIES, ...overrides };
+  return (pi: ExtensionAPI) => registerPiHyMemory(pi, dependencies);
+}
+
+function registerPiHyMemory(pi: ExtensionAPI, dependencies: PiHyMemoryDependencies): void {
   let latestAgentMessages: unknown[] | undefined;
+  let recallHealth = emptyRecallHealth();
   let recallFailureNotified = false;
   let captureFailureNotified = false;
 
@@ -69,8 +88,8 @@ export default function piHyMemory(pi: ExtensionAPI) {
     parameters: SEARCH_PARAMS as never,
     async execute(_id, params: { query?: string; limit?: number }, signal): Promise<ToolResult> {
       if (signal?.aborted) throw new Error("Hy-Memory search aborted");
-      const config = requireEnabledConfig();
-      const client = await ensureHyMemoryService(config);
+      const config = requireEnabledConfig(dependencies.readConfig);
+      const client = await dependencies.ensureHyMemoryService(config);
       const query = redactSensitiveText(String(params.query || "").trim());
       if (!query) throw new Error("query is required");
       const result = await client.search(query);
@@ -86,10 +105,10 @@ export default function piHyMemory(pi: ExtensionAPI) {
     parameters: ADD_PARAMS as never,
     async execute(_id, params: { content?: string }, signal, _onUpdate, ctx): Promise<ToolResult> {
       if (signal?.aborted) throw new Error("Hy-Memory add aborted");
-      const config = requireEnabledConfig();
+      const config = requireEnabledConfig(dependencies.readConfig);
       const content = redactSensitiveText(String(params.content || "").trim()).slice(0, config.capture.maxMessageChars);
       if (!content) throw new Error("content is required");
-      const client = await ensureHyMemoryService(config);
+      const client = await dependencies.ensureHyMemoryService(config);
       const sessionId = ctx.sessionManager.getSessionId();
       const requestId = crypto.createHash("sha256").update(`${config.userId}\0${sessionId}\0${content}`).digest("hex");
       return toolResult(await client.capture([{ role: "user", content }], sessionId, requestId));
@@ -103,7 +122,7 @@ export default function piHyMemory(pi: ExtensionAPI) {
     parameters: LIST_PARAMS as never,
     async execute(_id, params: { limit?: number; offset?: number }, signal): Promise<ToolResult> {
       if (signal?.aborted) throw new Error("Hy-Memory list aborted");
-      const client = await ensureHyMemoryService(requireEnabledConfig());
+      const client = await dependencies.ensureHyMemoryService(requireEnabledConfig(dependencies.readConfig));
       const limit = clampInteger(params.limit, 1, 100, 20);
       const offset = clampInteger(params.offset, 0, 1_000_000, 0);
       return toolResult(await client.list(limit, offset));
@@ -113,18 +132,18 @@ export default function piHyMemory(pi: ExtensionAPI) {
   pi.registerTool({
     name: "hy_memory_forget",
     label: "Hy-Memory Forget Preview",
-    description: "预览一条待删除记忆，但不执行删除。永久删除必须由用户显式运行 /memory forget <id> --yes 或 pi-67 memory forget <id> --yes。",
+    description: "预览一条待删除的 active memory，但不执行删除。删除 active memory 必须由用户显式运行 /memory forget <id> --yes 或 pi-67 memory forget <id> --yes；历史或调试副本可能仍保留。",
     parameters: FORGET_PARAMS as never,
     async execute(_id, params: { memory_id?: string }, signal): Promise<ToolResult> {
       if (signal?.aborted) throw new Error("Hy-Memory forget preview aborted");
       const memoryId = String(params.memory_id || "").trim();
       if (!memoryId) throw new Error("memory_id is required");
-      const client = await ensureHyMemoryService(requireEnabledConfig());
+      const client = await dependencies.ensureHyMemoryService(requireEnabledConfig(dependencies.readConfig));
       const preview = await client.get(memoryId);
       return toolResult({
         preview,
         deleted: false,
-        confirmation: `Run /memory forget ${memoryId} --yes to permanently delete this memory.`,
+        confirmation: `Run /memory forget ${memoryId} --yes to delete this active memory. Historical or debug copies may remain.`,
       });
     },
   });
@@ -135,7 +154,7 @@ export default function piHyMemory(pi: ExtensionAPI) {
       const [sub = "status", ...rest] = splitArgs(args || "");
       try {
         if (sub === "status") {
-          const config = readConfig();
+          const config = dependencies.readConfig();
           const outbox = inspectOutbox();
           let service: unknown = { running: false };
           if (config) {
@@ -145,24 +164,30 @@ export default function piHyMemory(pi: ExtensionAPI) {
               service = { running: false };
             }
           }
-          ctx.ui.notify(compactJson({ initialized: Boolean(config), enabled: config?.enabled ?? false, service, outbox }), "info");
+          ctx.ui.notify(compactJson({
+            initialized: Boolean(config),
+            enabled: config?.enabled ?? false,
+            service,
+            outbox,
+            recallHealth: recallHealthSnapshot(recallHealth, dependencies.now()),
+          }), "info");
           return;
         }
         if (sub === "search") {
           const query = redactSensitiveText(rest.join(" ").trim());
           if (!query) throw new Error("Usage: /memory search <query>");
-          const client = await ensureHyMemoryService(requireEnabledConfig());
+          const client = await dependencies.ensureHyMemoryService(requireEnabledConfig(dependencies.readConfig));
           ctx.ui.notify(compactJson(await client.search(query)), "info");
           return;
         }
         if (sub === "pause" || sub === "resume") {
-          const config = requireConfig();
+          const config = requireConfig(dependencies.readConfig);
           writeEnabled(config, sub === "resume");
           ctx.ui.notify(`Hy-Memory ${sub === "resume" ? "resumed" : "paused"}.`, "info");
           return;
         }
         if (sub === "flush") {
-          const client = await ensureHyMemoryService(requireEnabledConfig());
+          const client = await dependencies.ensureHyMemoryService(requireEnabledConfig(dependencies.readConfig));
           ctx.ui.notify(compactJson(await client.flush()), "info");
           return;
         }
@@ -171,7 +196,7 @@ export default function piHyMemory(pi: ExtensionAPI) {
           if (!memoryId || rest[1] !== "--yes" || rest.length !== 2) {
             throw new Error("Usage: /memory forget <memory-id> --yes");
           }
-          const client = await ensureHyMemoryService(requireEnabledConfig());
+          const client = await dependencies.ensureHyMemoryService(requireEnabledConfig(dependencies.readConfig));
           ctx.ui.notify(compactJson(await client.forget(memoryId)), "info");
           return;
         }
@@ -186,28 +211,37 @@ export default function piHyMemory(pi: ExtensionAPI) {
     latestAgentMessages = undefined;
     recallFailureNotified = false;
     captureFailureNotified = false;
-    const config = readConfig();
+    recallHealth = emptyRecallHealth();
+    const config = dependencies.readConfig();
     if (!config?.enabled) return;
-    void ensureHyMemoryService(config).catch(() => {
+    void dependencies.ensureHyMemoryService(config).catch((error: unknown) => {
+      recallHealth = recordRecallFailure(recallHealth, error, dependencies.now());
       if (!recallFailureNotified) {
         recallFailureNotified = true;
-        ctx.ui.notify("Hy-Memory is enabled but its local service could not start. Run `pi-67 memory doctor`.", "warning");
+        ctx.ui.notify(recallFailureWarning(recallHealth.errorKind), "warning");
       }
     });
   });
 
-  pi.on("before_agent_start", async (event) => {
-    const config = readConfig();
+  pi.on("before_agent_start", async (event, ctx) => {
+    const config = dependencies.readConfig();
     if (!config?.enabled) return;
+    if (isRecallCoolingDown(recallHealth, dependencies.now())) return;
     const query = redactSensitiveText(event.prompt).trim();
     if (!query) return;
     try {
-      const client = await ensureHyMemoryService(config);
+      const client = await dependencies.ensureHyMemoryService(config);
       const recalled = await client.search(query);
+      recallHealth = emptyRecallHealth();
       const context = formatRecallContext(recalled, config.recall.maxChars);
       if (!context) return;
       return { systemPrompt: `${event.systemPrompt}\n\n${context}` };
-    } catch {
+    } catch (error) {
+      recallHealth = recordRecallFailure(recallHealth, error, dependencies.now());
+      if (!recallFailureNotified) {
+        recallFailureNotified = true;
+        ctx.ui.notify(recallFailureWarning(recallHealth.errorKind), "warning");
+      }
       return;
     }
   });
@@ -216,23 +250,17 @@ export default function piHyMemory(pi: ExtensionAPI) {
     latestAgentMessages = Array.isArray(event.messages) ? event.messages : undefined;
   });
 
-  // agent_settled was added after the repository's transitive 0.75.5 type snapshot;
-  // pi-67's release-tested runtime is 0.80.6 and exposes this lifecycle event.
-  const onSettled = pi.on as unknown as (
-    event: "agent_settled",
-    handler: (event: { type: "agent_settled" }, ctx: SettledContext) => Promise<void> | void,
-  ) => void;
-  onSettled("agent_settled", async (_event, ctx) => {
+  pi.on("agent_settled", async (_event, ctx) => {
     const candidate = latestAgentMessages;
     latestAgentMessages = undefined;
-    const config = readConfig();
+    const config = dependencies.readConfig();
     if (!config?.enabled || !candidate) return;
     const messages = extractCaptureMessages(candidate, config.capture.maxMessageChars);
     if (messages.length < 2) return;
     const sessionId = ctx.sessionManager.getSessionId();
     const leafId = ctx.sessionManager.getLeafId() || "no-leaf";
     try {
-      queueCapture({
+      dependencies.queueCapture({
         userId: config.userId,
         agentId: config.agentId,
         sessionId,
@@ -253,16 +281,63 @@ export default function piHyMemory(pi: ExtensionAPI) {
   });
 }
 
-function requireConfig(): HyMemoryConfig {
-  const config = readConfig();
+export default createPiHyMemory();
+
+function requireConfig(read: typeof readConfig): HyMemoryConfig {
+  const config = read();
   if (!config) throw new Error("Hy-Memory is not initialized. Run `pi-67 memory init` first.");
   return config;
 }
 
-function requireEnabledConfig(): HyMemoryConfig {
-  const config = requireConfig();
+function requireEnabledConfig(read: typeof readConfig): HyMemoryConfig {
+  const config = requireConfig(read);
   if (!config.enabled) throw new Error("Hy-Memory is paused. Run `/memory resume` or `pi-67 memory enable`.");
   return config;
+}
+
+function emptyRecallHealth(): RecallHealth {
+  return { consecutiveFailures: 0, lastFailureAt: null, cooldownUntil: null, errorKind: null };
+}
+
+function recordRecallFailure(health: RecallHealth, error: unknown, now: number): RecallHealth {
+  const consecutiveFailures = health.consecutiveFailures + 1;
+  return {
+    consecutiveFailures,
+    lastFailureAt: now,
+    cooldownUntil: consecutiveFailures >= RECALL_FAILURE_THRESHOLD ? now + RECALL_COOLDOWN_MS : null,
+    errorKind: classifyRecallError(error),
+  };
+}
+
+function isRecallCoolingDown(health: RecallHealth, now: number): boolean {
+  return health.cooldownUntil !== null && now < health.cooldownUntil;
+}
+
+function recallHealthSnapshot(health: RecallHealth, now: number): Record<string, unknown> {
+  return {
+    consecutiveFailures: health.consecutiveFailures,
+    errorKind: health.errorKind,
+    lastFailureAt: health.lastFailureAt,
+    cooldownUntil: health.cooldownUntil,
+    coolingDown: isRecallCoolingDown(health, now),
+  };
+}
+
+function classifyRecallError(error: unknown): RecallErrorKind {
+  const name = error instanceof Error ? error.name.toLowerCase() : "";
+  const message = (error instanceof Error ? error.message : String(error || "")).toLowerCase();
+  if (name === "aborterror" || /timed? out|timeout|deadline exceeded/.test(message)) return "timeout";
+  if (/invalid json|invalid response|response exceeded|response is too large/.test(message)) return "invalid-response";
+  if (/queue is full|capacity|http 429|http 503|too many requests/.test(message)) return "capacity";
+  if (/provider|api key|credential|rate limit/.test(message)) return "provider";
+  if (/service|lifetime owner|ownership|not running|did not become ready|could not start|spawn|enoent/.test(message)) {
+    return "service";
+  }
+  return "unknown";
+}
+
+function recallFailureWarning(errorKind: RecallErrorKind | null): string {
+  return `Hy-Memory recall is temporarily unavailable (${errorKind || "unknown"}). Automatic recall will retry with a short cooldown after repeated failures. Run \`pi-67 memory doctor\`.`;
 }
 
 function writeEnabled(config: HyMemoryConfig, enabled: boolean): void {

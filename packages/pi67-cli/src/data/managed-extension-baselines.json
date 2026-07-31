@@ -183,8 +183,8 @@
       "sourceKind": "bundled",
       "bundlePath": "extensions/xtalpi-pi-tools",
       "minimumVersion": "0.15.0",
-      "contentRevision": 1,
-      "contentHash": "7ab746d1e29770c734c667f1ea268121eaa151c6c582e026c65defa6774036ed",
+      "contentRevision": 2,
+      "contentHash": "eb2c8f79e9c059fa0843c5e7a75128e3a6b36cf198d89471b86582cc393a695b",
       "role": "first-party-provider"
     },
     {
@@ -210,8 +210,8 @@
       "sourceKind": "bundled",
       "bundlePath": "extensions/pi-hy-memory",
       "minimumVersion": "0.15.0",
-      "contentRevision": 1,
-      "contentHash": "cc96a2e67b71ba6264ab4c444dd857159405bea22b34b817ec65fa1edf6c5233",
+      "contentRevision": 5,
+      "contentHash": "050a4bb724ebe248a43944d8d7722a852573b3d0b2a40917b6e3792105de896b",
       "role": "cross-session-long-term-memory"
     }
   ]

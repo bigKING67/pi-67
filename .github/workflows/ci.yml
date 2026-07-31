@@ -38,6 +38,19 @@ jobs:
       - name: Verify dependency closure
         run: npm run -s check:dependency-closure
 
+      - name: Verify Hy-Memory Python locks
+        run: npm run -s check:hy-memory:python-lock
+
+      - name: Install pinned uv for native Hy-Memory qualification
+        if: matrix.node-version == '24'
+        run: python -m pip install --disable-pip-version-check uv==0.7.6
+
+      - name: Clean-install native Hy-Memory Python closure
+        if: matrix.node-version == '24'
+        env:
+          PI67_HY_MEMORY_PYTHON_INSTALL_TEST: "1"
+        run: node --no-warnings --test tests/pi-hy-memory/integration/python-runtime-install.test.mjs
+
       - name: Typecheck xtalpi extension
         run: npm run -s typecheck:xtalpi
 
@@ -96,6 +109,19 @@ jobs:
 
       - name: Verify dependency closure
         run: npm run -s check:dependency-closure
+
+      - name: Verify Hy-Memory Python locks
+        run: npm run -s check:hy-memory:python-lock
+
+      - name: Install pinned uv for native Hy-Memory qualification
+        if: runner.arch == 'ARM64'
+        run: python -m pip install --disable-pip-version-check uv==0.7.6
+
+      - name: Clean-install native Hy-Memory Python closure
+        if: runner.arch == 'ARM64'
+        env:
+          PI67_HY_MEMORY_PYTHON_INSTALL_TEST: "1"
+        run: node --no-warnings --test tests/pi-hy-memory/integration/python-runtime-install.test.mjs
 
       - name: Typecheck xtalpi extension
         run: npm run -s typecheck:xtalpi
@@ -158,6 +184,22 @@ jobs:
       - name: Verify dependency closure
         shell: pwsh
         run: npm run -s check:dependency-closure
+
+      - name: Verify Hy-Memory Python locks
+        shell: pwsh
+        run: npm run -s check:hy-memory:python-lock
+
+      - name: Install pinned uv for native Hy-Memory qualification
+        if: matrix.node-version == '24'
+        shell: pwsh
+        run: python -m pip install --disable-pip-version-check uv==0.7.6
+
+      - name: Clean-install native Hy-Memory Python closure
+        if: matrix.node-version == '24'
+        shell: pwsh
+        env:
+          PI67_HY_MEMORY_PYTHON_INSTALL_TEST: "1"
+        run: node --no-warnings --test tests/pi-hy-memory/integration/python-runtime-install.test.mjs
 
       - name: Typecheck xtalpi extension
         shell: pwsh

@@ -1,2 +1,7 @@
 # settings.json is ignored machine runtime; no repository clean filter is required.
 settings.example.json text eol=lf
+
+# These files are bound by byte-level SHA-256 values in lock-manifest.json.
+extensions/pi-hy-memory/python/requirements.in text eol=lf
+extensions/pi-hy-memory/python/locks/*.txt text eol=lf
+extensions/pi-hy-memory/python/vendor/*.json text eol=lf

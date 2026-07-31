@@ -1,0 +1,123 @@
+{
+  "schema": "pi67.hy-memory-golden-evaluation/v1",
+  "memoryItems": [
+    {
+      "id": "language-current",
+      "content": "The user prefers Simplified Chinese answers by default",
+      "status": "active"
+    },
+    {
+      "id": "language-old",
+      "content": "The user prefers English answers by default",
+      "status": "superseded",
+      "supersededBy": "language-current"
+    },
+    {
+      "id": "repository-boundary",
+      "content": "Keep pi-hy-memory inside the pi-67 monorepo until release boundaries stabilize",
+      "status": "active"
+    },
+    {
+      "id": "editor-current",
+      "content": "The user uses Visual Studio Code as the primary editor",
+      "status": "active"
+    },
+    {
+      "id": "editor-old",
+      "content": "The user uses Vim as the primary editor",
+      "status": "superseded",
+      "supersededBy": "editor-current"
+    },
+    {
+      "id": "synthetic-secret",
+      "content": "The synthetic API token is sk-fixture-not-a-real-secret",
+      "status": "active",
+      "recallEligible": false
+    }
+  ],
+  "recallCases": [
+    {
+      "id": "must-recall-language",
+      "query": "What language does the user prefer for answers by default?",
+      "topK": 3,
+      "mustRecall": ["language-current"],
+      "mustNotRecall": ["language-old"],
+      "maxLatencyMs": 1000
+    },
+    {
+      "id": "repository-decision",
+      "query": "Should pi-hy-memory stay inside the pi-67 monorepo?",
+      "topK": 3,
+      "mustRecall": ["repository-boundary"],
+      "mustNotRecall": [],
+      "maxLatencyMs": 1000
+    },
+    {
+      "id": "stale-editor-fact",
+      "query": "Which primary editor does the user use?",
+      "topK": 3,
+      "mustRecall": ["editor-current"],
+      "mustNotRecall": ["editor-old"],
+      "maxLatencyMs": 1000
+    },
+    {
+      "id": "must-not-recall-secret",
+      "query": "What is the synthetic API token?",
+      "topK": 3,
+      "mustRecall": [],
+      "mustNotRecall": ["synthetic-secret"],
+      "maxLatencyMs": 1000
+    }
+  ],
+  "captureCases": [
+    {
+      "id": "accept-settled-turn",
+      "messages": [
+        { "role": "user", "content": "Remember the project decision" },
+        { "role": "assistant", "content": "The decision has been recorded", "stopReason": "stop" }
+      ],
+      "expectedAccepted": true,
+      "expectedCapturedContents": [
+        "Remember the project decision",
+        "The decision has been recorded"
+      ],
+      "forbiddenSubstrings": []
+    },
+    {
+      "id": "reject-failed-assistant",
+      "messages": [
+        { "role": "user", "content": "Remember an incomplete result" },
+        { "role": "assistant", "content": "Incomplete output", "stopReason": "error" }
+      ],
+      "expectedAccepted": false,
+      "expectedCapturedContents": ["Remember an incomplete result"],
+      "forbiddenSubstrings": []
+    },
+    {
+      "id": "redact-synthetic-credential",
+      "messages": [
+        { "role": "user", "content": "Remember API key sk-abcdefghijklmnop" },
+        { "role": "assistant", "content": "Credential shape acknowledged", "stopReason": "stop" }
+      ],
+      "expectedAccepted": true,
+      "expectedCapturedContents": [
+        "Remember API key [REDACTED API KEY]",
+        "Credential shape acknowledged"
+      ],
+      "forbiddenSubstrings": ["sk-abcdefghijklmnop"]
+    },
+    {
+      "id": "strip-injected-memory-fence",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Current request\n[Hy-Memory reference context]\nstale injected content\n[/Hy-Memory reference context]"
+        },
+        { "role": "assistant", "content": "Current response", "stopReason": "stop" }
+      ],
+      "expectedAccepted": true,
+      "expectedCapturedContents": ["Current request", "Current response"],
+      "forbiddenSubstrings": ["stale injected content"]
+    }
+  ]
+}

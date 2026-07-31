@@ -30,11 +30,14 @@ command_exists() { command -v "$1" >/dev/null 2>&1; }
 
 run_gate() {
   local label="$1"
+  local log_file="$TMP_ROOT/${label// /-}.log"
   shift
-  if "$@" >"$TMP_ROOT/${label// /-}.log" 2>&1; then
+  if "$@" >"$log_file" 2>&1; then
     pass "$label"
   else
-    fail "$label (see $TMP_ROOT/${label// /-}.log during this run)"
+    fail "$label"
+    echo "  --- ${label} failure log (last 200 lines) ---" >&2
+    tail -n 200 "$log_file" >&2 || true
   fi
 }
 
@@ -284,8 +287,9 @@ fi
 if [ -f "$REPO_ROOT/npm/node_modules/typescript/bin/tsc" ]; then
   run_gate "dependency closure check" npm --prefix "$REPO_ROOT" run -s check:dependency-closure
   run_gate "xtalpi TypeScript check" npm --prefix "$REPO_ROOT" run -s typecheck:xtalpi
-  run_gate "Hy-Memory TypeScript check" npm --prefix "$REPO_ROOT" run -s typecheck:hy-memory
-  run_gate "Hy-Memory tests" npm --prefix "$REPO_ROOT" run -s test:hy-memory
+run_gate "Hy-Memory TypeScript check" npm --prefix "$REPO_ROOT" run -s typecheck:hy-memory
+run_gate "Hy-Memory Python lock check" npm --prefix "$REPO_ROOT" run -s check:hy-memory:python-lock
+run_gate "Hy-Memory tests" npm --prefix "$REPO_ROOT" run -s test:hy-memory
 else
   warn "runtime TypeScript dependencies are missing; skipped TypeScript/Hy-Memory test gates"
 fi

@@ -6,7 +6,9 @@ import {
   flushMemory,
   forgetMemory,
   initializeMemory,
+  inventoryMemoryRuntimes,
   memoryStatus,
+  planMemoryRuntimePrune,
   resetMemory,
   restartMemoryService,
   setMemoryEnabled,
@@ -28,6 +30,7 @@ export async function memoryCommand(ctx, argv) {
   if (sub === "enable") return await enable(ctx, rest, true);
   if (sub === "disable") return await enable(ctx, rest, false);
   if (sub === "upgrade") return await upgrade(ctx, rest);
+  if (sub === "runtime") return await runtime(ctx, rest);
   if (sub === "flush") return await flush(ctx, rest);
   if (sub === "forget") return await forget(ctx, rest);
   if (sub === "digest") return await digest(ctx, rest);
@@ -121,7 +124,62 @@ async function upgrade(ctx, argv) {
   if (options.help) return printMemoryHelp();
   rejectPositionals(positionals, "memory upgrade");
   const result = await upgradeMemory(ctx, { dryRun: ctx.dryRun || options.dryRun, force: options.force });
-  return emitResult(ctx, options, "Hy-Memory runtime", result, result.dryRun ? "upgrade planned" : "upgraded");
+  if (result.dryRun) return emitResult(ctx, options, "Hy-Memory runtime", result, "upgrade planned");
+  if (ctx.json || options.json) {
+    printJson(result);
+    if (!result.success) process.exitCode = 1;
+    return;
+  }
+  section("Hy-Memory runtime upgrade");
+  if (result.success) {
+    pass("upgraded");
+    return;
+  }
+  warn(`upgrade failed during ${result.phase}${result.error ? `: ${result.error}` : ""}`);
+  if (result.rollback?.selectionRestored) pass("prior runtime selection restored");
+  if (result.rollback?.serviceRestoreAttempted) {
+    if (result.rollback.serviceRestored) pass("prior service restored");
+    else warn("prior service could not be restored");
+  }
+  for (const next of result.nextSteps || []) info(`Next: ${next}`);
+  process.exitCode = 1;
+}
+
+async function runtime(ctx, argv) {
+  const requestedAction = argv[0] || "inventory";
+  const actionSpecified = requestedAction === "inventory" || requestedAction === "prune";
+  const action = actionSpecified ? requestedAction : "inventory";
+  const optionArgs = actionSpecified ? argv.slice(1) : argv;
+  const { options, positionals } = parseCommandOptions(optionArgs, { bools: ["json", "dry-run"] });
+  if (options.help) return printMemoryHelp();
+  if (!actionSpecified && requestedAction !== "inventory" && !requestedAction.startsWith("-")) {
+    throw new CliError("Usage: pi-67 memory runtime [inventory|prune --dry-run]", 2);
+  }
+  if (positionals.length > 0) throw new CliError("Usage: pi-67 memory runtime [inventory|prune --dry-run]", 2);
+  if (action === "inventory") {
+    const result = inventoryMemoryRuntimes();
+    if (ctx.json || options.json) return printJson(result);
+    return printRuntimeInventory(result);
+  }
+  if (action === "prune") {
+    if (!ctx.dryRun && !options.dryRun) {
+      throw new CliError("runtime pruning is preview-only and requires --dry-run", 2);
+    }
+    const result = planMemoryRuntimePrune();
+    if (ctx.json || options.json) return printJson(result);
+    section("Hy-Memory runtime prune plan");
+    warn("DRY-RUN only: runtime deletion is not implemented and no generation was removed.");
+    keyValue("Plan ID", result.planId);
+    keyValue("Preconditions", result.preconditionsReady ? "ready (deletion still unavailable)" : "blocked");
+    keyValue("Current", result.current?.name || "unavailable");
+    keyValue("Previous", result.previous?.name || "unavailable");
+    keyValue("Would delete", `${result.wouldDelete.length} generation(s) / ${formatBytes(result.reclaimableBytes)}`);
+    for (const item of result.wouldDelete) info(`Candidate: ${item.name} (${formatBytes(item.sizeBytes)})`);
+    for (const item of result.readiness.filter((check) => !check.ok)) info(`Readiness: ${item.id} - ${item.message}`);
+    for (const reason of result.blockedReasons) info(`Blocked: ${reason}`);
+    return;
+  }
+  throw new CliError("Usage: pi-67 memory runtime [inventory|prune --dry-run]", 2);
 }
 
 async function flush(ctx, argv) {
@@ -138,7 +196,15 @@ async function forget(ctx, argv) {
   if (options.help) return printMemoryHelp();
   if (positionals.length !== 1) throw new CliError("Usage: pi-67 memory forget <memory-id> --yes", 2);
   const result = await forgetMemory(ctx, positionals[0], { yes: Boolean(ctx.yes || options.yes) });
-  return emitResult(ctx, options, "Hy-Memory", result, `deleted ${result.deleted_count ?? 0} memory item(s)`);
+  if (isOperationReceipt(result)) return emitPendingOperation(ctx, options, "Hy-Memory active memory deletion", result);
+  requireSuccessfulOperation(result, "Hy-Memory active memory deletion");
+  return emitResult(
+    ctx,
+    options,
+    "Hy-Memory",
+    result,
+    `deleted ${result.deleted_count ?? 0} active memory item(s); historical/debug copies may remain`,
+  );
 }
 
 async function digest(ctx, argv) {
@@ -147,6 +213,7 @@ async function digest(ctx, argv) {
   rejectPositionals(positionals, "memory digest");
   const timeoutMs = positiveInteger(options.timeoutMs, "--timeout-ms", 15 * 60_000);
   const result = await digestMemory(ctx, { yes: Boolean(ctx.yes || options.yes), timeoutMs });
+  if (isOperationReceipt(result)) return emitPendingOperation(ctx, options, "Hy-Memory System 2 digest", result);
   requireSuccessfulOperation(result, "Hy-Memory System 2 digest");
   return emitResult(ctx, options, "Hy-Memory System 2", result, "digest completed");
 }
@@ -171,6 +238,24 @@ function requireSuccessfulOperation(result, label) {
   throw new CliError(`${label} reported success=false${detail}`);
 }
 
+function isOperationReceipt(result) {
+  return Boolean(result && typeof result === "object" && result.schema === "pi67-hy-memory-operation/v1");
+}
+
+function emitPendingOperation(ctx, options, label, result) {
+  if (ctx.json || options.json) {
+    printJson(result);
+    process.exitCode = 1;
+    return;
+  }
+  section(label);
+  warn(`operation is ${result.state}; completion was not confirmed`);
+  keyValue("Operation ID", result.operationId);
+  keyValue("Status", result.statusPath);
+  if (result.state === "UNKNOWN") warn("do not retry until the operation is reconciled");
+  process.exitCode = 1;
+}
+
 function printStatus(result) {
   section("Hy-Memory status");
   keyValue("Initialized", result.initialized ? "yes" : "no");
@@ -185,6 +270,32 @@ function printStatus(result) {
   if (result.outbox.saturated) warn("outbox capacity is saturated; new settled-turn captures are rejected until jobs drain");
   for (const check of result.checks) (check.ok ? pass : warn)(`${check.id}: ${check.message}`);
   for (const next of result.nextSteps) info(`Next: ${next}`);
+}
+
+function printRuntimeInventory(result) {
+  section("Hy-Memory runtime inventory");
+  keyValue("Root", result.root);
+  keyValue("Generations", result.generationCount);
+  keyValue("Disk usage", `${formatBytes(result.totalBytes)}${result.totalBytesComplete ? "" : " (partial)"}`);
+  keyValue("Current", result.current?.name || "unavailable");
+  keyValue("Previous", result.previous?.name || "unavailable");
+  keyValue("Prune candidates", result.pruneCandidates.length);
+  keyValue("Service", result.serviceRunning ? `running (${result.serviceTopology})` : "stopped");
+  for (const issue of result.issues) warn(issue);
+}
+
+function formatBytes(value) {
+  if (!Number.isFinite(value) || value < 0) return "unknown";
+  if (value < 1024) return `${value} B`;
+  const units = ["KiB", "MiB", "GiB", "TiB"];
+  let size = value;
+  let unit = "B";
+  for (const next of units) {
+    size /= 1024;
+    unit = next;
+    if (size < 1024) break;
+  }
+  return `${size.toFixed(size >= 10 ? 1 : 2)} ${unit}`;
 }
 
 function readSecret(prompt) {
@@ -257,8 +368,10 @@ Commands:
   start|stop|restart              Manage the authenticated loopback service
   enable|disable                  Resume or pause automatic recall/capture
   upgrade [--dry-run] [--force]  Install the pinned SDK/wrapper while preserving data
+  runtime inventory               List managed runtime generations and protected roles
+  runtime prune --dry-run         Preview old-generation candidates; never deletes
   flush                           Process all pending settled-turn captures now
-  forget <memory-id> --yes        Permanently delete one memory
+  forget <memory-id> --yes        Delete one active memory; retained copies may remain
   digest --yes                    Explicitly run non-idempotent Ultra/System 2 processing
   reset --yes                     Stop and move the entire local state to a timestamped backup
 
