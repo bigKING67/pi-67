@@ -1,3 +1,4 @@
+import * as crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -13,11 +14,28 @@ import type {
   CaptureMessage,
   HyMemoryConfig,
   HyMemoryPaths,
+  HyMemoryOperationReceipt,
   HyMemoryServiceRecord,
   ServiceInfo,
 } from "./types.ts";
 
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+const POTENTIALLY_RETAINED_MEMORY_COPIES = [
+  "history",
+  "pipeline-trace",
+  "pipeline-log",
+  "reset-backups",
+] as const;
+
+export class HyMemoryOperationPendingError extends Error {
+  readonly receipt: HyMemoryOperationReceipt;
+
+  constructor(receipt: HyMemoryOperationReceipt) {
+    super(`Hy-Memory ${receipt.kind} operation is ${receipt.state}: ${receipt.statusPath}`);
+    this.name = "HyMemoryOperationPendingError";
+    this.receipt = receipt;
+  }
+}
 
 export class HyMemoryServiceClient {
   readonly config: HyMemoryConfig;
@@ -56,7 +74,9 @@ export class HyMemoryServiceClient {
   }
 
   async forget(memoryId: string): Promise<unknown> {
-    return await this.request("DELETE", `/v1/memories/${encodeURIComponent(memoryId)}`, undefined, 30000);
+    const result = await this.request("DELETE", `/v1/memories/${encodeURIComponent(memoryId)}`, undefined, 30000);
+    if (isOperationReceipt(result)) return result;
+    return activeDeleteResult(result);
   }
 
   async flush(): Promise<unknown> {
@@ -67,8 +87,13 @@ export class HyMemoryServiceClient {
     return await this.request("POST", "/v1/probe", {}, 30000);
   }
 
-  async digest(): Promise<unknown> {
-    return await this.request("POST", "/v1/digest", {}, 900000);
+  async digest(operationId = crypto.randomBytes(32).toString("hex")): Promise<unknown> {
+    return await this.request("POST", "/v1/digest", { operationId }, 900000);
+  }
+
+  async operation(operationId: string): Promise<HyMemoryOperationReceipt> {
+    if (!/^[a-f0-9]{64}$/.test(operationId)) throw new Error("Hy-Memory operation ID is invalid");
+    return await this.request("GET", `/v1/operations/${operationId}`, undefined, 10000);
   }
 
   async shutdown(): Promise<unknown> {
@@ -80,7 +105,7 @@ export class HyMemoryServiceClient {
     if (!service) throw new Error("Hy-Memory service is not running");
     const secrets = readSecrets(this.paths);
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => controller.abort(), timeoutMs + 2000);
     try {
       const response = await fetch(`http://127.0.0.1:${service.port}${pathname}`, {
         method,
@@ -101,6 +126,11 @@ export class HyMemoryServiceClient {
       } catch {
         throw new Error(`Hy-Memory service returned invalid JSON (HTTP ${response.status})`);
       }
+      if (isOperationReceipt(value)) {
+        const readOnly = method === "GET" || pathname === "/v1/search" || pathname === "/v1/probe";
+        if (readOnly && value.state !== "SUCCEEDED") throw new HyMemoryOperationPendingError(value);
+        return value as T;
+      }
       if (!response.ok) {
         const record = value && typeof value === "object" ? value as Record<string, unknown> : {};
         throw new Error(`Hy-Memory service HTTP ${response.status}: ${String(record.error || "request failed")}`);
@@ -118,12 +148,35 @@ export class HyMemoryServiceClient {
   }
 }
 
+function activeDeleteResult(value: unknown): Record<string, unknown> {
+  const result = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : { result: value };
+  const deletedCount = result.deleted_count;
+  return {
+    ...result,
+    activeDeleted: Number.isInteger(deletedCount) && Number(deletedCount) > 0,
+    purgeComplete: false,
+    retainedCopies: [...POTENTIALLY_RETAINED_MEMORY_COPIES],
+  };
+}
+
+export function isOperationReceipt(value: unknown): value is HyMemoryOperationReceipt {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return record.schema === "pi67-hy-memory-operation/v1"
+    && typeof record.operationId === "string"
+    && typeof record.state === "string"
+    && typeof record.statusPath === "string";
+}
+
 export async function ensureHyMemoryService(
   config = readConfig(),
   paths = resolveHyMemoryPaths(),
   timeoutMs = 20000,
 ): Promise<HyMemoryServiceClient> {
   if (!config) throw new Error("Hy-Memory is not initialized; run `pi-67 memory init`");
+  const runtime = readRuntime(paths);
   const client = new HyMemoryServiceClient(config, paths);
   if (await serviceReady(client)) return client;
 
@@ -147,14 +200,13 @@ export async function ensureHyMemoryService(
   }
 
   try {
-    const runtime = readRuntime(paths);
     const secrets = readSecrets(paths);
     const llmApiKey = secrets.llmApiKey || readPiAuthKey(config.llm.keySource.provider);
     const child = spawn(runtime.python, [runtime.serviceScript, "--root", paths.root, "--port", "0"], {
       detached: true,
       stdio: "ignore",
       windowsHide: true,
-      env: serviceEnvironment({
+      env: buildMemoryServiceEnvironment({
         llmApiKey,
         embeddingApiKey: secrets.embeddingApiKey,
         bearerToken: secrets.serviceBearerToken,
@@ -269,7 +321,7 @@ function tryAcquireStartLock(paths: HyMemoryPaths): { acquired: boolean; token: 
   }
 
   const existing = readLock(paths.startLockFile);
-  if (existing && processExists(existing.pid) && Date.now() - existing.createdAt < 120000) {
+  if (existing && processExists(existing.pid)) {
     return { acquired: false, token: "" };
   }
   try {
@@ -313,7 +365,7 @@ function isAlreadyExists(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && (error as NodeJS.ErrnoException).code === "EEXIST");
 }
 
-function serviceEnvironment(input: {
+export function buildMemoryServiceEnvironment(input: {
   llmApiKey: string;
   embeddingApiKey: string;
   bearerToken: string;
@@ -332,6 +384,11 @@ function serviceEnvironment(input: {
     TOKENIZERS_PARALLELISM: "false",
     MEMORY_DATA_DIR: input.dataDir,
     MEMORY_LOG_LEVEL: "WARNING",
+    MEMORY_CODING_ENABLED: "false",
+    MEMORY_HISTORY_ENABLE: "false",
+    MEMORY_MEMORY_OPERATIONS_ENABLED: "false",
+    MEMORY_PIPELINE_TRACE_ENABLED: "false",
+    MEMORY_TRACE_ENABLED: "false",
     PI67_HY_MEMORY_LLM_API_KEY: input.llmApiKey,
     PI67_HY_MEMORY_EMBEDDING_API_KEY: input.embeddingApiKey,
     PI67_HY_MEMORY_SERVICE_TOKEN: input.bearerToken,

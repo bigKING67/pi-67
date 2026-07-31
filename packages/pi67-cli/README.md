@@ -236,9 +236,11 @@ From the repository root:
 node packages/pi67-cli/scripts/check.mjs
 npm run typecheck:xtalpi
 npm run typecheck:hy-memory
+npm run check:hy-memory:python-lock
 npm run test:rules-loader
 npm run test:xtalpi
 npm run test:hy-memory
+npm run benchmark:hy-memory -- --output /tmp/pi67-hy-memory-benchmark.json
 bash scripts/pi67-test-skill-governance.sh
 bash scripts/pi67-test-ai-berkshire-skill-pack.sh
 bash scripts/pi67-smoke.sh --ci

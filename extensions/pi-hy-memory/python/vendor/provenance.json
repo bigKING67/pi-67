@@ -1,0 +1,27 @@
+{
+  "schema": "pi67.hy-memory-python-vendor-provenance.v1",
+  "artifacts": [
+    {
+      "package": "langdetect",
+      "version": "1.0.9",
+      "source": {
+        "registry": "PyPI",
+        "filename": "langdetect-1.0.9.tar.gz",
+        "sha256": "cbc1fef89f8d062739774bd51eda3da3274006b3661d199c2655f6b3f6d605a0"
+      },
+      "wheel": {
+        "filename": "langdetect-1.0.9-py3-none-any.whl",
+        "sha256": "bcf5cd95ea915a79decd982f25fd6269e219f2b2247f8588dd114663913c7000",
+        "tag": "py3-none-any",
+        "purePython": true
+      },
+      "builder": {
+        "python": "3.13.3",
+        "pip": "25.1.1",
+        "setuptools": "83.0.0",
+        "builtAt": "2026-07-31T18:31:36Z"
+      },
+      "rebuild": "python3 -m pip wheel --no-deps --wheel-dir <output> langdetect-1.0.9.tar.gz"
+    }
+  ]
+}

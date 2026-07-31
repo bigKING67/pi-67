@@ -284,8 +284,9 @@ fi
 if [ -f "$REPO_ROOT/npm/node_modules/typescript/bin/tsc" ]; then
   run_gate "dependency closure check" npm --prefix "$REPO_ROOT" run -s check:dependency-closure
   run_gate "xtalpi TypeScript check" npm --prefix "$REPO_ROOT" run -s typecheck:xtalpi
-  run_gate "Hy-Memory TypeScript check" npm --prefix "$REPO_ROOT" run -s typecheck:hy-memory
-  run_gate "Hy-Memory tests" npm --prefix "$REPO_ROOT" run -s test:hy-memory
+run_gate "Hy-Memory TypeScript check" npm --prefix "$REPO_ROOT" run -s typecheck:hy-memory
+run_gate "Hy-Memory Python lock check" npm --prefix "$REPO_ROOT" run -s check:hy-memory:python-lock
+run_gate "Hy-Memory tests" npm --prefix "$REPO_ROOT" run -s test:hy-memory
 else
   warn "runtime TypeScript dependencies are missing; skipped TypeScript/Hy-Memory test gates"
 fi

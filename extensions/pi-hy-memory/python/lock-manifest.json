@@ -1,0 +1,58 @@
+{
+  "schema": "pi67.hy-memory-python-lock.v1",
+  "python": "3.11",
+  "resolver": {
+    "name": "uv",
+    "version": "0.7.6",
+    "excludeNewer": "2026-07-31T00:00:00Z",
+    "requireHashes": true,
+    "onlyBinary": true
+  },
+  "requirementsInput": {
+    "file": "requirements.in",
+    "sha256": "0059d83b403c8e5d62bf08794f1a1b4cf19bc7b934d4682cefb35cf70584b512"
+  },
+  "vendorArtifacts": [
+    {
+      "file": "vendor/langdetect-1.0.9-py3-none-any.whl",
+      "sha256": "bcf5cd95ea915a79decd982f25fd6269e219f2b2247f8588dd114663913c7000",
+      "provenance": "vendor/provenance.json",
+      "provenanceSha256": "52dce545558d60c9f567e407963e5af0a2fec1959075651ff9fbb143d107e980"
+    }
+  ],
+  "targets": [
+    {
+      "id": "cp311-macos-arm64",
+      "platform": "darwin",
+      "arch": "arm64",
+      "libc": null,
+      "resolverTarget": "aarch64-apple-darwin",
+      "file": "locks/cp311-macos-arm64.txt",
+      "sha256": "92e88057f17c30e77684e654c14dfa561b8be4d5b238e1b41c693e88cc3c7268",
+      "distributionCount": 97,
+      "qualified": true
+    },
+    {
+      "id": "cp311-manylinux_2_28-x64",
+      "platform": "linux",
+      "arch": "x64",
+      "libc": "glibc",
+      "resolverTarget": "x86_64-manylinux_2_28",
+      "file": "locks/cp311-manylinux_2_28-x64.txt",
+      "sha256": "f0d9d071c6defba195fd9cbd1ff75753ace32fc06d9caa7cff2c41791979ff65",
+      "distributionCount": 93,
+      "qualified": false
+    },
+    {
+      "id": "cp311-windows-x64",
+      "platform": "win32",
+      "arch": "x64",
+      "libc": null,
+      "resolverTarget": "x86_64-pc-windows-msvc",
+      "file": "locks/cp311-windows-x64.txt",
+      "sha256": "3460ff6776c92bce3f987eeba0b388c7c28e93535e55f54cab2283965b0c8b19",
+      "distributionCount": 93,
+      "qualified": false
+    }
+  ]
+}

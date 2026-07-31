@@ -1,8 +1,10 @@
 export const HY_MEMORY_CONFIG_SCHEMA = "pi67-hy-memory-config/v1";
 export const HY_MEMORY_SECRETS_SCHEMA = "pi67-hy-memory-secrets/v1";
-export const HY_MEMORY_RUNTIME_SCHEMA = "pi67-hy-memory-runtime/v1";
+export const HY_MEMORY_LEGACY_RUNTIME_SCHEMA = "pi67-hy-memory-runtime/v1";
+export const HY_MEMORY_RUNTIME_SCHEMA = "pi67-hy-memory-runtime/v2";
 export const HY_MEMORY_SERVICE_SCHEMA = "pi67-hy-memory-service/v1";
 export const HY_MEMORY_OUTBOX_SCHEMA = "pi67-hy-memory-outbox/v1";
+export const HY_MEMORY_OPERATION_SCHEMA = "pi67-hy-memory-operation/v1";
 
 export type KeySource = {
   type: "pi-auth";
@@ -52,14 +54,29 @@ export type HyMemorySecrets = {
   llmApiKey?: string;
 };
 
-export type HyMemoryRuntime = {
-  schema: typeof HY_MEMORY_RUNTIME_SCHEMA;
+type HyMemoryRuntimeBase = {
   sdkVersion: string;
   python: string;
   serviceScript: string;
+  wrapperSha256?: string;
   wheelSha256: string;
   installedAt: string;
 };
+
+export type HyMemoryLegacyRuntime = HyMemoryRuntimeBase & {
+  schema: typeof HY_MEMORY_LEGACY_RUNTIME_SCHEMA;
+};
+
+export type HyMemoryLockedRuntime = HyMemoryRuntimeBase & {
+  schema: typeof HY_MEMORY_RUNTIME_SCHEMA;
+  dependencyLockId: string;
+  dependencyLockTarget: string;
+  dependencyLockSha256: string;
+  pythonRuntimeManifest: string;
+  pythonRuntimeManifestSha256: string;
+};
+
+export type HyMemoryRuntime = HyMemoryLegacyRuntime | HyMemoryLockedRuntime;
 
 export type HyMemoryServiceRecord = {
   schema: typeof HY_MEMORY_SERVICE_SCHEMA;
@@ -89,6 +106,29 @@ export type OutboxJob = {
   createdAt: string;
   updatedAt: string;
   lastError?: string;
+  operationId?: string;
+  operationState?: HyMemoryOperationState;
+  operationStatusPath?: string;
+  resolutionRequired?: boolean;
+};
+
+export type HyMemoryOperationState = "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "UNKNOWN";
+
+export type HyMemoryOperationReceipt = {
+  schema: typeof HY_MEMORY_OPERATION_SCHEMA;
+  operationId: string;
+  kind: "probe" | "search" | "capture" | "list" | "get" | "forget" | "digest";
+  state: HyMemoryOperationState;
+  mutating: boolean;
+  retryable: boolean;
+  statusPath: string;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  result?: Record<string, unknown>;
+  resultAvailable?: boolean;
+  error?: { code: string };
 };
 
 export type HyMemoryPaths = {
@@ -119,10 +159,21 @@ export type ServiceInfo = {
   sdkVersion: string;
   mode: string;
   vectorDimensions: number;
+  storagePolicy: {
+    codingMemoryEnabled: boolean;
+    historyAuditEnabled: boolean;
+    memoryOperationsEnabled: boolean;
+    pipelineDbTraceEnabled: boolean;
+    legacyRequestTraceEnabled: boolean;
+    pipelineJsonlEnabled: boolean;
+    pipelineJsonlControl: "sdk-1.2.20-always-on";
+    fullPurgeSupported: boolean;
+  };
   outbox: {
     pending: number;
     processing: number;
     deadLetter: number;
+    unresolved?: number;
     activeBytes?: number;
     deadLetterBytes?: number;
     saturated?: boolean;
@@ -133,5 +184,13 @@ export type ServiceInfo = {
       maxDeadLetterBytes: number;
       deadLetterRetentionMs: number;
     };
+  };
+  operations?: {
+    queued: number;
+    running: number;
+    succeeded: number;
+    failed: number;
+    unknown: number;
+    corrupt: number;
   };
 };
