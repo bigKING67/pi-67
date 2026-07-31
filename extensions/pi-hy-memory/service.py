@@ -102,7 +102,7 @@ class CapacityRejectHandler(BaseHTTPRequestHandler):
 
 
 class LoopbackHTTPServer(ThreadingHTTPServer):
-    request_queue_size = 16
+    request_queue_size = MAX_HTTP_CONNECTIONS
 
     def __init__(self, *args: Any, **kwargs: Any):
         self._connection_slots = threading.BoundedSemaphore(MAX_HTTP_CONNECTIONS)

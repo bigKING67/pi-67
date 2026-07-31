@@ -211,7 +211,7 @@
       "bundlePath": "extensions/pi-hy-memory",
       "minimumVersion": "0.15.0",
       "contentRevision": 5,
-      "contentHash": "b3f81c64e950b72344fd8450ccab2f2494a290095ea14b1ae30022e55040b34c",
+      "contentHash": "050a4bb724ebe248a43944d8d7722a852573b3d0b2a40917b6e3792105de896b",
       "role": "cross-session-long-term-memory"
     }
   ]
