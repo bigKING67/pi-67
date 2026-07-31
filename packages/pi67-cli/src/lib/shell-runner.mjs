@@ -3,6 +3,13 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { CliError, info } from "./output.mjs";
 
+export const DEFAULT_NETWORK_COMMAND_TIMEOUT_MS = 10 * 60_000;
+
+export function runNetworkCommand(command, args = [], options = {}) {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_NETWORK_COMMAND_TIMEOUT_MS;
+  return runCommand(command, args, { ...options, timeoutMs });
+}
+
 export function runCommand(command, args = [], options = {}) {
   const cwd = options.cwd || process.cwd();
   if (options.dryRun) {
@@ -21,10 +28,19 @@ export function runCommand(command, args = [], options = {}) {
     spawnImpl: options.spawnImpl,
   });
   if (result.error) {
-    const error = new CliError(`failed to run ${command}: ${result.error.message}`);
+    const timedOut = result.error.code === "ETIMEDOUT";
+    const timeoutSuffix = Number.isFinite(options.timeoutMs) ? ` after ${options.timeoutMs}ms` : "";
+    const error = new CliError(
+      timedOut
+        ? `${command} timed out${timeoutSuffix}`
+        : `failed to run ${command}: ${result.error.message}`,
+    );
     error.command = command;
     error.spawnErrorCode = result.error.code || "";
     error.spawnAttempts = attempts;
+    error.timedOut = timedOut;
+    error.timeoutMs = timedOut ? options.timeoutMs ?? null : null;
+    error.spawnSignal = result.signal || "";
     throw error;
   }
   if (result.status !== 0) {

@@ -29,7 +29,10 @@ function list(ctx, argv) {
 }
 
 function install(ctx, argv) {
-  const { options, positionals } = parseCommandOptions(argv, { bools: ["json", "dry-run", "start-hub"] });
+  const { options, positionals } = parseCommandOptions(argv, {
+    bools: ["json", "dry-run", "start-hub"],
+    strings: ["timeout-ms"],
+  });
   if (options.help) return printExternalHelp();
   const name = positionals[0];
   assertExternalName(name);
@@ -38,7 +41,11 @@ function install(ctx, argv) {
   }
   const dryRun = ctx.dryRun || options.dryRun;
   const json = ctx.json || options.json;
-  const repository = installExternal(ctx, name, { dryRun, quiet: json });
+  const repository = installExternal(ctx, name, {
+    dryRun,
+    quiet: json,
+    timeoutMs: positiveInteger(options.timeoutMs, "--timeout-ms", undefined),
+  });
   const runtimeSetup = name === "browser67"
     ? prepareBrowser67Runtime(ctx, {
         dryRun,
@@ -59,13 +66,20 @@ function install(ctx, argv) {
 }
 
 function update(ctx, argv) {
-  const { options, positionals } = parseCommandOptions(argv, { bools: ["json", "dry-run"] });
+  const { options, positionals } = parseCommandOptions(argv, {
+    bools: ["json", "dry-run"],
+    strings: ["timeout-ms"],
+  });
   if (options.help) return printExternalHelp();
   const name = positionals[0];
   assertExternalName(name);
   const dryRun = ctx.dryRun || options.dryRun;
   const json = ctx.json || options.json;
-  const repository = updateExternal(ctx, name, { dryRun, quiet: json });
+  const repository = updateExternal(ctx, name, {
+    dryRun,
+    quiet: json,
+    timeoutMs: positiveInteger(options.timeoutMs, "--timeout-ms", undefined),
+  });
   const runtimeSetup = name === "browser67"
     ? prepareBrowser67Runtime(ctx, {
         dryRun,
@@ -216,9 +230,9 @@ function printExternalHelp() {
 
 Usage:
   pi-67 external list [--json]
-  pi-67 external install <browser67|design-craft> [--dry-run] [--start-hub] [--json]
+  pi-67 external install <browser67|design-craft> [--dry-run] [--start-hub] [--timeout-ms N] [--json]
   pi-67 external setup browser67 [--dry-run] [--start-hub] [--json]
-  pi-67 external update <browser67|design-craft> [--dry-run] [--json]
+  pi-67 external update <browser67|design-craft> [--dry-run] [--timeout-ms N] [--json]
   pi-67 external doctor <browser67|design-craft> [--deep] [--timeout-ms N] [--json]
 
 Safety:
@@ -227,6 +241,7 @@ Safety:
   runtime setup; browser67 update reruns setup only after a changed checkout or
   when deterministic readiness is incomplete. setup explicitly rebuilds an
   installed browser67 runtime. Browser loading and OS permissions stay manual.
+  Network clone/pull commands use a 600000ms timeout unless overridden.
 
 Examples:
   pi-67 external list

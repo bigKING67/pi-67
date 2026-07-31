@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { gitStatus, gitText } from "./git.mjs";
-import { runCommand } from "./shell-runner.mjs";
+import { runNetworkCommand } from "./shell-runner.mjs";
 import { CliError } from "./output.mjs";
 
 export const EXTERNAL_REPOS = {
@@ -39,7 +39,7 @@ export function externalStatus(ctx, name) {
   };
 }
 
-export function installExternal(ctx, name, { dryRun = false, quiet = false } = {}) {
+export function installExternal(ctx, name, { dryRun = false, quiet = false, timeoutMs } = {}) {
   const spec = EXTERNAL_REPOS[name];
   if (!spec) throw new CliError(`unknown external repo: ${name}`, 2);
   const dir = externalPath(ctx, name);
@@ -47,11 +47,11 @@ export function installExternal(ctx, name, { dryRun = false, quiet = false } = {
     return { action: "skip", reason: "already exists", status: externalStatus(ctx, name) };
   }
   if (!dryRun) fs.mkdirSync(path.dirname(dir), { recursive: true });
-  runCommand("git", ["clone", spec.repoUrl, dir], { dryRun, quiet });
+  runNetworkCommand("git", ["clone", spec.repoUrl, dir], { dryRun, quiet, timeoutMs });
   return { action: dryRun ? "clone-dry-run" : "clone", status: externalStatus(ctx, name) };
 }
 
-export function updateExternal(ctx, name, { dryRun = false, quiet = false } = {}) {
+export function updateExternal(ctx, name, { dryRun = false, quiet = false, timeoutMs } = {}) {
   const status = externalStatus(ctx, name);
   if (!status.exists) {
     throw new CliError(`external repo is not installed; run: pi-67 external install ${name}`);
@@ -67,7 +67,7 @@ export function updateExternal(ctx, name, { dryRun = false, quiet = false } = {}
     throw new CliError(`external repo is detached; not updating: ${status.path}`);
   }
   const fromCommit = status.git.commit;
-  runCommand("git", ["-C", status.path, "pull", "--ff-only"], { dryRun, quiet });
+  runNetworkCommand("git", ["-C", status.path, "pull", "--ff-only"], { dryRun, quiet, timeoutMs });
   const nextStatus = externalStatus(ctx, name);
   return {
     action: dryRun ? "pull-dry-run" : "pull",

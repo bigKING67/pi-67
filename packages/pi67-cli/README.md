@@ -53,6 +53,10 @@ pi-67 update --check --json
 pi-67 update
 ```
 
+`self-update` and `external install/update` bound npm/git child processes to a
+600000ms default timeout. Use `--timeout-ms N` for an explicit override; timeout
+failures return a stable diagnostic instead of waiting indefinitely.
+
 The manager artifact and distro have the same version. Normal install/update
 never fetches the pi-67 workspace from a mutable Git branch.
 

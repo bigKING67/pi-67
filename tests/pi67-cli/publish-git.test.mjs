@@ -163,6 +163,28 @@ test("publish workflow keeps one full smoke gate and fails closed before npm pub
   assert.match(smoke, /pi67-release-artifact-smoke\.sh/);
 });
 
+test("GitHub workflows pin external Actions to immutable commit SHAs", () => {
+  const workflowDir = path.join(repoRoot, ".github", "workflows");
+  const workflowFiles = fs.readdirSync(workflowDir)
+    .filter((name) => name.endsWith(".yml") || name.endsWith(".yaml"));
+  let actionCount = 0;
+
+  for (const name of workflowFiles) {
+    const source = fs.readFileSync(path.join(workflowDir, name), "utf8");
+    for (const [index, line] of source.split(/\r?\n/).entries()) {
+      if (!/\buses:\s+actions\//.test(line)) continue;
+      actionCount += 1;
+      assert.match(
+        line,
+        /\buses:\s+actions\/[A-Za-z0-9._-]+@[0-9a-f]{40}\s+#\s+v\d+\s*$/,
+        `${name}:${index + 1} must pin the Action to a full commit SHA with a version comment`,
+      );
+    }
+  }
+
+  assert.ok(actionCount > 0, "workflow Action pinning contract did not inspect any Actions");
+});
+
 test("CLI entrypoint reports failures without forcing libuv shutdown", () => {
   const entrypoint = fs.readFileSync(cli, "utf8");
 

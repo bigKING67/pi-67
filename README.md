@@ -208,6 +208,10 @@ pi-67 update --check --json
 pi-67 update
 ```
 
+`self-update` 以及 `external install/update` 的 npm/git 网络子进程默认最多运行
+600000ms；弱网或大型仓库可显式传入 `--timeout-ms N`，超时会返回可诊断错误，
+不会无限等待。
+
 常用选项：
 
 ```bash

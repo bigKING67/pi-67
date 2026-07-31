@@ -11,11 +11,13 @@ import {
   versionSatisfiesSupportedRange,
 } from "../src/lib/npm-registry.mjs";
 import {
+  DEFAULT_NETWORK_COMMAND_TIMEOUT_MS,
   commandCandidatesForPlatform,
   envWithWindowsGitFallback,
   findWindowsGitExecutable,
   persistWindowsUserPathDirectory,
   repairWindowsGitPath,
+  runNetworkCommand,
   spawnCommandWithFallback,
 } from "../src/lib/shell-runner.mjs";
 import { parseCommandOptions, splitGlobalArgs } from "../src/lib/args.mjs";
@@ -527,7 +529,9 @@ function runExternalLifecycleSelfTests() {
     );
     assert(!fs.existsSync(packagesDir), "external install dry-run must not create the package root");
 
-    const designInstall = run("external", "install", "design-craft", "--dry-run", "--json");
+    const designInstall = run(
+      "external", "install", "design-craft", "--dry-run", "--timeout-ms", "1234", "--json",
+    );
     assert(designInstall.status === 0, `design-craft install dry-run failed\n${designInstall.stderr || designInstall.stdout}`);
     const designPlan = JSON.parse(designInstall.stdout);
     assert(
@@ -535,6 +539,14 @@ function runExternalLifecycleSelfTests() {
         designPlan.action === "clone-dry-run" &&
         designPlan.runtimeSetup === undefined,
       "design-craft install must remain a repository-only lifecycle",
+    );
+
+    const invalidTimeout = run(
+      "external", "install", "design-craft", "--dry-run", "--timeout-ms", "0", "--json",
+    );
+    assert(
+      invalidTimeout.status === 2 && invalidTimeout.stderr.includes("--timeout-ms must be an integer >= 1"),
+      "external install must reject an invalid network timeout before spawning Git",
     );
 
     const missingSetup = run("external", "setup", "browser67", "--dry-run", "--json");
@@ -655,9 +667,16 @@ function runCliHelpContractSelfTests() {
       assert(
         result.stdout.includes("external install browser67") &&
           result.stdout.includes("external update browser67") &&
+          result.stdout.includes("--timeout-ms N") &&
           result.stdout.includes("setup explicitly rebuilds an") &&
           result.stdout.includes("external doctor browser67 --deep"),
         "external help must document install-first browser67 lifecycle and layered readiness",
+      );
+    }
+    if (command[0] === "self-update") {
+      assert(
+        result.stdout.includes("--timeout-ms N") && result.stdout.includes("600000ms network command timeout"),
+        "self-update help must document the bounded network timeout and override",
       );
     }
     if (command[0] === "update") {
@@ -703,6 +722,25 @@ function runCliHelpContractSelfTests() {
   assert(
     globalYes.stderr.includes("pi-67 update does not use --yes"),
     "global --yes must explain the simplified update contract",
+  );
+  const selfUpdateDryRun = spawnSync(
+    process.execPath,
+    [path.join(root, "bin", "pi-67.mjs"), ...globalArgs, "self-update", "--dry-run", "--timeout-ms", "1234"],
+    { cwd: root, env, encoding: "utf8" },
+  );
+  assert(
+    selfUpdateDryRun.status === 0 && selfUpdateDryRun.stdout.includes("DRY-RUN would update"),
+    `self-update must accept an explicit timeout without spawning npm\n${selfUpdateDryRun.stderr || selfUpdateDryRun.stdout}`,
+  );
+  const selfUpdateInvalidTimeout = spawnSync(
+    process.execPath,
+    [path.join(root, "bin", "pi-67.mjs"), ...globalArgs, "self-update", "--dry-run", "--timeout-ms", "0"],
+    { cwd: root, env, encoding: "utf8" },
+  );
+  assert(
+    selfUpdateInvalidTimeout.status === 2 &&
+      selfUpdateInvalidTimeout.stderr.includes("--timeout-ms must be an integer >= 1"),
+    "self-update must reject an invalid timeout before spawning npm",
   );
   const capabilityOutput = path.join(tmpRoot, "capability.json");
   const capability = spawnSync(
@@ -1354,6 +1392,58 @@ function runShellRunnerSelfTests() {
   fs.mkdirSync(path.dirname(fakeGitExe), { recursive: true });
   fs.writeFileSync(fakeGitExe, "");
   const fakeEnv = { PATH: "", ProgramFiles: fakeProgramFiles };
+  for (const platform of ["darwin", "win32"]) {
+    let observedTimeout = null;
+    runNetworkCommand("git", ["--version"], {
+      platform,
+      quiet: true,
+      spawnImpl(command, args, options) {
+        observedTimeout = options.timeout;
+        return { status: 0, stdout: `${command} ${args.join(" ")}\n`, stderr: "" };
+      },
+    });
+    assert(
+      observedTimeout === DEFAULT_NETWORK_COMMAND_TIMEOUT_MS,
+      `${platform} network commands must receive the conservative default timeout`,
+    );
+  }
+  let overrideTimeout = null;
+  runNetworkCommand("git", ["--version"], {
+    platform: "darwin",
+    quiet: true,
+    timeoutMs: 1234,
+    spawnImpl(command, args, options) {
+      overrideTimeout = options.timeout;
+      return { status: 0, stdout: `${command} ${args.join(" ")}\n`, stderr: "" };
+    },
+  });
+  assert(overrideTimeout === 1234, "network commands must preserve an explicit timeout override");
+  let dryRunSpawned = false;
+  runNetworkCommand("git", ["clone", "https://example.invalid/repo.git"], {
+    dryRun: true,
+    quiet: true,
+    spawnImpl() {
+      dryRunSpawned = true;
+      return { status: 0, stdout: "", stderr: "" };
+    },
+  });
+  assert(!dryRunSpawned, "network command dry-run must not spawn a child process");
+  let timeoutError = null;
+  try {
+    runNetworkCommand(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+      quiet: true,
+      timeoutMs: 100,
+    });
+  } catch (error) {
+    timeoutError = error;
+  }
+  assert(timeoutError?.timedOut, "a hanging network command must be classified as timed out");
+  assert(timeoutError?.spawnErrorCode === "ETIMEDOUT", "timeout errors must retain the spawn error code");
+  assert(timeoutError?.timeoutMs === 100, "timeout errors must retain the configured timeout budget");
+  assert(
+    timeoutError?.message === `${process.execPath} timed out after 100ms`,
+    "timeout errors must expose a stable diagnostic message",
+  );
   assert(
     JSON.stringify(commandCandidatesForPlatform("npm", "win32")) === JSON.stringify(["npm", "npm.cmd", "cmd.exe"]),
     "Windows npm execution must fall back through npm.cmd and cmd.exe",
