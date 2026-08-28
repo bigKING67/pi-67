@@ -119,6 +119,22 @@ function analyze(repoRoot) {
     "pi-67 product details route to the on-demand rule",
   );
   add(
+    "agents.runtime-entrypoint-boundary",
+    [
+      "唯一 Pi 运行时、Harness 和 agent loop 权威",
+      "`pi` TUI 与 Pi-67 Desktop 都是第一方用户入口",
+      "Pi JSONL Session",
+      "不并发写同一 Session",
+    ].every((value) => agents.includes(value)),
+    "the kernel separates Pi runtime authority from TUI/Desktop entrypoints and concurrent Session ownership",
+  );
+  add(
+    "agents.authorization-layers",
+    ["回答/评审/诊断/规划", "修改/构建/修复", "scoped add / scoped commit", "不等于 push", "必须有当前明确授权"]
+      .every((value) => agents.includes(value)),
+    "read-only, modification, commit, and external-action authorization layers remain distinct",
+  );
+  add(
     "agents.conditional-delivery",
     /仅在实际相关时说明/.test(agents),
     "delivery avoids irrelevant structure, browser, and performance boilerplate",
@@ -129,11 +145,11 @@ function analyze(repoRoot) {
       "图片生成或编辑",
       "图片理解、截图分析、OCR",
       "当前模型原生多模态",
-      "text-only 图片理解 fallback",
-      "人工审图和反馈",
-      "不为图片理解调用 `vision_read`",
+      "模型声明与真实传输不一致",
+      "显式可观察 fallback",
+      "不静默切换模型或 provider",
     ].every((value) => agents.includes(value)),
-    "native multimodal image understanding is separated from generation, human review, and text-only fallback",
+    "native multimodal image understanding is separated from generation and uses only explicit observable fallback",
   );
 
   for (const name of ["SYSTEM.md", "APPEND_SYSTEM.md"]) {
@@ -156,10 +172,37 @@ function analyze(repoRoot) {
   );
 
   const productRule = readText(path.join(rulesDir, "pi67-product-boundary.md"));
+  const browserRule = readText(path.join(rulesDir, "browser.md"));
+  add(
+    "rules.browser-search-instance-contract",
+    [
+      "`web_search` / `fetch_content`",
+      "Provider-native Search",
+      "browser_instance_ops list",
+      "browser_instance_id",
+      "AMBIGUOUS_TARGET",
+      "BROWSER_INSTANCE_UNAVAILABLE",
+      "Cross-instance cleanup",
+    ].every((value) => browserRule.includes(value))
+      && !/Use `pi-web-access`/.test(browserRule)
+      && !/Use `pi-smart-fetch`/.test(browserRule),
+    "browser rule uses current Search routing and explicit fail-closed Browser Instance lifecycle",
+  );
   add(
     "rules.pi67-boundary-contract",
-    ["upstream", "pi-67", "xtalpi-pi-tools", "/login", "/model"].every((value) => productRule.includes(value)),
-    "pi-67 ownership rule preserves runtime, provider, and acceptance boundaries",
+    [
+      "upstream",
+      "pi-67",
+      "Pi-67 Desktop",
+      "first-party Electron client and Pi harness",
+      "supported Pi SDK",
+      "Pi JSONL",
+      "xtalpi-pi-tools",
+      "/login",
+      "/model",
+    ].every((value) => productRule.includes(value))
+      && !/daily user entrypoint is always `pi`/.test(productRule),
+    "pi-67 ownership rule preserves runtime, TUI/Desktop entrypoint, provider, and acceptance boundaries",
   );
 
   const investmentRule = readText(path.join(rulesDir, "investment.md"));

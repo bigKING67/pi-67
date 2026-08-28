@@ -11,16 +11,20 @@ Use this rule for browser-visible behavior, logged-in sessions, current tabs, do
 
 - Use browser67 for real Chrome/Edge state, logged-in pages, managed tabs, downloads/uploads, file chooser, clipboard wrappers, CDP batch checks, and browser smoke. The current MCP tool key remains `tmwd_browser`; `tmwd` is only a transport/protocol term.
 - Use `js-reverse` for API discovery, request initiator tracing, signing chains, script search, network/WS sampling, Hook injection, evidence export, and local environment reproduction.
-- Use `pi-web-access` (`web_search`, `get_search_content`, and `fetch_content`) for search, GitHub repositories, PDF/video extraction, and fallback retrieval. Use `pi-smart-fetch` (`web_fetch` and `batch_web_fetch`) first for known ordinary URLs, cleaned article text, fingerprint-sensitive HTTP/TLS retrieval, batches, and downloads.
-- For a known ordinary URL, try `web_fetch` first; if it fails or returns thin content, use `fetch_content`. Escalate logged-in or dynamic DOM work to browser67 and signing/obfuscated JavaScript work to `js-reverse`; do not repeat the same failed route three times.
+- Use the current live `web_search` / `fetch_content` Tools, or an explicitly equivalent first-party capability, for ordinary search, official-source verification, and known public URLs. Do not assume `pi-web-access`, `pi-smart-fetch`, or any other optional Package is installed or loaded.
+- Provider-native Search is a separate route: use it only when the selected model, Provider, and protocol explicitly declare it and the native request is actually sent. Never silently switch or retry through another model, Provider, protocol, Extension, MCP service, search path, or runtime.
+- For a known public URL, try the current fetch Tool first. Escalate logged-in or dynamic DOM work to browser67 and signing/obfuscated JavaScript work to `js-reverse`; after repeated failure, change the hypothesis or report the blocker instead of cycling routes.
 - Use in-app/browser preview only for localhost or file previews without user login state.
 
 ## Managed tab lifecycle
 
-- Active browser operations should use a stable `workspace_key`.
+- Treat each Chrome/Edge Profile as a distinct Browser Instance. Before multi-instance work, call `browser_instance_ops list`; every subsequent browser67 operation must carry the intended `browser_instance_id`.
+- `AMBIGUOUS_TARGET` and `BROWSER_INSTANCE_UNAVAILABLE` must fail closed. Do not guess a Profile, reuse another instance, or fall back to remote CDP.
+- Active browser operations should use a stable `workspace_key` and, where available, `task_id` within that Browser Instance.
 - Prefer browser67-owned managed tabs. Do not navigate, type into, close, or claim user unmanaged tabs unless the user explicitly points to that tab for the current task.
-- At task end, run `finalize_task` for the current `workspace_key` or `task_id` unless the user asked to keep pages open.
-- Only close `keep:false` browser67-owned tabs; preserve `keep:true` and unmanaged tabs.
+- To operate an existing user tab, first inspect adoption and require explicit current authorization before `adopt_existing`; adopted tabs remain user-owned for cleanup and must not be closed automatically.
+- At task end, run scoped `finalize_task` only for the current `browser_instance_id` plus `workspace_key` or `task_id`, unless the user asked to keep pages open.
+- Only close same-instance `keep:false` browser67-owned tabs; preserve `keep:true`, adopted, and unmanaged tabs. Cross-instance cleanup, `scope=all`, or workspace-wide cleanup requires separate explicit confirmation.
 - If a tool returns `finalize_hint.required:true`, follow its suggested arguments before delivery.
 
 ## Browser readiness, waits, and jobs
