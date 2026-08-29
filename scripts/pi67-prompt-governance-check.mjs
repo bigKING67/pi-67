@@ -88,8 +88,8 @@ function analyze(repoRoot) {
   const checks = [];
   const add = (name, ok, message) => checks.push({ name, ok: Boolean(ok), message });
   const agentsPath = path.join(repoRoot, "AGENTS.md");
-  const agents = readText(agentsPath);
-  const agentsLines = agents ? agents.split(/\r?\n/).length - 1 : 0;
+  const agents = readText(agentsPath).replace(/\r\n?/gu, "\n");
+  const agentsLines = agents ? agents.split("\n").length - 1 : 0;
   const agentsChars = agents.length;
   const kernelVersion = agents.match(/^> Version: `([^`]+)`$/m)?.[1] || "";
 
