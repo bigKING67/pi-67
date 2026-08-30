@@ -105,8 +105,11 @@ test("matches triggers, injects only active rules, inherits follow-ups, clears t
 
   const rulesDir = path.join(tempRoot, ".pi", "agent", "rules");
   const investmentPath = path.join(rulesDir, "investment.md");
+  const browserPath = path.join(rulesDir, "browser.md");
   const qualityPath = path.join(rulesDir, "quality.md");
   const fragilePath = path.join(rulesDir, "fragile.md");
+  fs.mkdirSync(rulesDir, { recursive: true });
+  fs.copyFileSync(path.join(repoRoot, "rules", "browser.md"), browserPath);
   writeRule(investmentPath, {
     description: "Investment route",
     triggers: "股票, 股价, 投资",
@@ -165,6 +168,14 @@ test("matches triggers, injects only active rules, inherits follow-ups, clears t
   const resumedFollowUp = await resumed.turn("继续");
   assert.match(resumedFollowUp.systemPrompt, /Activation: inherited/);
   assert.match(resumedFollowUp.systemPrompt, /INVESTMENT_FULL_BODY_MARKER/);
+
+  const browserRoute = await resumed.turn("打开我已登录的 Chrome 标签页");
+  assert.match(browserRoute.systemPrompt, /Activation: direct/);
+  assert.match(browserRoute.systemPrompt, /# Browser Rule/);
+  assert.match(browserRoute.systemPrompt, /window_policy:\"dedicated\"/);
+  assert.match(browserRoute.systemPrompt, /focus_policy:\"background_preferred\"/);
+  assert.match(browserRoute.systemPrompt, /effective_transport/);
+  assert.deepEqual(resumed.entries.at(-1).data.activeRulePaths, [browserPath]);
 });
 
 test("real upstream Pi injects a directly matched route before the provider request", { timeout: 20_000 }, (t) => {

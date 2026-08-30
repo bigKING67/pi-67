@@ -356,7 +356,7 @@ docs/                   安装、schema、故障排查与治理文档
 tests/                  extension/rule/runtime 回归测试
 ```
 
-当前常驻 `AGENTS.md` kernel 为 `v1.10-pi`，按需路由 11 个 `rules/*.md` 长规则；
+当前常驻 `AGENTS.md` kernel 为 `v1.11-pi`，按需路由 11 个 `rules/*.md` 长规则；
 `pi-rules-loader` 只注入与任务直接匹配的最小规则集合。
 
 治理清单：`rules/` (11 篇)。

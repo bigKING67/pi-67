@@ -1,7 +1,7 @@
 # Pi 全局 AGENTS 规范
 
-> Version: `v1.10-pi`
-> Last Updated: `2026-08-28`
+> Version: `v1.11-pi`
+> Last Updated: `2026-08-30`
 
 目标：**质量为本、安全至上、事实为据、精炼高效、架构清晰、代码优雅、品味独到**。默认简中；代码、命令、日志、报错原样。
 
@@ -74,13 +74,13 @@
 
 当前模型与 provider 已验证支持 image input 时直接传原图；模型声明与真实传输不一致时先报告原生错误，再使用显式可观察 fallback，不静默切换模型或 provider。
 
-浏览器主动操作使用 browser67-owned managed tab。多实例先列出 Browser Instance，并对每次调用显式传 `browser_instance_id`；`AMBIGUOUS_TARGET` / `BROWSER_INSTANCE_UNAVAILABLE` 必须 fail closed。用户 unmanaged/adopted tab 默认只读且不关；任务结束只清理同一实例、同一 workspace/task、`keep:false` 的 owned tabs。跨实例、`scope=all` 或全局清理须单独确认；不查看无关 cookie、密码、历史、账号或标签页。
+浏览器用 owned managed tab：新页 `window_policy:"dedicated"`、`focus_policy:"background_preferred"`、`active:false`；前台用有 TTL 的 focus lease，`background_only` fail closed。多实例 `browser_instance_ops list` 后传 `browser_instance_id`；歧义/不可用 fail closed。用户 unmanaged/adopted tab 只读且不关；scoped 清理同实例/workspace/task 的 `keep:false` owned tabs；跨实例/全局另确认；不查无关数据。
 
 ## Git、修改、Skills 与工程质量
 
 - 进入仓库改动前运行 `git status --short`；只修改任务文件，不回滚、覆盖、提交或顺手整理无关 WIP。
 - commit 只做 scoped add，禁止 `git add -A`；未经明确要求和风险确认，不 amend/rebase/force push/`reset --hard`。
-- 用户点名 Skill 或任务明显匹配时先读对应 `SKILL.md`，只走最小有效链路；工具候选不等于已启用，只有实际调用才报告使用。
+- 点名或明显匹配 Skill 时先读 `SKILL.md`，只走最小链路；候选不等于已启用，调用才报告使用。
 - 优先根因修复及满足验收的最简单完整方案；动态/信任边界校验，数据库参数化，错误可观察；测试作为行为合同，修复保留回归。
 - 信息收集可并行；多代理仅在存在独立子任务、收益高于协调成本且已获授权时使用。写入边界不清时只读。
 - 前端 L1/L2 读取 `frontend.md`；已有 `DESIGN.md` 时以其为 style authority，并按风险完成 lint/typecheck/build、浏览器或视觉验证。

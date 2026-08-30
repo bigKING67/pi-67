@@ -20,7 +20,12 @@ Use this rule for browser-visible behavior, logged-in sessions, current tabs, do
 
 - Treat each Chrome/Edge Profile as a distinct Browser Instance. Before multi-instance work, call `browser_instance_ops list`; every subsequent browser67 operation must carry the intended `browser_instance_id`.
 - `AMBIGUOUS_TARGET` and `BROWSER_INSTANCE_UNAVAILABLE` must fail closed. Do not guess a Profile, reuse another instance, or fall back to remote CDP.
-- Active browser operations should use a stable `workspace_key` and, where available, `task_id` within that Browser Instance.
+- Active browser operations should use a stable `workspace_key` and, where available, `task_id` within that Browser Instance. New browser67-owned work defaults to `window_policy:"dedicated"`, `focus_policy:"background_preferred"`, and `active:false`, preserving the approved login state without replacing the user's active tab.
+- Use `window_policy:"current"` only for an explicit compatibility need and `focus_policy:"foreground"` only for an intentional visible handoff. `background_only` must fail closed when an operation requires real foreground focus.
+- Native input and CAPTCHA assistance may use one bounded focus lease per Browser Instance. Restore focus only when no user activity was observed, the previous and managed targets still exist, the managed target remains foreground, and the extension service worker did not restart; otherwise yield to the user instead of stealing focus.
+- Before reusing a dedicated managed tab, verify its live `window_id`. If the user moved it out of the Agent Window, quarantine that registry record and select or create another tab; never move the user's tab back.
+- Treat `effective_transport` as lifecycle authority. If an explicitly allowed `tmwd_mode:"auto"` call uses controlled CDP, retain `window_policy:"isolated_target"` through reuse and `finalize_task`; do not reinterpret it as a dedicated-window tab or leave it uncloseable.
+- A dedicated Agent Window preserves normal Chrome tabs and address-bar UI: macOS uses a native Full Screen Space and Windows uses ordinary maximized state. Do not request Chrome immersive `fullscreen` or manipulate a user window to reproduce that presentation.
 - Prefer browser67-owned managed tabs. Do not navigate, type into, close, or claim user unmanaged tabs unless the user explicitly points to that tab for the current task.
 - To operate an existing user tab, first inspect adoption and require explicit current authorization before `adopt_existing`; adopted tabs remain user-owned for cleanup and must not be closed automatically.
 - At task end, run scoped `finalize_task` only for the current `browser_instance_id` plus `workspace_key` or `task_id`, unless the user asked to keep pages open.
@@ -32,7 +37,7 @@ Use this rule for browser-visible behavior, logged-in sessions, current tabs, do
 - Use `browser_transport_health` as browser67 preflight when failures may come from hub, extension, content script injection, CDP bridge, or fallback capability.
 - Use `browser_wait` for selector, text, function, URL/lifecycle, DOM-stable, network-idle, download-started, and file-chooser readiness where supported; do not treat fixed sleeps as proof.
 - Use `browser_execute_js` with compact diagnostics and explicit output bounds for large DOM/network payloads.
-- Use `browser_job_ops` for long-running browser-side work. Jobs are in-process only (`durable:false`), and cancel is best-effort; do not claim it preempts already-running page JS.
+- Use `browser_job_ops` for long-running browser-side work. A valid run-backed job reports `durable:true`, checkpoints outside the repository, and recovers unfinished work after MCP restart as `interrupted_after_restart`; inspect `durable` and `durability_reason` instead of assuming persistence. `abort_supported:false` means cancel records intent but does not preempt already-running page JavaScript.
 
 ## Chrome privacy boundary
 

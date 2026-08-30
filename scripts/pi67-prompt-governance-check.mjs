@@ -151,6 +151,18 @@ function analyze(repoRoot) {
     ].every((value) => agents.includes(value)),
     "native multimodal image understanding is separated from generation and uses only explicit observable fallback",
   );
+  add(
+    "agents.browser-background-defaults",
+    [
+      'window_policy:"dedicated"',
+      'focus_policy:"background_preferred"',
+      "active:false",
+      "focus lease",
+      "background_only",
+      "browser_instance_id",
+    ].every((value) => agents.includes(value)),
+    "the short kernel preserves background-first browser ownership and fail-closed focus defaults",
+  );
 
   for (const name of ["SYSTEM.md", "APPEND_SYSTEM.md"]) {
     add(`system.${name}.absent`, !fs.existsSync(path.join(repoRoot, name)), `${name} does not replace or append to upstream defaults`);
@@ -187,6 +199,30 @@ function analyze(repoRoot) {
       && !/Use `pi-web-access`/.test(browserRule)
       && !/Use `pi-smart-fetch`/.test(browserRule),
     "browser rule uses current Search routing and explicit fail-closed Browser Instance lifecycle",
+  );
+  add(
+    "rules.browser-managed-presentation-contract",
+    [
+      'window_policy:"dedicated"',
+      'focus_policy:"background_preferred"',
+      "active:false",
+      "background_only",
+      "focus lease",
+      "window_id",
+      "quarantine",
+      "effective_transport",
+      'window_policy:"isolated_target"',
+      "Full Screen Space",
+      "maximized",
+    ].every((value) => browserRule.includes(value)),
+    "browser rule preserves browser67 v0.8 managed Agent Window, guarded focus, and effective-transport lifecycle",
+  );
+  add(
+    "rules.browser-durable-job-contract",
+    ["durable:true", "durability_reason", "interrupted_after_restart", "abort_supported:false"]
+      .every((value) => browserRule.includes(value))
+      && !browserRule.includes("Jobs are in-process only (`durable:false`)"),
+    "browser rule describes run-backed durability and non-preemptive cancellation truthfully",
   );
   add(
     "rules.pi67-boundary-contract",
