@@ -6,7 +6,7 @@ license: MIT (see LICENSE)
 
 ## Shared Pi/Codex adapter note
 
-This Skill is distributed by pi-67 from AI Berkshire commit `bf216491b6c58054457ff8b8b1b43d2085225e58`.
+This Skill is distributed by pi-67 from AI Berkshire commit `f98eff38d01a17a39d95940709afce61e75c8ac7`.
 
 - Treat `$ARGUMENTS` as the user's request in the current agent thread.
 - Map Claude-only surfaces such as Task, Agent, TeamCreate, TaskCreate, SendMessage, WebSearch, Bash, Read, or Write to capabilities that are actually present in the live host. Never claim a subagent, search, or tool call ran unless it did.
@@ -48,6 +48,21 @@ This Skill is distributed by pi-67 from AI Berkshire commit `bf216491b6c58054457
 **关键提醒**：资料多≠确定性高，资料少≠确定性低。AI能输出的置信度 ≠ 投资的真实确定性。确定性来自商业模式本身，不来自资料数量。
 
 将评级结果告知每个Agent，影响其研究方式。
+
+### 第一步¾：WebSearch 权限预检（关键 · 避免 Agent 静默退化）
+
+在创建团队、启动任何后台 Agent **之前**，必须先确认 WebSearch 权限已放行。
+
+**为什么必须预检**：本 skill 用 `run_in_background: true` 启动 4 个后台子 Agent，而**后台 Agent 无法向用户弹出交互式权限确认**。若 `WebSearch` 未在 `.claude/settings.local.json` 的 `permissions.allow` 白名单中，子 Agent 的联网搜索会被**静默拦截**，导致其退化为仅凭训练知识（有知识截止日期）作答，却仍按框架输出一份"看起来完整、实则未联网"的伪研究——这是本 skill 最危险的失败模式（见 issue #58）。
+
+**预检步骤**：
+1. 用 Bash 检查白名单是否含 WebSearch：
+   ```bash
+   grep -l '"WebSearch"' .claude/settings.local.json ~/.claude/settings.local.json 2>/dev/null
+   ```
+2. 若两处都未命中（即未放行）→ **停下来，不要启动 Agent**，提示用户：
+   > ⚠️ 检测到 WebSearch 未在权限白名单中。后台研究 Agent 无法联网，会退化成仅凭训练知识作答。请先在 `.claude/settings.local.json` 的 `permissions.allow` 加入 `"WebSearch"`（或运行 `/permissions` 勾选），再重跑本命令。
+3. 命中 → 正常继续。
 
 ### 第二步：创建团队
 
@@ -134,6 +149,7 @@ This Skill is distributed by pi-67 from AI Berkshire commit `bf216491b6c58054457
 - **财务数据必须来自两个独立来源**，按 `financial-data` Skill 规范执行（美股：macrotrends+stockanalysis；港股：aastocks+macrotrends；A股：东方财富+巨潮资讯；台股：FinMind `scripts/twstock_data.py`+Goodinfo），两源误差>1%须标记
 - 确保数据准确，关键数据标注来源
 - 分析要深入，不流于表面
+- **联网失败禁止伪装**：若 WebSearch 被拦截/不可用，禁止用训练知识冒充联网结果。必须在报告顶部醒目标注「⚠️ 本报告未能联网，基于训练知识（截止日期 X），置信度降级」，并如实告知 team-lead，由其决定是否中止研究
 
 **输出要求**：
 - 报告要详尽，使用Markdown表格呈现关键数据

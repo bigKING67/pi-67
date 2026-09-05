@@ -1,7 +1,7 @@
 {
   "schema": "pi67.ai-berkshire-skill-provenance.v1",
   "repository": "https://github.com/xbtlin/ai-berkshire",
-  "source_commit": "bf216491b6c58054457ff8b8b1b43d2085225e58",
+  "source_commit": "f98eff38d01a17a39d95940709afce61e75c8ac7",
   "source_path": "codex-skills/earnings-team/SKILL.md",
   "pack": "ai-berkshire-investment-suite"
 }
