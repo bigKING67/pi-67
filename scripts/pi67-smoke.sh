@@ -1073,8 +1073,14 @@ pass "skill governance helper tests completed"
 
 section "Hy-Memory extension tests"
 command_exists npm || fail "npm is required for Hy-Memory extension tests"
-npm --prefix "$REPO_ROOT" run -s typecheck:hy-memory >"${SMOKE_LOG_DIR}/hy-memory-typecheck.log"
-npm --prefix "$REPO_ROOT" run -s test:hy-memory >"${SMOKE_LOG_DIR}/hy-memory-tests.log"
+if ! npm --prefix "$REPO_ROOT" run -s typecheck:hy-memory >"${SMOKE_LOG_DIR}/hy-memory-typecheck.log" 2>&1; then
+  cat "${SMOKE_LOG_DIR}/hy-memory-typecheck.log" >&2
+  fail "typecheck:hy-memory failed; see output above"
+fi
+if ! npm --prefix "$REPO_ROOT" run -s test:hy-memory >"${SMOKE_LOG_DIR}/hy-memory-tests.log" 2>&1; then
+  cat "${SMOKE_LOG_DIR}/hy-memory-tests.log" >&2
+  fail "test:hy-memory failed; see output above"
+fi
 pass "Hy-Memory typecheck and tests completed"
 
 section "Release artifact smoke"
