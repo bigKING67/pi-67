@@ -414,7 +414,7 @@ function runBrowser67RuntimeSelfTests() {
   const skillsDir = path.join(home, ".agents", "skills");
   const packagesDir = path.join(home, ".agents", "packages");
   const stateDir = path.join(home, ".pi", "pi67");
-  const browserRoot = path.join(packagesDir, "browser67");
+  const browserRoot = path.join(packagesDir, "craft67", "packages", "browser67");
   fs.mkdirSync(path.join(browserRoot, "src", "mcp", "browser"), { recursive: true });
   fs.mkdirSync(path.join(browserRoot, "src", "mcp", "js-reverse"), { recursive: true });
   fs.mkdirSync(path.join(browserRoot, "node_modules"), { recursive: true });
@@ -561,7 +561,7 @@ function runExternalLifecycleSelfTests() {
       "external update must not silently install a missing repository",
     );
 
-    const browserRoot = path.join(packagesDir, "browser67");
+    const browserRoot = path.join(packagesDir, "craft67", "packages", "browser67");
     fs.mkdirSync(path.join(browserRoot, "src", "mcp", "browser"), { recursive: true });
     fs.mkdirSync(path.join(browserRoot, "src", "mcp", "js-reverse"), { recursive: true });
     fs.mkdirSync(path.join(browserRoot, "node_modules"), { recursive: true });
@@ -581,6 +581,11 @@ function runExternalLifecycleSelfTests() {
       stateDir: path.join(home, ".pi", "pi67"),
     }, browserRoot);
 
+    const sharedRoot = path.join(packagesDir, "craft67");
+    for (const args of [["init", sharedRoot], ["-C", sharedRoot, "remote", "add", "origin", "https://github.com/bigKING67/craft67.git"]]) {
+      const result = spawnSync("git", args, { encoding: "utf8" });
+      assert(result.status === 0, "shared external checkout fixture must initialize");
+    }
     const readyInstall = run("external", "install", "browser67", "--json");
     assert(readyInstall.status === 0, `ready browser67 install failed\n${readyInstall.stderr || readyInstall.stdout}`);
     const readyResult = JSON.parse(readyInstall.stdout);

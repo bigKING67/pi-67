@@ -305,7 +305,13 @@ pi-67 update --check --json
 
 ## browser67 与 xtalpi
 
-browser67 是独立 external repo，使用显式生命周期：
+browser67 与 design-craft 的源码来自 craft67，通过显式生命周期管理。
+CLI 共用 `~/.agents/packages/craft67` 检出，分别从 `packages/browser67` 和
+`packages/design-craft` 加载；任一包更新都会检查整个共享检出的 dirty 状态。
+已有旧独立检出保持原位，不自动删除或改写；重新运行 install 创建共享检出，
+并按原安装流程配置运行入口。共享检出意味着更新任一包会拉取整个 craft67；
+若通过 design-craft 更新了 browser67 源码，使用 `pi-67 external setup browser67`
+显式刷新其安装态，不会在更新 Design 时隐式重装浏览器运行环境。
 
 ```bash
 pi-67 external install browser67 --dry-run

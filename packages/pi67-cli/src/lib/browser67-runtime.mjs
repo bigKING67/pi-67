@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { externalPath } from "./external-repos.mjs";
 import os from "node:os";
 import path from "node:path";
 import { captureCommand, runCommand } from "./shell-runner.mjs";
@@ -9,7 +10,7 @@ const BROWSER_ENTRYPOINT = "src/mcp/browser/server.mjs";
 const JS_REVERSE_ENTRYPOINT = "src/mcp/js-reverse/server.mjs";
 
 export function setupBrowser67(ctx, options = {}) {
-  const root = path.resolve(options.root || path.join(ctx.packagesDir, "browser67"));
+  const root = path.resolve(options.root || externalPath(ctx, "browser67"));
   const dryRun = Boolean(options.dryRun);
   const quiet = Boolean(options.quiet);
   const run = options.runCommand || runCommand;
@@ -50,7 +51,7 @@ export function setupBrowser67(ctx, options = {}) {
 }
 
 export function inspectBrowser67Runtime(ctx, options = {}) {
-  const root = path.resolve(options.root || path.join(ctx.packagesDir, "browser67"));
+  const root = path.resolve(options.root || externalPath(ctx, "browser67"));
   const browserHome = resolveBrowser67Home(options);
   const extensionDir = path.join(browserHome, "browser", "tmwd_cdp_bridge");
   const mcpFile = path.join(ctx.agentDir, "mcp.json");
