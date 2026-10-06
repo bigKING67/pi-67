@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 import { EXTERNAL_REPOS, externalPath, installExternal, updateExternal } from "../../packages/pi67-cli/src/lib/external-repos.mjs";
 import { setupBrowser67 } from "../../packages/pi67-cli/src/lib/browser67-runtime.mjs";
@@ -17,7 +18,8 @@ test("external installs share craft67 while preserving legacy checkouts and dirt
     fs.mkdirSync(remote);
     git("init"); git("config", "user.name", "Fixture"); git("config", "user.email", "fixture@example.invalid");
     for (const id of Object.keys(original)) {
-      EXTERNAL_REPOS[id].repoUrl = remote;
+      // Git normalizes Windows local paths; a file URL preserves the source contract.
+      EXTERNAL_REPOS[id].repoUrl = pathToFileURL(remote).href;
       const dir = path.join(remote, "packages", id);
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: id }));

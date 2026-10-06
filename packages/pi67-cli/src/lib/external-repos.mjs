@@ -94,7 +94,7 @@ export function updateExternal(ctx, name, { dryRun = false, quiet = false, timeo
 function assertManagedCheckout(checkout, spec) {
   const normalize = (value) => value.replace(/\.git$/u, "").replace(/\/$/u, "");
   const top = gitText(checkout, ["rev-parse", "--show-toplevel"]);
-  if (!top || fs.realpathSync(top) !== fs.realpathSync(checkout)
+  if (!top || path.relative(fs.realpathSync.native(top), fs.realpathSync.native(checkout)) !== ""
     || normalize(gitText(checkout, ["remote", "get-url", "origin"])) !== normalize(spec.repoUrl)) {
     throw new CliError(`external checkout is not the expected craft67 repository: ${checkout}`);
   }
