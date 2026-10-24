@@ -6,7 +6,7 @@ license: MIT (see LICENSE)
 
 ## Shared Pi/Codex adapter note
 
-This Skill is distributed by pi-67 from AI Berkshire commit `bf216491b6c58054457ff8b8b1b43d2085225e58`.
+This Skill is distributed by pi-67 from AI Berkshire commit `52c2ce40c84c49691b747fe5852146768d1b24be`.
 
 - Treat `$ARGUMENTS` as the user's request in the current agent thread.
 - Map Claude-only surfaces such as Task, Agent, TeamCreate, TaskCreate, SendMessage, WebSearch, Bash, Read, or Write to capabilities that are actually present in the live host. Never claim a subagent, search, or tool call ran unless it did.
