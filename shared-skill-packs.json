@@ -3,9 +3,8 @@
   "packs": [
     {
       "name": "ai-berkshire-investment-suite",
-      "version": "1.0.0",
-      "owner": "pi67-first-party",
-      "distribution": "bundled-release-only",
+      "version": "1.1.0",
+      "upstream": "https://github.com/xbtlin/ai-berkshire",
       "sync_helper": "scripts/pi67-sync-ai-berkshire-skill-pack.sh",
       "skills": [
         "bottleneck-hunter",
@@ -13,6 +12,7 @@
         "dyp-ask",
         "earnings-review",
         "earnings-team",
+        "era-alpha",
         "financial-data",
         "income-investment",
         "industry-funnel",
